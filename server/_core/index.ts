@@ -7,6 +7,11 @@ import { registerOAuthRoutes } from "./oauth";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
+import helmet from "helmet";
+import rateLimit from "express-rate-limit";
+import multer from "multer";
+import { storagePut } from "../storage";
+import { nanoid } from "nanoid";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -30,9 +35,33 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
 async function startServer() {
   const app = express();
   const server = createServer(app);
-  // Configure body parser with larger size limit for file uploads
+
+  // Security: Helmet for HTTP headers
+  app.use(helmet({ contentSecurityPolicy: false, crossOriginEmbedderPolicy: false }));
+
+  // Security: Rate limiting
+  const apiLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 500, standardHeaders: true, legacyHeaders: false, message: { error: "تم تجاوز الحد الأقصى للطلبات. يرجى المحاولة لاحقاً" } });
+  app.use("/api/", apiLimiter);
+
+  // Configure body parser
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
+
+  // File upload endpoint
+  const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 16 * 1024 * 1024 } });
+  app.post("/api/upload", upload.single("file"), async (req: any, res: any) => {
+    try {
+      if (!req.file) return res.status(400).json({ error: "No file provided" });
+      const ext = req.file.originalname.split(".").pop() || "bin";
+      const fileKey = `cmms/uploads/${Date.now()}-${nanoid(8)}.${ext}`;
+      const { url } = await storagePut(fileKey, req.file.buffer, req.file.mimetype);
+      res.json({ url, fileKey });
+    } catch (error: any) {
+      console.error("Upload error:", error);
+      res.status(500).json({ error: "Upload failed" });
+    }
+  });
+
   // OAuth callback under /api/oauth/callback
   registerOAuthRoutes(app);
   // tRPC API
