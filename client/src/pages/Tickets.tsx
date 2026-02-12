@@ -90,7 +90,7 @@ export default function Tickets() {
           {tickets.map(ticket => (
             <Card
               key={ticket.id}
-              className="card-hover cursor-pointer"
+              className="hover:shadow-lg hover:border-primary/20 transition-all duration-200 cursor-pointer"
               onClick={() => setLocation(`/tickets/${ticket.id}`)}
             >
               <CardContent className="p-4">

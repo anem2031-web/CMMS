@@ -38,7 +38,7 @@ export default function Notifications() {
       ) : (
         <div className="space-y-2">
           {notifications.map(n => (
-            <Card key={n.id} className={`card-hover cursor-pointer transition-all ${!n.isRead ? "border-primary/30 bg-primary/5" : ""}`}
+            <Card key={n.id} className={`hover:shadow-lg hover:border-primary/20 transition-all duration-200 cursor-pointer transition-all ${!n.isRead ? "border-primary/30 bg-primary/5" : ""}`}
               onClick={() => { if (!n.isRead) markReadMut.mutate({ id: n.id }); }}>
               <CardContent className="p-4">
                 <div className="flex items-start gap-3">

@@ -62,7 +62,7 @@ export default function PurchaseOrders() {
       ) : (
         <div className="space-y-2">
           {pos.map(po => (
-            <Card key={po.id} className="card-hover cursor-pointer" onClick={() => setLocation(`/purchase-orders/${po.id}`)}>
+            <Card key={po.id} className="hover:shadow-lg hover:border-primary/20 transition-all duration-200 cursor-pointer" onClick={() => setLocation(`/purchase-orders/${po.id}`)}>
               <CardContent className="p-4">
                 <div className="flex items-center justify-between gap-4">
                   <div className="flex-1 min-w-0">

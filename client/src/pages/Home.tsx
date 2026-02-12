@@ -111,7 +111,7 @@ export default function Home() {
 
       {/* Quick Actions */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <Card className="card-hover cursor-pointer" onClick={() => setLocation("/tickets/new")}>
+        <Card className="hover:shadow-lg hover:border-primary/20 transition-all duration-200 cursor-pointer" onClick={() => setLocation("/tickets/new")}>
           <CardContent className="p-6 flex items-center gap-4">
             <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center">
               <ClipboardList className="w-6 h-6 text-primary" />
@@ -122,7 +122,7 @@ export default function Home() {
             </div>
           </CardContent>
         </Card>
-        <Card className="card-hover cursor-pointer" onClick={() => setLocation("/purchase-orders/new")}>
+        <Card className="hover:shadow-lg hover:border-primary/20 transition-all duration-200 cursor-pointer" onClick={() => setLocation("/purchase-orders/new")}>
           <CardContent className="p-6 flex items-center gap-4">
             <div className="w-12 h-12 rounded-xl bg-teal-500/10 flex items-center justify-center">
               <ShoppingCart className="w-6 h-6 text-teal-600" />

@@ -57,7 +57,7 @@ export default function Inventory() {
           {items.map(item => {
             const isLow = (item.minQuantity || 0) > 0 && item.quantity <= (item.minQuantity || 0);
             return (
-              <Card key={item.id} className="card-hover">
+              <Card key={item.id} className="hover:shadow-lg hover:border-primary/20 transition-all duration-200">
                 <CardContent className="p-4">
                   <div className="flex items-start justify-between mb-2">
                     <h3 className="font-medium text-sm">{item.itemName}</h3>

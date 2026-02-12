@@ -54,7 +54,7 @@ export default function Sites() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {sites.map(site => (
-            <Card key={site.id} className="card-hover">
+            <Card key={site.id} className="hover:shadow-lg hover:border-primary/20 transition-all duration-200">
               <CardContent className="p-4">
                 <div className="flex items-start gap-3">
                   <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">

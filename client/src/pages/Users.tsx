@@ -50,7 +50,7 @@ export default function UsersPage() {
       ) : (
         <div className="space-y-2">
           {users.map(u => (
-            <Card key={u.id} className="card-hover">
+            <Card key={u.id} className="hover:shadow-lg hover:border-primary/20 transition-all duration-200">
               <CardContent className="p-4">
                 <div className="flex items-center justify-between gap-4">
                   <div className="flex items-center gap-3 flex-1 min-w-0">
