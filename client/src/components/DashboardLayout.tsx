@@ -25,7 +25,7 @@ import { useIsMobile } from "@/hooks/useMobile";
 import {
   LayoutDashboard, LogOut, PanelLeft, ClipboardList, ShoppingCart,
   Package, BarChart3, Users, Bell, MapPin, Wrench, Shield,
-  Brain, FileText, Settings
+  Brain, FileText, Settings, ShoppingBag, Truck
 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -47,6 +47,7 @@ const allMenuItems: MenuItem[] = [
   { icon: LayoutDashboard, label: "لوحة التحكم", path: "/" },
   { icon: ClipboardList, label: "البلاغات", path: "/tickets" },
   { icon: ShoppingCart, label: "طلبات الشراء", path: "/purchase-orders" },
+  { icon: ShoppingBag, label: "أصنافي", path: "/my-items", roles: ["delegate"] },
   { icon: Package, label: "المستودع", path: "/inventory", roles: ["warehouse", "maintenance_manager", "owner", "admin"] },
   { icon: BarChart3, label: "التقارير", path: "/reports", roles: ["owner", "admin", "senior_management", "accountant", "maintenance_manager"] },
   { icon: Wrench, label: "أداء الفنيين", path: "/reports/technicians", roles: ["owner", "admin", "senior_management", "maintenance_manager"] },

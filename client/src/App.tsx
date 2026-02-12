@@ -20,6 +20,7 @@ import Notifications from "./pages/Notifications";
 import AuditLog from "./pages/AuditLog";
 import AIAssistant from "./pages/AIAssistant";
 import TechnicianReport from "./pages/TechnicianReport";
+import MyItems from "./pages/MyItems";
 
 function Router() {
   return (
@@ -32,6 +33,7 @@ function Router() {
         <Route path="/purchase-orders" component={PurchaseOrders} />
         <Route path="/purchase-orders/new" component={CreatePurchaseOrder} />
         <Route path="/purchase-orders/:id" component={PurchaseOrderDetail} />
+        <Route path="/my-items" component={MyItems} />
         <Route path="/inventory" component={Inventory} />
         <Route path="/reports" component={Reports} />
         <Route path="/reports/technicians" component={TechnicianReport} />
