@@ -507,8 +507,39 @@ export const appRouter = router({
       });
       return Object.entries(monthly).map(([month, data]) => ({ month, ...data })).sort((a, b) => a.month.localeCompare(b.month));
     }),
-    technicianPerformance: protectedProcedure.query(async () => {
-      return db.getTechnicianPerformance();
+    technicianPerformance: protectedProcedure.input(z.object({
+      period: z.enum(["week", "month", "quarter", "year", "all", "custom"]).default("all"),
+      dateFrom: z.string().optional(),
+      dateTo: z.string().optional(),
+    }).optional()).query(async ({ input }) => {
+      const period = input?.period || "all";
+      let dateFrom: Date | undefined;
+      let dateTo: Date | undefined;
+
+      if (period === "custom" && input?.dateFrom && input?.dateTo) {
+        dateFrom = new Date(input.dateFrom);
+        dateTo = new Date(input.dateTo);
+        dateTo.setHours(23, 59, 59, 999);
+      } else if (period !== "all") {
+        dateTo = new Date();
+        dateFrom = new Date();
+        switch (period) {
+          case "week":
+            dateFrom.setDate(dateFrom.getDate() - 7);
+            break;
+          case "month":
+            dateFrom.setMonth(dateFrom.getMonth() - 1);
+            break;
+          case "quarter":
+            dateFrom.setMonth(dateFrom.getMonth() - 3);
+            break;
+          case "year":
+            dateFrom.setFullYear(dateFrom.getFullYear() - 1);
+            break;
+        }
+      }
+
+      return db.getTechnicianPerformance(period === "all" ? undefined : { dateFrom, dateTo });
     }),
   }),
 

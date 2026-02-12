@@ -310,38 +310,51 @@ export async function getAuditLogs(filters?: { entityType?: string; entityId?: n
 // ============================================================
 // TECHNICIAN PERFORMANCE REPORT
 // ============================================================
-export async function getTechnicianPerformance() {
+export async function getTechnicianPerformance(filters?: { dateFrom?: Date; dateTo?: Date }) {
   const db = await getDb();
   if (!db) return [];
+
+  const dateFrom = filters?.dateFrom;
+  const dateTo = filters?.dateTo;
+
+  // Build date condition helper
+  const withDateFilter = (baseConditions: any[], dateField: any) => {
+    const conds = [...baseConditions];
+    if (dateFrom) conds.push(gte(dateField, dateFrom));
+    if (dateTo) conds.push(lte(dateField, dateTo));
+    return conds;
+  };
 
   // Get all technicians
   const techs = await db.select().from(users).where(eq(users.role, "technician" as any));
 
   const results = [];
   for (const tech of techs) {
-    // Total assigned tickets
-    const [totalAssigned] = await db.select({ cnt: count() }).from(tickets).where(eq(tickets.assignedToId, tech.id));
+    const baseCond = [eq(tickets.assignedToId, tech.id)];
+    const dateFilteredCond = withDateFilter(baseCond, tickets.createdAt);
 
-    // Completed tickets (repaired, verified, closed)
+    // Total assigned tickets (within date range)
+    const [totalAssigned] = await db.select({ cnt: count() }).from(tickets).where(and(...dateFilteredCond));
+
+    // Completed tickets (repaired, verified, closed) within date range
     const [completed] = await db.select({ cnt: count() }).from(tickets).where(
-      and(eq(tickets.assignedToId, tech.id), or(eq(tickets.status, "repaired"), eq(tickets.status, "verified"), eq(tickets.status, "closed")))
+      and(...dateFilteredCond, or(eq(tickets.status, "repaired"), eq(tickets.status, "verified"), eq(tickets.status, "closed")))
     );
 
-    // In progress tickets
+    // In progress tickets within date range
     const [inProgress] = await db.select({ cnt: count() }).from(tickets).where(
-      and(eq(tickets.assignedToId, tech.id), eq(tickets.status, "in_progress"))
+      and(...dateFilteredCond, eq(tickets.status, "in_progress"))
     );
 
-    // Closed tickets with resolution time
+    // Closed tickets with resolution time within date range
+    const closedCond = withDateFilter([eq(tickets.assignedToId, tech.id), eq(tickets.status, "closed")], tickets.closedAt);
     const closedTickets = await db.select({
       id: tickets.id,
       createdAt: tickets.createdAt,
       closedAt: tickets.closedAt,
       priority: tickets.priority,
       category: tickets.category,
-    }).from(tickets).where(
-      and(eq(tickets.assignedToId, tech.id), eq(tickets.status, "closed"))
-    );
+    }).from(tickets).where(and(...closedCond));
 
     // Calculate avg resolution time in hours
     let totalHours = 0;
@@ -359,21 +372,19 @@ export async function getTechnicianPerformance() {
     const minResolutionHours = resolutionTimes.length > 0 ? Math.min(...resolutionTimes) : 0;
     const maxResolutionHours = resolutionTimes.length > 0 ? Math.max(...resolutionTimes) : 0;
 
-    // Tickets by priority
+    // Tickets by priority (within date range)
     const priorityBreakdown: Record<string, number> = {};
-    const allTechTickets = await db.select({ priority: tickets.priority }).from(tickets).where(eq(tickets.assignedToId, tech.id));
+    const allTechTickets = await db.select({ priority: tickets.priority, category: tickets.category }).from(tickets).where(and(...dateFilteredCond));
     allTechTickets.forEach(t => { priorityBreakdown[t.priority] = (priorityBreakdown[t.priority] || 0) + 1; });
 
-    // Tickets by category
-    const categoryBreakdown: Record<string, number> = {};
-    allTechTickets.forEach(t => { categoryBreakdown[(t as any).category] = (categoryBreakdown[(t as any).category] || 0) + 1; });
-    const allTechTicketsFull = await db.select({ category: tickets.category }).from(tickets).where(eq(tickets.assignedToId, tech.id));
+    // Tickets by category (within date range)
     const catBreak: Record<string, number> = {};
-    allTechTicketsFull.forEach(t => { catBreak[t.category] = (catBreak[t.category] || 0) + 1; });
+    allTechTickets.forEach(t => { catBreak[t.category] = (catBreak[t.category] || 0) + 1; });
 
-    // Monthly trend (last 6 months)
+    // Monthly trend (last 6 months or within date range)
     const monthlyTrend: { month: string; completed: number; assigned: number }[] = [];
-    for (let i = 5; i >= 0; i--) {
+    const trendMonths = 6;
+    for (let i = trendMonths - 1; i >= 0; i--) {
       const d = new Date();
       d.setMonth(d.getMonth() - i);
       const monthStr = d.toISOString().slice(0, 7);
@@ -397,9 +408,9 @@ export async function getTechnicianPerformance() {
     // Performance score (0-100)
     let score = 0;
     if (totalAssignedCount > 0) {
-      const rateScore = completionRate * 0.4; // 40% weight for completion rate
-      const speedScore = avgResolutionHours > 0 ? Math.max(0, (1 - avgResolutionHours / (30 * 24)) * 100) * 0.3 : 0; // 30% for speed
-      const volumeScore = Math.min(100, totalAssignedCount * 5) * 0.3; // 30% for volume
+      const rateScore = completionRate * 0.4;
+      const speedScore = avgResolutionHours > 0 ? Math.max(0, (1 - avgResolutionHours / (30 * 24)) * 100) * 0.3 : 0;
+      const volumeScore = Math.min(100, totalAssignedCount * 5) * 0.3;
       score = Math.round(rateScore + speedScore + volumeScore);
     }
 

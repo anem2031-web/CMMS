@@ -15,7 +15,10 @@ import {
   ResponsiveContainer, RadarChart, PolarGrid, PolarAngleAxis,
   PolarRadiusAxis, Radar, Legend, LineChart, Line, PieChart, Pie, Cell
 } from "recharts";
-import { useState } from "react";
+import { useState, useMemo } from "react";
+import { Button } from "@/components/ui/button";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar, CalendarDays, Filter } from "lucide-react";
 
 const COLORS = ["#0ea5e9", "#8b5cf6", "#f59e0b", "#10b981", "#ef4444", "#ec4899", "#6366f1", "#14b8a6"];
 
@@ -79,9 +82,62 @@ function formatMonth(monthStr: string) {
   return months[parseInt(month) - 1] || monthStr;
 }
 
+type PeriodType = "all" | "week" | "month" | "quarter" | "year" | "custom";
+
+const periodLabels: Record<PeriodType, string> = {
+  all: "الكل",
+  week: "آخر أسبوع",
+  month: "آخر شهر",
+  quarter: "آخر 3 أشهر",
+  year: "آخر سنة",
+  custom: "فترة مخصصة",
+};
+
+function formatDateInput(date: Date): string {
+  return date.toISOString().split("T")[0];
+}
+
 export default function TechnicianReport() {
-  const { data: techData, isLoading, error } = trpc.reports.technicianPerformance.useQuery();
+  const [selectedPeriod, setSelectedPeriod] = useState<PeriodType>("all");
+  const [customDateFrom, setCustomDateFrom] = useState<string>("");
+  const [customDateTo, setCustomDateTo] = useState<string>("");
+  const [showCustomPicker, setShowCustomPicker] = useState(false);
   const [selectedTech, setSelectedTech] = useState<number | null>(null);
+
+  const queryInput = useMemo(() => {
+    if (selectedPeriod === "custom" && customDateFrom && customDateTo) {
+      return { period: selectedPeriod as PeriodType, dateFrom: customDateFrom, dateTo: customDateTo };
+    }
+    return { period: selectedPeriod as PeriodType };
+  }, [selectedPeriod, customDateFrom, customDateTo]);
+
+  const { data: techData, isLoading, error } = trpc.reports.technicianPerformance.useQuery(queryInput);
+
+  const handlePeriodChange = (period: PeriodType) => {
+    if (period === "custom") {
+      setShowCustomPicker(true);
+      // Set default custom range to last month
+      if (!customDateFrom || !customDateTo) {
+        const now = new Date();
+        const monthAgo = new Date();
+        monthAgo.setMonth(monthAgo.getMonth() - 1);
+        setCustomDateFrom(formatDateInput(monthAgo));
+        setCustomDateTo(formatDateInput(now));
+      }
+      setSelectedPeriod("custom");
+    } else {
+      setShowCustomPicker(false);
+      setSelectedPeriod(period);
+    }
+  };
+
+  const getPeriodDescription = (): string => {
+    if (selectedPeriod === "all") return "جميع الفترات";
+    if (selectedPeriod === "custom" && customDateFrom && customDateTo) {
+      return `من ${customDateFrom} إلى ${customDateTo}`;
+    }
+    return periodLabels[selectedPeriod];
+  };
 
   if (isLoading) {
     return (
@@ -160,19 +216,99 @@ export default function TechnicianReport() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold flex items-center gap-3">
-            <div className="p-2 bg-primary/10 rounded-lg">
-              <Activity className="h-6 w-6 text-primary" />
-            </div>
-            تقرير أداء الفنيين
-          </h1>
-          <p className="text-muted-foreground mt-1">تحليل شامل لأداء فريق الصيانة الفني</p>
+      <div className="flex flex-col gap-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold flex items-center gap-3">
+              <div className="p-2 bg-primary/10 rounded-lg">
+                <Activity className="h-6 w-6 text-primary" />
+              </div>
+              تقرير أداء الفنيين
+            </h1>
+            <p className="text-muted-foreground mt-1">تحليل شامل لأداء فريق الصيانة الفني — <span className="font-medium text-foreground">{getPeriodDescription()}</span></p>
+          </div>
+          <Badge variant="outline" className="text-sm px-3 py-1">
+            {techs.length} فني
+          </Badge>
         </div>
-        <Badge variant="outline" className="text-sm px-3 py-1">
-          {techs.length} فني
-        </Badge>
+
+        {/* Time Filter Bar */}
+        <Card className="border-dashed">
+          <CardContent className="py-3 px-4">
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Filter className="h-4 w-4" />
+                <span className="font-medium">الفترة الزمنية:</span>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {(["all", "week", "month", "quarter", "year"] as PeriodType[]).map((period) => (
+                  <Button
+                    key={period}
+                    variant={selectedPeriod === period ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => handlePeriodChange(period)}
+                    className="text-xs h-8"
+                  >
+                    {periodLabels[period]}
+                  </Button>
+                ))}
+                <Popover open={showCustomPicker} onOpenChange={setShowCustomPicker}>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant={selectedPeriod === "custom" ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => handlePeriodChange("custom")}
+                      className="text-xs h-8 gap-1"
+                    >
+                      <CalendarDays className="h-3.5 w-3.5" />
+                      {selectedPeriod === "custom" && customDateFrom && customDateTo
+                        ? `${customDateFrom} → ${customDateTo}`
+                        : "فترة مخصصة"}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-4" align="start">
+                    <div className="space-y-3">
+                      <p className="text-sm font-medium">اختر الفترة الزمنية</p>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-1">
+                          <label className="text-xs text-muted-foreground">من تاريخ</label>
+                          <input
+                            type="date"
+                            value={customDateFrom}
+                            onChange={(e) => setCustomDateFrom(e.target.value)}
+                            className="w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm shadow-sm"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-xs text-muted-foreground">إلى تاريخ</label>
+                          <input
+                            type="date"
+                            value={customDateTo}
+                            onChange={(e) => setCustomDateTo(e.target.value)}
+                            className="w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm shadow-sm"
+                          />
+                        </div>
+                      </div>
+                      <Button
+                        size="sm"
+                        className="w-full"
+                        onClick={() => {
+                          if (customDateFrom && customDateTo) {
+                            setSelectedPeriod("custom");
+                            setShowCustomPicker(false);
+                          }
+                        }}
+                        disabled={!customDateFrom || !customDateTo}
+                      >
+                        تطبيق
+                      </Button>
+                    </div>
+                  </PopoverContent>
+                </Popover>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
       {/* Summary Cards */}

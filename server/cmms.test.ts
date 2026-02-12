@@ -234,7 +234,7 @@ describe("CMMS System Tests", () => {
     it("reports.technicianPerformance returns array of technician data", async () => {
       const ctx = createMockContext("admin", 1);
       const caller = appRouter.createCaller(ctx);
-      const data = await caller.reports.technicianPerformance();
+      const data = await caller.reports.technicianPerformance({ period: "all" });
       expect(Array.isArray(data)).toBe(true);
       // Verify structure of each technician record
       if (data.length > 0) {
@@ -278,7 +278,7 @@ describe("CMMS System Tests", () => {
     it("reports.technicianPerformance is sorted by performance score descending", async () => {
       const ctx = createMockContext("admin", 1);
       const caller = appRouter.createCaller(ctx);
-      const data = await caller.reports.technicianPerformance();
+      const data = await caller.reports.technicianPerformance({ period: "all" });
       if (data.length > 1) {
         for (let i = 0; i < data.length - 1; i++) {
           expect(data[i].performanceScore).toBeGreaterThanOrEqual(data[i + 1].performanceScore);
@@ -289,7 +289,7 @@ describe("CMMS System Tests", () => {
     it("reports.technicianPerformance completion rate is consistent", async () => {
       const ctx = createMockContext("admin", 1);
       const caller = appRouter.createCaller(ctx);
-      const data = await caller.reports.technicianPerformance();
+      const data = await caller.reports.technicianPerformance({ period: "all" });
       for (const tech of data) {
         if (tech.totalAssigned > 0) {
           const expectedRate = Math.round((tech.completed / tech.totalAssigned) * 100);
@@ -299,6 +299,64 @@ describe("CMMS System Tests", () => {
         }
         // pending = total - completed - inProgress
         expect(tech.pending).toBe(tech.totalAssigned - tech.completed - tech.inProgress);
+      }
+    }, 30000);
+
+    it("reports.technicianPerformance with week filter returns array", async () => {
+      const ctx = createMockContext("admin", 1);
+      const caller = appRouter.createCaller(ctx);
+      const data = await caller.reports.technicianPerformance({ period: "week" });
+      expect(Array.isArray(data)).toBe(true);
+      for (const tech of data) {
+        expect(tech).toHaveProperty("technician");
+        expect(tech).toHaveProperty("totalAssigned");
+        expect(tech.completionRate).toBeGreaterThanOrEqual(0);
+        expect(tech.completionRate).toBeLessThanOrEqual(100);
+      }
+    }, 30000);
+
+    it("reports.technicianPerformance with month filter returns array", async () => {
+      const ctx = createMockContext("admin", 1);
+      const caller = appRouter.createCaller(ctx);
+      const data = await caller.reports.technicianPerformance({ period: "month" });
+      expect(Array.isArray(data)).toBe(true);
+    }, 30000);
+
+    it("reports.technicianPerformance with quarter filter returns array", async () => {
+      const ctx = createMockContext("admin", 1);
+      const caller = appRouter.createCaller(ctx);
+      const data = await caller.reports.technicianPerformance({ period: "quarter" });
+      expect(Array.isArray(data)).toBe(true);
+    }, 30000);
+
+    it("reports.technicianPerformance with custom date range returns array", async () => {
+      const ctx = createMockContext("admin", 1);
+      const caller = appRouter.createCaller(ctx);
+      const data = await caller.reports.technicianPerformance({
+        period: "custom",
+        dateFrom: "2026-01-01",
+        dateTo: "2026-12-31",
+      });
+      expect(Array.isArray(data)).toBe(true);
+      for (const tech of data) {
+        expect(tech).toHaveProperty("technician");
+        expect(tech).toHaveProperty("totalAssigned");
+        expect(tech).toHaveProperty("performanceScore");
+        expect(tech.completionRate).toBeGreaterThanOrEqual(0);
+        expect(tech.completionRate).toBeLessThanOrEqual(100);
+      }
+    }, 30000);
+
+    it("reports.technicianPerformance with no input defaults to all", async () => {
+      const ctx = createMockContext("admin", 1);
+      const caller = appRouter.createCaller(ctx);
+      const dataNoInput = await caller.reports.technicianPerformance();
+      expect(Array.isArray(dataNoInput)).toBe(true);
+      // Should return all technicians when no filter
+      if (dataNoInput.length > 0) {
+        expect(dataNoInput[0]).toHaveProperty("technician");
+        expect(dataNoInput[0]).toHaveProperty("totalAssigned");
+        expect(dataNoInput[0]).toHaveProperty("performanceScore");
       }
     }, 30000);
   });
