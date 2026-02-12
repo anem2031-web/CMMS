@@ -49,6 +49,7 @@ const allMenuItems: MenuItem[] = [
   { icon: ShoppingCart, label: "طلبات الشراء", path: "/purchase-orders" },
   { icon: Package, label: "المستودع", path: "/inventory", roles: ["warehouse", "maintenance_manager", "owner", "admin"] },
   { icon: BarChart3, label: "التقارير", path: "/reports", roles: ["owner", "admin", "senior_management", "accountant", "maintenance_manager"] },
+  { icon: Wrench, label: "أداء الفنيين", path: "/reports/technicians", roles: ["owner", "admin", "senior_management", "maintenance_manager"] },
   { icon: Users, label: "المستخدمين", path: "/users", roles: ["owner", "admin"] },
   { icon: MapPin, label: "المواقع", path: "/sites", roles: ["owner", "admin", "maintenance_manager"] },
   { icon: Brain, label: "المساعد الذكي", path: "/ai-assistant", roles: ["owner", "admin", "senior_management", "maintenance_manager"] },

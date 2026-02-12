@@ -308,6 +308,122 @@ export async function getAuditLogs(filters?: { entityType?: string; entityId?: n
 }
 
 // ============================================================
+// TECHNICIAN PERFORMANCE REPORT
+// ============================================================
+export async function getTechnicianPerformance() {
+  const db = await getDb();
+  if (!db) return [];
+
+  // Get all technicians
+  const techs = await db.select().from(users).where(eq(users.role, "technician" as any));
+
+  const results = [];
+  for (const tech of techs) {
+    // Total assigned tickets
+    const [totalAssigned] = await db.select({ cnt: count() }).from(tickets).where(eq(tickets.assignedToId, tech.id));
+
+    // Completed tickets (repaired, verified, closed)
+    const [completed] = await db.select({ cnt: count() }).from(tickets).where(
+      and(eq(tickets.assignedToId, tech.id), or(eq(tickets.status, "repaired"), eq(tickets.status, "verified"), eq(tickets.status, "closed")))
+    );
+
+    // In progress tickets
+    const [inProgress] = await db.select({ cnt: count() }).from(tickets).where(
+      and(eq(tickets.assignedToId, tech.id), eq(tickets.status, "in_progress"))
+    );
+
+    // Closed tickets with resolution time
+    const closedTickets = await db.select({
+      id: tickets.id,
+      createdAt: tickets.createdAt,
+      closedAt: tickets.closedAt,
+      priority: tickets.priority,
+      category: tickets.category,
+    }).from(tickets).where(
+      and(eq(tickets.assignedToId, tech.id), eq(tickets.status, "closed"))
+    );
+
+    // Calculate avg resolution time in hours
+    let totalHours = 0;
+    let resolvedCount = 0;
+    const resolutionTimes: number[] = [];
+    for (const t of closedTickets) {
+      if (t.closedAt && t.createdAt) {
+        const hours = (new Date(t.closedAt).getTime() - new Date(t.createdAt).getTime()) / (1000 * 60 * 60);
+        totalHours += hours;
+        resolvedCount++;
+        resolutionTimes.push(hours);
+      }
+    }
+    const avgResolutionHours = resolvedCount > 0 ? totalHours / resolvedCount : 0;
+    const minResolutionHours = resolutionTimes.length > 0 ? Math.min(...resolutionTimes) : 0;
+    const maxResolutionHours = resolutionTimes.length > 0 ? Math.max(...resolutionTimes) : 0;
+
+    // Tickets by priority
+    const priorityBreakdown: Record<string, number> = {};
+    const allTechTickets = await db.select({ priority: tickets.priority }).from(tickets).where(eq(tickets.assignedToId, tech.id));
+    allTechTickets.forEach(t => { priorityBreakdown[t.priority] = (priorityBreakdown[t.priority] || 0) + 1; });
+
+    // Tickets by category
+    const categoryBreakdown: Record<string, number> = {};
+    allTechTickets.forEach(t => { categoryBreakdown[(t as any).category] = (categoryBreakdown[(t as any).category] || 0) + 1; });
+    const allTechTicketsFull = await db.select({ category: tickets.category }).from(tickets).where(eq(tickets.assignedToId, tech.id));
+    const catBreak: Record<string, number> = {};
+    allTechTicketsFull.forEach(t => { catBreak[t.category] = (catBreak[t.category] || 0) + 1; });
+
+    // Monthly trend (last 6 months)
+    const monthlyTrend: { month: string; completed: number; assigned: number }[] = [];
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date();
+      d.setMonth(d.getMonth() - i);
+      const monthStr = d.toISOString().slice(0, 7);
+      const monthStart = new Date(d.getFullYear(), d.getMonth(), 1);
+      const monthEnd = new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59);
+
+      const [assigned] = await db.select({ cnt: count() }).from(tickets).where(
+        and(eq(tickets.assignedToId, tech.id), gte(tickets.createdAt, monthStart), lte(tickets.createdAt, monthEnd))
+      );
+      const [comp] = await db.select({ cnt: count() }).from(tickets).where(
+        and(eq(tickets.assignedToId, tech.id), eq(tickets.status, "closed"), gte(tickets.closedAt, monthStart), lte(tickets.closedAt, monthEnd))
+      );
+      monthlyTrend.push({ month: monthStr, assigned: assigned?.cnt || 0, completed: comp?.cnt || 0 });
+    }
+
+    // Completion rate
+    const totalAssignedCount = totalAssigned?.cnt || 0;
+    const completedCount = completed?.cnt || 0;
+    const completionRate = totalAssignedCount > 0 ? Math.round((completedCount / totalAssignedCount) * 100) : 0;
+
+    // Performance score (0-100)
+    let score = 0;
+    if (totalAssignedCount > 0) {
+      const rateScore = completionRate * 0.4; // 40% weight for completion rate
+      const speedScore = avgResolutionHours > 0 ? Math.max(0, (1 - avgResolutionHours / (30 * 24)) * 100) * 0.3 : 0; // 30% for speed
+      const volumeScore = Math.min(100, totalAssignedCount * 5) * 0.3; // 30% for volume
+      score = Math.round(rateScore + speedScore + volumeScore);
+    }
+
+    results.push({
+      technician: { id: tech.id, name: tech.name, email: tech.email, phone: (tech as any).phone, department: (tech as any).department },
+      totalAssigned: totalAssignedCount,
+      completed: completedCount,
+      inProgress: inProgress?.cnt || 0,
+      pending: totalAssignedCount - completedCount - (inProgress?.cnt || 0),
+      completionRate,
+      avgResolutionHours: Math.round(avgResolutionHours * 10) / 10,
+      minResolutionHours: Math.round(minResolutionHours * 10) / 10,
+      maxResolutionHours: Math.round(maxResolutionHours * 10) / 10,
+      priorityBreakdown,
+      categoryBreakdown: catBreak,
+      monthlyTrend,
+      performanceScore: score,
+    });
+  }
+
+  return results.sort((a, b) => b.performanceScore - a.performanceScore);
+}
+
+// ============================================================
 // ATTACHMENTS
 // ============================================================
 export async function createAttachment(data: any) {

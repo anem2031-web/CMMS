@@ -230,5 +230,76 @@ describe("CMMS System Tests", () => {
       const data = await caller.reports.ticketsByPriority();
       expect(Array.isArray(data)).toBe(true);
     });
+
+    it("reports.technicianPerformance returns array of technician data", async () => {
+      const ctx = createMockContext("admin", 1);
+      const caller = appRouter.createCaller(ctx);
+      const data = await caller.reports.technicianPerformance();
+      expect(Array.isArray(data)).toBe(true);
+      // Verify structure of each technician record
+      if (data.length > 0) {
+        const tech = data[0];
+        expect(tech).toHaveProperty("technician");
+        expect(tech).toHaveProperty("totalAssigned");
+        expect(tech).toHaveProperty("completed");
+        expect(tech).toHaveProperty("inProgress");
+        expect(tech).toHaveProperty("pending");
+        expect(tech).toHaveProperty("completionRate");
+        expect(tech).toHaveProperty("avgResolutionHours");
+        expect(tech).toHaveProperty("minResolutionHours");
+        expect(tech).toHaveProperty("maxResolutionHours");
+        expect(tech).toHaveProperty("priorityBreakdown");
+        expect(tech).toHaveProperty("categoryBreakdown");
+        expect(tech).toHaveProperty("monthlyTrend");
+        expect(tech).toHaveProperty("performanceScore");
+        // Validate data types
+        expect(typeof tech.totalAssigned).toBe("number");
+        expect(typeof tech.completed).toBe("number");
+        expect(typeof tech.completionRate).toBe("number");
+        expect(typeof tech.performanceScore).toBe("number");
+        expect(tech.completionRate).toBeGreaterThanOrEqual(0);
+        expect(tech.completionRate).toBeLessThanOrEqual(100);
+        expect(tech.performanceScore).toBeGreaterThanOrEqual(0);
+        expect(tech.performanceScore).toBeLessThanOrEqual(100);
+        // Validate technician object
+        expect(tech.technician).toHaveProperty("id");
+        expect(tech.technician).toHaveProperty("name");
+        // Validate monthly trend
+        expect(Array.isArray(tech.monthlyTrend)).toBe(true);
+        expect(tech.monthlyTrend.length).toBe(6); // Last 6 months
+        if (tech.monthlyTrend.length > 0) {
+          expect(tech.monthlyTrend[0]).toHaveProperty("month");
+          expect(tech.monthlyTrend[0]).toHaveProperty("assigned");
+          expect(tech.monthlyTrend[0]).toHaveProperty("completed");
+        }
+      }
+    }, 30000);
+
+    it("reports.technicianPerformance is sorted by performance score descending", async () => {
+      const ctx = createMockContext("admin", 1);
+      const caller = appRouter.createCaller(ctx);
+      const data = await caller.reports.technicianPerformance();
+      if (data.length > 1) {
+        for (let i = 0; i < data.length - 1; i++) {
+          expect(data[i].performanceScore).toBeGreaterThanOrEqual(data[i + 1].performanceScore);
+        }
+      }
+    }, 30000);
+
+    it("reports.technicianPerformance completion rate is consistent", async () => {
+      const ctx = createMockContext("admin", 1);
+      const caller = appRouter.createCaller(ctx);
+      const data = await caller.reports.technicianPerformance();
+      for (const tech of data) {
+        if (tech.totalAssigned > 0) {
+          const expectedRate = Math.round((tech.completed / tech.totalAssigned) * 100);
+          expect(tech.completionRate).toBe(expectedRate);
+        } else {
+          expect(tech.completionRate).toBe(0);
+        }
+        // pending = total - completed - inProgress
+        expect(tech.pending).toBe(tech.totalAssigned - tech.completed - tech.inProgress);
+      }
+    }, 30000);
   });
 });

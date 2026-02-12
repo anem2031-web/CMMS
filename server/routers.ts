@@ -507,6 +507,9 @@ export const appRouter = router({
       });
       return Object.entries(monthly).map(([month, data]) => ({ month, ...data })).sort((a, b) => a.month.localeCompare(b.month));
     }),
+    technicianPerformance: protectedProcedure.query(async () => {
+      return db.getTechnicianPerformance();
+    }),
   }),
 
   // ============================================================

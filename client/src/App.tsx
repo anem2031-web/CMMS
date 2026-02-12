@@ -19,6 +19,7 @@ import Sites from "./pages/Sites";
 import Notifications from "./pages/Notifications";
 import AuditLog from "./pages/AuditLog";
 import AIAssistant from "./pages/AIAssistant";
+import TechnicianReport from "./pages/TechnicianReport";
 
 function Router() {
   return (
@@ -33,6 +34,7 @@ function Router() {
         <Route path="/purchase-orders/:id" component={PurchaseOrderDetail} />
         <Route path="/inventory" component={Inventory} />
         <Route path="/reports" component={Reports} />
+        <Route path="/reports/technicians" component={TechnicianReport} />
         <Route path="/users" component={UsersPage} />
         <Route path="/sites" component={Sites} />
         <Route path="/notifications" component={Notifications} />
