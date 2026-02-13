@@ -25,15 +25,16 @@ import { useIsMobile } from "@/hooks/useMobile";
 import {
   LayoutDashboard, LogOut, PanelLeft, ClipboardList, ShoppingCart,
   Package, BarChart3, Users, Bell, MapPin, Wrench, Shield,
-  Brain, FileText, Settings, ShoppingBag, Truck
+  Brain, FileText, Settings, ShoppingBag, Truck, Languages
 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { DashboardLayoutSkeleton } from './DashboardLayoutSkeleton';
 import { Button } from "./ui/button";
-import { ROLE_LABELS } from "@shared/types";
 import { trpc } from "@/lib/trpc";
 import { Badge } from "@/components/ui/badge";
+import { useTranslation } from "@/contexts/LanguageContext";
+import LanguageSwitcher from "@/components/LanguageSwitcher";
 
 type MenuItem = {
   icon: any;
@@ -43,19 +44,32 @@ type MenuItem = {
   badge?: number;
 };
 
-const allMenuItems: MenuItem[] = [
-  { icon: LayoutDashboard, label: "لوحة التحكم", path: "/" },
-  { icon: ClipboardList, label: "البلاغات", path: "/tickets" },
-  { icon: ShoppingCart, label: "طلبات الشراء", path: "/purchase-orders" },
-  { icon: ShoppingBag, label: "أصنافي", path: "/my-items", roles: ["delegate"] },
-  { icon: Package, label: "المستودع", path: "/inventory", roles: ["warehouse", "maintenance_manager", "owner", "admin"] },
-  { icon: BarChart3, label: "التقارير", path: "/reports", roles: ["owner", "admin", "senior_management", "accountant", "maintenance_manager"] },
-  { icon: Wrench, label: "أداء الفنيين", path: "/reports/technicians", roles: ["owner", "admin", "senior_management", "maintenance_manager"] },
-  { icon: Users, label: "المستخدمين", path: "/users", roles: ["owner", "admin"] },
-  { icon: MapPin, label: "المواقع", path: "/sites", roles: ["owner", "admin", "maintenance_manager"] },
-  { icon: Brain, label: "المساعد الذكي", path: "/ai-assistant", roles: ["owner", "admin", "senior_management", "maintenance_manager"] },
-  { icon: Shield, label: "سجل التدقيق", path: "/audit-log", roles: ["owner", "admin"] },
+type MenuItemDef = {
+  icon: any;
+  labelKey: string;
+  path: string;
+  roles?: string[];
+  badge?: number;
+};
+
+const allMenuDefs: MenuItemDef[] = [
+  { icon: LayoutDashboard, labelKey: "nav.dashboard", path: "/" },
+  { icon: ClipboardList, labelKey: "nav.tickets", path: "/tickets" },
+  { icon: ShoppingCart, labelKey: "nav.purchaseOrders", path: "/purchase-orders" },
+  { icon: ShoppingBag, labelKey: "nav.myItems", path: "/my-items", roles: ["delegate"] },
+  { icon: Package, labelKey: "nav.inventory", path: "/inventory", roles: ["warehouse", "maintenance_manager", "owner", "admin"] },
+  { icon: BarChart3, labelKey: "nav.reports", path: "/reports", roles: ["owner", "admin", "senior_management", "accountant", "maintenance_manager"] },
+  { icon: Wrench, labelKey: "nav.technicianReport", path: "/reports/technicians", roles: ["owner", "admin", "senior_management", "maintenance_manager"] },
+  { icon: Users, labelKey: "nav.users", path: "/users", roles: ["owner", "admin"] },
+  { icon: MapPin, labelKey: "nav.sites", path: "/sites", roles: ["owner", "admin", "maintenance_manager"] },
+  { icon: Brain, labelKey: "nav.aiAssistant", path: "/ai-assistant", roles: ["owner", "admin", "senior_management", "maintenance_manager"] },
+  { icon: Shield, labelKey: "nav.auditLog", path: "/audit-log", roles: ["owner", "admin"] },
+  { icon: Languages, labelKey: "nav.translationMonitor", path: "/translation-monitor", roles: ["owner", "admin"] },
 ];
+
+function getNestedValue(obj: any, path: string): string {
+  return path.split(".").reduce((o, k) => o?.[k], obj) || path;
+}
 
 const SIDEBAR_WIDTH_KEY = "sidebar-width";
 const DEFAULT_WIDTH = 260;
@@ -115,13 +129,14 @@ function DashboardLayoutContent({ children, setSidebarWidth }: { children: React
   const [isResizing, setIsResizing] = useState(false);
   const sidebarRef = useRef<HTMLDivElement>(null);
   const isMobile = useIsMobile();
+  const { t } = useTranslation();
 
   const { data: unreadCount } = trpc.notifications.unreadCount.useQuery(undefined, { refetchInterval: 30000 });
 
-  const menuItems = allMenuItems.filter(item => {
+  const menuItems = allMenuDefs.filter(item => {
     if (!item.roles) return true;
     return item.roles.includes(user?.role || "");
-  });
+  }).map(item => ({ ...item, label: getNestedValue(t, item.labelKey) }));
 
   const activeMenuItem = menuItems.find(item => location === item.path || (item.path !== "/" && location.startsWith(item.path)));
 
@@ -163,7 +178,7 @@ function DashboardLayoutContent({ children, setSidebarWidth }: { children: React
                   <div className="w-8 h-8 rounded-lg bg-sidebar-primary/20 flex items-center justify-center shrink-0">
                     <Wrench className="h-4 w-4 text-sidebar-primary" />
                   </div>
-                  <span className="font-bold tracking-tight truncate text-sm">CMMS</span>
+                  <span className="font-bold tracking-tight truncate text-sm">{t.appShort}</span>
                 </div>
               )}
               <button
@@ -209,13 +224,16 @@ function DashboardLayoutContent({ children, setSidebarWidth }: { children: React
                       </span>
                     )}
                   </div>
-                  <span>الإشعارات</span>
+                  <span>{t.nav.notifications}</span>
                 </SidebarMenuButton>
               </SidebarMenuItem>
             </SidebarMenu>
           </SidebarContent>
 
           <SidebarFooter className="p-3 border-t border-sidebar-border/50">
+            <div className="flex justify-center mb-2 group-data-[collapsible=icon]:px-0">
+              <LanguageSwitcher compact={isCollapsed} />
+            </div>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button className="flex items-center gap-3 rounded-lg px-1 py-1.5 hover:bg-sidebar-accent/50 transition-colors w-full text-right group-data-[collapsible=icon]:justify-center">
@@ -227,7 +245,7 @@ function DashboardLayoutContent({ children, setSidebarWidth }: { children: React
                   <div className="flex-1 min-w-0 group-data-[collapsible=icon]:hidden">
                     <p className="text-sm font-medium truncate leading-none">{user?.name || "-"}</p>
                     <p className="text-[11px] text-sidebar-foreground/60 truncate mt-1">
-                      {ROLE_LABELS[user?.role || "user"] || user?.role}
+                      {(t.roles as any)[user?.role || "user"] || user?.role}
                     </p>
                   </div>
                 </button>
@@ -239,7 +257,7 @@ function DashboardLayoutContent({ children, setSidebarWidth }: { children: React
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={logout} className="cursor-pointer text-destructive focus:text-destructive">
                   <LogOut className="ml-2 h-4 w-4" />
-                  <span>تسجيل الخروج</span>
+                  <span>{t.logout}</span>
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -257,7 +275,7 @@ function DashboardLayoutContent({ children, setSidebarWidth }: { children: React
           <div className="flex border-b h-14 items-center justify-between bg-background/95 px-3 backdrop-blur sticky top-0 z-40">
             <div className="flex items-center gap-2">
               <SidebarTrigger className="h-9 w-9 rounded-lg" />
-              <span className="font-medium text-sm">{activeMenuItem?.label ?? "القائمة"}</span>
+              <span className="font-medium text-sm">{activeMenuItem?.label ?? t.nav.menu}</span>
             </div>
             <div className="relative cursor-pointer" onClick={() => setLocation("/notifications")}>
               <Bell className="h-5 w-5 text-muted-foreground" />

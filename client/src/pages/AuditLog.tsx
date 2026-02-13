@@ -3,17 +3,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Shield } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
-
-const ACTION_LABELS: Record<string, string> = {
-  create: "إنشاء",
-  update: "تحديث",
-  delete: "حذف",
-  approve: "اعتماد",
-  reject: "رفض",
-  assign: "إسناد",
-  login: "تسجيل دخول",
-  status_change: "تغيير حالة",
-};
+import { useTranslation } from "@/contexts/LanguageContext";
 
 const ACTION_COLORS: Record<string, string> = {
   create: "bg-emerald-100 text-emerald-700",
@@ -27,14 +17,18 @@ const ACTION_COLORS: Record<string, string> = {
 };
 
 export default function AuditLog() {
+  const { t, language } = useTranslation();
+  const locale = language === "ar" ? "ar-SA" : language === "ur" ? "ur-PK" : "en-US";
   const { data: logs, isLoading } = trpc.audit.list.useQuery();
   const { data: users } = trpc.users.list.useQuery();
+
+  const getActionLabel = (action: string) => (t.audit as any)[action] || action;
 
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight">سجل التدقيق</h1>
-        <p className="text-sm text-muted-foreground mt-1">تتبع جميع العمليات والإجراءات في النظام</p>
+        <h1 className="text-2xl font-bold tracking-tight">{t.audit.title}</h1>
+        <p className="text-sm text-muted-foreground mt-1">{t.audit.action}</p>
       </div>
 
       {isLoading ? (
@@ -42,8 +36,7 @@ export default function AuditLog() {
       ) : !logs?.length ? (
         <Card><CardContent className="p-12 text-center">
           <Shield className="w-12 h-12 mx-auto text-muted-foreground/40 mb-4" />
-          <h3 className="font-semibold text-lg mb-1">لا توجد سجلات</h3>
-          <p className="text-sm text-muted-foreground">ستظهر هنا جميع العمليات المسجلة</p>
+          <h3 className="font-semibold text-lg mb-1">{t.common.noData}</h3>
         </CardContent></Card>
       ) : (
         <div className="space-y-2">
@@ -55,14 +48,14 @@ export default function AuditLog() {
                   <div className="flex items-center justify-between gap-4">
                     <div className="flex items-center gap-3 flex-1 min-w-0">
                       <Badge className={`text-[10px] shrink-0 ${ACTION_COLORS[log.action] || "bg-gray-100 text-gray-700"}`}>
-                        {ACTION_LABELS[log.action] || log.action}
+                        {getActionLabel(log.action)}
                       </Badge>
                       <div className="min-w-0">
-                        <p className="text-sm font-medium truncate">{log.action} - {log.entityType}</p>
-                        <p className="text-xs text-muted-foreground">{actor?.name || "نظام"} — {log.entityType} {log.entityId ? `#${log.entityId}` : ""}</p>
+                        <p className="text-sm font-medium truncate">{getActionLabel(log.action)} - {log.entityType}</p>
+                        <p className="text-xs text-muted-foreground">{actor?.name || t.common.all} — {log.entityType} {log.entityId ? `#${log.entityId}` : ""}</p>
                       </div>
                     </div>
-                    <span className="text-[10px] text-muted-foreground shrink-0">{new Date(log.createdAt).toLocaleString("ar-SA")}</span>
+                    <span className="text-[10px] text-muted-foreground shrink-0">{new Date(log.createdAt).toLocaleString(locale)}</span>
                   </div>
                 </CardContent>
               </Card>

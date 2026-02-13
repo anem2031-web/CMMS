@@ -5,15 +5,17 @@ import { Textarea } from "@/components/ui/textarea";
 import { Brain, Send, Loader2, Sparkles } from "lucide-react";
 import { useState } from "react";
 import { Streamdown } from "streamdown";
+import { useTranslation } from "@/contexts/LanguageContext";
 
 export default function AIAssistant() {
+  const { t } = useTranslation();
   const [query, setQuery] = useState("");
   const [response, setResponse] = useState("");
   const [isLoading, setIsLoading] = useState(false);
 
   const askMut = trpc.ai.analyze.useMutation({
     onSuccess: (data) => { setResponse(typeof data.answer === 'string' ? data.answer : JSON.stringify(data.answer)); setIsLoading(false); },
-    onError: (err: { message: string }) => { setResponse(`حدث خطأ: ${err.message}`); setIsLoading(false); },
+    onError: (err: { message: string }) => { setResponse(`${err.message}`); setIsLoading(false); },
   });
 
   const handleAsk = () => {
@@ -34,12 +36,11 @@ export default function AIAssistant() {
     <div className="space-y-6 max-w-3xl">
       <div>
         <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-          <Brain className="w-6 h-6 text-primary" /> المساعد الذكي
+          <Brain className="w-6 h-6 text-primary" /> {t.nav.aiAssistant}
         </h1>
-        <p className="text-sm text-muted-foreground mt-1">استخدم الذكاء الاصطناعي لتحليل البيانات والحصول على رؤى ذكية</p>
+        <p className="text-sm text-muted-foreground mt-1">{t.nav.aiAssistant}</p>
       </div>
 
-      {/* Suggestions */}
       <div className="flex flex-wrap gap-2">
         {suggestions.map((s, i) => (
           <Button key={i} variant="outline" size="sm" className="text-xs h-auto py-1.5 px-3" onClick={() => { setQuery(s); }}>
@@ -48,11 +49,9 @@ export default function AIAssistant() {
         ))}
       </div>
 
-      {/* Input */}
       <Card>
         <CardContent className="p-4 space-y-3">
           <Textarea
-            placeholder="اسأل عن أي شيء يتعلق ببيانات الصيانة وطلبات الشراء..."
             value={query}
             onChange={e => setQuery(e.target.value)}
             rows={3}
@@ -60,20 +59,19 @@ export default function AIAssistant() {
           />
           <Button onClick={handleAsk} disabled={isLoading || !query.trim()} className="gap-2">
             {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-            إرسال
+            {t.common.submit}
           </Button>
         </CardContent>
       </Card>
 
-      {/* Response */}
       {(response || isLoading) && (
         <Card>
-          <CardHeader><CardTitle className="text-base flex items-center gap-2"><Brain className="w-4 h-4" /> الإجابة</CardTitle></CardHeader>
+          <CardHeader><CardTitle className="text-base flex items-center gap-2"><Brain className="w-4 h-4" /> {t.common.details}</CardTitle></CardHeader>
           <CardContent>
             {isLoading ? (
               <div className="flex items-center gap-2 text-muted-foreground">
                 <Loader2 className="w-4 h-4 animate-spin" />
-                <span className="text-sm">جاري التحليل...</span>
+                <span className="text-sm">{t.common.loading}</span>
               </div>
             ) : (
               <div className="prose prose-sm max-w-none dark:prose-invert">

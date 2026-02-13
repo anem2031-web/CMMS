@@ -9,6 +9,7 @@ import { storagePut } from "./storage";
 import { notifyOwner } from "./_core/notification";
 import { invokeLLM } from "./_core/llm";
 import { nanoid } from "nanoid";
+import { translationRouter } from "./routers/translation";
 
 // Role-based middleware
 const roleMiddleware = (allowedRoles: string[]) => {
@@ -582,6 +583,11 @@ export const appRouter = router({
       return db.getAuditLogs(input || undefined);
     }),
   }),
+
+  // ============================================================
+  // TRANSLATION ENGINE
+  // ============================================================
+  translation: translationRouter,
 });
 
 export type AppRouter = typeof appRouter;

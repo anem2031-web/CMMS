@@ -19,6 +19,8 @@ import { useState, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar, CalendarDays, Filter } from "lucide-react";
+import { useTranslation } from "@/contexts/LanguageContext";
+import { useStaticLabels } from "@/hooks/useContentTranslation";
 
 const COLORS = ["#0ea5e9", "#8b5cf6", "#f59e0b", "#10b981", "#ef4444", "#ec4899", "#6366f1", "#14b8a6"];
 
@@ -98,6 +100,8 @@ function formatDateInput(date: Date): string {
 }
 
 export default function TechnicianReport() {
+  const { t, language } = useTranslation();
+  const { getPriorityLabel, getCategoryLabel } = useStaticLabels();
   const [selectedPeriod, setSelectedPeriod] = useState<PeriodType>("all");
   const [customDateFrom, setCustomDateFrom] = useState<string>("");
   const [customDateTo, setCustomDateTo] = useState<string>("");
@@ -223,9 +227,9 @@ export default function TechnicianReport() {
               <div className="p-2 bg-primary/10 rounded-lg">
                 <Activity className="h-6 w-6 text-primary" />
               </div>
-              تقرير أداء الفنيين
+              {t.reports.techPerformance}
             </h1>
-            <p className="text-muted-foreground mt-1">تحليل شامل لأداء فريق الصيانة الفني — <span className="font-medium text-foreground">{getPeriodDescription()}</span></p>
+            <p className="text-muted-foreground mt-1">{t.reports.overview} — <span className="font-medium text-foreground">{getPeriodDescription()}</span></p>
           </div>
           <Badge variant="outline" className="text-sm px-3 py-1">
             {techs.length} فني
@@ -372,10 +376,10 @@ export default function TechnicianReport() {
 
       <Tabs defaultValue="overview" className="space-y-4">
         <TabsList className="grid w-full grid-cols-4 lg:w-auto lg:inline-grid">
-          <TabsTrigger value="overview">نظرة عامة</TabsTrigger>
-          <TabsTrigger value="comparison">المقارنة</TabsTrigger>
-          <TabsTrigger value="details">التفاصيل</TabsTrigger>
-          <TabsTrigger value="trends">الاتجاهات</TabsTrigger>
+          <TabsTrigger value="overview">{t.reports.overview}</TabsTrigger>
+          <TabsTrigger value="comparison">{t.reports.comparison}</TabsTrigger>
+          <TabsTrigger value="details">{t.common.details}</TabsTrigger>
+          <TabsTrigger value="trends">{t.reports.monthlyTrend}</TabsTrigger>
         </TabsList>
 
         {/* Overview Tab */}
@@ -653,7 +657,7 @@ export default function TechnicianReport() {
                       {Object.entries(tech.priorityBreakdown || {}).map(([priority, count]) => (
                         <div key={priority} className="flex items-center justify-between">
                           <Badge variant="outline" className="text-xs">
-                            {priorityLabels[priority] || priority}
+                            {getPriorityLabel(priority)}
                           </Badge>
                           <div className="flex items-center gap-2 flex-1 mx-3">
                             <div className="flex-1 bg-muted rounded-full h-2 overflow-hidden">
@@ -678,7 +682,7 @@ export default function TechnicianReport() {
                       {Object.entries(tech.categoryBreakdown || {}).map(([category, count]) => (
                         <div key={category} className="flex items-center justify-between">
                           <Badge variant="outline" className="text-xs">
-                            {categoryLabels[category] || category}
+                            {getCategoryLabel(category)}
                           </Badge>
                           <div className="flex items-center gap-2 flex-1 mx-3">
                             <div className="flex-1 bg-muted rounded-full h-2 overflow-hidden">

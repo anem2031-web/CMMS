@@ -9,22 +9,15 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
-  ShoppingBag, Package, Clock, CheckCircle2, Camera, Upload,
-  Loader2, AlertCircle, DollarSign, FileText, Truck, Eye
+  ShoppingBag, Package, Clock, CheckCircle2, Camera,
+  Loader2, AlertCircle, DollarSign, FileText, Truck
 } from "lucide-react";
 import { useState, useMemo } from "react";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
+import { useTranslation } from "@/contexts/LanguageContext";
 
 type ItemStatus = "pending" | "estimated" | "approved" | "purchased" | "received";
-
-const STATUS_CONFIG: Record<ItemStatus, { label: string; color: string; icon: any }> = {
-  pending: { label: "بانتظار التسعير", color: "bg-amber-100 text-amber-800 border-amber-200", icon: Clock },
-  estimated: { label: "تم التسعير", color: "bg-blue-100 text-blue-800 border-blue-200", icon: DollarSign },
-  approved: { label: "معتمد - جاهز للشراء", color: "bg-emerald-100 text-emerald-800 border-emerald-200", icon: CheckCircle2 },
-  purchased: { label: "تم الشراء", color: "bg-purple-100 text-purple-800 border-purple-200", icon: ShoppingBag },
-  received: { label: "تم الاستلام", color: "bg-green-100 text-green-800 border-green-200", icon: Package },
-};
 
 function numberToArabicWords(num: number): string {
   if (num === 0) return "صفر ريال";
@@ -46,6 +39,10 @@ function numberToArabicWords(num: number): string {
 export default function MyItems() {
   const { user } = useAuth();
   const [, setLocation] = useLocation();
+  const { t, language } = useTranslation();
+  const locale = language === "ar" ? "ar-SA" : language === "ur" ? "ur-PK" : "en-US";
+  const currency = language === "en" ? "SAR" : "ر.س";
+
   const { data: myItems, isLoading, refetch } = trpc.purchaseOrders.myItems.useQuery(undefined, {
     enabled: user?.role === "delegate" || user?.role === "admin" || user?.role === "owner",
   });
@@ -60,7 +57,7 @@ export default function MyItems() {
 
   const estimateMut = trpc.purchaseOrders.estimateCost.useMutation({
     onSuccess: () => {
-      toast.success("تم حفظ التسعير التقديري بنجاح");
+      toast.success(t.common.save);
       setEstimateDialog(null);
       setEstimateCost("");
       refetch();
@@ -70,7 +67,7 @@ export default function MyItems() {
 
   const confirmPurchaseMut = trpc.purchaseOrders.confirmItemPurchase.useMutation({
     onSuccess: () => {
-      toast.success("تم تأكيد الشراء بنجاح");
+      toast.success(t.common.confirm);
       setPurchaseDialog(null);
       setInvoiceUrl("");
       setPurchasedUrl("");
@@ -89,13 +86,12 @@ export default function MyItems() {
       if (data.url) {
         if (field === "invoice") setInvoiceUrl(data.url);
         else setPurchasedUrl(data.url);
-        toast.success("تم رفع الصورة");
+        toast.success(t.common.save);
       }
-    } catch { toast.error("فشل رفع الصورة"); }
+    } catch { toast.error(t.common.close); }
     setUploadingField(null);
   };
 
-  // Group items by status
   const grouped = useMemo(() => {
     if (!myItems) return { pending_estimate: [], approved: [], purchased: [], received: [] };
     const items = myItems as any[];
@@ -124,8 +120,6 @@ export default function MyItems() {
   }
 
   const renderItem = (item: any) => {
-    const statusConf = STATUS_CONFIG[item.status as ItemStatus] || STATUS_CONFIG.pending;
-    const StatusIcon = statusConf.icon;
     return (
       <Card key={item.id} className="hover:shadow-md transition-all duration-200 border-r-4" style={{ borderRightColor: item.status === "approved" ? "#10b981" : item.status === "purchased" ? "#8b5cf6" : item.status === "received" ? "#22c55e" : "#f59e0b" }}>
         <CardContent className="p-4">
@@ -134,33 +128,32 @@ export default function MyItems() {
               <h3 className="font-semibold text-sm truncate">{item.itemName}</h3>
               {item.description && <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{item.description}</p>}
             </div>
-            <Badge className={`shrink-0 text-[10px] gap-1 ${statusConf.color}`}>
-              <StatusIcon className="w-3 h-3" />
-              {statusConf.label}
+            <Badge className="shrink-0 text-[10px] gap-1">
+              {item.status}
             </Badge>
           </div>
 
           <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs mb-3">
             <div className="bg-muted/50 rounded-lg p-2">
-              <span className="text-muted-foreground block">الكمية</span>
-              <span className="font-bold">{item.quantity} {item.unit || "قطعة"}</span>
+              <span className="text-muted-foreground block">{t.purchaseOrders.quantity}</span>
+              <span className="font-bold">{item.quantity} {item.unit || ""}</span>
             </div>
             <div className="bg-muted/50 rounded-lg p-2">
-              <span className="text-muted-foreground block">طلب الشراء</span>
+              <span className="text-muted-foreground block">{t.purchaseOrders.poNumber}</span>
               <Button variant="link" className="h-auto p-0 text-xs font-bold" onClick={() => setLocation(`/purchase-orders/${item.purchaseOrderId}`)}>
                 #{item.purchaseOrderId}
               </Button>
             </div>
             {item.estimatedUnitCost && (
               <div className="bg-muted/50 rounded-lg p-2">
-                <span className="text-muted-foreground block">التكلفة التقديرية</span>
-                <span className="font-bold">{parseFloat(item.estimatedUnitCost).toLocaleString("ar-SA")} ر.س</span>
+                <span className="text-muted-foreground block">{t.purchaseOrders.estimatedUnitCost}</span>
+                <span className="font-bold">{parseFloat(item.estimatedUnitCost).toLocaleString(locale)} {currency}</span>
               </div>
             )}
             {item.estimatedTotalCost && (
               <div className="bg-muted/50 rounded-lg p-2">
-                <span className="text-muted-foreground block">الإجمالي التقديري</span>
-                <span className="font-bold">{parseFloat(item.estimatedTotalCost).toLocaleString("ar-SA")} ر.س</span>
+                <span className="text-muted-foreground block">{t.purchaseOrders.estimatedTotal}</span>
+                <span className="font-bold">{parseFloat(item.estimatedTotalCost).toLocaleString(locale)} {currency}</span>
               </div>
             )}
           </div>
@@ -177,31 +170,30 @@ export default function MyItems() {
             </p>
           )}
 
-          {/* Action buttons based on status */}
           {item.status === "pending" && (
             <Button size="sm" className="w-full gap-1.5 bg-amber-600 hover:bg-amber-700" onClick={() => { setEstimateDialog(item); setEstimateCost(""); }}>
-              <DollarSign className="w-3.5 h-3.5" /> إدخال التكلفة التقديرية
+              <DollarSign className="w-3.5 h-3.5" /> {t.purchaseOrders.estimatedUnitCost}
             </Button>
           )}
 
           {item.status === "approved" && (
             <Button size="sm" className="w-full gap-1.5 bg-emerald-600 hover:bg-emerald-700" onClick={() => { setPurchaseDialog(item); setInvoiceUrl(""); setPurchasedUrl(""); }}>
-              <ShoppingBag className="w-3.5 h-3.5" /> تأكيد شراء هذا الصنف
+              <ShoppingBag className="w-3.5 h-3.5" /> {t.purchaseOrders.confirmPurchase}
             </Button>
           )}
 
           {item.status === "purchased" && (
             <div className="flex items-center gap-2 text-xs text-purple-700 bg-purple-50 rounded-lg p-2">
               <Truck className="w-4 h-4" />
-              <span>تم الشراء — بانتظار الاستلام في المستودع</span>
+              <span>{t.purchaseOrders.confirmPurchase}</span>
             </div>
           )}
 
           {item.status === "received" && (
             <div className="flex items-center gap-2 text-xs text-green-700 bg-green-50 rounded-lg p-2">
               <CheckCircle2 className="w-4 h-4" />
-              <span>تم الاستلام في المستودع</span>
-              {item.actualUnitCost && <span className="mr-auto font-bold">{parseFloat(item.actualUnitCost).toLocaleString("ar-SA")} ر.س</span>}
+              <span>{t.purchaseOrders.receiveItem}</span>
+              {item.actualUnitCost && <span className="mr-auto font-bold">{parseFloat(item.actualUnitCost).toLocaleString(locale)} {currency}</span>}
             </div>
           )}
         </CardContent>
@@ -211,63 +203,60 @@ export default function MyItems() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div>
         <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-          <ShoppingBag className="w-6 h-6 text-primary" /> أصنافي
+          <ShoppingBag className="w-6 h-6 text-primary" /> {t.nav.myItems}
         </h1>
-        <p className="text-sm text-muted-foreground mt-1">جميع الأصناف المسندة إليك في طلبات الشراء</p>
+        <p className="text-sm text-muted-foreground mt-1">{t.purchaseOrders.items}</p>
       </div>
 
-      {/* Summary Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <Card className="border-amber-200 bg-amber-50/50 cursor-pointer hover:shadow-md transition-all" onClick={() => setActiveTab("pending_estimate")}>
           <CardContent className="p-3 text-center">
             <Clock className="w-5 h-5 mx-auto text-amber-600 mb-1" />
             <p className="text-2xl font-bold text-amber-800">{tabCounts.pending_estimate}</p>
-            <p className="text-[10px] text-amber-600">بانتظار التسعير</p>
+            <p className="text-[10px] text-amber-600">{t.purchaseOrders.estimatedUnitCost}</p>
           </CardContent>
         </Card>
         <Card className="border-emerald-200 bg-emerald-50/50 cursor-pointer hover:shadow-md transition-all" onClick={() => setActiveTab("approved")}>
           <CardContent className="p-3 text-center">
             <CheckCircle2 className="w-5 h-5 mx-auto text-emerald-600 mb-1" />
             <p className="text-2xl font-bold text-emerald-800">{tabCounts.approved}</p>
-            <p className="text-[10px] text-emerald-600">جاهز للشراء</p>
+            <p className="text-[10px] text-emerald-600">{t.purchaseOrders.confirmPurchase}</p>
           </CardContent>
         </Card>
         <Card className="border-purple-200 bg-purple-50/50 cursor-pointer hover:shadow-md transition-all" onClick={() => setActiveTab("purchased")}>
           <CardContent className="p-3 text-center">
             <ShoppingBag className="w-5 h-5 mx-auto text-purple-600 mb-1" />
             <p className="text-2xl font-bold text-purple-800">{tabCounts.purchased}</p>
-            <p className="text-[10px] text-purple-600">تم الشراء</p>
+            <p className="text-[10px] text-purple-600">{t.purchaseOrders.confirmPurchase}</p>
           </CardContent>
         </Card>
         <Card className="border-green-200 bg-green-50/50 cursor-pointer hover:shadow-md transition-all" onClick={() => setActiveTab("received")}>
           <CardContent className="p-3 text-center">
             <Package className="w-5 h-5 mx-auto text-green-600 mb-1" />
             <p className="text-2xl font-bold text-green-800">{tabCounts.received}</p>
-            <p className="text-[10px] text-green-600">تم الاستلام</p>
+            <p className="text-[10px] text-green-600">{t.purchaseOrders.receiveItem}</p>
           </CardContent>
         </Card>
       </div>
 
-      {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="grid grid-cols-4 w-full">
           <TabsTrigger value="pending_estimate" className="text-xs gap-1">
-            <Clock className="w-3 h-3" /> تسعير
+            <Clock className="w-3 h-3" /> {t.purchaseOrders.estimatedUnitCost}
             {tabCounts.pending_estimate > 0 && <Badge variant="secondary" className="text-[9px] h-4 px-1">{tabCounts.pending_estimate}</Badge>}
           </TabsTrigger>
           <TabsTrigger value="approved" className="text-xs gap-1">
-            <CheckCircle2 className="w-3 h-3" /> شراء
+            <CheckCircle2 className="w-3 h-3" /> {t.purchaseOrders.confirmPurchase}
             {tabCounts.approved > 0 && <Badge variant="secondary" className="text-[9px] h-4 px-1">{tabCounts.approved}</Badge>}
           </TabsTrigger>
           <TabsTrigger value="purchased" className="text-xs gap-1">
-            <ShoppingBag className="w-3 h-3" /> مشتراة
+            <ShoppingBag className="w-3 h-3" /> {t.purchaseOrders.confirmPurchase}
             {tabCounts.purchased > 0 && <Badge variant="secondary" className="text-[9px] h-4 px-1">{tabCounts.purchased}</Badge>}
           </TabsTrigger>
           <TabsTrigger value="received" className="text-xs gap-1">
-            <Package className="w-3 h-3" /> مستلمة
+            <Package className="w-3 h-3" /> {t.purchaseOrders.receiveItem}
           </TabsTrigger>
         </TabsList>
 
@@ -275,13 +264,13 @@ export default function MyItems() {
           {grouped.pending_estimate.length === 0 ? (
             <Card><CardContent className="p-8 text-center">
               <Clock className="w-10 h-10 mx-auto text-muted-foreground/30 mb-3" />
-              <p className="text-sm text-muted-foreground">لا توجد أصناف بانتظار التسعير</p>
+              <p className="text-sm text-muted-foreground">{t.common.noData}</p>
             </CardContent></Card>
           ) : (
             <>
               <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 flex items-center gap-2 text-xs text-amber-800">
                 <AlertCircle className="w-4 h-4 shrink-0" />
-                <span>يرجى إدخال التكلفة التقديرية لكل صنف. بعد تسعير جميع الأصناف سيتم إرسال الطلب تلقائياً للحسابات.</span>
+                <span>{t.purchaseOrders.estimatedUnitCost}</span>
               </div>
               {grouped.pending_estimate.map(renderItem)}
             </>
@@ -292,13 +281,13 @@ export default function MyItems() {
           {grouped.approved.length === 0 ? (
             <Card><CardContent className="p-8 text-center">
               <CheckCircle2 className="w-10 h-10 mx-auto text-muted-foreground/30 mb-3" />
-              <p className="text-sm text-muted-foreground">لا توجد أصناف جاهزة للشراء</p>
+              <p className="text-sm text-muted-foreground">{t.common.noData}</p>
             </CardContent></Card>
           ) : (
             <>
               <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 flex items-center gap-2 text-xs text-emerald-800">
                 <CheckCircle2 className="w-4 h-4 shrink-0" />
-                <span>هذه الأصناف تم اعتمادها من الحسابات والإدارة العليا. يمكنك البدء بالشراء.</span>
+                <span>{t.purchaseOrders.confirmPurchase}</span>
               </div>
               {grouped.approved.map(renderItem)}
             </>
@@ -309,7 +298,7 @@ export default function MyItems() {
           {grouped.purchased.length === 0 ? (
             <Card><CardContent className="p-8 text-center">
               <ShoppingBag className="w-10 h-10 mx-auto text-muted-foreground/30 mb-3" />
-              <p className="text-sm text-muted-foreground">لا توجد أصناف مشتراة بانتظار الاستلام</p>
+              <p className="text-sm text-muted-foreground">{t.common.noData}</p>
             </CardContent></Card>
           ) : grouped.purchased.map(renderItem)}
         </TabsContent>
@@ -318,26 +307,25 @@ export default function MyItems() {
           {grouped.received.length === 0 ? (
             <Card><CardContent className="p-8 text-center">
               <Package className="w-10 h-10 mx-auto text-muted-foreground/30 mb-3" />
-              <p className="text-sm text-muted-foreground">لا توجد أصناف مستلمة</p>
+              <p className="text-sm text-muted-foreground">{t.common.noData}</p>
             </CardContent></Card>
           ) : grouped.received.map(renderItem)}
         </TabsContent>
       </Tabs>
 
-      {/* Estimate Dialog */}
       <Dialog open={!!estimateDialog} onOpenChange={(open) => { if (!open) setEstimateDialog(null); }}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle className="text-base">التكلفة التقديرية</DialogTitle>
+            <DialogTitle className="text-base">{t.purchaseOrders.estimatedUnitCost}</DialogTitle>
           </DialogHeader>
           {estimateDialog && (
             <div className="space-y-4">
               <div className="bg-muted/50 rounded-lg p-3">
                 <p className="font-medium text-sm">{estimateDialog.itemName}</p>
-                <p className="text-xs text-muted-foreground mt-1">الكمية: {estimateDialog.quantity} {estimateDialog.unit || "قطعة"}</p>
+                <p className="text-xs text-muted-foreground mt-1">{t.purchaseOrders.quantity}: {estimateDialog.quantity} {estimateDialog.unit || ""}</p>
               </div>
               <div className="space-y-2">
-                <Label>سعر الوحدة التقديري (ر.س) *</Label>
+                <Label>{t.purchaseOrders.estimatedUnitCost} ({currency}) *</Label>
                 <Input
                   type="number"
                   placeholder="0.00"
@@ -349,8 +337,8 @@ export default function MyItems() {
               {estimateCost && parseFloat(estimateCost) > 0 && (
                 <div className="bg-primary/5 rounded-lg p-3 space-y-1">
                   <div className="flex justify-between text-sm">
-                    <span>الإجمالي التقديري:</span>
-                    <span className="font-bold text-lg">{(parseFloat(estimateCost) * estimateDialog.quantity).toLocaleString("ar-SA")} ر.س</span>
+                    <span>{t.purchaseOrders.estimatedTotal}:</span>
+                    <span className="font-bold text-lg">{(parseFloat(estimateCost) * estimateDialog.quantity).toLocaleString(locale)} {currency}</span>
                   </div>
                   <p className="text-xs text-muted-foreground text-left">
                     ({numberToArabicWords(parseFloat(estimateCost) * estimateDialog.quantity)})
@@ -360,7 +348,7 @@ export default function MyItems() {
               <Button
                 className="w-full gap-2"
                 onClick={() => {
-                  if (!estimateCost || parseFloat(estimateCost) <= 0) { toast.error("يرجى إدخال التكلفة التقديرية"); return; }
+                  if (!estimateCost || parseFloat(estimateCost) <= 0) { toast.error(t.purchaseOrders.estimatedUnitCost); return; }
                   estimateMut.mutate({
                     purchaseOrderId: estimateDialog.purchaseOrderId,
                     items: [{ id: estimateDialog.id, estimatedUnitCost: estimateCost }],
@@ -369,35 +357,33 @@ export default function MyItems() {
                 disabled={estimateMut.isPending}
               >
                 {estimateMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <DollarSign className="w-4 h-4" />}
-                حفظ التسعير التقديري
+                {t.common.save}
               </Button>
             </div>
           )}
         </DialogContent>
       </Dialog>
 
-      {/* Purchase Confirmation Dialog */}
       <Dialog open={!!purchaseDialog} onOpenChange={(open) => { if (!open) setPurchaseDialog(null); }}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle className="text-base">تأكيد شراء الصنف</DialogTitle>
+            <DialogTitle className="text-base">{t.purchaseOrders.confirmPurchase}</DialogTitle>
           </DialogHeader>
           {purchaseDialog && (
             <div className="space-y-4">
               <div className="bg-muted/50 rounded-lg p-3">
                 <p className="font-medium text-sm">{purchaseDialog.itemName}</p>
-                <p className="text-xs text-muted-foreground mt-1">الكمية: {purchaseDialog.quantity} {purchaseDialog.unit || "قطعة"}</p>
+                <p className="text-xs text-muted-foreground mt-1">{t.purchaseOrders.quantity}: {purchaseDialog.quantity} {purchaseDialog.unit || ""}</p>
                 {purchaseDialog.estimatedTotalCost && (
-                  <p className="text-xs text-muted-foreground mt-1">التكلفة التقديرية: {parseFloat(purchaseDialog.estimatedTotalCost).toLocaleString("ar-SA")} ر.س</p>
+                  <p className="text-xs text-muted-foreground mt-1">{t.purchaseOrders.estimatedTotal}: {parseFloat(purchaseDialog.estimatedTotalCost).toLocaleString(locale)} {currency}</p>
                 )}
               </div>
 
-              {/* Invoice Photo */}
               <div className="space-y-2">
-                <Label>صورة الفاتورة *</Label>
+                <Label>{t.purchaseOrders.accountingNotes} *</Label>
                 {invoiceUrl ? (
                   <div className="relative">
-                    <img src={invoiceUrl} alt="فاتورة" className="w-full h-32 object-cover rounded-lg border" />
+                    <img src={invoiceUrl} alt="" className="w-full h-32 object-cover rounded-lg border" />
                     <Button variant="destructive" size="icon" className="absolute top-1 left-1 h-6 w-6" onClick={() => setInvoiceUrl("")}>
                       <span className="text-xs">×</span>
                     </Button>
@@ -410,17 +396,16 @@ export default function MyItems() {
                     input.click();
                   }} disabled={uploadingField === "invoice"}>
                     {uploadingField === "invoice" ? <Loader2 className="w-5 h-5 animate-spin" /> : <Camera className="w-5 h-5" />}
-                    {uploadingField === "invoice" ? "جاري الرفع..." : "رفع صورة الفاتورة"}
+                    {uploadingField === "invoice" ? t.common.loading : t.common.upload}
                   </Button>
                 )}
               </div>
 
-              {/* Purchased Item Photo */}
               <div className="space-y-2">
-                <Label>صورة القطعة المشتراة *</Label>
+                <Label>{t.tickets.photos} *</Label>
                 {purchasedUrl ? (
                   <div className="relative">
-                    <img src={purchasedUrl} alt="القطعة" className="w-full h-32 object-cover rounded-lg border" />
+                    <img src={purchasedUrl} alt="" className="w-full h-32 object-cover rounded-lg border" />
                     <Button variant="destructive" size="icon" className="absolute top-1 left-1 h-6 w-6" onClick={() => setPurchasedUrl("")}>
                       <span className="text-xs">×</span>
                     </Button>
@@ -433,7 +418,7 @@ export default function MyItems() {
                     input.click();
                   }} disabled={uploadingField === "purchased"}>
                     {uploadingField === "purchased" ? <Loader2 className="w-5 h-5 animate-spin" /> : <Camera className="w-5 h-5" />}
-                    {uploadingField === "purchased" ? "جاري الرفع..." : "رفع صورة القطعة"}
+                    {uploadingField === "purchased" ? t.common.loading : t.common.upload}
                   </Button>
                 )}
               </div>
@@ -441,8 +426,8 @@ export default function MyItems() {
               <Button
                 className="w-full gap-2"
                 onClick={() => {
-                  if (!invoiceUrl) { toast.error("يرجى رفع صورة الفاتورة"); return; }
-                  if (!purchasedUrl) { toast.error("يرجى رفع صورة القطعة المشتراة"); return; }
+                  if (!invoiceUrl) { toast.error(t.common.upload); return; }
+                  if (!purchasedUrl) { toast.error(t.common.upload); return; }
                   confirmPurchaseMut.mutate({
                     itemId: purchaseDialog.id,
                     invoicePhotoUrl: invoiceUrl,
@@ -452,7 +437,7 @@ export default function MyItems() {
                 disabled={confirmPurchaseMut.isPending}
               >
                 {confirmPurchaseMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
-                تأكيد الشراء
+                {t.purchaseOrders.confirmPurchase}
               </Button>
             </div>
           )}

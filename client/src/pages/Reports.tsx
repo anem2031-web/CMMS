@@ -1,33 +1,36 @@
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { STATUS_LABELS, PRIORITY_LABELS, CATEGORY_LABELS } from "@shared/types";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, LineChart, Line } from "recharts";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useTranslation } from "@/contexts/LanguageContext";
+import { useStaticLabels } from "@/hooks/useContentTranslation";
 
 const COLORS = ["#0ea5e9", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899", "#14b8a6", "#f97316"];
 
 export default function Reports() {
+  const { t } = useTranslation();
+  const { getStatusLabel, getPriorityLabel, getCategoryLabel } = useStaticLabels();
+
   const { data: byStatus, isLoading: l1 } = trpc.reports.ticketsByStatus.useQuery();
   const { data: byCategory, isLoading: l2 } = trpc.reports.ticketsByCategory.useQuery();
   const { data: byPriority, isLoading: l3 } = trpc.reports.ticketsByPriority.useQuery();
   const { data: costData, isLoading: l4 } = trpc.reports.costComparison.useQuery();
   const { data: monthly, isLoading: l5 } = trpc.reports.monthlySummary.useQuery();
 
-  const statusData = byStatus?.map(d => ({ name: STATUS_LABELS[d.status] || d.status, value: d.count })) || [];
-  const categoryData = byCategory?.map(d => ({ name: CATEGORY_LABELS[d.category] || d.category, value: d.count })) || [];
-  const priorityData = byPriority?.map(d => ({ name: PRIORITY_LABELS[d.priority] || d.priority, value: d.count })) || [];
+  const statusData = byStatus?.map(d => ({ name: getStatusLabel(d.status), value: d.count })) || [];
+  const categoryData = byCategory?.map(d => ({ name: getCategoryLabel(d.category), value: d.count })) || [];
+  const priorityData = byPriority?.map(d => ({ name: getPriorityLabel(d.priority), value: d.count })) || [];
 
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight">التقارير</h1>
-        <p className="text-sm text-muted-foreground mt-1">تحليلات وإحصائيات شاملة عن عمليات الصيانة</p>
+        <h1 className="text-2xl font-bold tracking-tight">{t.reports.title}</h1>
+        <p className="text-sm text-muted-foreground mt-1">{t.reports.overview}</p>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Tickets by Status */}
         <Card>
-          <CardHeader><CardTitle className="text-base">البلاغات حسب الحالة</CardTitle></CardHeader>
+          <CardHeader><CardTitle className="text-base">{t.reports.ticketsByStatus}</CardTitle></CardHeader>
           <CardContent>
             {l1 ? <Skeleton className="h-64 w-full" /> : (
               <ResponsiveContainer width="100%" height={280}>
@@ -42,9 +45,8 @@ export default function Reports() {
           </CardContent>
         </Card>
 
-        {/* Tickets by Category */}
         <Card>
-          <CardHeader><CardTitle className="text-base">البلاغات حسب الفئة</CardTitle></CardHeader>
+          <CardHeader><CardTitle className="text-base">{t.reports.ticketsByCategory}</CardTitle></CardHeader>
           <CardContent>
             {l2 ? <Skeleton className="h-64 w-full" /> : (
               <ResponsiveContainer width="100%" height={280}>
@@ -60,9 +62,8 @@ export default function Reports() {
           </CardContent>
         </Card>
 
-        {/* Tickets by Priority */}
         <Card>
-          <CardHeader><CardTitle className="text-base">البلاغات حسب الأولوية</CardTitle></CardHeader>
+          <CardHeader><CardTitle className="text-base">{t.reports.ticketsByPriority}</CardTitle></CardHeader>
           <CardContent>
             {l3 ? <Skeleton className="h-64 w-full" /> : (
               <ResponsiveContainer width="100%" height={280}>
@@ -78,9 +79,8 @@ export default function Reports() {
           </CardContent>
         </Card>
 
-        {/* Cost Comparison */}
         <Card>
-          <CardHeader><CardTitle className="text-base">مقارنة التكلفة التقديرية والفعلية</CardTitle></CardHeader>
+          <CardHeader><CardTitle className="text-base">{t.reports.comparison}</CardTitle></CardHeader>
           <CardContent>
             {l4 ? <Skeleton className="h-64 w-full" /> : costData && costData.length > 0 ? (
               <ResponsiveContainer width="100%" height={280}>
@@ -90,17 +90,16 @@ export default function Reports() {
                   <YAxis />
                   <Tooltip />
                   <Legend />
-                  <Bar dataKey="estimated" name="تقديري" fill="#f59e0b" radius={[4, 4, 0, 0]} />
-                  <Bar dataKey="actual" name="فعلي" fill="#10b981" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="estimated" name={t.purchaseOrders.totalEstimated} fill="#f59e0b" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="actual" name={t.purchaseOrders.totalActual} fill="#10b981" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
-            ) : <p className="text-sm text-muted-foreground text-center py-12">لا توجد بيانات تكلفة بعد</p>}
+            ) : <p className="text-sm text-muted-foreground text-center py-12">{t.common.noData}</p>}
           </CardContent>
         </Card>
 
-        {/* Monthly Trend */}
         <Card className="lg:col-span-2">
-          <CardHeader><CardTitle className="text-base">الاتجاه الشهري للبلاغات</CardTitle></CardHeader>
+          <CardHeader><CardTitle className="text-base">{t.reports.monthlyTrend}</CardTitle></CardHeader>
           <CardContent>
             {l5 ? <Skeleton className="h-64 w-full" /> : monthly && monthly.length > 0 ? (
               <ResponsiveContainer width="100%" height={300}>
@@ -110,11 +109,11 @@ export default function Reports() {
                   <YAxis />
                   <Tooltip />
                   <Legend />
-                  <Line type="monotone" dataKey="created" name="تم إنشاؤها" stroke="#0ea5e9" strokeWidth={2} dot={{ r: 4 }} />
-                  <Line type="monotone" dataKey="closed" name="تم إغلاقها" stroke="#10b981" strokeWidth={2} dot={{ r: 4 }} />
+                  <Line type="monotone" dataKey="created" name={t.reports.completionRate} stroke="#0ea5e9" strokeWidth={2} dot={{ r: 4 }} />
+                  <Line type="monotone" dataKey="closed" name={t.reports.completed} stroke="#10b981" strokeWidth={2} dot={{ r: 4 }} />
                 </LineChart>
               </ResponsiveContainer>
-            ) : <p className="text-sm text-muted-foreground text-center py-12">لا توجد بيانات شهرية بعد</p>}
+            ) : <p className="text-sm text-muted-foreground text-center py-12">{t.common.noData}</p>}
           </CardContent>
         </Card>
       </div>

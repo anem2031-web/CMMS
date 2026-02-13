@@ -1,13 +1,13 @@
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Card, CardContent } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ROLE_LABELS } from "@shared/types";
 import { Users as UsersIcon } from "lucide-react";
 import { toast } from "sonner";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useTranslation } from "@/contexts/LanguageContext";
+import { useStaticLabels } from "@/hooks/useContentTranslation";
 
 const ROLE_COLORS: Record<string, string> = {
   admin: "bg-red-100 text-red-700",
@@ -25,9 +25,11 @@ const ROLE_COLORS: Record<string, string> = {
 
 export default function UsersPage() {
   const { user: currentUser } = useAuth();
+  const { t } = useTranslation();
+  const { getRoleLabel } = useStaticLabels();
   const { data: users, isLoading, refetch } = trpc.users.list.useQuery();
   const updateRoleMut = trpc.users.updateRole.useMutation({
-    onSuccess: () => { toast.success("تم تحديث الدور"); refetch(); },
+    onSuccess: () => { toast.success(t.users.changeRole); refetch(); },
     onError: (err) => toast.error(err.message),
   });
 
@@ -36,8 +38,8 @@ export default function UsersPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight">المستخدمون</h1>
-        <p className="text-sm text-muted-foreground mt-1">إدارة المستخدمين وتعيين الأدوار</p>
+        <h1 className="text-2xl font-bold tracking-tight">{t.users.title}</h1>
+        <p className="text-sm text-muted-foreground mt-1">{t.users.changeRole}</p>
       </div>
 
       {isLoading ? (
@@ -45,7 +47,7 @@ export default function UsersPage() {
       ) : !users?.length ? (
         <Card><CardContent className="p-12 text-center">
           <UsersIcon className="w-12 h-12 mx-auto text-muted-foreground/40 mb-4" />
-          <h3 className="font-semibold text-lg mb-1">لا يوجد مستخدمون</h3>
+          <h3 className="font-semibold text-lg mb-1">{t.common.noData}</h3>
         </CardContent></Card>
       ) : (
         <div className="space-y-2">
@@ -58,7 +60,7 @@ export default function UsersPage() {
                       {(u.name || u.email || "?")[0]}
                     </div>
                     <div className="min-w-0">
-                      <h3 className="font-medium text-sm truncate">{u.name || "بدون اسم"}</h3>
+                      <h3 className="font-medium text-sm truncate">{u.name || "-"}</h3>
                       <p className="text-xs text-muted-foreground truncate">{u.email || "-"}</p>
                     </div>
                   </div>
@@ -69,14 +71,14 @@ export default function UsersPage() {
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          {Object.entries(ROLE_LABELS).map(([k, v]) => (
-                            <SelectItem key={k} value={k}>{v}</SelectItem>
+                          {Object.keys(t.roles).map(k => (
+                            <SelectItem key={k} value={k}>{getRoleLabel(k)}</SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
                     ) : (
                       <Badge className={`text-[11px] ${ROLE_COLORS[u.role] || "bg-gray-100 text-gray-700"}`}>
-                        {ROLE_LABELS[u.role] || u.role}
+                        {getRoleLabel(u.role)}
                       </Badge>
                     )}
                   </div>

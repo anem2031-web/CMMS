@@ -1,65 +1,68 @@
 import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ROLE_LABELS, STATUS_LABELS } from "@shared/types";
+import { Card, CardContent } from "@/components/ui/card";
 import { useLocation } from "wouter";
 import {
   ClipboardList, CheckCircle2, AlertTriangle, ShoppingCart,
-  DollarSign, Package, Clock, TrendingUp
+  DollarSign, Package, Clock,
 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useTranslation } from "@/contexts/LanguageContext";
 
 export default function Home() {
   const { user } = useAuth();
   const [, setLocation] = useLocation();
   const { data: stats, isLoading } = trpc.dashboard.stats.useQuery();
+  const { t, language } = useTranslation();
 
   const cards = [
     {
-      title: "بلاغات مفتوحة",
+      title: t.dashboard.openTickets,
       value: stats?.openTickets ?? 0,
       icon: ClipboardList,
       color: "text-blue-600 bg-blue-50",
       onClick: () => setLocation("/tickets?status=open"),
     },
     {
-      title: "أُغلقت اليوم",
+      title: t.dashboard.closedToday,
       value: stats?.closedToday ?? 0,
       icon: CheckCircle2,
       color: "text-emerald-600 bg-emerald-50",
       onClick: () => setLocation("/tickets?status=closed"),
     },
     {
-      title: "بلاغات حرجة",
+      title: t.dashboard.criticalTickets,
       value: stats?.criticalTickets ?? 0,
       icon: AlertTriangle,
       color: "text-red-600 bg-red-50",
       onClick: () => setLocation("/tickets?priority=critical"),
     },
     {
-      title: "بانتظار الاعتماد",
+      title: t.dashboard.pendingApprovals,
       value: stats?.pendingApprovals ?? 0,
       icon: Clock,
       color: "text-amber-600 bg-amber-50",
       onClick: () => setLocation("/purchase-orders?status=pending"),
     },
     {
-      title: "أصناف تم شراؤها",
+      title: t.dashboard.purchasedItems,
       value: stats?.purchasedItems ?? 0,
       icon: ShoppingCart,
       color: "text-teal-600 bg-teal-50",
       onClick: () => setLocation("/purchase-orders"),
     },
     {
-      title: "أصناف معلّقة",
+      title: t.dashboard.pendingPurchase,
       value: stats?.pendingPurchaseItems ?? 0,
       icon: Package,
       color: "text-orange-600 bg-orange-50",
       onClick: () => setLocation("/purchase-orders"),
     },
     {
-      title: "إجمالي تكلفة الصيانة",
-      value: stats?.totalMaintenanceCost ? `${Number(stats.totalMaintenanceCost).toLocaleString("ar-SA")} ر.س` : "0 ر.س",
+      title: t.dashboard.totalCost,
+      value: stats?.totalMaintenanceCost
+        ? `${Number(stats.totalMaintenanceCost).toLocaleString(language === "ar" ? "ar-SA" : language === "ur" ? "ur-PK" : "en-US")} ${language === "en" ? "SAR" : "ر.س"}`
+        : `0 ${language === "en" ? "SAR" : "ر.س"}`,
       icon: DollarSign,
       color: "text-violet-600 bg-violet-50",
       onClick: () => setLocation("/reports"),
@@ -69,19 +72,17 @@ export default function Home() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">
-            مرحباً، {user?.name || "المستخدم"}
+            {language === "en" ? `Welcome, ${user?.name || "User"}` : language === "ur" ? `خوش آمدید، ${user?.name || "صارف"}` : `مرحباً، ${user?.name || "المستخدم"}`}
           </h1>
           <p className="text-muted-foreground text-sm mt-1">
-            {ROLE_LABELS[user?.role || "user"]} — نظرة عامة على سير العمل
+            {(t.roles as any)[user?.role || "user"] || user?.role} — {t.dashboard.title}
           </p>
         </div>
       </div>
 
-      {/* Stats Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
         {isLoading
           ? Array.from({ length: 7 }).map((_, i) => (
@@ -109,7 +110,6 @@ export default function Home() {
             ))}
       </div>
 
-      {/* Quick Actions */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <Card className="hover:shadow-lg hover:border-primary/20 transition-all duration-200 cursor-pointer" onClick={() => setLocation("/tickets/new")}>
           <CardContent className="p-6 flex items-center gap-4">
@@ -117,8 +117,8 @@ export default function Home() {
               <ClipboardList className="w-6 h-6 text-primary" />
             </div>
             <div>
-              <h3 className="font-semibold">إنشاء بلاغ جديد</h3>
-              <p className="text-sm text-muted-foreground">الإبلاغ عن عطل أو مشكلة صيانة</p>
+              <h3 className="font-semibold">{t.dashboard.newTicket}</h3>
+              <p className="text-sm text-muted-foreground">{t.tickets.description}</p>
             </div>
           </CardContent>
         </Card>
@@ -128,8 +128,8 @@ export default function Home() {
               <ShoppingCart className="w-6 h-6 text-teal-600" />
             </div>
             <div>
-              <h3 className="font-semibold">طلب شراء جديد</h3>
-              <p className="text-sm text-muted-foreground">إنشاء طلب شراء مواد أو قطع غيار</p>
+              <h3 className="font-semibold">{t.dashboard.newPO}</h3>
+              <p className="text-sm text-muted-foreground">{t.purchaseOrders.justification}</p>
             </div>
           </CardContent>
         </Card>

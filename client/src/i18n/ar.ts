@@ -1,0 +1,376 @@
+const ar = {
+  // App
+  appName: "نظام إدارة الصيانة المتكامل",
+  appShort: "CMMS",
+  login: "تسجيل الدخول",
+  loginDesc: "قم بتسجيل الدخول للوصول إلى لوحة التحكم وإدارة عمليات الصيانة",
+  logout: "تسجيل الخروج",
+
+  // Navigation
+  nav: {
+    dashboard: "لوحة التحكم",
+    tickets: "البلاغات",
+    purchaseOrders: "طلبات الشراء",
+    myItems: "أصنافي",
+    inventory: "المستودع",
+    reports: "التقارير",
+    technicianReport: "أداء الفنيين",
+    users: "المستخدمين",
+    sites: "المواقع",
+    aiAssistant: "المساعد الذكي",
+    auditLog: "سجل التدقيق",
+    notifications: "الإشعارات",
+    translationMonitor: "مراقبة الترجمات",
+    menu: "القائمة",
+  },
+
+  // Common
+  common: {
+    save: "حفظ",
+    cancel: "إلغاء",
+    delete: "حذف",
+    edit: "تعديل",
+    create: "إنشاء",
+    add: "إضافة",
+    search: "بحث",
+    filter: "تصفية",
+    all: "الكل",
+    none: "لا يوجد",
+    loading: "جاري التحميل...",
+    noData: "لا توجد بيانات",
+    confirm: "تأكيد",
+    back: "رجوع",
+    next: "التالي",
+    previous: "السابق",
+    close: "إغلاق",
+    submit: "إرسال",
+    upload: "رفع",
+    download: "تحميل",
+    print: "طباعة",
+    export: "تصدير",
+    refresh: "تحديث",
+    actions: "إجراءات",
+    details: "التفاصيل",
+    status: "الحالة",
+    date: "التاريخ",
+    notes: "ملاحظات",
+    description: "الوصف",
+    name: "الاسم",
+    total: "المجموع",
+    yes: "نعم",
+    no: "لا",
+    from: "من",
+    to: "إلى",
+    viewOriginal: "عرض النص الأصلي",
+    translated: "مترجم",
+    original: "أصلي",
+    language: "اللغة",
+    featureComingSoon: "هذه الميزة قيد التطوير",
+  },
+
+  // Roles
+  roles: {
+    operator: "موظف تشغيل",
+    technician: "فني صيانة",
+    maintenance_manager: "مدير صيانة",
+    purchase_manager: "مسؤول طلبات شراء",
+    delegate: "مندوب مشتريات",
+    accountant: "حسابات",
+    senior_management: "إدارة عليا",
+    warehouse: "مستودع",
+    owner: "مالك",
+    admin: "مدير النظام",
+    user: "مستخدم",
+  },
+
+  // Ticket statuses
+  ticketStatus: {
+    new: "جديد",
+    approved: "معتمد",
+    assigned: "مُسند",
+    in_progress: "قيد التنفيذ",
+    needs_purchase: "يحتاج شراء",
+    purchase_pending_estimate: "بانتظار التسعير",
+    purchase_pending_accounting: "بانتظار اعتماد الحسابات",
+    purchase_pending_management: "بانتظار اعتماد الإدارة",
+    purchase_approved: "تم اعتماد الشراء",
+    partial_purchase: "شراء جزئي",
+    purchased: "تم الشراء",
+    received_warehouse: "تم الاستلام من المستودع",
+    repaired: "تم الإصلاح",
+    verified: "تم التحقق",
+    closed: "مغلق",
+  },
+
+  // PO statuses
+  poStatus: {
+    draft: "مسودة",
+    pending_estimate: "بانتظار التسعير",
+    pending_accounting: "بانتظار اعتماد الحسابات",
+    pending_management: "بانتظار اعتماد الإدارة",
+    approved: "معتمد",
+    partial_purchase: "شراء جزئي",
+    purchased: "تم الشراء بالكامل",
+    received: "تم الاستلام",
+    closed: "مغلق",
+    rejected: "مرفوض",
+  },
+
+  // PO Item statuses
+  poItemStatus: {
+    pending: "معلّق",
+    estimated: "تم التسعير",
+    approved: "معتمد",
+    purchased: "تم الشراء",
+    received: "تم الاستلام",
+  },
+
+  // Priorities
+  priority: {
+    low: "منخفضة",
+    medium: "متوسطة",
+    high: "عالية",
+    critical: "حرجة",
+  },
+
+  // Categories
+  category: {
+    electrical: "كهرباء",
+    plumbing: "سباكة",
+    hvac: "تكييف",
+    structural: "إنشائي",
+    mechanical: "ميكانيكي",
+    general: "عام",
+    safety: "سلامة",
+    cleaning: "نظافة",
+  },
+
+  // Dashboard
+  dashboard: {
+    title: "لوحة التحكم الرئيسية",
+    openTickets: "بلاغات مفتوحة",
+    closedToday: "مغلقة اليوم",
+    criticalTickets: "بلاغات حرجة",
+    pendingApprovals: "بانتظار الاعتماد",
+    totalCost: "إجمالي تكلفة الصيانة",
+    pendingPurchase: "أصناف بانتظار الشراء",
+    purchasedItems: "أصناف تم شراؤها",
+    recentTickets: "أحدث البلاغات",
+    recentPOs: "أحدث طلبات الشراء",
+    quickActions: "إجراءات سريعة",
+    newTicket: "بلاغ جديد",
+    newPO: "طلب شراء جديد",
+  },
+
+  // Tickets
+  tickets: {
+    title: "إدارة البلاغات",
+    createNew: "بلاغ جديد",
+    ticketNumber: "رقم البلاغ",
+    ticketTitle: "عنوان البلاغ",
+    reporter: "مقدم البلاغ",
+    assignedTo: "مُسند إلى",
+    site: "الموقع",
+    priority: "الأولوية",
+    category: "التصنيف",
+    description: "وصف المشكلة",
+    repairNotes: "ملاحظات الإصلاح",
+    materialsUsed: "المواد المستخدمة",
+    estimatedCost: "التكلفة التقديرية",
+    actualCost: "التكلفة الفعلية",
+    photos: "الصور",
+    timeline: "المخطط الزمني",
+    assignTechnician: "إسناد لفني",
+    approve: "اعتماد",
+    reject: "رفض",
+    startRepair: "بدء الإصلاح",
+    completeRepair: "إتمام الإصلاح",
+    verify: "تحقق",
+    closeTicket: "إغلاق البلاغ",
+    requestMaterials: "طلب مواد",
+    noTickets: "لا توجد بلاغات",
+    filterByStatus: "تصفية حسب الحالة",
+    filterByPriority: "تصفية حسب الأولوية",
+    filterBySite: "تصفية حسب الموقع",
+  },
+
+  // Purchase Orders
+  purchaseOrders: {
+    title: "إدارة طلبات الشراء",
+    createNew: "طلب شراء جديد",
+    poNumber: "رقم الطلب",
+    justification: "المبررات",
+    requestedBy: "مقدم الطلب",
+    relatedTicket: "البلاغ المرتبط",
+    items: "الأصناف",
+    itemName: "اسم الصنف",
+    quantity: "الكمية",
+    unit: "الوحدة",
+    specifications: "المواصفات",
+    estimatedUnitCost: "التكلفة التقديرية للوحدة",
+    estimatedTotal: "الإجمالي التقديري",
+    actualUnitCost: "التكلفة الفعلية للوحدة",
+    actualTotal: "الإجمالي الفعلي",
+    delegate: "المندوب",
+    supplier: "المورد",
+    accountingApproval: "اعتماد الحسابات",
+    managementApproval: "اعتماد الإدارة",
+    accountingNotes: "ملاحظات الحسابات",
+    managementNotes: "ملاحظات الإدارة",
+    approveAccounting: "اعتماد (حسابات)",
+    approveManagement: "اعتماد (إدارة)",
+    confirmPurchase: "تأكيد الشراء",
+    receiveItem: "استلام الصنف",
+    totalEstimated: "إجمالي التكلفة التقديرية",
+    totalActual: "إجمالي التكلفة الفعلية",
+    noPOs: "لا توجد طلبات شراء",
+    addItem: "إضافة صنف",
+    removeItem: "حذف صنف",
+    totalInWords: "المجموع كتابةً",
+  },
+
+  // Inventory
+  inventory: {
+    title: "إدارة المستودع",
+    itemName: "اسم الصنف",
+    currentStock: "المخزون الحالي",
+    minStock: "الحد الأدنى",
+    unit: "الوحدة",
+    category: "التصنيف",
+    location: "الموقع",
+    lastUpdated: "آخر تحديث",
+    stockIn: "إدخال",
+    stockOut: "إخراج",
+    transactions: "حركات المخزون",
+    lowStock: "مخزون منخفض",
+    waitingReceive: "بانتظار الاستلام",
+    receive: "استلام",
+    actualCost: "التكلفة الفعلية",
+    supplierName: "اسم المورد",
+  },
+
+  // Reports
+  reports: {
+    title: "التقارير",
+    ticketsByStatus: "البلاغات حسب الحالة",
+    ticketsByPriority: "البلاغات حسب الأولوية",
+    ticketsByCategory: "البلاغات حسب التصنيف",
+    costAnalysis: "تحليل التكاليف",
+    estimatedVsActual: "التقديري مقابل الفعلي",
+    monthlyTrend: "الاتجاه الشهري",
+    techPerformance: "أداء الفنيين",
+    overview: "نظرة عامة",
+    comparison: "مقارنة",
+    details: "تفاصيل",
+    trends: "اتجاهات",
+    completionRate: "نسبة الإنجاز",
+    avgResolutionTime: "متوسط وقت الحل",
+    performanceScore: "معدل الأداء",
+    totalAssigned: "إجمالي المُسند",
+    completed: "مكتمل",
+    inProgress: "قيد التنفيذ",
+  },
+
+  // Users
+  users: {
+    title: "إدارة المستخدمين",
+    name: "الاسم",
+    email: "البريد الإلكتروني",
+    phone: "الهاتف",
+    role: "الدور",
+    department: "القسم",
+    active: "نشط",
+    inactive: "غير نشط",
+    changeRole: "تغيير الدور",
+    lastLogin: "آخر دخول",
+  },
+
+  // Sites
+  sites: {
+    title: "إدارة المواقع",
+    siteName: "اسم الموقع",
+    address: "العنوان",
+    description: "الوصف",
+    addSite: "إضافة موقع",
+  },
+
+  // Notifications
+  notifications: {
+    title: "الإشعارات",
+    markAllRead: "تحديد الكل كمقروء",
+    noNotifications: "لا توجد إشعارات",
+    unread: "غير مقروء",
+  },
+
+  // Audit Log
+  audit: {
+    title: "سجل التدقيق",
+    action: "الإجراء",
+    entityType: "نوع الكيان",
+    entityId: "معرف الكيان",
+    user: "المستخدم",
+    timestamp: "الوقت",
+    oldValues: "القيم السابقة",
+    newValues: "القيم الجديدة",
+  },
+
+  // AI Assistant
+  ai: {
+    title: "المساعد الذكي",
+    askQuestion: "اسأل سؤالاً...",
+    analyzing: "جاري التحليل...",
+  },
+
+  // Translation Monitor
+  translationMonitor: {
+    title: "مراقبة الترجمات",
+    stats: "إحصائيات",
+    totalTranslations: "إجمالي الترجمات",
+    pendingTranslations: "معلقة",
+    completedTranslations: "مكتملة",
+    failedTranslations: "فاشلة",
+    approvedTranslations: "معتمدة يدوياً",
+    processingTranslations: "قيد المعالجة",
+    retryFailed: "إعادة المحاولة",
+    retryAll: "إعادة محاولة الكل",
+    jobs: "مهام الترجمة",
+    jobId: "رقم المهمة",
+    sourceText: "النص الأصلي",
+    translatedText: "النص المترجم",
+    sourceLang: "اللغة المصدر",
+    targetLang: "اللغة الهدف",
+    retryCount: "عدد المحاولات",
+    byEntity: "حسب نوع الكيان",
+    byLanguage: "حسب اللغة",
+    cacheSize: "حجم الذاكرة المؤقتة",
+    noJobs: "لا توجد مهام ترجمة",
+  },
+
+  // Time filters
+  timeFilter: {
+    week: "أسبوع",
+    month: "شهر",
+    quarter: "ربع سنة",
+    year: "سنة",
+    custom: "مخصص",
+    from: "من",
+    to: "إلى",
+    apply: "تطبيق",
+  },
+
+  // Language names
+  languages: {
+    ar: "العربية",
+    en: "English",
+    ur: "اردو",
+  },
+} as const;
+
+export default ar;
+
+// Deep type that allows any string values (not const literals)
+type DeepStringify<T> = {
+  [K in keyof T]: T[K] extends string ? string : T[K] extends object ? DeepStringify<T[K]> : T[K];
+};
+
+export type TranslationKeys = DeepStringify<typeof ar>;

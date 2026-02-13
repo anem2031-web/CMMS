@@ -87,3 +87,42 @@
 - [x] صفحة "أصنافي" المخصصة للمندوب
 - [x] تحسين صفحة المستودع مع تبويب "بانتظار الاستلام"
 - [x] جميع الاختبارات ناجحة (28/28)
+
+## Phase 11: Enterprise Multilingual Engine
+### Database & Migration
+- [x] إنشاء جدول entity_translations العام الموحد مع حقول translation_job_id, translation_status, last_attempt_at, error_message
+- [x] إنشاء جدول translation_jobs للـ Queue (حالات: pending/processing/completed/failed)
+- [x] إضافة حقل original_language لجميع الكيانات (tickets, purchase_orders, etc)
+- [x] إضافة حقل preferred_language لجدول users (ar/en/ur)
+- [x] تنفيذ Migration شامل
+
+### Backend - Translation Engine
+- [x] بناء محرك ترجمة مركزي (translationEngine.ts) مع LLM
+- [x] Translation Job Queue غير متزامن (Async) مع Retry Mechanism
+- [x] Smart Re-Translation Logic (ترجمة الحقول المتغيرة فقط)
+- [x] Manual Override (تعديل يدوي مع حالة APPROVED لا تُستبدل آلياً)
+- [x] Fallback Logic (عرض النص الأصلي عند فشل الترجمة)
+- [x] بناء نظام Cache للترجمات
+- [x] بناء API ترجمة عام يدعم جميع الكيانات (CRUD)
+- [x] نظام الإصدارات (Versioning) عند تعديل النصوص
+- [x] تسجيل عمليات الترجمة في Audit Log
+- [x] حماية النص الأصلي من التعديل إلا بصلاحية خاصة
+
+### Frontend - UI i18n
+- [x] إنشاء ملفات ترجمة (ar.ts, en.ts, ur.ts) لجميع عناصر الواجهة
+- [x] بناء LanguageContext مع useTranslation hook
+- [x] دعم RTL/LTR ديناميكي حسب اللغة
+- [x] مبدّل اللغة في الشريط الجانبي
+- [x] تحديث جميع الصفحات لاستخدام نظام i18n
+
+### Dynamic Content Translation
+- [ ] ربط ترجمة المحتوى الديناميكي بالواجهات
+- [ ] خيار "عرض النص الأصلي" في كل حقل مترجم
+- [ ] ترجمة التقارير والطباعة حسب لغة المستخدم
+
+### Monitoring & Admin Panel
+- [x] شاشة إدارية للترجمات (معلقة/فاشلة/إعادة ترجمة/فلترة)
+
+### Testing
+- [x] اختبارات vitest لمحرك الترجمة (37 اختبار ناجح)
+- [x] جميع الاختبارات ناجحة (65/65 شاملة الترجمة)

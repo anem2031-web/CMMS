@@ -4,6 +4,7 @@ import NotFound from "@/pages/NotFound";
 import { Route, Switch } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
+import { LanguageProvider } from "./contexts/LanguageContext";
 import DashboardLayout from "./components/DashboardLayout";
 import Home from "./pages/Home";
 import Tickets from "./pages/Tickets";
@@ -21,6 +22,7 @@ import AuditLog from "./pages/AuditLog";
 import AIAssistant from "./pages/AIAssistant";
 import TechnicianReport from "./pages/TechnicianReport";
 import MyItems from "./pages/MyItems";
+import TranslationMonitor from "./pages/TranslationMonitor";
 
 function Router() {
   return (
@@ -42,6 +44,7 @@ function Router() {
         <Route path="/notifications" component={Notifications} />
         <Route path="/audit-log" component={AuditLog} />
         <Route path="/ai-assistant" component={AIAssistant} />
+        <Route path="/translation-monitor" component={TranslationMonitor} />
         <Route path="/404" component={NotFound} />
         <Route component={NotFound} />
       </Switch>
@@ -53,10 +56,12 @@ function App() {
   return (
     <ErrorBoundary>
       <ThemeProvider defaultTheme="light">
-        <TooltipProvider>
-          <Toaster position="top-center" richColors />
-          <Router />
-        </TooltipProvider>
+        <LanguageProvider>
+          <TooltipProvider>
+            <Toaster position="top-center" richColors />
+            <Router />
+          </TooltipProvider>
+        </LanguageProvider>
       </ThemeProvider>
     </ErrorBoundary>
   );

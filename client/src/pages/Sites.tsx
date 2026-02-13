@@ -9,11 +9,13 @@ import { MapPin, Plus } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useTranslation } from "@/contexts/LanguageContext";
 
 export default function Sites() {
+  const { t } = useTranslation();
   const { data: sites, isLoading, refetch } = trpc.sites.list.useQuery();
   const createMut = trpc.sites.create.useMutation({
-    onSuccess: () => { toast.success("تمت إضافة الموقع"); refetch(); setOpen(false); resetForm(); },
+    onSuccess: () => { toast.success(t.common.save); refetch(); setOpen(false); resetForm(); },
     onError: (err) => toast.error(err.message),
   });
   const [open, setOpen] = useState(false);
@@ -24,20 +26,20 @@ export default function Sites() {
     <div className="space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">المواقع</h1>
-          <p className="text-sm text-muted-foreground mt-1">إدارة مواقع العمل والمباني</p>
+          <h1 className="text-2xl font-bold tracking-tight">{t.sites.title}</h1>
+          <p className="text-sm text-muted-foreground mt-1">{t.sites.description}</p>
         </div>
         <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger asChild>
-            <Button className="gap-2"><Plus className="w-4 h-4" /> إضافة موقع</Button>
+            <Button className="gap-2"><Plus className="w-4 h-4" /> {t.sites.addSite}</Button>
           </DialogTrigger>
           <DialogContent>
-            <DialogHeader><DialogTitle>إضافة موقع جديد</DialogTitle></DialogHeader>
+            <DialogHeader><DialogTitle>{t.sites.addSite}</DialogTitle></DialogHeader>
             <div className="space-y-4">
-              <div className="space-y-2"><Label>اسم الموقع *</Label><Input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="مثال: المبنى الرئيسي" /></div>
-              <div className="space-y-2"><Label>العنوان</Label><Input value={form.address} onChange={e => setForm(f => ({ ...f, address: e.target.value }))} placeholder="العنوان الكامل" /></div>
-              <div className="space-y-2"><Label>الوصف</Label><Textarea value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} placeholder="وصف إضافي..." rows={3} /></div>
-              <Button onClick={() => { if (!form.name.trim()) { toast.error("يرجى إدخال اسم الموقع"); return; } createMut.mutate(form); }} disabled={createMut.isPending} className="w-full">إضافة</Button>
+              <div className="space-y-2"><Label>{t.sites.siteName} *</Label><Input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} /></div>
+              <div className="space-y-2"><Label>{t.sites.address}</Label><Input value={form.address} onChange={e => setForm(f => ({ ...f, address: e.target.value }))} /></div>
+              <div className="space-y-2"><Label>{t.sites.description}</Label><Textarea value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} rows={3} /></div>
+              <Button onClick={() => { if (!form.name.trim()) { toast.error(t.sites.siteName); return; } createMut.mutate(form); }} disabled={createMut.isPending} className="w-full">{t.common.add}</Button>
             </div>
           </DialogContent>
         </Dialog>
@@ -48,8 +50,7 @@ export default function Sites() {
       ) : !sites?.length ? (
         <Card><CardContent className="p-12 text-center">
           <MapPin className="w-12 h-12 mx-auto text-muted-foreground/40 mb-4" />
-          <h3 className="font-semibold text-lg mb-1">لا توجد مواقع</h3>
-          <p className="text-sm text-muted-foreground">لم تتم إضافة أي مواقع بعد</p>
+          <h3 className="font-semibold text-lg mb-1">{t.common.noData}</h3>
         </CardContent></Card>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">

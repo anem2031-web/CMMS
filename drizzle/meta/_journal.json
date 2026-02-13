@@ -15,6 +15,13 @@
       "when": 1770923535705,
       "tag": "0001_careless_yellow_claw",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1770972563306,
+      "tag": "0002_breezy_norrin_radd",
+      "breakpoints": true
     }
   ]
 }

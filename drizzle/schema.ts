@@ -6,6 +6,9 @@ import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, decimal, json, bo
 export const userRoles = ["operator", "technician", "maintenance_manager", "purchase_manager", "delegate", "accountant", "senior_management", "warehouse", "owner"] as const;
 export type UserRole = typeof userRoles[number];
 
+export const supportedLanguages = ["ar", "en", "ur"] as const;
+export type SupportedLanguage = typeof supportedLanguages[number];
+
 export const users = mysqlTable("users", {
   id: int("id").autoincrement().primaryKey(),
   openId: varchar("openId", { length: 64 }).notNull().unique(),
@@ -15,6 +18,7 @@ export const users = mysqlTable("users", {
   loginMethod: varchar("loginMethod", { length: 64 }),
   role: mysqlEnum("role", ["user", "admin", ...userRoles]).default("user").notNull(),
   department: varchar("department", { length: 100 }),
+  preferredLanguage: mysqlEnum("preferredLanguage", ["ar", "en", "ur"]).default("ar").notNull(),
   isActive: boolean("isActive").default(true).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
@@ -69,6 +73,7 @@ export const tickets = mysqlTable("tickets", {
   materialsUsed: text("materialsUsed"),
   estimatedCost: decimal("estimatedCost", { precision: 12, scale: 2 }),
   actualCost: decimal("actualCost", { precision: 12, scale: 2 }),
+  originalLanguage: mysqlEnum("originalLanguage", ["ar", "en", "ur"]).default("ar").notNull(),
   closedAt: timestamp("closedAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
@@ -101,6 +106,7 @@ export const purchaseOrders = mysqlTable("purchase_orders", {
   rejectedAt: timestamp("rejectedAt"),
   rejectionReason: text("rejectionReason"),
   notes: text("notes"),
+  originalLanguage: mysqlEnum("originalLanguage", ["ar", "en", "ur"]).default("ar").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
@@ -131,6 +137,7 @@ export const purchaseOrderItems = mysqlTable("purchase_order_items", {
   purchasedAt: timestamp("purchasedAt"),
   receivedAt: timestamp("receivedAt"),
   receivedById: int("receivedById"),
+  originalLanguage: mysqlEnum("originalLanguage", ["ar", "en", "ur"]).default("ar").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
@@ -224,5 +231,67 @@ export const attachments = mysqlTable("attachments", {
   mimeType: varchar("mimeType", { length: 100 }),
   fileSize: int("fileSize"),
   uploadedById: int("uploadedById").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+// ============================================================
+// 12. ENTITY TRANSLATIONS (Central Multilingual Engine)
+// ============================================================
+export const translationStatuses = ["pending", "processing", "completed", "failed", "approved"] as const;
+export type TranslationStatus = typeof translationStatuses[number];
+
+export const entityTranslations = mysqlTable("entity_translations", {
+  id: int("id").autoincrement().primaryKey(),
+  entityType: varchar("entityType", { length: 50 }).notNull(), // TICKET, PO, PO_ITEM, INVENTORY, etc
+  entityId: int("entityId").notNull(),
+  fieldName: varchar("fieldName", { length: 100 }).notNull(), // title, description, notes, etc
+  languageCode: mysqlEnum("languageCode", ["ar", "en", "ur"]).notNull(),
+  translatedText: text("translatedText"),
+  translationStatus: mysqlEnum("translationStatus", [...translationStatuses]).default("pending").notNull(),
+  versionNumber: int("versionNumber").default(1).notNull(),
+  translationJobId: int("translationJobId"),
+  lastAttemptAt: timestamp("lastAttemptAt"),
+  errorMessage: text("errorMessage"),
+  approvedById: int("approvedById"),
+  approvedAt: timestamp("approvedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+// ============================================================
+// 13. TRANSLATION JOBS (Async Queue)
+// ============================================================
+export const translationJobStatuses = ["pending", "processing", "completed", "failed"] as const;
+
+export const translationJobs = mysqlTable("translation_jobs", {
+  id: int("id").autoincrement().primaryKey(),
+  entityType: varchar("entityType", { length: 50 }).notNull(),
+  entityId: int("entityId").notNull(),
+  fieldName: varchar("fieldName", { length: 100 }).notNull(),
+  sourceLanguage: mysqlEnum("sourceLanguage", ["ar", "en", "ur"]).notNull(),
+  targetLanguage: mysqlEnum("targetLanguage", ["ar", "en", "ur"]).notNull(),
+  sourceText: text("sourceText").notNull(),
+  translatedText: text("translatedText"),
+  status: mysqlEnum("status", ["pending", "processing", "completed", "failed"]).default("pending").notNull(),
+  retryCount: int("retryCount").default(0).notNull(),
+  maxRetries: int("maxRetries").default(3).notNull(),
+  errorMessage: text("errorMessage"),
+  previousTextHash: varchar("previousTextHash", { length: 64 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  completedAt: timestamp("completedAt"),
+});
+
+// ============================================================
+// 14. TRANSLATION VERSIONS (History)
+// ============================================================
+export const translationVersions = mysqlTable("translation_versions", {
+  id: int("id").autoincrement().primaryKey(),
+  entityTranslationId: int("entityTranslationId").notNull(),
+  versionNumber: int("versionNumber").notNull(),
+  translatedText: text("translatedText"),
+  translationStatus: varchar("translationStatus", { length: 20 }).notNull(),
+  changedById: int("changedById"),
+  changeReason: varchar("changeReason", { length: 50 }), // auto_translate, manual_edit, re_translate
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });

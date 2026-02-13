@@ -4,10 +4,11 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { PO_STATUS_LABELS } from "@shared/types";
 import { Plus, ShoppingCart } from "lucide-react";
 import { useState } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useTranslation } from "@/contexts/LanguageContext";
+import { useStaticLabels } from "@/hooks/useContentTranslation";
 
 const PO_STATUS_COLORS: Record<string, string> = {
   draft: "bg-gray-100 text-gray-700",
@@ -25,28 +26,34 @@ const PO_STATUS_COLORS: Record<string, string> = {
 export default function PurchaseOrders() {
   const [, setLocation] = useLocation();
   const [statusFilter, setStatusFilter] = useState("all");
+  const { t, language } = useTranslation();
+  const { getPOStatusLabel } = useStaticLabels();
+
   const { data: pos, isLoading } = trpc.purchaseOrders.list.useQuery(
     statusFilter !== "all" ? { status: statusFilter } : undefined
   );
+
+  const locale = language === "ar" ? "ar-SA" : language === "ur" ? "ur-PK" : "en-US";
+  const currency = language === "en" ? "SAR" : "ر.س";
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">طلبات الشراء</h1>
-          <p className="text-sm text-muted-foreground mt-1">إدارة ومتابعة طلبات الشراء والاعتمادات</p>
+          <h1 className="text-2xl font-bold tracking-tight">{t.purchaseOrders.title}</h1>
+          <p className="text-sm text-muted-foreground mt-1">{t.purchaseOrders.justification}</p>
         </div>
         <Button onClick={() => setLocation("/purchase-orders/new")} className="gap-2">
-          <Plus className="w-4 h-4" /> طلب شراء جديد
+          <Plus className="w-4 h-4" /> {t.purchaseOrders.createNew}
         </Button>
       </div>
 
       <div className="flex gap-3">
         <Select value={statusFilter} onValueChange={setStatusFilter}>
-          <SelectTrigger className="w-[200px]"><SelectValue placeholder="الحالة" /></SelectTrigger>
+          <SelectTrigger className="w-[200px]"><SelectValue placeholder={t.common.status} /></SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">جميع الحالات</SelectItem>
-            {Object.entries(PO_STATUS_LABELS).map(([k, v]) => <SelectItem key={k} value={k}>{v}</SelectItem>)}
+            <SelectItem value="all">{t.common.all}</SelectItem>
+            {Object.keys(t.poStatus).map(k => <SelectItem key={k} value={k}>{getPOStatusLabel(k)}</SelectItem>)}
           </SelectContent>
         </Select>
       </div>
@@ -56,8 +63,8 @@ export default function PurchaseOrders() {
       ) : !pos?.length ? (
         <Card><CardContent className="p-12 text-center">
           <ShoppingCart className="w-12 h-12 mx-auto text-muted-foreground/40 mb-4" />
-          <h3 className="font-semibold text-lg mb-1">لا توجد طلبات شراء</h3>
-          <p className="text-sm text-muted-foreground">لم يتم العثور على طلبات مطابقة</p>
+          <h3 className="font-semibold text-lg mb-1">{t.purchaseOrders.noPOs}</h3>
+          <p className="text-sm text-muted-foreground">{t.common.noData}</p>
         </CardContent></Card>
       ) : (
         <div className="space-y-2">
@@ -70,13 +77,13 @@ export default function PurchaseOrders() {
                       <span className="text-xs font-mono text-muted-foreground">{po.poNumber}</span>
                     </div>
                     <div className="flex items-center gap-4 text-xs text-muted-foreground mt-1">
-                      {po.totalEstimatedCost && <span>تقديري: {Number(po.totalEstimatedCost).toLocaleString("ar-SA")} ر.س</span>}
-                      {po.totalActualCost && <span>فعلي: {Number(po.totalActualCost).toLocaleString("ar-SA")} ر.س</span>}
-                      <span>{new Date(po.createdAt).toLocaleDateString("ar-SA")}</span>
+                      {po.totalEstimatedCost && <span>{t.purchaseOrders.totalEstimated}: {Number(po.totalEstimatedCost).toLocaleString(locale)} {currency}</span>}
+                      {po.totalActualCost && <span>{t.purchaseOrders.totalActual}: {Number(po.totalActualCost).toLocaleString(locale)} {currency}</span>}
+                      <span>{new Date(po.createdAt).toLocaleDateString(locale)}</span>
                     </div>
                   </div>
                   <Badge className={`status-badge shrink-0 ${PO_STATUS_COLORS[po.status] || "bg-gray-100 text-gray-700"}`}>
-                    {PO_STATUS_LABELS[po.status] || po.status}
+                    {getPOStatusLabel(po.status)}
                   </Badge>
                 </div>
               </CardContent>
