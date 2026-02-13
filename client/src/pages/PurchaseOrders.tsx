@@ -12,6 +12,7 @@ import { useTranslation } from "@/contexts/LanguageContext";
 import { useStaticLabels } from "@/hooks/useContentTranslation";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { toast } from "sonner";
+import { ExportButton } from "@/components/ExportButton";
 
 const PO_STATUS_COLORS: Record<string, string> = {
   draft: "bg-gray-100 text-gray-700",
@@ -68,9 +69,12 @@ export default function PurchaseOrders() {
           <h1 className="text-2xl font-bold tracking-tight">{t.purchaseOrders.title}</h1>
           <p className="text-sm text-muted-foreground mt-1">{t.purchaseOrders.justification}</p>
         </div>
-        <Button onClick={() => setLocation("/purchase-orders/new")} className="gap-2">
-          <Plus className="w-4 h-4" /> {t.purchaseOrders.createNew}
-        </Button>
+        <div className="flex gap-2 flex-wrap">
+          <ExportButton endpoint="purchase-orders" filename="purchase-orders" />
+          <Button onClick={() => setLocation("/purchase-orders/new")} className="gap-2">
+            <Plus className="w-4 h-4" /> {t.purchaseOrders.createNew}
+          </Button>
+        </div>
       </div>
 
       <div className="flex gap-3">

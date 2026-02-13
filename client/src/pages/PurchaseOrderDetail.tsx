@@ -9,11 +9,12 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
   ArrowRight, ShoppingCart, CheckCircle2, Clock, DollarSign, Loader2,
-  Camera, Package, User, FileText, AlertCircle, ExternalLink, XCircle
+  Camera, Package, User, FileText, AlertCircle, ExternalLink, XCircle, Pencil
 } from "lucide-react";
 import { useState, useMemo } from "react";
 import { toast } from "sonner";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { useTranslation } from "@/contexts/LanguageContext";
 import { useStaticLabels } from "@/hooks/useContentTranslation";
 
@@ -79,6 +80,7 @@ export default function PurchaseOrderDetail() {
   const rejectMut = trpc.purchaseOrders.reject.useMutation({ onSuccess: () => { toast.success(t.common.confirm); refetch(); }, onError: (e) => toast.error(e.message) });
   const confirmPurchaseMut = trpc.purchaseOrders.confirmItemPurchase.useMutation({ onSuccess: () => { toast.success(t.common.confirm); refetch(); }, onError: (e) => toast.error(e.message) });
   const receiveItemMut = trpc.purchaseOrders.confirmDeliveryToWarehouse.useMutation({ onSuccess: () => { toast.success(t.common.confirm); refetch(); }, onError: (e: any) => toast.error(e.message) });
+  const editItemMut = trpc.purchaseOrders.editItem.useMutation({ onSuccess: () => { toast.success(t.common.savedSuccessfully); setEditingItem(null); refetch(); }, onError: (e: any) => toast.error(e.message) });
 
   const role = user?.role || "";
   const userId = user?.id;
@@ -88,6 +90,8 @@ export default function PurchaseOrderDetail() {
   const [uploadingItem, setUploadingItem] = useState<string | null>(null);
   const [itemPhotos, setItemPhotos] = useState<Record<number, { invoice?: string; purchased?: string }>>({});
   const [receiveData, setReceiveData] = useState<Record<number, { cost: string; supplier: string; supplierItemName: string; warehousePhotoUrl: string }>>({});
+  const [editingItem, setEditingItem] = useState<any>(null);
+  const [editForm, setEditForm] = useState<{ itemName: string; description: string; quantity: number; estimatedUnitCost: string }>({ itemName: "", description: "", quantity: 1, estimatedUnitCost: "" });
 
   const isDelegate = role === "delegate";
   const isAccountant = role === "accountant";
@@ -231,6 +235,15 @@ export default function PurchaseOrderDetail() {
                     {item.notes && <p className="text-xs text-muted-foreground mt-1.5 bg-muted/50 rounded-lg p-2">{item.notes}</p>}
                   </div>
                   {item.photoUrl && <img src={item.photoUrl} alt="" className="w-16 h-16 rounded-lg object-cover border shrink-0" />}
+                  {/* Edit button - only for editable statuses */}
+                  {po && ['draft', 'pending_estimate', 'pending_accounting'].includes(po.status) && ['pending', 'estimated'].includes(item.status) && (
+                    <Button variant="ghost" size="icon" className="shrink-0 h-8 w-8" onClick={() => {
+                      setEditingItem(item);
+                      setEditForm({ itemName: item.itemName, description: item.description || "", quantity: item.quantity, estimatedUnitCost: item.estimatedUnitCost || "" });
+                    }}>
+                      <Pencil className="w-3.5 h-3.5 text-muted-foreground" />
+                    </Button>
+                  )}
                 </div>
 
                 {(item.estimatedUnitCost || item.actualUnitCost) && (
@@ -478,6 +491,54 @@ export default function PurchaseOrderDetail() {
           </CardContent>
         </Card>
       )}
+
+      {/* Edit Item Dialog */}
+      <Dialog open={!!editingItem} onOpenChange={(open) => { if (!open) setEditingItem(null); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Pencil className="w-4 h-4" />
+              {t.common.edit} - {editingItem?.itemName}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>{t.purchaseOrders.itemName}</Label>
+              <Input value={editForm.itemName} onChange={e => setEditForm(p => ({ ...p, itemName: e.target.value }))} />
+            </div>
+            <div className="space-y-2">
+              <Label>{t.common.description}</Label>
+              <Textarea value={editForm.description} onChange={e => setEditForm(p => ({ ...p, description: e.target.value }))} rows={3} />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label>{t.purchaseOrders.quantity}</Label>
+                <Input type="number" min={1} value={editForm.quantity} onChange={e => setEditForm(p => ({ ...p, quantity: parseInt(e.target.value) || 1 }))} />
+              </div>
+              <div className="space-y-2">
+                <Label>{t.purchaseOrders.estimatedUnitCost}</Label>
+                <Input type="number" step="0.01" value={editForm.estimatedUnitCost} onChange={e => setEditForm(p => ({ ...p, estimatedUnitCost: e.target.value }))} placeholder="0.00" />
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditingItem(null)}>{t.common.cancel}</Button>
+            <Button onClick={() => {
+              if (!editingItem) return;
+              editItemMut.mutate({
+                id: editingItem.id,
+                purchaseOrderId: po.id,
+                itemName: editForm.itemName,
+                description: editForm.description,
+                quantity: editForm.quantity,
+                estimatedUnitCost: editForm.estimatedUnitCost || undefined,
+              });
+            }} disabled={editItemMut.isPending}>
+              {editItemMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : t.common.save}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

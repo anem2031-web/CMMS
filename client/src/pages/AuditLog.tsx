@@ -8,6 +8,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Shield, Search, Filter, ChevronDown, ChevronUp, Eye, User, Calendar, FileText, ArrowRight } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useState, useMemo } from "react";
+import { ExportButton } from "@/components/ExportButton";
 import { useTranslation } from "@/contexts/LanguageContext";
 
 const ACTION_COLORS: Record<string, string> = {
@@ -137,11 +138,14 @@ export default function AuditLog() {
             {filteredLogs.length} {language === "ar" ? "سجل" : language === "ur" ? "ریکارڈ" : "records"}
           </p>
         </div>
-        <Button variant="outline" size="sm" className="gap-2" onClick={() => setShowFilters(!showFilters)}>
-          <Filter className="w-4 h-4" />
-          {t.common.filter}
-          {showFilters ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-        </Button>
+        <div className="flex gap-2">
+          <ExportButton endpoint="audit-logs" filename="audit-logs" />
+          <Button variant="outline" size="sm" className="gap-2" onClick={() => setShowFilters(!showFilters)}>
+            <Filter className="w-4 h-4" />
+            {t.common.filter}
+            {showFilters ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+          </Button>
+        </div>
       </div>
 
       {/* Filters */}

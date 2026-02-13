@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
+import { ExportButton } from "@/components/ExportButton";
 import { useLocation } from "wouter";
 import { useTranslation } from "@/contexts/LanguageContext";
 
@@ -86,7 +87,9 @@ export default function Inventory() {
           </h1>
           <p className="text-sm text-muted-foreground mt-1">{t.common.description}</p>
         </div>
-        {isWarehouse && (
+        <div className="flex gap-2 flex-wrap">
+          <ExportButton endpoint="inventory" filename="inventory" />
+          {isWarehouse && (
           <Dialog open={open} onOpenChange={setOpen}>
             <DialogTrigger asChild>
               <Button className="gap-2"><Plus className="w-4 h-4" /> {t.common.add}</Button>
@@ -110,6 +113,7 @@ export default function Inventory() {
             </DialogContent>
           </Dialog>
         )}
+        </div>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">

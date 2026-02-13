@@ -12,6 +12,7 @@ import rateLimit from "express-rate-limit";
 import multer from "multer";
 import { storagePut } from "../storage";
 import { nanoid } from "nanoid";
+import { exportTicketsToExcel, exportPurchaseOrdersToExcel, exportTechnicianPerformanceToExcel, exportAuditLogToExcel, exportInventoryToExcel } from "../exportService";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -60,6 +61,62 @@ async function startServer() {
       console.error("Upload error:", error);
       res.status(500).json({ error: "Upload failed" });
     }
+  });
+
+  // ============================================================
+  // EXPORT ENDPOINTS
+  // ============================================================
+  app.get("/api/export/tickets", async (_req: any, res: any) => {
+    try {
+      const buffer = await exportTicketsToExcel();
+      res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+      res.setHeader("Content-Disposition", `attachment; filename=tickets-${Date.now()}.xlsx`);
+      res.send(buffer);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.get("/api/export/purchase-orders", async (_req: any, res: any) => {
+    try {
+      const buffer = await exportPurchaseOrdersToExcel();
+      res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+      res.setHeader("Content-Disposition", `attachment; filename=purchase-orders-${Date.now()}.xlsx`);
+      res.send(buffer);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.get("/api/export/technician-performance", async (req: any, res: any) => {
+    try {
+      const filters: any = {};
+      if (req.query.dateFrom) filters.dateFrom = new Date(req.query.dateFrom);
+      if (req.query.dateTo) { const d = new Date(req.query.dateTo); d.setHours(23, 59, 59, 999); filters.dateTo = d; }
+      const buffer = await exportTechnicianPerformanceToExcel(Object.keys(filters).length ? filters : undefined);
+      res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+      res.setHeader("Content-Disposition", `attachment; filename=technician-performance-${Date.now()}.xlsx`);
+      res.send(buffer);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.get("/api/export/audit-log", async (req: any, res: any) => {
+    try {
+      const filters: any = {};
+      if (req.query.entityType) filters.entityType = req.query.entityType;
+      if (req.query.action) filters.action = req.query.action;
+      if (req.query.dateFrom) filters.dateFrom = new Date(req.query.dateFrom);
+      if (req.query.dateTo) { const d = new Date(req.query.dateTo); d.setHours(23, 59, 59, 999); filters.dateTo = d; }
+      const buffer = await exportAuditLogToExcel(Object.keys(filters).length ? filters : undefined);
+      res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+      res.setHeader("Content-Disposition", `attachment; filename=audit-log-${Date.now()}.xlsx`);
+      res.send(buffer);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.get("/api/export/inventory", async (_req: any, res: any) => {
+    try {
+      const buffer = await exportInventoryToExcel();
+      res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+      res.setHeader("Content-Disposition", `attachment; filename=inventory-${Date.now()}.xlsx`);
+      res.send(buffer);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
   // OAuth callback under /api/oauth/callback

@@ -10,6 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { STATUS_COLORS, PRIORITY_COLORS } from "@shared/types";
 import { Plus, Search, ClipboardList, Pencil, Trash2 } from "lucide-react";
+import { ExportButton } from "@/components/ExportButton";
 import { useState } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useTranslation } from "@/contexts/LanguageContext";
@@ -80,10 +81,13 @@ export default function Tickets() {
           <h1 className="text-2xl font-bold tracking-tight">{t.tickets.title}</h1>
           <p className="text-sm text-muted-foreground mt-1">{t.tickets.description}</p>
         </div>
-        <Button onClick={() => setLocation("/tickets/new")} className="gap-2">
-          <Plus className="w-4 h-4" />
-          {t.tickets.createNew}
-        </Button>
+        <div className="flex gap-2 flex-wrap">
+          <ExportButton endpoint="tickets" filename="tickets" />
+          <Button onClick={() => setLocation("/tickets/new")} className="gap-2">
+            <Plus className="w-4 h-4" />
+            {t.tickets.createNew}
+          </Button>
+        </div>
       </div>
 
       <div className="flex flex-wrap gap-3">
