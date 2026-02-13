@@ -6,39 +6,105 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ArrowRight, Upload, Loader2 } from "lucide-react";
+import { ArrowRight, Upload, Loader2, X, FileText, Image as ImageIcon } from "lucide-react";
 import { useState, useRef } from "react";
 import { toast } from "sonner";
 import { useTranslation } from "@/contexts/LanguageContext";
 import { useStaticLabels } from "@/hooks/useContentTranslation";
+
+type UploadedFile = {
+  url: string;
+  fileName: string;
+  fileType: string;
+  fileSize: number;
+};
 
 export default function CreateTicket() {
   const [, setLocation] = useLocation();
   const { t } = useTranslation();
   const { getPriorityLabel, getCategoryLabel } = useStaticLabels();
   const { data: sites } = trpc.sites.list.useQuery();
-  const createMut = trpc.tickets.create.useMutation({
-    onSuccess: (data) => { toast.success(`${t.tickets.createNew} ${data.ticketNumber}`); setLocation(`/tickets/${data.id}`); },
-    onError: (err) => toast.error(err.message),
-  });
 
   const [form, setForm] = useState({ title: "", description: "", priority: "medium", category: "general", siteId: "", locationDetail: "", beforePhotoUrl: "" });
+  const [attachments, setAttachments] = useState<UploadedFile[]>([]);
   const [uploading, setUploading] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
+  const createMut = trpc.tickets.create.useMutation({
+    onSuccess: async (data) => {
+      // Save attachments for this ticket
+      if (attachments.length > 0) {
+        for (const att of attachments) {
+          try {
+            await createAttachmentMut.mutateAsync({
+              entityType: "ticket",
+              entityId: data.id!,
+              fileName: att.fileName,
+              fileUrl: att.url,
+              fileKey: att.url.split('/').pop() || att.fileName,
+              mimeType: att.fileType,
+              fileSize: att.fileSize,
+            });
+          } catch (err) {
+            console.error("Failed to save attachment:", err);
+          }
+        }
+      }
+      toast.success(`${t.tickets.createNew} ${data.ticketNumber}`);
+      setLocation(`/tickets/${data.id}`);
+    },
+    onError: (err) => toast.error(err.message),
+  });
+
+  const createAttachmentMut = trpc.attachments.add.useMutation();
+
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
     setUploading(true);
-    try {
-      const formData = new FormData();
-      formData.append("file", file);
-      const res = await fetch("/api/upload", { method: "POST", body: formData });
-      const data = await res.json();
-      if (data.url) { setForm(f => ({ ...f, beforePhotoUrl: data.url })); toast.success(t.common.save); }
-      else toast.error(t.common.close);
-    } catch { toast.error(t.common.close); }
+    
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      try {
+        const formData = new FormData();
+        formData.append("file", file);
+        const res = await fetch("/api/upload", { method: "POST", body: formData });
+        const data = await res.json();
+        if (data.url) {
+          const newFile: UploadedFile = {
+            url: data.url,
+            fileName: file.name,
+            fileType: file.type,
+            fileSize: file.size,
+          };
+          setAttachments(prev => [...prev, newFile]);
+          // Set first image as beforePhotoUrl
+          if (file.type.startsWith("image/") && !form.beforePhotoUrl) {
+            setForm(f => ({ ...f, beforePhotoUrl: data.url }));
+          }
+        } else {
+          toast.error(`${(t as any).attachments?.uploadFailed || "فشل رفع الملف"}: ${file.name}`);
+        }
+      } catch {
+        toast.error(`${(t as any).attachments?.uploadFailed || "فشل رفع الملف"}: ${file.name}`);
+      }
+    }
     setUploading(false);
+    // Reset input
+    if (fileRef.current) fileRef.current.value = "";
+  };
+
+  const removeAttachment = (index: number) => {
+    setAttachments(prev => {
+      const removed = prev[index];
+      const newList = prev.filter((_, i) => i !== index);
+      // If removed was the beforePhotoUrl, update it
+      if (removed.url === form.beforePhotoUrl) {
+        const nextImage = newList.find(f => f.fileType.startsWith("image/"));
+        setForm(f => ({ ...f, beforePhotoUrl: nextImage?.url || "" }));
+      }
+      return newList;
+    });
   };
 
   const handleSubmit = () => {
@@ -47,6 +113,13 @@ export default function CreateTicket() {
       ...form,
       siteId: form.siteId ? parseInt(form.siteId) : undefined,
     });
+  };
+
+  const isImage = (type: string) => type.startsWith("image/");
+  const formatSize = (bytes: number) => {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   };
 
   return (
@@ -101,21 +174,69 @@ export default function CreateTicket() {
               <Input value={form.locationDetail} onChange={e => setForm(f => ({ ...f, locationDetail: e.target.value }))} />
             </div>
           </div>
-          <div className="space-y-2">
-            <Label>{t.tickets.photos}</Label>
-            <input ref={fileRef} type="file" accept="image/*" onChange={handleUpload} className="hidden" />
-            {form.beforePhotoUrl ? (
-              <div className="relative">
-                <img src={form.beforePhotoUrl} alt="preview" className="rounded-lg max-h-48 object-cover border" />
-                <Button variant="destructive" size="sm" className="absolute top-2 left-2" onClick={() => setForm(f => ({ ...f, beforePhotoUrl: "" }))}>{t.common.delete}</Button>
+
+          {/* Attachments Section */}
+          <div className="space-y-3">
+            <Label>{(t as any).attachments?.title || "المرفقات"}</Label>
+            <input
+              ref={fileRef}
+              type="file"
+              accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt"
+              onChange={handleUpload}
+              className="hidden"
+              multiple
+            />
+            
+            {/* Upload Button */}
+            <Button
+              variant="outline"
+              onClick={() => fileRef.current?.click()}
+              disabled={uploading}
+              className="w-full h-20 border-dashed gap-2"
+            >
+              {uploading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Upload className="w-5 h-5" />}
+              {uploading
+                ? (t.common.loading)
+                : ((t as any).attachments?.uploadHint || "اضغط لرفع صور أو ملفات (يمكنك اختيار عدة ملفات)")
+              }
+            </Button>
+
+            {/* Uploaded Files Preview */}
+            {attachments.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-sm text-muted-foreground">
+                  {(t as any).attachments?.filesCount?.replace("{count}", String(attachments.length)) || `${attachments.length} ملف مرفق`}
+                </p>
+                <div className="grid grid-cols-2 gap-2">
+                  {attachments.map((att, idx) => (
+                    <div key={idx} className="relative group border rounded-lg overflow-hidden">
+                      {isImage(att.fileType) ? (
+                        <img src={att.url} alt={att.fileName} className="w-full h-32 object-cover" />
+                      ) : (
+                        <div className="w-full h-32 flex flex-col items-center justify-center bg-muted/50 gap-2">
+                          <FileText className="w-8 h-8 text-muted-foreground" />
+                          <span className="text-xs text-muted-foreground truncate max-w-[90%] px-2">{att.fileName}</span>
+                        </div>
+                      )}
+                      <div className="absolute bottom-0 left-0 right-0 bg-black/60 text-white text-xs px-2 py-1 flex justify-between items-center">
+                        <span className="truncate flex-1">{att.fileName}</span>
+                        <span className="mr-2 shrink-0">{formatSize(att.fileSize)}</span>
+                      </div>
+                      <Button
+                        variant="destructive"
+                        size="icon"
+                        className="absolute top-1 left-1 h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
+                        onClick={() => removeAttachment(idx)}
+                      >
+                        <X className="w-3 h-3" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
               </div>
-            ) : (
-              <Button variant="outline" onClick={() => fileRef.current?.click()} disabled={uploading} className="w-full h-24 border-dashed gap-2">
-                {uploading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Upload className="w-5 h-5" />}
-                {uploading ? t.common.loading : t.tickets.photos}
-              </Button>
             )}
           </div>
+
           <Button onClick={handleSubmit} disabled={createMut.isPending} className="w-full" size="lg">
             {createMut.isPending ? <Loader2 className="w-4 h-4 animate-spin ml-2" /> : null}
             {t.tickets.createNew}

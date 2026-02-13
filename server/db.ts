@@ -3,7 +3,7 @@ import { drizzle } from "drizzle-orm/mysql2";
 import {
   InsertUser, users, tickets, purchaseOrders, purchaseOrderItems,
   inventory, inventoryTransactions, notifications, auditLogs,
-  ticketStatusHistory, attachments, sites
+  ticketStatusHistory, attachments, sites, backups
 } from "../drizzle/schema";
 import { ENV } from './_core/env';
 
@@ -53,6 +53,38 @@ export async function getUserByOpenId(openId: string) {
   if (!db) return undefined;
   const result = await db.select().from(users).where(eq(users.openId, openId)).limit(1);
   return result.length > 0 ? result[0] : undefined;
+}
+
+export async function getUserByUsername(username: string) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db.select().from(users).where(eq(users.username, username)).limit(1);
+  return result.length > 0 ? result[0] : undefined;
+}
+
+export async function createLocalUser(data: { username: string; passwordHash: string; name: string; role: string; email?: string; phone?: string; department?: string }) {
+  const db = await getDb();
+  if (!db) return null;
+  const openId = `local_${data.username}_${Date.now()}`;
+  const result = await db.insert(users).values({
+    openId,
+    username: data.username,
+    passwordHash: data.passwordHash,
+    name: data.name,
+    role: data.role as any,
+    email: data.email || null,
+    phone: data.phone || null,
+    department: data.department || null,
+    loginMethod: "local",
+    lastSignedIn: new Date(),
+  });
+  return result[0].insertId;
+}
+
+export async function updateUserPassword(userId: number, passwordHash: string) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(users).set({ passwordHash }).where(eq(users.id, userId));
 }
 
 export async function getAllUsers() {
@@ -460,7 +492,20 @@ export async function createAttachment(data: any) {
 export async function getAttachments(entityType: string, entityId: number) {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(attachments).where(and(eq(attachments.entityType, entityType), eq(attachments.entityId, entityId)));
+  return db.select().from(attachments).where(and(eq(attachments.entityType, entityType), eq(attachments.entityId, entityId))).orderBy(desc(attachments.createdAt));
+}
+
+export async function getAttachmentById(id: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const result = await db.select().from(attachments).where(eq(attachments.id, id)).limit(1);
+  return result[0] || null;
+}
+
+export async function deleteAttachment(id: number) {
+  const db = await getDb();
+  if (!db) return;
+  await db.delete(attachments).where(eq(attachments.id, id));
 }
 
 // ============================================================
@@ -581,4 +626,111 @@ export async function getAuditLogsEnhanced(filters?: { entityType?: string; enti
   if (filters?.dateTo) conditions.push(lte(auditLogs.createdAt, filters.dateTo));
   const where = conditions.length > 0 ? and(...conditions) : undefined;
   return db.select().from(auditLogs).where(where).orderBy(desc(auditLogs.createdAt)).limit(filters?.limit || 500);
+}
+
+// ============================================================
+// BACKUPS
+// ============================================================
+export async function createBackup(data: { name: string; description?: string; fileUrl: string; fileKey: string; fileSize?: number; tablesCount?: number; recordsCount?: number; createdById: number }) {
+  const db = await getDb();
+  if (!db) return null;
+  const result = await db.insert(backups).values(data);
+  return result[0].insertId;
+}
+
+export async function getBackups() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(backups).orderBy(desc(backups.createdAt));
+}
+
+export async function getBackupById(id: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const result = await db.select().from(backups).where(eq(backups.id, id)).limit(1);
+  return result[0] || null;
+}
+
+export async function deleteBackup(id: number) {
+  const db = await getDb();
+  if (!db) return;
+  await db.delete(backups).where(eq(backups.id, id));
+}
+
+// Export all tables data for backup
+export async function exportAllTablesData() {
+  const db = await getDb();
+  if (!db) return null;
+  
+  const [
+    usersData, sitesData, ticketsData, ticketHistoryData,
+    posData, poItemsData, inventoryData, invTransData,
+    notificationsData, auditData, attachmentsData
+  ] = await Promise.all([
+    db.select().from(users),
+    db.select().from(sites),
+    db.select().from(tickets),
+    db.select().from(ticketStatusHistory),
+    db.select().from(purchaseOrders),
+    db.select().from(purchaseOrderItems),
+    db.select().from(inventory),
+    db.select().from(inventoryTransactions),
+    db.select().from(notifications),
+    db.select().from(auditLogs),
+    db.select().from(attachments),
+  ]);
+
+  const data = {
+    users: usersData,
+    sites: sitesData,
+    tickets: ticketsData,
+    ticket_status_history: ticketHistoryData,
+    purchase_orders: posData,
+    purchase_order_items: poItemsData,
+    inventory: inventoryData,
+    inventory_transactions: invTransData,
+    notifications: notificationsData,
+    audit_logs: auditData,
+    attachments: attachmentsData,
+  };
+
+  let totalRecords = 0;
+  for (const table of Object.values(data)) {
+    totalRecords += table.length;
+  }
+
+  return { data, tablesCount: Object.keys(data).length, recordsCount: totalRecords };
+}
+
+// Restore tables from backup data
+export async function restoreFromBackup(backupData: Record<string, any[]>) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  // Delete in reverse dependency order
+  await db.delete(inventoryTransactions);
+  await db.delete(attachments);
+  await db.delete(ticketStatusHistory);
+  await db.delete(notifications);
+  await db.delete(auditLogs);
+  await db.delete(purchaseOrderItems);
+  await db.delete(purchaseOrders);
+  await db.delete(inventory);
+  await db.delete(tickets);
+  await db.delete(sites);
+  // Don't delete users to preserve login sessions
+
+  // Insert in dependency order
+  if (backupData.sites?.length) await db.insert(sites).values(backupData.sites);
+  if (backupData.tickets?.length) await db.insert(tickets).values(backupData.tickets);
+  if (backupData.ticket_status_history?.length) await db.insert(ticketStatusHistory).values(backupData.ticket_status_history);
+  if (backupData.purchase_orders?.length) await db.insert(purchaseOrders).values(backupData.purchase_orders);
+  if (backupData.purchase_order_items?.length) await db.insert(purchaseOrderItems).values(backupData.purchase_order_items);
+  if (backupData.inventory?.length) await db.insert(inventory).values(backupData.inventory);
+  if (backupData.inventory_transactions?.length) await db.insert(inventoryTransactions).values(backupData.inventory_transactions);
+  if (backupData.notifications?.length) await db.insert(notifications).values(backupData.notifications);
+  if (backupData.audit_logs?.length) await db.insert(auditLogs).values(backupData.audit_logs);
+  if (backupData.attachments?.length) await db.insert(attachments).values(backupData.attachments);
+
+  return { success: true };
 }

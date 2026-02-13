@@ -24,6 +24,7 @@ import TechnicianReport from "./pages/TechnicianReport";
 import MyItems from "./pages/MyItems";
 import TranslationMonitor from "./pages/TranslationMonitor";
 import PurchaseCycle from "./pages/PurchaseCycle";
+import Backup from "./pages/Backup";
 
 function Router() {
   return (
@@ -47,6 +48,7 @@ function Router() {
         <Route path="/audit-log" component={AuditLog} />
         <Route path="/ai-assistant" component={AIAssistant} />
         <Route path="/translation-monitor" component={TranslationMonitor} />
+        <Route path="/backup" component={Backup} />
         <Route path="/404" component={NotFound} />
         <Route component={NotFound} />
       </Switch>

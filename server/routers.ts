@@ -10,6 +10,7 @@ import { notifyOwner } from "./_core/notification";
 import { invokeLLM } from "./_core/llm";
 import { nanoid } from "nanoid";
 import { translationRouter } from "./routers/translation";
+import bcrypt from "bcryptjs";
 
 // Role-based middleware
 const roleMiddleware = (allowedRoles: string[]) => {
@@ -35,6 +36,43 @@ export const appRouter = router({
       const cookieOptions = getSessionCookieOptions(ctx.req);
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
       return { success: true } as const;
+    }),
+    login: publicProcedure.input(z.object({
+      username: z.string().min(1),
+      password: z.string().min(1),
+    })).mutation(async ({ input, ctx }) => {
+      const user = await db.getUserByUsername(input.username);
+      if (!user || !user.passwordHash) {
+        throw new TRPCError({ code: "UNAUTHORIZED", message: "اسم المستخدم أو كلمة المرور غير صحيحة" });
+      }
+      if (!user.isActive) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "الحساب معطل" });
+      }
+      const valid = await bcrypt.compare(input.password, user.passwordHash);
+      if (!valid) {
+        throw new TRPCError({ code: "UNAUTHORIZED", message: "اسم المستخدم أو كلمة المرور غير صحيحة" });
+      }
+      // Create session
+      const { sdk } = await import("./_core/sdk");
+      const sessionToken = await sdk.createSessionToken(user.openId, { name: user.name || user.username || "", expiresInMs: 1000 * 60 * 60 * 24 * 365 });
+      const cookieOptions = getSessionCookieOptions(ctx.req);
+      ctx.res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: 1000 * 60 * 60 * 24 * 365 });
+      // Update last signed in
+      await db.upsertUser({ openId: user.openId, lastSignedIn: new Date() });
+      return { success: true, user: { id: user.id, name: user.name, role: user.role, username: user.username } };
+    }),
+    changePassword: protectedProcedure.input(z.object({
+      currentPassword: z.string().optional(),
+      newPassword: z.string().min(4),
+    })).mutation(async ({ input, ctx }) => {
+      // Admin can change any user's password without current password
+      if (ctx.user.passwordHash && input.currentPassword) {
+        const valid = await bcrypt.compare(input.currentPassword, ctx.user.passwordHash);
+        if (!valid) throw new TRPCError({ code: "UNAUTHORIZED", message: "كلمة المرور الحالية غير صحيحة" });
+      }
+      const hash = await bcrypt.hash(input.newPassword, 10);
+      await db.updateUserPassword(ctx.user.id, hash);
+      return { success: true };
     }),
   }),
 
@@ -74,6 +112,39 @@ export const appRouter = router({
       const { id, ...updateData } = input;
       await db.updateUser(id, updateData);
       await db.createAuditLog({ userId: ctx.user.id, action: "update_user", entityType: "user", entityId: id, oldValues: { name: oldUser.name, email: oldUser.email, role: oldUser.role }, newValues: updateData });
+      return { success: true };
+    }),
+
+    create: protectedProcedure.input(z.object({
+      username: z.string().min(2),
+      password: z.string().min(4),
+      name: z.string().min(1),
+      role: z.string(),
+      email: z.string().optional(),
+      phone: z.string().optional(),
+      department: z.string().optional(),
+    })).mutation(async ({ input, ctx }) => {
+      if (ctx.user.role !== "owner" && ctx.user.role !== "admin") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "فقط المالك يمكنه إنشاء مستخدمين" });
+      }
+      const existing = await db.getUserByUsername(input.username);
+      if (existing) throw new TRPCError({ code: "CONFLICT", message: "اسم المستخدم موجود مسبقاً" });
+      const hash = await bcrypt.hash(input.password, 10);
+      const id = await db.createLocalUser({ ...input, passwordHash: hash });
+      await db.createAuditLog({ userId: ctx.user.id, action: "create_user", entityType: "user", entityId: id!, newValues: { username: input.username, name: input.name, role: input.role } });
+      return { success: true, id };
+    }),
+
+    resetPassword: protectedProcedure.input(z.object({
+      userId: z.number(),
+      newPassword: z.string().min(4),
+    })).mutation(async ({ input, ctx }) => {
+      if (ctx.user.role !== "owner" && ctx.user.role !== "admin") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "ليس لديك صلاحية" });
+      }
+      const hash = await bcrypt.hash(input.newPassword, 10);
+      await db.updateUserPassword(input.userId, hash);
+      await db.createAuditLog({ userId: ctx.user.id, action: "reset_password", entityType: "user", entityId: input.userId });
       return { success: true };
     }),
 
@@ -767,6 +838,64 @@ export const appRouter = router({
   }),
 
   // ============================================================
+  // ATTACHMENTS
+  // ============================================================
+  attachments: router({
+    list: protectedProcedure.input(z.object({
+      entityType: z.string(),
+      entityId: z.number(),
+    })).query(async ({ input }) => {
+      return db.getAttachments(input.entityType, input.entityId);
+    }),
+
+    add: protectedProcedure.input(z.object({
+      entityType: z.string(),
+      entityId: z.number(),
+      fileName: z.string(),
+      fileUrl: z.string(),
+      fileKey: z.string(),
+      mimeType: z.string().optional(),
+      fileSize: z.number().optional(),
+    })).mutation(async ({ input, ctx }) => {
+      const id = await db.createAttachment({
+        entityType: input.entityType,
+        entityId: input.entityId,
+        fileName: input.fileName,
+        fileUrl: input.fileUrl,
+        fileKey: input.fileKey,
+        mimeType: input.mimeType || null,
+        fileSize: input.fileSize || null,
+        uploadedById: ctx.user.id,
+      });
+      await db.createAuditLog({
+        userId: ctx.user.id,
+        action: "add_attachment",
+        entityType: input.entityType,
+        entityId: input.entityId,
+        newValues: { fileName: input.fileName, mimeType: input.mimeType },
+      });
+      return { id };
+    }),
+
+    delete: protectedProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
+      const attachment = await db.getAttachmentById(input.id);
+      if (!attachment) throw new TRPCError({ code: "NOT_FOUND", message: "المرفق غير موجود" });
+      // Only owner/admin/manager or the uploader can delete
+      const canDelete = ["owner", "admin", "maintenance_manager"].includes(ctx.user.role) || attachment.uploadedById === ctx.user.id;
+      if (!canDelete) throw new TRPCError({ code: "FORBIDDEN", message: "ليس لديك صلاحية لحذف هذا المرفق" });
+      await db.deleteAttachment(input.id);
+      await db.createAuditLog({
+        userId: ctx.user.id,
+        action: "delete_attachment",
+        entityType: attachment.entityType,
+        entityId: attachment.entityId,
+        oldValues: { fileName: attachment.fileName, mimeType: attachment.mimeType },
+      });
+      return { success: true };
+    }),
+  }),
+
+  // ============================================================
   // DASHBOARD
   // ============================================================
   dashboard: router({
@@ -1002,6 +1131,99 @@ ${JSON.stringify(recentAudit.map((a: any) => ({ action: a.action, entity: a.enti
 
       const response = await invokeLLM({ messages });
       return { answer: response.choices[0]?.message?.content || "لم أتمكن من الإجابة" };
+    }),
+  }),
+
+  // ============================================================
+  // DATABASE BACKUPS
+  // ============================================================
+  backups: router({
+    list: protectedProcedure.query(async ({ ctx }) => {
+      if (!["owner", "admin"].includes(ctx.user.role)) throw new TRPCError({ code: "FORBIDDEN", message: "ليس لديك صلاحية" });
+      return db.getBackups();
+    }),
+
+    create: protectedProcedure.input(z.object({
+      description: z.string().optional(),
+    }).optional()).mutation(async ({ input, ctx }) => {
+      if (!["owner", "admin"].includes(ctx.user.role)) throw new TRPCError({ code: "FORBIDDEN", message: "ليس لديك صلاحية" });
+      
+      // Export all data
+      const exportResult = await db.exportAllTablesData();
+      if (!exportResult) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "فشل تصدير البيانات" });
+
+      const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+      const backupName = `backup-${timestamp}`;
+      const jsonData = JSON.stringify(exportResult.data, null, 2);
+      const buffer = Buffer.from(jsonData, "utf-8");
+      
+      // Upload to S3
+      const fileKey = `cmms/backups/${backupName}.json`;
+      const { url } = await storagePut(fileKey, buffer, "application/json");
+
+      // Save backup record
+      const id = await db.createBackup({
+        name: backupName,
+        description: input?.description || `نسخة احتياطية - ${new Date().toLocaleDateString("ar-SA")}`,
+        fileUrl: url,
+        fileKey,
+        fileSize: buffer.length,
+        tablesCount: exportResult.tablesCount,
+        recordsCount: exportResult.recordsCount,
+        createdById: ctx.user.id,
+      });
+
+      await db.createAuditLog({
+        userId: ctx.user.id,
+        action: "create_backup",
+        entityType: "backup",
+        entityId: id!,
+        newValues: { name: backupName, tablesCount: exportResult.tablesCount, recordsCount: exportResult.recordsCount },
+      });
+
+      return { id, name: backupName, tablesCount: exportResult.tablesCount, recordsCount: exportResult.recordsCount, fileUrl: url };
+    }),
+
+    restore: protectedProcedure.input(z.object({
+      id: z.number(),
+    })).mutation(async ({ input, ctx }) => {
+      if (!["owner", "admin"].includes(ctx.user.role)) throw new TRPCError({ code: "FORBIDDEN", message: "ليس لديك صلاحية" });
+      
+      const backup = await db.getBackupById(input.id);
+      if (!backup) throw new TRPCError({ code: "NOT_FOUND", message: "النسخة الاحتياطية غير موجودة" });
+
+      // Download backup file
+      const response = await fetch(backup.fileUrl);
+      if (!response.ok) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "فشل تحميل ملف النسخة الاحتياطية" });
+      const backupData = await response.json();
+
+      // Restore data
+      await db.restoreFromBackup(backupData);
+
+      await db.createAuditLog({
+        userId: ctx.user.id,
+        action: "restore_backup",
+        entityType: "backup",
+        entityId: input.id,
+        newValues: { name: backup.name, restoredAt: new Date().toISOString() },
+      });
+
+      return { success: true, name: backup.name };
+    }),
+
+    delete: protectedProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
+      if (!["owner", "admin"].includes(ctx.user.role)) throw new TRPCError({ code: "FORBIDDEN", message: "ليس لديك صلاحية" });
+      const backup = await db.getBackupById(input.id);
+      if (!backup) throw new TRPCError({ code: "NOT_FOUND", message: "النسخة الاحتياطية غير موجودة" });
+      await db.deleteBackup(input.id);
+      await db.createAuditLog({
+        userId: ctx.user.id,
+        action: "delete_backup",
+        entityType: "backup",
+        entityId: input.id,
+        oldValues: { name: backup.name },
+      });
+      return { success: true };
     }),
   }),
 

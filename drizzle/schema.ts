@@ -12,6 +12,8 @@ export type SupportedLanguage = typeof supportedLanguages[number];
 export const users = mysqlTable("users", {
   id: int("id").autoincrement().primaryKey(),
   openId: varchar("openId", { length: 64 }).notNull().unique(),
+  username: varchar("username", { length: 100 }).unique(),
+  passwordHash: varchar("passwordHash", { length: 255 }),
   name: text("name"),
   email: varchar("email", { length: 320 }),
   phone: varchar("phone", { length: 20 }),
@@ -243,7 +245,23 @@ export const attachments = mysqlTable("attachments", {
 });
 
 // ============================================================
-// 12. ENTITY TRANSLATIONS (Central Multilingual Engine)
+// 12. DATABASE BACKUPS
+// ============================================================
+export const backups = mysqlTable("backups", {
+  id: int("id").autoincrement().primaryKey(),
+  name: varchar("name", { length: 200 }).notNull(),
+  description: text("description"),
+  fileUrl: text("fileUrl").notNull(),
+  fileKey: varchar("fileKey", { length: 500 }).notNull(),
+  fileSize: int("fileSize"),
+  tablesCount: int("tablesCount"),
+  recordsCount: int("recordsCount"),
+  createdById: int("createdById").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+// ============================================================
+// 13. ENTITY TRANSLATIONS (Central Multilingual Engine)
 // ============================================================
 export const translationStatuses = ["pending", "processing", "completed", "failed", "approved"] as const;
 export type TranslationStatus = typeof translationStatuses[number];

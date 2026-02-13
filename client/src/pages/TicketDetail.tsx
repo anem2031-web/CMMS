@@ -11,7 +11,7 @@ import {
   ArrowRight, Clock, User, MapPin, CheckCircle2, Wrench, ShoppingCart,
   Camera, Loader2, FileText, AlertCircle, ExternalLink
 } from "lucide-react";
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { toast } from "sonner";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useTranslation } from "@/contexts/LanguageContext";
@@ -31,6 +31,8 @@ export default function TicketDetail() {
   const { data: history } = trpc.tickets.history.useQuery({ ticketId }, { enabled: !!ticketId });
   const { data: users } = trpc.users.list.useQuery();
   const { data: allPOs } = trpc.purchaseOrders.list.useQuery();
+  const attachmentsInput = useMemo(() => ({ entityType: "ticket", entityId: ticketId }), [ticketId]);
+  const { data: ticketAttachments } = trpc.attachments.list.useQuery(attachmentsInput, { enabled: !!ticketId });
 
   const approveMut = trpc.tickets.approve.useMutation({ onSuccess: () => { toast.success(t.common.confirm); refetch(); } });
   const assignMut = trpc.tickets.assign.useMutation({ onSuccess: () => { toast.success(t.tickets.assignedTo); refetch(); } });
@@ -175,6 +177,31 @@ export default function TicketDetail() {
                   </div>
                 )}
               </div>
+
+              {/* Ticket Attachments */}
+              {ticketAttachments && ticketAttachments.length > 0 && (
+                <div className="space-y-3">
+                  <p className="text-sm font-medium flex items-center gap-1.5">
+                    <FileText className="w-3.5 h-3.5" /> {(t as any).attachments?.title || "المرفقات"} ({ticketAttachments.length})
+                  </p>
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                    {ticketAttachments.map((att: any) => (
+                      <a key={att.id} href={att.fileUrl} target="_blank" rel="noopener noreferrer" className="group border rounded-lg overflow-hidden hover:border-primary transition-colors">
+                        {att.mimeType?.startsWith("image/") ? (
+                          <img src={att.fileUrl} alt={att.fileName} className="w-full h-28 object-cover" />
+                        ) : (
+                          <div className="w-full h-28 flex flex-col items-center justify-center bg-muted/50 gap-2">
+                            <FileText className="w-8 h-8 text-muted-foreground" />
+                          </div>
+                        )}
+                        <div className="px-2 py-1.5 text-xs truncate text-muted-foreground group-hover:text-primary">
+                          {att.fileName}
+                        </div>
+                      </a>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {ticket.repairNotes && (
                 <div className="bg-muted/50 rounded-lg p-3">

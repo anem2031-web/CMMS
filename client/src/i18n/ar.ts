@@ -348,6 +348,28 @@ const ar = {
     newValues: "القيم الجديدة",
   },
 
+  // Attachments
+  attachments: {
+    title: "المرفقات",
+    addAttachment: "إضافة مرفق",
+    uploadFiles: "رفع ملفات",
+    dragDrop: "اسحب الملفات هنا أو انقر للاختيار",
+    supportedFormats: "الصيغ المدعومة: صور (JPG, PNG, GIF) وملفات (PDF)",
+    maxSize: "الحد الأقصى لحجم الملف: 10 ميجابايت",
+    uploading: "جاري الرفع...",
+    uploadSuccess: "تم رفع الملف بنجاح",
+    uploadError: "فشل رفع الملف",
+    deleteAttachment: "حذف المرفق",
+    confirmDeleteAttachment: "هل أنت متأكد من حذف هذا المرفق؟",
+    noAttachments: "لا توجد مرفقات",
+    viewFullSize: "عرض بالحجم الكامل",
+    downloadFile: "تحميل الملف",
+    fileCount: "عدد الملفات",
+    totalSize: "الحجم الإجمالي",
+    invalidFileType: "نوع الملف غير مدعوم",
+    fileTooLarge: "حجم الملف كبير جداً",
+  },
+
   // AI Assistant
   ai: {
     title: "المساعد الذكي",
@@ -397,6 +419,42 @@ const ar = {
     ar: "العربية",
     en: "English",
     ur: "اردو",
+  },
+
+  // Backup
+  backup: {
+    title: "النسخ الاحتياطي",
+    description: "إنشاء واستعادة نسخ احتياطية لقاعدة البيانات",
+    createBackup: "إنشاء نسخة احتياطية",
+    createBackupDesc: "حفظ نسخة من قاعدة البيانات الحالية",
+    createNow: "إنشاء نسخة الآن",
+    restoreBackup: "استعادة نسخة احتياطية",
+    restoreBackupDesc: "استعادة قاعدة البيانات من نسخة سابقة",
+    restoreNow: "استعادة نسخة",
+    previousBackups: "النسخ الاحتياطية السابقة",
+    noBackups: "لا توجد نسخ احتياطية سابقة",
+    createdAt: "تاريخ الإنشاء",
+    size: "الحجم",
+    status: "الحالة",
+    completed: "مكتمل",
+    failed: "فشل",
+    inProgress: "جاري",
+    restore: "استعادة",
+    download: "تحميل",
+    confirmRestore: "هل أنت متأكد من استعادة هذه النسخة؟ سيتم استبدال البيانات الحالية.",
+    backupCreated: "تم إنشاء النسخة الاحتياطية بنجاح",
+    backupRestored: "تم استعادة النسخة الاحتياطية بنجاح",
+    tables: "جداول",
+    records: "سجلات",
+  },
+
+  // User Management
+  userManagement: {
+    createUser: "إنشاء مستخدم",
+    username: "اسم المستخدم",
+    password: "كلمة المرور",
+    resetPassword: "إعادة تعيين كلمة المرور",
+    newPassword: "كلمة المرور الجديدة",
   },
 } as const;
 

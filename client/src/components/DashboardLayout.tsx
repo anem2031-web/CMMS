@@ -20,12 +20,12 @@ import {
   SidebarTrigger,
   useSidebar,
 } from "@/components/ui/sidebar";
-import { getLoginUrl } from "@/const";
+import Login from "@/pages/Login";
 import { useIsMobile } from "@/hooks/useMobile";
 import {
   LayoutDashboard, LogOut, PanelLeft, ClipboardList, ShoppingCart,
   Package, BarChart3, Users, Bell, MapPin, Wrench, Shield,
-  Brain, FileText, Settings, ShoppingBag, Truck, Languages
+  Brain, FileText, Settings, ShoppingBag, Truck, Languages, Database
 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -66,6 +66,7 @@ const allMenuDefs: MenuItemDef[] = [
   { icon: Brain, labelKey: "nav.aiAssistant", path: "/ai-assistant", roles: ["owner", "admin", "senior_management", "maintenance_manager"] },
   { icon: Shield, labelKey: "nav.auditLog", path: "/audit-log", roles: ["owner", "admin"] },
   { icon: Languages, labelKey: "nav.translationMonitor", path: "/translation-monitor", roles: ["owner", "admin"] },
+  { icon: Database, labelKey: "backup.title", path: "/backup", roles: ["owner", "admin"] },
 ];
 
 function getNestedValue(obj: any, path: string): string {
@@ -91,28 +92,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   if (loading) return <DashboardLayoutSkeleton />;
 
   if (!user) {
-    return (
-      <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-primary/5 via-background to-primary/10">
-        <div className="flex flex-col items-center gap-8 p-10 max-w-md w-full bg-card rounded-2xl shadow-xl border">
-          <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center">
-            <Wrench className="w-8 h-8 text-primary" />
-          </div>
-          <div className="flex flex-col items-center gap-3 text-center">
-            <h1 className="text-2xl font-bold tracking-tight">نظام إدارة الصيانة</h1>
-            <p className="text-sm text-muted-foreground max-w-sm">
-              قم بتسجيل الدخول للوصول إلى لوحة التحكم وإدارة عمليات الصيانة
-            </p>
-          </div>
-          <Button
-            onClick={() => { window.location.href = getLoginUrl(); }}
-            size="lg"
-            className="w-full shadow-lg hover:shadow-xl transition-all text-base font-medium"
-          >
-            تسجيل الدخول
-          </Button>
-        </div>
-      </div>
-    );
+    return <Login />;
   }
 
   return (
