@@ -6,11 +6,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Package, Plus, AlertTriangle, Loader2, Truck, CheckCircle2,
-  Building2, ClipboardList
+  Building2, ClipboardList, Pencil, Trash2
 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -36,10 +36,31 @@ export default function Inventory() {
     onError: (err: any) => toast.error(err.message),
   });
 
+  const utils = trpc.useUtils();
+  const updateMut = trpc.inventory.update.useMutation({
+    onSuccess: () => { toast.success(t.common.savedSuccessfully); utils.inventory.list.invalidate(); setEditOpen(false); },
+    onError: (err: any) => toast.error(err.message),
+  });
+  const deleteMut = trpc.inventory.delete.useMutation({
+    onSuccess: () => { toast.success(t.common.deletedSuccessfully); utils.inventory.list.invalidate(); setDeleteOpen(false); },
+    onError: (err: any) => toast.error(err.message),
+  });
+
   const [open, setOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [selectedItem, setSelectedItem] = useState<any>(null);
   const [activeTab, setActiveTab] = useState("pending_receive");
   const [form, setForm] = useState({ itemName: "", description: "", quantity: 0, unit: language === "en" ? "piece" : "قطعة", minQuantity: 0, location: "" });
-  const [receiveData, setReceiveData] = useState<Record<number, { cost: string; supplier: string; supplierItemName: string; warehousePhotoUrl: string }>>({});
+  const [editForm, setEditForm] = useState({ itemName: "", description: "", quantity: 0, unit: "", minQuantity: 0, location: "" });
+  const [receiveData, setReceiveData] = useState<Record<number, { cost: string; supplier: string; supplierItemName: string; warehousePhotoUrl: string }>>({}); 
+
+  const openEdit = (item: any) => {
+    setSelectedItem(item);
+    setEditForm({ itemName: item.itemName, description: item.description || "", quantity: item.quantity, unit: item.unit || "", minQuantity: item.minQuantity || 0, location: item.location || "" });
+    setEditOpen(true);
+  };
+  const openDelete = (item: any) => { setSelectedItem(item); setDeleteOpen(true); };
 
   const isWarehouse = user?.role === "warehouse" || user?.role === "admin" || user?.role === "owner";
 
@@ -323,8 +344,18 @@ export default function Inventory() {
                   <Card key={item.id} className="hover:shadow-lg hover:border-primary/20 transition-all duration-200">
                     <CardContent className="p-4">
                       <div className="flex items-start justify-between mb-2">
-                        <h3 className="font-medium text-sm">{item.itemName}</h3>
-                        {isLow && <Badge variant="destructive" className="text-[10px] gap-1"><AlertTriangle className="w-3 h-3" /> {t.inventory.lowStock}</Badge>}
+                        <div className="flex-1 min-w-0">
+                          <h3 className="font-medium text-sm">{item.itemName}</h3>
+                        </div>
+                        <div className="flex items-center gap-1 shrink-0">
+                          {isLow && <Badge variant="destructive" className="text-[10px] gap-1"><AlertTriangle className="w-3 h-3" /> {t.inventory.lowStock}</Badge>}
+                          {isWarehouse && (
+                            <>
+                              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(item)}><Pencil className="w-3.5 h-3.5" /></Button>
+                              <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive" onClick={() => openDelete(item)}><Trash2 className="w-3.5 h-3.5" /></Button>
+                            </>
+                          )}
+                        </div>
                       </div>
                       {item.description && <p className="text-xs text-muted-foreground mb-2">{item.description}</p>}
                       <div className="flex items-center justify-between text-sm">
@@ -340,6 +371,44 @@ export default function Inventory() {
           )}
         </TabsContent>
       </Tabs>
+      {/* Edit Inventory Item Dialog */}
+      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>{t.common.edit} - {selectedItem?.itemName}</DialogTitle></DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2"><Label>{t.inventory.itemName} *</Label><Input value={editForm.itemName} onChange={e => setEditForm(f => ({ ...f, itemName: e.target.value }))} /></div>
+            <div className="space-y-2"><Label>{t.common.description}</Label><Input value={editForm.description} onChange={e => setEditForm(f => ({ ...f, description: e.target.value }))} /></div>
+            <div className="grid grid-cols-3 gap-3">
+              <div className="space-y-2"><Label>{t.inventory.currentStock}</Label><Input type="number" value={editForm.quantity} onChange={e => setEditForm(f => ({ ...f, quantity: parseInt(e.target.value) || 0 }))} /></div>
+              <div className="space-y-2"><Label>{t.inventory.unit}</Label><Input value={editForm.unit} onChange={e => setEditForm(f => ({ ...f, unit: e.target.value }))} /></div>
+              <div className="space-y-2"><Label>{t.inventory.minStock}</Label><Input type="number" value={editForm.minQuantity} onChange={e => setEditForm(f => ({ ...f, minQuantity: parseInt(e.target.value) || 0 }))} /></div>
+            </div>
+            <div className="space-y-2"><Label>{t.inventory.location}</Label><Input value={editForm.location} onChange={e => setEditForm(f => ({ ...f, location: e.target.value }))} /></div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditOpen(false)}>{t.common.cancel}</Button>
+            <Button onClick={() => { if (!editForm.itemName) { toast.error(t.inventory.itemName); return; } updateMut.mutate({ id: selectedItem.id, ...editForm }); }} disabled={updateMut.isPending}>
+              {updateMut.isPending ? t.common.saving : t.common.save}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Inventory Item Dialog */}
+      <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+        <DialogContent className="sm:max-w-[400px]">
+          <DialogHeader>
+            <DialogTitle className="text-destructive">{t.common.confirmDelete}</DialogTitle>
+            <DialogDescription>{t.common.deleteWarning} <strong>{selectedItem?.itemName}</strong>? {t.common.cannotUndo}</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteOpen(false)}>{t.common.cancel}</Button>
+            <Button variant="destructive" onClick={() => deleteMut.mutate({ id: selectedItem.id })} disabled={deleteMut.isPending}>
+              {deleteMut.isPending ? t.common.deleting : t.common.delete}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

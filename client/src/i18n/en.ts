@@ -66,6 +66,15 @@ const en: TranslationKeys = {
     original: "Original",
     language: "Language",
     featureComingSoon: "This feature is coming soon",
+    saving: "Saving...",
+    deleting: "Deleting...",
+    confirmDelete: "Confirm Delete",
+    deleteWarning: "Are you sure you want to delete",
+    savedSuccessfully: "Saved successfully",
+    deletedSuccessfully: "Deleted successfully",
+    editItem: "Edit Item",
+    deleteItem: "Delete Item",
+    cannotUndo: "This action cannot be undone",
   },
 
   roles: {

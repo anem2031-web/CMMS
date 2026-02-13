@@ -66,6 +66,15 @@ const ur: TranslationKeys = {
     original: "اصل",
     language: "زبان",
     featureComingSoon: "یہ خصوصیت جلد آ رہی ہے",
+    saving: "محفوظ ہو رہا ہے...",
+    deleting: "حذف ہو رہا ہے...",
+    confirmDelete: "حذف کی تصدیق",
+    deleteWarning: "کیا آپ واقعی حذف کرنا چاہتے ہیں",
+    savedSuccessfully: "کامیابی سے محفوظ ہو گیا",
+    deletedSuccessfully: "کامیابی سے حذف ہو گیا",
+    editItem: "آئٹم میں ترمیم",
+    deleteItem: "آئٹم حذف",
+    cannotUndo: "یہ عمل واپس نہیں ہو سکتا",
   },
 
   roles: {

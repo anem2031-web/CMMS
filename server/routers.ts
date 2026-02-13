@@ -52,8 +52,40 @@ export const appRouter = router({
       if (ctx.user.role !== "owner" && ctx.user.role !== "admin") {
         throw new TRPCError({ code: "FORBIDDEN", message: "فقط المالك يمكنه تغيير الأدوار" });
       }
+      const oldUser = await db.getUserById(input.userId);
       await db.updateUserRole(input.userId, input.role);
-      await db.createAuditLog({ userId: ctx.user.id, action: "update_role", entityType: "user", entityId: input.userId, newValues: { role: input.role } });
+      await db.createAuditLog({ userId: ctx.user.id, action: "update_role", entityType: "user", entityId: input.userId, oldValues: { role: oldUser?.role }, newValues: { role: input.role } });
+      return { success: true };
+    }),
+
+    update: protectedProcedure.input(z.object({
+      id: z.number(),
+      name: z.string().optional(),
+      email: z.string().optional(),
+      role: z.string().optional(),
+      phone: z.string().optional(),
+      department: z.string().optional(),
+    })).mutation(async ({ input, ctx }) => {
+      if (ctx.user.role !== "owner" && ctx.user.role !== "admin") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "فقط المالك يمكنه تعديل المستخدمين" });
+      }
+      const oldUser = await db.getUserById(input.id);
+      if (!oldUser) throw new TRPCError({ code: "NOT_FOUND", message: "المستخدم غير موجود" });
+      const { id, ...updateData } = input;
+      await db.updateUser(id, updateData);
+      await db.createAuditLog({ userId: ctx.user.id, action: "update_user", entityType: "user", entityId: id, oldValues: { name: oldUser.name, email: oldUser.email, role: oldUser.role }, newValues: updateData });
+      return { success: true };
+    }),
+
+    delete: protectedProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
+      if (ctx.user.role !== "owner" && ctx.user.role !== "admin") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "فقط المالك يمكنه حذف المستخدمين" });
+      }
+      const user = await db.getUserById(input.id);
+      if (!user) throw new TRPCError({ code: "NOT_FOUND", message: "المستخدم غير موجود" });
+      if (user.role === "owner") throw new TRPCError({ code: "FORBIDDEN", message: "لا يمكن حذف المالك" });
+      await db.deleteUser(input.id);
+      await db.createAuditLog({ userId: ctx.user.id, action: "delete_user", entityType: "user", entityId: input.id, oldValues: { name: user.name, email: user.email, role: user.role } });
       return { success: true };
     }),
   }),
@@ -67,8 +99,30 @@ export const appRouter = router({
     }),
     create: protectedProcedure.input(z.object({ name: z.string().min(1), address: z.string().optional(), description: z.string().optional() })).mutation(async ({ input, ctx }) => {
       const id = await db.createSite(input);
-      await db.createAuditLog({ userId: ctx.user.id, action: "create_site", entityType: "site", entityId: id! });
+      await db.createAuditLog({ userId: ctx.user.id, action: "create_site", entityType: "site", entityId: id!, newValues: input });
       return { id };
+    }),
+
+    update: protectedProcedure.input(z.object({
+      id: z.number(),
+      name: z.string().min(1).optional(),
+      address: z.string().optional(),
+      description: z.string().optional(),
+    })).mutation(async ({ input, ctx }) => {
+      const oldSite = await db.getSiteById(input.id);
+      if (!oldSite) throw new TRPCError({ code: "NOT_FOUND", message: "الموقع غير موجود" });
+      const { id, ...updateData } = input;
+      await db.updateSite(id, updateData);
+      await db.createAuditLog({ userId: ctx.user.id, action: "update_site", entityType: "site", entityId: id, oldValues: { name: oldSite.name, address: oldSite.address, description: oldSite.description }, newValues: updateData });
+      return { success: true };
+    }),
+
+    delete: protectedProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
+      const site = await db.getSiteById(input.id);
+      if (!site) throw new TRPCError({ code: "NOT_FOUND", message: "الموقع غير موجود" });
+      await db.deleteSite(input.id);
+      await db.createAuditLog({ userId: ctx.user.id, action: "delete_site", entityType: "site", entityId: input.id, oldValues: { name: site.name, address: site.address } });
+      return { success: true };
     }),
   }),
 
@@ -176,6 +230,46 @@ export const appRouter = router({
       return { success: true };
     }),
 
+    update: protectedProcedure.input(z.object({
+      id: z.number(),
+      title: z.string().optional(),
+      description: z.string().optional(),
+      priority: z.string().optional(),
+      category: z.string().optional(),
+      siteId: z.number().optional(),
+      locationDetail: z.string().optional(),
+    })).mutation(async ({ input, ctx }) => {
+      const ticket = await db.getTicketById(input.id);
+      if (!ticket) throw new TRPCError({ code: "NOT_FOUND", message: "البلاغ غير موجود" });
+      // Only owner/admin/manager or the reporter can edit
+      const canEdit = ["owner", "admin", "maintenance_manager"].includes(ctx.user.role) || ticket.reportedById === ctx.user.id;
+      if (!canEdit) throw new TRPCError({ code: "FORBIDDEN", message: "ليس لديك صلاحية لتعديل هذا البلاغ" });
+      if (ticket.status === "closed") throw new TRPCError({ code: "BAD_REQUEST", message: "لا يمكن تعديل بلاغ مغلق" });
+      const { id, ...updateData } = input;
+      const oldValues: any = {};
+      const newValues: any = {};
+      if (input.title && input.title !== ticket.title) { oldValues.title = ticket.title; newValues.title = input.title; }
+      if (input.description && input.description !== ticket.description) { oldValues.description = ticket.description; newValues.description = input.description; }
+      if (input.priority && input.priority !== ticket.priority) { oldValues.priority = ticket.priority; newValues.priority = input.priority; }
+      if (input.category && input.category !== ticket.category) { oldValues.category = ticket.category; newValues.category = input.category; }
+      if (input.siteId && input.siteId !== ticket.siteId) { oldValues.siteId = ticket.siteId; newValues.siteId = input.siteId; }
+      await db.updateTicket(id, updateData);
+      await db.createAuditLog({ userId: ctx.user.id, action: "update_ticket", entityType: "ticket", entityId: id, oldValues, newValues });
+      return { success: true };
+    }),
+
+    delete: protectedProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
+      const ticket = await db.getTicketById(input.id);
+      if (!ticket) throw new TRPCError({ code: "NOT_FOUND", message: "البلاغ غير موجود" });
+      // Only owner/admin/manager can delete
+      if (!["owner", "admin", "maintenance_manager"].includes(ctx.user.role)) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "ليس لديك صلاحية لحذف البلاغات" });
+      }
+      await db.deleteTicket(input.id);
+      await db.createAuditLog({ userId: ctx.user.id, action: "delete_ticket", entityType: "ticket", entityId: input.id, oldValues: { ticketNumber: ticket.ticketNumber, title: ticket.title, status: ticket.status } });
+      return { success: true };
+    }),
+
     history: protectedProcedure.input(z.object({ ticketId: z.number() })).query(async ({ input }) => {
       return db.getTicketHistory(input.ticketId);
     }),
@@ -244,6 +338,47 @@ export const appRouter = router({
       }
       await db.createAuditLog({ userId: ctx.user.id, action: "create_po", entityType: "purchase_order", entityId: poId! });
       return { id: poId, poNumber };
+    }),
+
+    update: protectedProcedure.input(z.object({
+      id: z.number(),
+      notes: z.string().optional(),
+    })).mutation(async ({ input, ctx }) => {
+      const po = await db.getPurchaseOrderById(input.id);
+      if (!po) throw new TRPCError({ code: "NOT_FOUND", message: "طلب الشراء غير موجود" });
+      if (!["pending_estimate", "pending_accounting"].includes(po.status)) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "لا يمكن تعديل طلب شراء معتمد" });
+      }
+      const oldValues = { notes: po.notes };
+      await db.updatePurchaseOrder(input.id, { notes: input.notes });
+      await db.createAuditLog({ userId: ctx.user.id, action: "update_po", entityType: "purchase_order", entityId: input.id, oldValues, newValues: { notes: input.notes } });
+      return { success: true };
+    }),
+
+    delete: protectedProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
+      const po = await db.getPurchaseOrderById(input.id);
+      if (!po) throw new TRPCError({ code: "NOT_FOUND", message: "طلب الشراء غير موجود" });
+      if (!["owner", "admin", "maintenance_manager", "purchase_manager"].includes(ctx.user.role)) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "ليس لديك صلاحية لحذف طلبات الشراء" });
+      }
+      if (["funded", "partially_purchased", "completed"].includes(po.status)) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "لا يمكن حذف طلب شراء مموّل أو مكتمل" });
+      }
+      await db.deletePurchaseOrder(input.id);
+      await db.createAuditLog({ userId: ctx.user.id, action: "delete_po", entityType: "purchase_order", entityId: input.id, oldValues: { poNumber: po.poNumber, status: po.status, notes: po.notes } });
+      return { success: true };
+    }),
+
+    deleteItem: protectedProcedure.input(z.object({ id: z.number(), purchaseOrderId: z.number() })).mutation(async ({ input, ctx }) => {
+      const po = await db.getPurchaseOrderById(input.purchaseOrderId);
+      if (!po) throw new TRPCError({ code: "NOT_FOUND" });
+      if (!["pending_estimate", "pending_accounting"].includes(po.status)) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "لا يمكن حذف صنف من طلب معتمد" });
+      }
+      const item = await db.getPOItemById(input.id);
+      await db.deletePOItem(input.id);
+      await db.createAuditLog({ userId: ctx.user.id, action: "delete_po_item", entityType: "purchase_order_item", entityId: input.id, oldValues: { itemName: item?.itemName, quantity: item?.quantity } });
+      return { success: true };
     }),
 
     // Delegate estimates cost
@@ -492,6 +627,32 @@ export const appRouter = router({
       await db.createAuditLog({ userId: ctx.user.id, action: "create_inventory", entityType: "inventory", entityId: id! });
       return { id };
     }),
+    update: warehouseProcedure.input(z.object({
+      id: z.number(),
+      itemName: z.string().optional(),
+      description: z.string().optional(),
+      unit: z.string().optional(),
+      minQuantity: z.number().optional(),
+      location: z.string().optional(),
+      siteId: z.number().optional(),
+    })).mutation(async ({ input, ctx }) => {
+      const item = await db.getInventoryItemById(input.id);
+      if (!item) throw new TRPCError({ code: "NOT_FOUND", message: "الصنف غير موجود" });
+      const { id, ...updateData } = input;
+      const oldValues = { itemName: item.itemName, description: item.description, unit: item.unit, minQuantity: item.minQuantity, location: item.location };
+      await db.updateInventoryItem(id, updateData);
+      await db.createAuditLog({ userId: ctx.user.id, action: "update_inventory", entityType: "inventory", entityId: id, oldValues, newValues: updateData });
+      return { success: true };
+    }),
+
+    delete: warehouseProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
+      const item = await db.getInventoryItemById(input.id);
+      if (!item) throw new TRPCError({ code: "NOT_FOUND", message: "الصنف غير موجود" });
+      await db.deleteInventoryItem(input.id);
+      await db.createAuditLog({ userId: ctx.user.id, action: "delete_inventory", entityType: "inventory", entityId: input.id, oldValues: { itemName: item.itemName, quantity: item.quantity } });
+      return { success: true };
+    }),
+
     addTransaction: protectedProcedure.input(z.object({
       inventoryId: z.number(),
       type: z.enum(["in", "out"]),
@@ -660,8 +821,21 @@ export const appRouter = router({
     list: protectedProcedure.input(z.object({
       entityType: z.string().optional(),
       entityId: z.number().optional(),
+      userId: z.number().optional(),
+      action: z.string().optional(),
+      dateFrom: z.string().optional(),
+      dateTo: z.string().optional(),
+      limit: z.number().optional(),
     }).optional()).query(async ({ input }) => {
-      return db.getAuditLogs(input || undefined);
+      const filters: any = {};
+      if (input?.entityType) filters.entityType = input.entityType;
+      if (input?.entityId) filters.entityId = input.entityId;
+      if (input?.userId) filters.userId = input.userId;
+      if (input?.action) filters.action = input.action;
+      if (input?.dateFrom) filters.dateFrom = new Date(input.dateFrom);
+      if (input?.dateTo) { const d = new Date(input.dateTo); d.setHours(23, 59, 59, 999); filters.dateTo = d; }
+      if (input?.limit) filters.limit = input.limit;
+      return db.getAuditLogsEnhanced(filters);
     }),
   }),
 

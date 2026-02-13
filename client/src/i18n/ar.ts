@@ -67,6 +67,15 @@ const ar = {
     original: "أصلي",
     language: "اللغة",
     featureComingSoon: "هذه الميزة قيد التطوير",
+    saving: "جاري الحفظ...",
+    deleting: "جاري الحذف...",
+    confirmDelete: "تأكيد الحذف",
+    deleteWarning: "هل أنت متأكد من حذف",
+    savedSuccessfully: "تم الحفظ بنجاح",
+    deletedSuccessfully: "تم الحذف بنجاح",
+    editItem: "تعديل العنصر",
+    deleteItem: "حذف العنصر",
+    cannotUndo: "هذا الإجراء لا يمكن التراجع عنه",
   },
 
   // Roles

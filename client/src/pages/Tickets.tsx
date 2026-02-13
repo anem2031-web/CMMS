@@ -5,12 +5,17 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
 import { STATUS_COLORS, PRIORITY_COLORS } from "@shared/types";
-import { Plus, Search, ClipboardList } from "lucide-react";
+import { Plus, Search, ClipboardList, Pencil, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useTranslation } from "@/contexts/LanguageContext";
 import { useStaticLabels } from "@/hooks/useContentTranslation";
+import { useAuth } from "@/_core/hooks/useAuth";
+import { toast } from "sonner";
 
 export default function Tickets() {
   const [, setLocation] = useLocation();
@@ -19,12 +24,52 @@ export default function Tickets() {
   const [priorityFilter, setPriorityFilter] = useState("all");
   const { t, language } = useTranslation();
   const { getStatusLabel, getPriorityLabel, getCategoryLabel } = useStaticLabels();
+  const { user } = useAuth();
+  const utils = trpc.useUtils();
+
+  const canManage = user && ["owner", "admin", "maintenance_manager"].includes(user.role);
+
+  const [editOpen, setEditOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [selectedTicket, setSelectedTicket] = useState<any>(null);
+  const [editData, setEditData] = useState({ title: "", description: "", priority: "", category: "" });
 
   const { data: tickets, isLoading } = trpc.tickets.list.useQuery({
     status: statusFilter !== "all" ? statusFilter : undefined,
     priority: priorityFilter !== "all" ? priorityFilter : undefined,
     search: search || undefined,
   });
+
+  const updateMutation = trpc.tickets.update.useMutation({
+    onSuccess: () => {
+      toast.success(t.common.savedSuccessfully);
+      utils.tickets.list.invalidate();
+      setEditOpen(false);
+    },
+    onError: (err) => toast.error(err.message),
+  });
+
+  const deleteMutation = trpc.tickets.delete.useMutation({
+    onSuccess: () => {
+      toast.success(t.common.deletedSuccessfully);
+      utils.tickets.list.invalidate();
+      setDeleteOpen(false);
+    },
+    onError: (err) => toast.error(err.message),
+  });
+
+  const openEdit = (ticket: any, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setSelectedTicket(ticket);
+    setEditData({ title: ticket.title, description: ticket.description || "", priority: ticket.priority, category: ticket.category });
+    setEditOpen(true);
+  };
+
+  const openDelete = (ticket: any, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setSelectedTicket(ticket);
+    setDeleteOpen(true);
+  };
 
   const locale = language === "ar" ? "ar-SA" : language === "ur" ? "ur-PK" : "en-US";
 
@@ -112,15 +157,95 @@ export default function Tickets() {
                       <span>{new Date(ticket.createdAt).toLocaleDateString(locale)}</span>
                     </div>
                   </div>
-                  <Badge className={`status-badge shrink-0 ${STATUS_COLORS[ticket.status] || "bg-gray-100 text-gray-700"}`}>
-                    {getStatusLabel(ticket.status)}
-                  </Badge>
+                  <div className="flex items-center gap-2 shrink-0">
+                    {(canManage || ticket.reportedById === user?.id) && ticket.status !== "closed" && (
+                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={(e) => openEdit(ticket, e)}>
+                        <Pencil className="w-4 h-4" />
+                      </Button>
+                    )}
+                    {canManage && (
+                      <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" onClick={(e) => openDelete(ticket, e)}>
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    )}
+                    <Badge className={`status-badge ${STATUS_COLORS[ticket.status] || "bg-gray-100 text-gray-700"}`}>
+                      {getStatusLabel(ticket.status)}
+                    </Badge>
+                  </div>
                 </div>
               </CardContent>
             </Card>
           ))}
         </div>
       )}
+
+      {/* Edit Dialog */}
+      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle>{t.common.edit} - {selectedTicket?.ticketNumber}</DialogTitle>
+            <DialogDescription>{t.tickets.title}</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div>
+              <Label>{t.tickets.ticketTitle}</Label>
+              <Input value={editData.title} onChange={e => setEditData(prev => ({ ...prev, title: e.target.value }))} />
+            </div>
+            <div>
+              <Label>{t.common.description}</Label>
+              <Textarea value={editData.description} onChange={e => setEditData(prev => ({ ...prev, description: e.target.value }))} rows={3} />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>{t.tickets.priority}</Label>
+                <Select value={editData.priority} onValueChange={v => setEditData(prev => ({ ...prev, priority: v }))}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {Object.keys(t.priority).map(k => (
+                      <SelectItem key={k} value={k}>{getPriorityLabel(k)}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>{t.tickets.category}</Label>
+                <Select value={editData.category} onValueChange={v => setEditData(prev => ({ ...prev, category: v }))}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {Object.keys(t.category).map(k => (
+                      <SelectItem key={k} value={k}>{getCategoryLabel(k)}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditOpen(false)}>{t.common.cancel}</Button>
+            <Button onClick={() => updateMutation.mutate({ id: selectedTicket.id, ...editData })} disabled={updateMutation.isPending}>
+              {updateMutation.isPending ? t.common.saving : t.common.save}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+        <DialogContent className="sm:max-w-[400px]">
+          <DialogHeader>
+            <DialogTitle className="text-destructive">{t.common.confirmDelete}</DialogTitle>
+            <DialogDescription>
+              {t.common.deleteWarning} <strong>{selectedTicket?.ticketNumber} - {selectedTicket?.title}</strong>
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteOpen(false)}>{t.common.cancel}</Button>
+            <Button variant="destructive" onClick={() => deleteMutation.mutate({ id: selectedTicket.id })} disabled={deleteMutation.isPending}>
+              {deleteMutation.isPending ? t.common.deleting : t.common.delete}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -2,8 +2,13 @@ import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Users as UsersIcon } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
+import { Users as UsersIcon, Pencil, Trash2 } from "lucide-react";
+import { useState } from "react";
 import { toast } from "sonner";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useTranslation } from "@/contexts/LanguageContext";
@@ -27,13 +32,39 @@ export default function UsersPage() {
   const { user: currentUser } = useAuth();
   const { t } = useTranslation();
   const { getRoleLabel } = useStaticLabels();
-  const { data: users, isLoading, refetch } = trpc.users.list.useQuery();
+  const utils = trpc.useUtils();
+  const { data: users, isLoading } = trpc.users.list.useQuery();
+
   const updateRoleMut = trpc.users.updateRole.useMutation({
-    onSuccess: () => { toast.success(t.users.changeRole); refetch(); },
+    onSuccess: () => { toast.success(t.common.savedSuccessfully); utils.users.list.invalidate(); },
+    onError: (err) => toast.error(err.message),
+  });
+  const updateMut = trpc.users.update.useMutation({
+    onSuccess: () => { toast.success(t.common.savedSuccessfully); utils.users.list.invalidate(); setEditOpen(false); },
+    onError: (err) => toast.error(err.message),
+  });
+  const deleteMut = trpc.users.delete.useMutation({
+    onSuccess: () => { toast.success(t.common.deletedSuccessfully); utils.users.list.invalidate(); setDeleteOpen(false); },
     onError: (err) => toast.error(err.message),
   });
 
   const canManage = ["admin", "owner"].includes(currentUser?.role || "");
+
+  const [editOpen, setEditOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [selectedUser, setSelectedUser] = useState<any>(null);
+  const [editForm, setEditForm] = useState({ name: "", email: "", role: "" });
+
+  const openEdit = (u: any) => {
+    setSelectedUser(u);
+    setEditForm({ name: u.name || "", email: u.email || "", role: u.role });
+    setEditOpen(true);
+  };
+
+  const openDelete = (u: any) => {
+    setSelectedUser(u);
+    setDeleteOpen(true);
+  };
 
   return (
     <div className="space-y-6">
@@ -66,16 +97,26 @@ export default function UsersPage() {
                   </div>
                   <div className="flex items-center gap-2">
                     {canManage && u.id !== currentUser?.id ? (
-                      <Select value={u.role} onValueChange={v => updateRoleMut.mutate({ userId: u.id, role: v })}>
-                        <SelectTrigger className="w-[160px] h-8 text-xs">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {Object.keys(t.roles).map(k => (
-                            <SelectItem key={k} value={k}>{getRoleLabel(k)}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      <>
+                        <Select value={u.role} onValueChange={v => updateRoleMut.mutate({ userId: u.id, role: v })}>
+                          <SelectTrigger className="w-[160px] h-8 text-xs">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {Object.keys(t.roles).map(k => (
+                              <SelectItem key={k} value={k}>{getRoleLabel(k)}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(u)}>
+                          <Pencil className="w-4 h-4" />
+                        </Button>
+                        {u.role !== "owner" && (
+                          <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" onClick={() => openDelete(u)}>
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        )}
+                      </>
                     ) : (
                       <Badge className={`text-[11px] ${ROLE_COLORS[u.role] || "bg-gray-100 text-gray-700"}`}>
                         {getRoleLabel(u.role)}
@@ -88,6 +129,60 @@ export default function UsersPage() {
           ))}
         </div>
       )}
+
+      {/* Edit User Dialog */}
+      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+        <DialogContent className="sm:max-w-[450px]">
+          <DialogHeader>
+            <DialogTitle>{t.common.edit} - {selectedUser?.name || selectedUser?.email}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div>
+              <Label>{t.common.name}</Label>
+              <Input value={editForm.name} onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))} />
+            </div>
+            <div>
+              <Label>{t.users.email}</Label>
+              <Input value={editForm.email} onChange={e => setEditForm(f => ({ ...f, email: e.target.value }))} />
+            </div>
+            <div>
+              <Label>{t.users.role}</Label>
+              <Select value={editForm.role} onValueChange={v => setEditForm(f => ({ ...f, role: v }))}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {Object.keys(t.roles).map(k => (
+                    <SelectItem key={k} value={k}>{getRoleLabel(k)}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditOpen(false)}>{t.common.cancel}</Button>
+            <Button onClick={() => updateMut.mutate({ id: selectedUser.id, ...editForm })} disabled={updateMut.isPending}>
+              {updateMut.isPending ? t.common.saving : t.common.save}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete User Dialog */}
+      <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+        <DialogContent className="sm:max-w-[400px]">
+          <DialogHeader>
+            <DialogTitle className="text-destructive">{t.common.confirmDelete}</DialogTitle>
+            <DialogDescription>
+              {t.common.deleteWarning} <strong>{selectedUser?.name || selectedUser?.email}</strong>? {t.common.cannotUndo}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteOpen(false)}>{t.common.cancel}</Button>
+            <Button variant="destructive" onClick={() => deleteMut.mutate({ id: selectedUser.id })} disabled={deleteMut.isPending}>
+              {deleteMut.isPending ? t.common.deleting : t.common.delete}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
