@@ -326,26 +326,36 @@ export const appRouter = router({
       return { success: true };
     }),
 
-    // Delegate confirms purchase of specific item
+    // ============ المرحلة 1: المندوب يؤكد شراء صنف ============
     confirmItemPurchase: delegateProcedure.input(z.object({
       itemId: z.number(),
-      invoicePhotoUrl: z.string().optional(),
-      purchasedPhotoUrl: z.string().optional(),
+      purchasedPhotoUrl: z.string().min(1, "صورة الصنف المشترى مطلوبة"),
+      invoicePhotoUrl: z.string().min(1, "صورة الفاتورة مطلوبة"),
     })).mutation(async ({ input, ctx }) => {
-      await db.updatePOItem(input.itemId, { status: "purchased", purchasedAt: new Date(), invoicePhotoUrl: input.invoicePhotoUrl, purchasedPhotoUrl: input.purchasedPhotoUrl });
-      // Check if all items for this PO are purchased
-      const item = (await db.getPOItems(0)).find(i => i.id === input.itemId);
-      if (!item) throw new TRPCError({ code: "NOT_FOUND" });
-      const allItems = await db.getPOItems(item.purchaseOrderId);
-      const allPurchased = allItems.every(i => i.status === "purchased" || i.status === "received");
-      const somePurchased = allItems.some(i => i.status === "purchased" || i.status === "received");
-      if (allPurchased) {
+      // Verify item belongs to this delegate and is in approved/funded status
+      const allItems = await db.getPOItemsByDelegate(ctx.user.id);
+      const item = allItems.find(i => i.id === input.itemId);
+      if (!item) throw new TRPCError({ code: "NOT_FOUND", message: "الصنف غير موجود أو غير مخصص لك" });
+      if (item.status !== "approved" && item.status !== "funded") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "لا يمكن تأكيد شراء هذا الصنف في حالته الحالية" });
+      }
+      await db.updatePOItem(input.itemId, {
+        status: "purchased",
+        purchasedAt: new Date(),
+        purchasedById: ctx.user.id,
+        purchasedPhotoUrl: input.purchasedPhotoUrl,
+        invoicePhotoUrl: input.invoicePhotoUrl,
+      });
+      // Update PO status
+      const poItems = await db.getPOItems(item.purchaseOrderId);
+      const purchasedOrLater = poItems.filter(i => ["purchased", "delivered_to_warehouse", "delivered_to_requester"].includes(i.status));
+      if (purchasedOrLater.length === poItems.length) {
         await db.updatePurchaseOrder(item.purchaseOrderId, { status: "purchased" });
         const po = await db.getPurchaseOrderById(item.purchaseOrderId);
         if (po?.ticketId) {
           await db.updateTicket(po.ticketId, { status: "purchased" });
         }
-      } else if (somePurchased) {
+      } else if (purchasedOrLater.length > 0) {
         await db.updatePurchaseOrder(item.purchaseOrderId, { status: "partial_purchase" });
         const po = await db.getPurchaseOrderById(item.purchaseOrderId);
         if (po?.ticketId) {
@@ -355,26 +365,41 @@ export const appRouter = router({
       // Notify warehouse
       const warehouseUsers = await db.getUsersByRole("warehouse");
       for (const w of warehouseUsers) {
-        await db.createNotification({ userId: w.id, title: "صنف تم شراؤه", message: `تم شراء صنف جديد بانتظار الاستلام في المستودع`, type: "info" });
+        await db.createNotification({ userId: w.id, title: "صنف تم شراؤه", message: `تم شراء صنف "${item.itemName}" بانتظار التوريد للمستودع`, type: "info", relatedPOId: item.purchaseOrderId });
       }
+      await db.createAuditLog({ userId: ctx.user.id, action: "confirm_purchase", entityType: "po_item", entityId: input.itemId });
       return { success: true };
     }),
 
-    // Warehouse receives item
-    receiveItem: warehouseProcedure.input(z.object({
+    // ============ المرحلة 2: المستودع يؤكد التوريد ============
+    confirmDeliveryToWarehouse: warehouseProcedure.input(z.object({
       itemId: z.number(),
-      actualUnitCost: z.string(),
-      supplierName: z.string(),
+      supplierName: z.string().min(1, "اسم المورد مطلوب"),
+      supplierItemName: z.string().min(1, "اسم الصنف كما في الفاتورة مطلوب"),
+      actualUnitCost: z.string().min(1, "تكلفة الصنف مطلوبة"),
+      warehousePhotoUrl: z.string().min(1, "صورة الصنف مطلوبة"),
     })).mutation(async ({ input, ctx }) => {
-      const allItemsList = await db.getPOItems(0);
-      const item = allItemsList.find(i => i.id === input.itemId);
-      if (!item) throw new TRPCError({ code: "NOT_FOUND" });
+      // Get the item
+      const item = await db.getPOItemById(input.itemId);
+      if (!item) throw new TRPCError({ code: "NOT_FOUND", message: "الصنف غير موجود" });
+      if (item.status !== "purchased") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "هذا الصنف ليس في حالة \"تم الشراء\" بعد" });
+      }
       const actualTotal = parseFloat(input.actualUnitCost) * item.quantity;
-      await db.updatePOItem(input.itemId, { status: "received", receivedAt: new Date(), receivedById: ctx.user.id, actualUnitCost: input.actualUnitCost, actualTotalCost: String(actualTotal), supplierName: input.supplierName });
-      // Check if all items received
+      await db.updatePOItem(input.itemId, {
+        status: "delivered_to_warehouse",
+        receivedAt: new Date(),
+        receivedById: ctx.user.id,
+        supplierName: input.supplierName,
+        supplierItemName: input.supplierItemName,
+        actualUnitCost: input.actualUnitCost,
+        actualTotalCost: String(actualTotal),
+        warehousePhotoUrl: input.warehousePhotoUrl,
+      });
+      // Update PO status
       const allItems = await db.getPOItems(item.purchaseOrderId);
-      const allReceived = allItems.every(i => i.status === "received");
-      if (allReceived) {
+      const allInWarehouse = allItems.every(i => ["delivered_to_warehouse", "delivered_to_requester"].includes(i.status));
+      if (allInWarehouse) {
         const totalActual = allItems.reduce((sum, i) => sum + parseFloat(i.actualTotalCost || "0"), 0);
         await db.updatePurchaseOrder(item.purchaseOrderId, { status: "received", totalActualCost: String(totalActual) });
         const po = await db.getPurchaseOrderById(item.purchaseOrderId);
@@ -382,8 +407,64 @@ export const appRouter = router({
           await db.updateTicket(po.ticketId, { status: "received_warehouse" });
         }
       }
-      await db.createAuditLog({ userId: ctx.user.id, action: "receive_item", entityType: "po_item", entityId: input.itemId, newValues: { actualUnitCost: input.actualUnitCost, supplierName: input.supplierName } });
+      await db.createAuditLog({ userId: ctx.user.id, action: "deliver_to_warehouse", entityType: "po_item", entityId: input.itemId, newValues: { supplierName: input.supplierName, actualUnitCost: input.actualUnitCost } });
       return { success: true };
+    }),
+
+    // ============ المرحلة 3: المستودع يسلم الصنف للفني/المسؤول ============
+    confirmDeliveryToRequester: warehouseProcedure.input(z.object({
+      itemId: z.number(),
+      deliveredToId: z.number().optional(),
+    })).mutation(async ({ input, ctx }) => {
+      const item = await db.getPOItemById(input.itemId);
+      if (!item) throw new TRPCError({ code: "NOT_FOUND", message: "الصنف غير موجود" });
+      if (item.status !== "delivered_to_warehouse") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "هذا الصنف لم يتم توريده للمستودع بعد" });
+      }
+      await db.updatePOItem(input.itemId, {
+        status: "delivered_to_requester",
+        deliveredAt: new Date(),
+        deliveredById: ctx.user.id,
+        deliveredToId: input.deliveredToId || null,
+      });
+      // Check if all items delivered to requester
+      const allItems = await db.getPOItems(item.purchaseOrderId);
+      const allDelivered = allItems.every(i => i.status === "delivered_to_requester");
+      if (allDelivered) {
+        await db.updatePurchaseOrder(item.purchaseOrderId, { status: "closed" });
+        // Auto-update ticket to allow closure
+        const po = await db.getPurchaseOrderById(item.purchaseOrderId);
+        if (po?.ticketId) {
+          const ticket = await db.getTicketById(po.ticketId);
+          if (ticket && ticket.status !== "closed") {
+            await db.updateTicket(po.ticketId, { status: "repaired" });
+            await db.addTicketStatusHistory({ ticketId: po.ticketId, fromStatus: ticket.status, toStatus: "repaired", changedById: ctx.user.id, notes: "تم تسليم جميع المواد - جاهز للإغلاق" });
+            // Notify maintenance manager to close the ticket
+            const managers = await db.getUsersByRole("maintenance_manager");
+            for (const mgr of managers) {
+              await db.createNotification({ userId: mgr.id, title: "بلاغ جاهز للإغلاق", message: `تم تسليم جميع مواد البلاغ ${ticket.ticketNumber}. يمكن إغلاقه الآن.`, type: "success", relatedTicketId: po.ticketId });
+            }
+          }
+        }
+      }
+      await db.createAuditLog({ userId: ctx.user.id, action: "deliver_to_requester", entityType: "po_item", entityId: input.itemId });
+      return { success: true };
+    }),
+
+    // Get items pending purchase (for delegate)
+    pendingPurchaseItems: delegateProcedure.query(async ({ ctx }) => {
+      const items = await db.getPOItemsByDelegate(ctx.user.id);
+      return items.filter(i => i.status === "approved" || i.status === "funded");
+    }),
+
+    // Get items pending warehouse receiving
+    pendingWarehouseItems: warehouseProcedure.query(async () => {
+      return db.getPOItemsByStatus("purchased");
+    }),
+
+    // Get items pending delivery to requester
+    pendingDeliveryItems: warehouseProcedure.query(async () => {
+      return db.getPOItemsByStatus("delivered_to_warehouse");
     }),
 
     myItems: delegateProcedure.query(async ({ ctx }) => {

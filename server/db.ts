@@ -219,6 +219,19 @@ export async function updatePOItem(id: number, data: any) {
   await db.update(purchaseOrderItems).set(data).where(eq(purchaseOrderItems.id, id));
 }
 
+export async function getPOItemById(id: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const result = await db.select().from(purchaseOrderItems).where(eq(purchaseOrderItems.id, id)).limit(1);
+  return result[0] || null;
+}
+
+export async function getPOItemsByStatus(status: string) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(purchaseOrderItems).where(eq(purchaseOrderItems.status, status as any)).orderBy(desc(purchaseOrderItems.createdAt));
+}
+
 // ============================================================
 // INVENTORY
 // ============================================================
@@ -460,7 +473,7 @@ export async function getDashboardStats() {
   const [closedToday] = await db.select({ cnt: count() }).from(tickets).where(and(eq(tickets.status, "closed"), gte(tickets.closedAt, sql`CURDATE()`)));
   const [criticalTickets] = await db.select({ cnt: count() }).from(tickets).where(and(eq(tickets.priority, "critical"), ne(tickets.status, "closed")));
   const [pendingPOs] = await db.select({ cnt: count() }).from(purchaseOrders).where(or(eq(purchaseOrders.status, "pending_accounting"), eq(purchaseOrders.status, "pending_management")));
-  const [totalCostResult] = await db.select({ total: sum(purchaseOrderItems.actualTotalCost) }).from(purchaseOrderItems).where(eq(purchaseOrderItems.status, "received"));
+  const [totalCostResult] = await db.select({ total: sum(purchaseOrderItems.actualTotalCost) }).from(purchaseOrderItems).where(or(eq(purchaseOrderItems.status, "delivered_to_warehouse"), eq(purchaseOrderItems.status, "delivered_to_requester")));
   const [pendingItems] = await db.select({ cnt: count() }).from(purchaseOrderItems).where(ne(purchaseOrderItems.status, "purchased"));
   const [purchasedItems] = await db.select({ cnt: count() }).from(purchaseOrderItems).where(eq(purchaseOrderItems.status, "purchased"));
   return {

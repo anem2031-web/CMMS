@@ -114,7 +114,7 @@ export const purchaseOrders = mysqlTable("purchase_orders", {
 // ============================================================
 // 5. PURCHASE ORDER ITEMS (per-item tracking)
 // ============================================================
-export const poItemStatuses = ["pending", "estimated", "approved", "purchased", "received"] as const;
+export const poItemStatuses = ["pending", "estimated", "approved", "funded", "purchased", "delivered_to_warehouse", "delivered_to_requester"] as const;
 
 export const purchaseOrderItems = mysqlTable("purchase_order_items", {
   id: int("id").autoincrement().primaryKey(),
@@ -135,8 +135,16 @@ export const purchaseOrderItems = mysqlTable("purchase_order_items", {
   purchasedPhotoUrl: text("purchasedPhotoUrl"),
   status: mysqlEnum("status", [...poItemStatuses]).default("pending").notNull(),
   purchasedAt: timestamp("purchasedAt"),
+  purchasedById: int("purchasedById"),
+  // Warehouse receiving (delivery to company)
+  supplierItemName: varchar("supplierItemName", { length: 300 }),
+  warehousePhotoUrl: text("warehousePhotoUrl"),
   receivedAt: timestamp("receivedAt"),
   receivedById: int("receivedById"),
+  // Final delivery to requester/technician
+  deliveredAt: timestamp("deliveredAt"),
+  deliveredById: int("deliveredById"),
+  deliveredToId: int("deliveredToId"),
   originalLanguage: mysqlEnum("originalLanguage", ["ar", "en", "ur"]).default("ar").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),

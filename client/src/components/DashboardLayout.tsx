@@ -56,6 +56,7 @@ const allMenuDefs: MenuItemDef[] = [
   { icon: LayoutDashboard, labelKey: "nav.dashboard", path: "/" },
   { icon: ClipboardList, labelKey: "nav.tickets", path: "/tickets" },
   { icon: ShoppingCart, labelKey: "nav.purchaseOrders", path: "/purchase-orders" },
+  { icon: Truck, labelKey: "nav.purchaseCycle", path: "/purchase-cycle", roles: ["delegate", "warehouse", "owner", "admin"] },
   { icon: ShoppingBag, labelKey: "nav.myItems", path: "/my-items", roles: ["delegate"] },
   { icon: Package, labelKey: "nav.inventory", path: "/inventory", roles: ["warehouse", "maintenance_manager", "owner", "admin"] },
   { icon: BarChart3, labelKey: "nav.reports", path: "/reports", roles: ["owner", "admin", "senior_management", "accountant", "maintenance_manager"] },

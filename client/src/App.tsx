@@ -23,6 +23,7 @@ import AIAssistant from "./pages/AIAssistant";
 import TechnicianReport from "./pages/TechnicianReport";
 import MyItems from "./pages/MyItems";
 import TranslationMonitor from "./pages/TranslationMonitor";
+import PurchaseCycle from "./pages/PurchaseCycle";
 
 function Router() {
   return (
@@ -35,6 +36,7 @@ function Router() {
         <Route path="/purchase-orders" component={PurchaseOrders} />
         <Route path="/purchase-orders/new" component={CreatePurchaseOrder} />
         <Route path="/purchase-orders/:id" component={PurchaseOrderDetail} />
+        <Route path="/purchase-cycle" component={PurchaseCycle} />
         <Route path="/my-items" component={MyItems} />
         <Route path="/inventory" component={Inventory} />
         <Route path="/reports" component={Reports} />

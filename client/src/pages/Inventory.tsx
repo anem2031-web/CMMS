@@ -31,15 +31,15 @@ export default function Inventory() {
     onError: (err) => toast.error(err.message),
   });
 
-  const receiveItemMut = trpc.purchaseOrders.receiveItem.useMutation({
+  const receiveItemMut = trpc.purchaseOrders.confirmDeliveryToWarehouse.useMutation({
     onSuccess: () => { toast.success(t.inventory.receive); refetch(); },
-    onError: (err) => toast.error(err.message),
+    onError: (err: any) => toast.error(err.message),
   });
 
   const [open, setOpen] = useState(false);
   const [activeTab, setActiveTab] = useState("pending_receive");
   const [form, setForm] = useState({ itemName: "", description: "", quantity: 0, unit: language === "en" ? "piece" : "قطعة", minQuantity: 0, location: "" });
-  const [receiveData, setReceiveData] = useState<Record<number, { cost: string; supplier: string }>>({});
+  const [receiveData, setReceiveData] = useState<Record<number, { cost: string; supplier: string; supplierItemName: string; warehousePhotoUrl: string }>>({});
 
   const isWarehouse = user?.role === "warehouse" || user?.role === "admin" || user?.role === "owner";
 
@@ -216,7 +216,7 @@ export default function Inventory() {
                               placeholder={t.inventory.actualCost}
                               className="bg-white"
                               value={receiveData[item.id]?.cost || ""}
-                              onChange={e => setReceiveData(p => ({ ...p, [item.id]: { cost: e.target.value, supplier: p[item.id]?.supplier || "" } }))}
+                              onChange={e => setReceiveData(p => ({ ...p, [item.id]: { ...p[item.id], cost: e.target.value, supplier: p[item.id]?.supplier || "", supplierItemName: p[item.id]?.supplierItemName || "", warehousePhotoUrl: p[item.id]?.warehousePhotoUrl || "" } }))}
                             />
                           </div>
                           <div className="space-y-1">
@@ -225,7 +225,7 @@ export default function Inventory() {
                               placeholder={t.inventory.supplierName}
                               className="bg-white"
                               value={receiveData[item.id]?.supplier || ""}
-                              onChange={e => setReceiveData(p => ({ ...p, [item.id]: { cost: p[item.id]?.cost || "", supplier: e.target.value } }))}
+                              onChange={e => setReceiveData(p => ({ ...p, [item.id]: { ...p[item.id], cost: p[item.id]?.cost || "", supplier: e.target.value, supplierItemName: p[item.id]?.supplierItemName || "", warehousePhotoUrl: p[item.id]?.warehousePhotoUrl || "" } }))}
                             />
                           </div>
                         </div>
@@ -240,7 +240,9 @@ export default function Inventory() {
                           onClick={() => {
                             const d = receiveData[item.id];
                             if (!d?.cost || !d?.supplier) { toast.error(t.inventory.actualCost + " & " + t.inventory.supplierName); return; }
-                            receiveItemMut.mutate({ itemId: item.id, actualUnitCost: d.cost, supplierName: d.supplier });
+                            if (!d?.supplierItemName) { toast.error("اسم الصنف كما في الفاتورة مطلوب"); return; }
+                            if (!d?.warehousePhotoUrl) { toast.error("صورة الصنف مطلوبة"); return; }
+                            receiveItemMut.mutate({ itemId: item.id, actualUnitCost: d.cost, supplierName: d.supplier, supplierItemName: d.supplierItemName, warehousePhotoUrl: d.warehousePhotoUrl });
                           }}
                           disabled={receiveItemMut.isPending}
                         >

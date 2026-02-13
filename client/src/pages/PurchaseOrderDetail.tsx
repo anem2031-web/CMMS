@@ -78,7 +78,7 @@ export default function PurchaseOrderDetail() {
   const approveMgmtMut = trpc.purchaseOrders.approveManagement.useMutation({ onSuccess: () => { toast.success(t.common.confirm); refetch(); }, onError: (e) => toast.error(e.message) });
   const rejectMut = trpc.purchaseOrders.reject.useMutation({ onSuccess: () => { toast.success(t.common.confirm); refetch(); }, onError: (e) => toast.error(e.message) });
   const confirmPurchaseMut = trpc.purchaseOrders.confirmItemPurchase.useMutation({ onSuccess: () => { toast.success(t.common.confirm); refetch(); }, onError: (e) => toast.error(e.message) });
-  const receiveItemMut = trpc.purchaseOrders.receiveItem.useMutation({ onSuccess: () => { toast.success(t.common.confirm); refetch(); }, onError: (e) => toast.error(e.message) });
+  const receiveItemMut = trpc.purchaseOrders.confirmDeliveryToWarehouse.useMutation({ onSuccess: () => { toast.success(t.common.confirm); refetch(); }, onError: (e: any) => toast.error(e.message) });
 
   const role = user?.role || "";
   const userId = user?.id;
@@ -87,7 +87,7 @@ export default function PurchaseOrderDetail() {
   const [rejectReason, setRejectReason] = useState("");
   const [uploadingItem, setUploadingItem] = useState<string | null>(null);
   const [itemPhotos, setItemPhotos] = useState<Record<number, { invoice?: string; purchased?: string }>>({});
-  const [receiveData, setReceiveData] = useState<Record<number, { cost: string; supplier: string }>>({});
+  const [receiveData, setReceiveData] = useState<Record<number, { cost: string; supplier: string; supplierItemName: string; warehousePhotoUrl: string }>>({});
 
   const isDelegate = role === "delegate";
   const isAccountant = role === "accountant";
@@ -348,8 +348,8 @@ export default function PurchaseOrderDetail() {
                     <Button size="sm" className="w-full gap-1.5" onClick={() => {
                       confirmPurchaseMut.mutate({
                         itemId: item.id,
-                        invoicePhotoUrl: itemPhotos[item.id]?.invoice,
-                        purchasedPhotoUrl: itemPhotos[item.id]?.purchased,
+                        invoicePhotoUrl: itemPhotos[item.id]?.invoice || "",
+                        purchasedPhotoUrl: itemPhotos[item.id]?.purchased || "",
                       });
                     }} disabled={confirmPurchaseMut.isPending}>
                       {confirmPurchaseMut.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
@@ -366,17 +366,19 @@ export default function PurchaseOrderDetail() {
                     <div className="grid grid-cols-2 gap-3">
                       <div className="space-y-1">
                         <Label className="text-[11px] text-green-700">{t.purchaseOrders.actualUnitCost} ({currency}) *</Label>
-                        <Input type="number" className="bg-white" value={receiveData[item.id]?.cost || ""} onChange={e => setReceiveData(p => ({ ...p, [item.id]: { cost: e.target.value, supplier: p[item.id]?.supplier || "" } }))} />
+                        <Input type="number" className="bg-white" value={receiveData[item.id]?.cost || ""} onChange={e => setReceiveData(p => ({ ...p, [item.id]: { ...p[item.id], cost: e.target.value, supplier: p[item.id]?.supplier || "", supplierItemName: p[item.id]?.supplierItemName || "", warehousePhotoUrl: p[item.id]?.warehousePhotoUrl || "" } }))} />
                       </div>
                       <div className="space-y-1">
                         <Label className="text-[11px] text-green-700">{t.purchaseOrders.supplier} *</Label>
-                        <Input className="bg-white" value={receiveData[item.id]?.supplier || ""} onChange={e => setReceiveData(p => ({ ...p, [item.id]: { cost: p[item.id]?.cost || "", supplier: e.target.value } }))} />
+                        <Input className="bg-white" value={receiveData[item.id]?.supplier || ""} onChange={e => setReceiveData(p => ({ ...p, [item.id]: { ...p[item.id], cost: p[item.id]?.cost || "", supplier: e.target.value, supplierItemName: p[item.id]?.supplierItemName || "", warehousePhotoUrl: p[item.id]?.warehousePhotoUrl || "" } }))} />
                       </div>
                     </div>
                     <Button size="sm" className="w-full gap-1.5" onClick={() => {
                       const d = receiveData[item.id];
                       if (!d?.cost || !d?.supplier) { toast.error(t.purchaseOrders.supplier); return; }
-                      receiveItemMut.mutate({ itemId: item.id, actualUnitCost: d.cost, supplierName: d.supplier });
+                      if (!d?.supplierItemName) { toast.error("اسم الصنف كما في الفاتورة مطلوب"); return; }
+                      if (!d?.warehousePhotoUrl) { toast.error("صورة الصنف مطلوبة"); return; }
+                      receiveItemMut.mutate({ itemId: item.id, actualUnitCost: d.cost, supplierName: d.supplier, supplierItemName: d.supplierItemName, warehousePhotoUrl: d.warehousePhotoUrl });
                     }} disabled={receiveItemMut.isPending}>
                       {receiveItemMut.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Package className="w-3.5 h-3.5" />}
                       {t.purchaseOrders.receiveItem}
