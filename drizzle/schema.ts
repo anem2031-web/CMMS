@@ -321,3 +321,93 @@ export const translationVersions = mysqlTable("translation_versions", {
   changeReason: varchar("changeReason", { length: 50 }), // auto_translate, manual_edit, re_translate
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
+
+// ============================================================
+// 15. ASSETS (إدارة الأصول)
+// ============================================================
+export const assetStatuses = ["active", "inactive", "under_maintenance", "disposed"] as const;
+export type AssetStatus = typeof assetStatuses[number];
+
+export const assets = mysqlTable("assets", {
+  id: int("id").autoincrement().primaryKey(),
+  assetNumber: varchar("assetNumber", { length: 50 }).notNull().unique(),
+  name: varchar("name", { length: 200 }).notNull(),
+  description: text("description"),
+  category: varchar("category", { length: 100 }),
+  brand: varchar("brand", { length: 100 }),
+  model: varchar("model", { length: 100 }),
+  serialNumber: varchar("serialNumber", { length: 100 }),
+  siteId: int("siteId"),
+  locationDetail: varchar("locationDetail", { length: 200 }),
+  status: mysqlEnum("status", ["active", "inactive", "under_maintenance", "disposed"]).default("active").notNull(),
+  purchaseDate: timestamp("purchaseDate"),
+  purchaseCost: decimal("purchaseCost", { precision: 12, scale: 2 }),
+  warrantyExpiry: timestamp("warrantyExpiry"),
+  warrantyNotes: text("warrantyNotes"),
+  lastMaintenanceDate: timestamp("lastMaintenanceDate"),
+  nextMaintenanceDate: timestamp("nextMaintenanceDate"),
+  photoUrl: text("photoUrl"),
+  qrCode: varchar("qrCode", { length: 200 }),
+  notes: text("notes"),
+  createdById: int("createdById"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type Asset = typeof assets.$inferSelect;
+export type InsertAsset = typeof assets.$inferInsert;
+
+// ============================================================
+// 16. PREVENTIVE MAINTENANCE PLANS (خطط الصيانة الوقائية)
+// ============================================================
+export const pmFrequencies = ["daily", "weekly", "monthly", "quarterly", "biannual", "annual"] as const;
+export type PMFrequency = typeof pmFrequencies[number];
+
+export const preventivePlans = mysqlTable("preventive_plans", {
+  id: int("id").autoincrement().primaryKey(),
+  planNumber: varchar("planNumber", { length: 50 }).notNull().unique(),
+  title: varchar("title", { length: 200 }).notNull(),
+  description: text("description"),
+  assetId: int("assetId"),
+  siteId: int("siteId"),
+  frequency: mysqlEnum("frequency", ["daily", "weekly", "monthly", "quarterly", "biannual", "annual"]).notNull(),
+  frequencyValue: int("frequencyValue").default(1).notNull(), // e.g. every 2 months
+  estimatedDurationMinutes: int("estimatedDurationMinutes"),
+  assignedToId: int("assignedToId"), // default technician
+  checklist: json("checklist"), // array of {id, text, required}
+  isActive: boolean("isActive").default(true).notNull(),
+  lastGeneratedAt: timestamp("lastGeneratedAt"),
+  nextDueDate: timestamp("nextDueDate"),
+  createdById: int("createdById"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type PreventivePlan = typeof preventivePlans.$inferSelect;
+export type InsertPreventivePlan = typeof preventivePlans.$inferInsert;
+
+// ============================================================
+// 17. PREVENTIVE MAINTENANCE WORK ORDERS (أوامر العمل الوقائية)
+// ============================================================
+export const pmWorkOrderStatuses = ["scheduled", "in_progress", "completed", "overdue", "cancelled"] as const;
+
+export const pmWorkOrders = mysqlTable("pm_work_orders", {
+  id: int("id").autoincrement().primaryKey(),
+  workOrderNumber: varchar("workOrderNumber", { length: 50 }).notNull().unique(),
+  planId: int("planId").notNull(),
+  assetId: int("assetId"),
+  siteId: int("siteId"),
+  title: varchar("title", { length: 200 }).notNull(),
+  scheduledDate: timestamp("scheduledDate").notNull(),
+  completedDate: timestamp("completedDate"),
+  status: mysqlEnum("status", ["scheduled", "in_progress", "completed", "overdue", "cancelled"]).default("scheduled").notNull(),
+  assignedToId: int("assignedToId"),
+  checklistResults: json("checklistResults"), // array of {id, text, done, notes}
+  technicianNotes: text("technicianNotes"),
+  completionPhotoUrl: text("completionPhotoUrl"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type PMWorkOrder = typeof pmWorkOrders.$inferSelect;
+export type InsertPMWorkOrder = typeof pmWorkOrders.$inferInsert;

@@ -9,13 +9,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { STATUS_COLORS, PRIORITY_COLORS } from "@shared/types";
 import {
   ArrowRight, Clock, User, MapPin, CheckCircle2, Wrench, ShoppingCart,
-  Camera, Loader2, FileText, AlertCircle, ExternalLink
+  Camera, Loader2, FileText, AlertCircle, ExternalLink, Upload
 } from "lucide-react";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { toast } from "sonner";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useTranslation } from "@/contexts/LanguageContext";
 import { useStaticLabels } from "@/hooks/useContentTranslation";
+import DropZone, { type UploadedFile } from "@/components/DropZone";
 
 export default function TicketDetail() {
   const [, params] = useRoute("/tickets/:id");
@@ -45,6 +46,29 @@ export default function TicketDetail() {
   const [materialsUsed, setMaterialsUsed] = useState("");
   const [afterPhotoUrl, setAfterPhotoUrl] = useState("");
   const [uploading, setUploading] = useState(false);
+  const [showAttachDropZone, setShowAttachDropZone] = useState(false);
+
+  const addAttachMut = trpc.attachments.add.useMutation({
+    onSuccess: () => { refetch(); },
+  });
+
+  const handleNewAttachments = useCallback(async (uploaded: UploadedFile[]) => {
+    for (const f of uploaded) {
+      if (f.url && f.status === "done") {
+        // Extract fileKey from URL path (last segment)
+        const fileKey = f.url.split("/").slice(-2).join("/") || f.name;
+        await addAttachMut.mutateAsync({
+          entityType: "ticket",
+          entityId: ticketId,
+          fileUrl: f.url,
+          fileKey,
+          fileName: f.name,
+          mimeType: f.mimeType,
+          fileSize: f.size,
+        });
+      }
+    }
+  }, [addAttachMut, ticketId]);
 
   const technicians = users?.filter(u => u.role === "technician") || [];
   const role = user?.role || "";
@@ -178,14 +202,24 @@ export default function TicketDetail() {
                 )}
               </div>
 
-              {/* Ticket Attachments */}
-              {ticketAttachments && ticketAttachments.length > 0 && (
-                <div className="space-y-3">
+              {/* Ticket Attachments - Additive: existing display + new DropZone */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
                   <p className="text-sm font-medium flex items-center gap-1.5">
-                    <FileText className="w-3.5 h-3.5" /> {(t as any).attachments?.title || "المرفقات"} ({ticketAttachments.length})
+                    <FileText className="w-3.5 h-3.5" /> {(t as any).attachments?.title || "المرفقات"} ({ticketAttachments?.length ?? 0})
                   </p>
+                  {isManager && (
+                    <Button variant="ghost" size="sm" className="text-xs gap-1" onClick={() => setShowAttachDropZone(v => !v)}>
+                      <Upload className="w-3.5 h-3.5" />
+                      إضافة مرفق
+                    </Button>
+                  )}
+                </div>
+
+                {/* Existing attachments grid */}
+                {(ticketAttachments ?? []).length > 0 && (
                   <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-                    {ticketAttachments.map((att: any) => (
+                    {(ticketAttachments ?? []).map((att: any) => (
                       <a key={att.id} href={att.fileUrl} target="_blank" rel="noopener noreferrer" className="group border rounded-lg overflow-hidden hover:border-primary transition-colors">
                         {att.mimeType?.startsWith("image/") ? (
                           <img src={att.fileUrl} alt={att.fileName} className="w-full h-28 object-cover" />
@@ -200,8 +234,17 @@ export default function TicketDetail() {
                       </a>
                     ))}
                   </div>
-                </div>
-              )}
+                )}
+
+                {/* NEW: Drag & Drop zone (additive - shown on demand) */}
+                {showAttachDropZone && (
+                  <DropZone
+                    onFilesUploaded={handleNewAttachments}
+                    label="اسحب ملفات إضافية للبلاغ"
+                    sublabel="صور ومستندات PDF — حد أقصى 10 MB"
+                  />
+                )}
+              </div>
 
               {ticket.repairNotes && (
                 <div className="bg-muted/50 rounded-lg p-3">

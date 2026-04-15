@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
   ArrowRight, ShoppingCart, CheckCircle2, Clock, DollarSign, Loader2,
-  Camera, Package, User, FileText, AlertCircle, ExternalLink, XCircle, Pencil
+  Camera, Package, User, FileText, AlertCircle, ExternalLink, XCircle, Pencil, Upload
 } from "lucide-react";
 import { useState, useMemo } from "react";
 import { toast } from "sonner";
@@ -17,6 +17,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { useTranslation } from "@/contexts/LanguageContext";
 import { useStaticLabels } from "@/hooks/useContentTranslation";
+import DropZone, { type UploadedFile } from "@/components/DropZone";
 
 const PO_STATUS_COLORS: Record<string, string> = {
   draft: "bg-gray-100 text-gray-700",
@@ -88,7 +89,8 @@ export default function PurchaseOrderDetail() {
   const [estimates, setEstimates] = useState<Record<number, string>>({});
   const [rejectReason, setRejectReason] = useState("");
   const [uploadingItem, setUploadingItem] = useState<string | null>(null);
-  const [itemPhotos, setItemPhotos] = useState<Record<number, { invoice?: string; purchased?: string }>>({});
+  const [itemPhotos, setItemPhotos] = useState<Record<number, { invoice?: string; purchased?: string }>>({})
+  const [dropZoneFor, setDropZoneFor] = useState<string | null>(null); // e.g. "123-invoice" or "123-purchased";
   const [receiveData, setReceiveData] = useState<Record<number, { cost: string; supplier: string; supplierItemName: string; warehousePhotoUrl: string }>>({});
   const [editingItem, setEditingItem] = useState<any>(null);
   const [editForm, setEditForm] = useState<{ itemName: string; description: string; quantity: number; estimatedUnitCost: string }>({ itemName: "", description: "", quantity: 1, estimatedUnitCost: "" });
@@ -322,19 +324,35 @@ export default function PurchaseOrderDetail() {
                         {itemPhotos[item.id]?.invoice ? (
                           <div className="relative mt-1">
                             <img src={itemPhotos[item.id]!.invoice} alt="" className="w-full h-20 rounded-lg object-cover border" />
-                            <Button variant="destructive" size="icon" className="absolute top-1 left-1 h-5 w-5 rounded-full" onClick={() => setItemPhotos(p => ({ ...p, [item.id]: { ...p[item.id], invoice: undefined } }))}>
+                            <Button variant="destructive" size="icon" className="absolute top-1 left-1 h-5 w-5 rounded-full" onClick={() => { setItemPhotos(p => ({ ...p, [item.id]: { ...p[item.id], invoice: undefined } })); setDropZoneFor(null); }}>
                               <XCircle className="w-3 h-3" />
                             </Button>
                           </div>
+                        ) : dropZoneFor === `${item.id}-invoice` ? (
+                          <DropZone
+                            maxFiles={1}
+                            accept="image/*,application/pdf"
+                            label="اسحب صورة الفاتورة"
+                            sublabel="صورة أو PDF"
+                            onFilesUploaded={(files: UploadedFile[]) => {
+                              const done = files.find(f => f.status === "done" && f.url);
+                              if (done?.url) { setItemPhotos(p => ({ ...p, [item.id]: { ...p[item.id], invoice: done.url } })); setDropZoneFor(null); }
+                            }}
+                          />
                         ) : (
-                          <Button variant="outline" size="sm" className="w-full h-20 border-dashed mt-1 gap-1" onClick={() => {
-                            const input = document.createElement("input");
-                            input.type = "file"; input.accept = "image/*";
-                            input.onchange = (e: any) => { if (e.target.files[0]) handleUpload(e.target.files[0], item.id, "invoice"); };
-                            input.click();
-                          }} disabled={uploadingItem === `${item.id}-invoice`}>
-                            {uploadingItem === `${item.id}-invoice` ? <Loader2 className="w-4 h-4 animate-spin" /> : <><FileText className="w-4 h-4" /><span className="text-[10px]">{t.common.upload}</span></>}
-                          </Button>
+                          <div className="flex gap-1 mt-1">
+                            <Button variant="outline" size="sm" className="flex-1 h-20 border-dashed gap-1" onClick={() => {
+                              const input = document.createElement("input");
+                              input.type = "file"; input.accept = "image/*";
+                              input.onchange = (e: any) => { if (e.target.files[0]) handleUpload(e.target.files[0], item.id, "invoice"); };
+                              input.click();
+                            }} disabled={uploadingItem === `${item.id}-invoice`}>
+                              {uploadingItem === `${item.id}-invoice` ? <Loader2 className="w-4 h-4 animate-spin" /> : <><FileText className="w-4 h-4" /><span className="text-[10px]">{t.common.upload}</span></>}
+                            </Button>
+                            <Button variant="outline" size="sm" className="h-20 px-2 border-dashed" onClick={() => setDropZoneFor(`${item.id}-invoice`)} title="سحب وإفلات">
+                              <Upload className="w-3.5 h-3.5" />
+                            </Button>
+                          </div>
                         )}
                       </div>
                       <div>
@@ -342,19 +360,35 @@ export default function PurchaseOrderDetail() {
                         {itemPhotos[item.id]?.purchased ? (
                           <div className="relative mt-1">
                             <img src={itemPhotos[item.id]!.purchased} alt="" className="w-full h-20 rounded-lg object-cover border" />
-                            <Button variant="destructive" size="icon" className="absolute top-1 left-1 h-5 w-5 rounded-full" onClick={() => setItemPhotos(p => ({ ...p, [item.id]: { ...p[item.id], purchased: undefined } }))}>
+                            <Button variant="destructive" size="icon" className="absolute top-1 left-1 h-5 w-5 rounded-full" onClick={() => { setItemPhotos(p => ({ ...p, [item.id]: { ...p[item.id], purchased: undefined } })); setDropZoneFor(null); }}>
                               <XCircle className="w-3 h-3" />
                             </Button>
                           </div>
+                        ) : dropZoneFor === `${item.id}-purchased` ? (
+                          <DropZone
+                            maxFiles={1}
+                            accept="image/*"
+                            label="اسحب صورة الصنف"
+                            sublabel="صورة واحدة"
+                            onFilesUploaded={(files: UploadedFile[]) => {
+                              const done = files.find(f => f.status === "done" && f.url);
+                              if (done?.url) { setItemPhotos(p => ({ ...p, [item.id]: { ...p[item.id], purchased: done.url } })); setDropZoneFor(null); }
+                            }}
+                          />
                         ) : (
-                          <Button variant="outline" size="sm" className="w-full h-20 border-dashed mt-1 gap-1" onClick={() => {
-                            const input = document.createElement("input");
-                            input.type = "file"; input.accept = "image/*";
-                            input.onchange = (e: any) => { if (e.target.files[0]) handleUpload(e.target.files[0], item.id, "purchased"); };
-                            input.click();
-                          }} disabled={uploadingItem === `${item.id}-purchased`}>
-                            {uploadingItem === `${item.id}-purchased` ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Camera className="w-4 h-4" /><span className="text-[10px]">{t.common.upload}</span></>}
-                          </Button>
+                          <div className="flex gap-1 mt-1">
+                            <Button variant="outline" size="sm" className="flex-1 h-20 border-dashed gap-1" onClick={() => {
+                              const input = document.createElement("input");
+                              input.type = "file"; input.accept = "image/*";
+                              input.onchange = (e: any) => { if (e.target.files[0]) handleUpload(e.target.files[0], item.id, "purchased"); };
+                              input.click();
+                            }} disabled={uploadingItem === `${item.id}-purchased`}>
+                              {uploadingItem === `${item.id}-purchased` ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Camera className="w-4 h-4" /><span className="text-[10px]">{t.common.upload}</span></>}
+                            </Button>
+                            <Button variant="outline" size="sm" className="h-20 px-2 border-dashed" onClick={() => setDropZoneFor(`${item.id}-purchased`)} title="سحب وإفلات">
+                              <Upload className="w-3.5 h-3.5" />
+                            </Button>
+                          </div>
                         )}
                       </div>
                     </div>

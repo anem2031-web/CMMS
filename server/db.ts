@@ -3,7 +3,9 @@ import { drizzle } from "drizzle-orm/mysql2";
 import {
   InsertUser, users, tickets, purchaseOrders, purchaseOrderItems,
   inventory, inventoryTransactions, notifications, auditLogs,
-  ticketStatusHistory, attachments, sites, backups
+  ticketStatusHistory, attachments, sites, backups,
+  assets, preventivePlans, pmWorkOrders,
+  type InsertAsset, type InsertPreventivePlan, type InsertPMWorkOrder
 } from "../drizzle/schema";
 import { ENV } from './_core/env';
 
@@ -733,4 +735,172 @@ export async function restoreFromBackup(backupData: Record<string, any[]>) {
   if (backupData.attachments?.length) await db.insert(attachments).values(backupData.attachments);
 
   return { success: true };
+}
+
+// ============================================================
+// ASSETS - إدارة الأصول
+// ============================================================
+export async function listAssets(filters?: { siteId?: number; status?: string; search?: string }) {
+  const db = await getDb();
+  if (!db) return [];
+  let query = db.select().from(assets);
+  const conditions = [];
+  if (filters?.siteId) conditions.push(eq(assets.siteId, filters.siteId));
+  if (filters?.status) conditions.push(eq(assets.status, filters.status as any));
+  if (filters?.search) conditions.push(or(
+    like(assets.name, `%${filters.search}%`),
+    like(assets.assetNumber, `%${filters.search}%`),
+    like(assets.serialNumber, `%${filters.search}%`)
+  ));
+  if (conditions.length > 0) return await (query as any).where(and(...conditions)).orderBy(desc(assets.createdAt));
+  return await query.orderBy(desc(assets.createdAt));
+}
+
+export async function getAssetById(id: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db.select().from(assets).where(eq(assets.id, id)).limit(1);
+  return rows[0] ?? null;
+}
+
+export async function createAsset(data: InsertAsset) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  const result = await db.insert(assets).values(data);
+  const id = (result as any)[0]?.insertId ?? null;
+  return { id };
+}
+
+export async function updateAsset(id: number, data: Partial<InsertAsset>) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  await db.update(assets).set(data).where(eq(assets.id, id));
+  return { success: true };
+}
+
+export async function deleteAsset(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  await db.delete(assets).where(eq(assets.id, id));
+  return { success: true };
+}
+
+export async function generateAssetNumber() {
+  const db = await getDb();
+  if (!db) return `AST-${Date.now()}`;
+  const rows = await db.select({ cnt: count() }).from(assets);
+  const n = (rows[0]?.cnt ?? 0) + 1;
+  return `AST-${String(n).padStart(5, "0")}`;
+}
+
+// ============================================================
+// PREVENTIVE PLANS - خطط الصيانة الوقائية
+// ============================================================
+export async function listPreventivePlans(filters?: { assetId?: number; siteId?: number; isActive?: boolean }) {
+  const db = await getDb();
+  if (!db) return [];
+  const conditions = [];
+  if (filters?.assetId) conditions.push(eq(preventivePlans.assetId, filters.assetId));
+  if (filters?.siteId) conditions.push(eq(preventivePlans.siteId, filters.siteId));
+  if (filters?.isActive !== undefined) conditions.push(eq(preventivePlans.isActive, filters.isActive));
+  let query = db.select().from(preventivePlans);
+  if (conditions.length > 0) return await (query as any).where(and(...conditions)).orderBy(desc(preventivePlans.createdAt));
+  return await query.orderBy(desc(preventivePlans.createdAt));
+}
+
+export async function getPreventivePlanById(id: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db.select().from(preventivePlans).where(eq(preventivePlans.id, id)).limit(1);
+  return rows[0] ?? null;
+}
+
+export async function createPreventivePlan(data: InsertPreventivePlan) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  const result = await db.insert(preventivePlans).values(data);
+  const id = (result as any)[0]?.insertId ?? null;
+  return { id };
+}
+
+export async function updatePreventivePlan(id: number, data: Partial<InsertPreventivePlan>) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  await db.update(preventivePlans).set(data).where(eq(preventivePlans.id, id));
+  return { success: true };
+}
+
+export async function deletePreventivePlan(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  await db.delete(preventivePlans).where(eq(preventivePlans.id, id));
+  return { success: true };
+}
+
+export async function generatePlanNumber() {
+  const db = await getDb();
+  if (!db) return `PM-${Date.now()}`;
+  const rows = await db.select({ cnt: count() }).from(preventivePlans);
+  const n = (rows[0]?.cnt ?? 0) + 1;
+  return `PM-${String(n).padStart(5, "0")}`;
+}
+
+// ============================================================
+// PM WORK ORDERS - أوامر العمل الوقائية
+// ============================================================
+export async function listPMWorkOrders(filters?: { planId?: number; assetId?: number; status?: string; assignedToId?: number }) {
+  const db = await getDb();
+  if (!db) return [];
+  const conditions = [];
+  if (filters?.planId) conditions.push(eq(pmWorkOrders.planId, filters.planId));
+  if (filters?.assetId) conditions.push(eq(pmWorkOrders.assetId, filters.assetId));
+  if (filters?.status) conditions.push(eq(pmWorkOrders.status, filters.status as any));
+  if (filters?.assignedToId) conditions.push(eq(pmWorkOrders.assignedToId, filters.assignedToId));
+  let query = db.select().from(pmWorkOrders);
+  if (conditions.length > 0) return await (query as any).where(and(...conditions)).orderBy(desc(pmWorkOrders.scheduledDate));
+  return await query.orderBy(desc(pmWorkOrders.scheduledDate));
+}
+
+export async function getPMWorkOrderById(id: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db.select().from(pmWorkOrders).where(eq(pmWorkOrders.id, id)).limit(1);
+  return rows[0] ?? null;
+}
+
+export async function createPMWorkOrder(data: InsertPMWorkOrder) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  const result = await db.insert(pmWorkOrders).values(data);
+  const id = (result as any)[0]?.insertId ?? null;
+  return { id };
+}
+
+export async function updatePMWorkOrder(id: number, data: Partial<InsertPMWorkOrder>) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  await db.update(pmWorkOrders).set(data).where(eq(pmWorkOrders.id, id));
+  return { success: true };
+}
+
+export async function generateWorkOrderNumber() {
+  const db = await getDb();
+  if (!db) return `WO-${Date.now()}`;
+  const rows = await db.select({ cnt: count() }).from(pmWorkOrders);
+  const n = (rows[0]?.cnt ?? 0) + 1;
+  return `WO-${String(n).padStart(5, "0")}`;
+}
+
+// Calculate next due date based on frequency
+export function calcNextDueDate(from: Date, frequency: string, frequencyValue: number = 1): Date {
+  const d = new Date(from);
+  switch (frequency) {
+    case "daily": d.setDate(d.getDate() + frequencyValue); break;
+    case "weekly": d.setDate(d.getDate() + 7 * frequencyValue); break;
+    case "monthly": d.setMonth(d.getMonth() + frequencyValue); break;
+    case "quarterly": d.setMonth(d.getMonth() + 3 * frequencyValue); break;
+    case "biannual": d.setMonth(d.getMonth() + 6 * frequencyValue); break;
+    case "annual": d.setFullYear(d.getFullYear() + frequencyValue); break;
+  }
+  return d;
 }

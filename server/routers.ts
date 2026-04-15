@@ -1252,10 +1252,331 @@ ${JSON.stringify(recentAudit.map((a: any) => ({ action: a.action, entity: a.enti
     }),
   }),
 
-  // ============================================================
+   // ============================================================
   // TRANSLATION ENGINE
   // ============================================================
   translation: translationRouter,
-});
 
+  // ============================================================
+  // ASSETS - إدارة الأصول
+  // ============================================================
+  assets: router({
+    list: protectedProcedure.input(z.object({
+      siteId: z.number().optional(),
+      status: z.string().optional(),
+      search: z.string().optional(),
+    }).optional()).query(async ({ input }) => {
+      return db.listAssets(input ?? {});
+    }),
+
+    getById: protectedProcedure.input(z.object({ id: z.number() })).query(async ({ input }) => {
+      const asset = await db.getAssetById(input.id);
+      if (!asset) throw new TRPCError({ code: "NOT_FOUND", message: "الأصل غير موجود" });
+      return asset;
+    }),
+
+    create: managerProcedure.input(z.object({
+      name: z.string().min(1),
+      description: z.string().optional(),
+      category: z.string().optional(),
+      brand: z.string().optional(),
+      model: z.string().optional(),
+      serialNumber: z.string().optional(),
+      siteId: z.number().optional(),
+      locationDetail: z.string().optional(),
+      status: z.enum(["active", "inactive", "under_maintenance", "disposed"]).optional(),
+      purchaseDate: z.string().optional(),
+      purchaseCost: z.string().optional(),
+      warrantyExpiry: z.string().optional(),
+      warrantyNotes: z.string().optional(),
+      photoUrl: z.string().optional(),
+      notes: z.string().optional(),
+    })).mutation(async ({ input, ctx }) => {
+      const assetNumber = await db.generateAssetNumber();
+      const result = await db.createAsset({
+        ...input,
+        assetNumber,
+        purchaseDate: input.purchaseDate ? new Date(input.purchaseDate) : undefined,
+        warrantyExpiry: input.warrantyExpiry ? new Date(input.warrantyExpiry) : undefined,
+        status: input.status ?? "active",
+        createdById: ctx.user.id,
+      });
+      return result;
+    }),
+
+    update: managerProcedure.input(z.object({
+      id: z.number(),
+      name: z.string().optional(),
+      description: z.string().optional(),
+      category: z.string().optional(),
+      brand: z.string().optional(),
+      model: z.string().optional(),
+      serialNumber: z.string().optional(),
+      siteId: z.number().optional(),
+      locationDetail: z.string().optional(),
+      status: z.enum(["active", "inactive", "under_maintenance", "disposed"]).optional(),
+      purchaseDate: z.string().optional(),
+      purchaseCost: z.string().optional(),
+      warrantyExpiry: z.string().optional(),
+      warrantyNotes: z.string().optional(),
+      photoUrl: z.string().optional(),
+      notes: z.string().optional(),
+    })).mutation(async ({ input }) => {
+      const { id, ...data } = input;
+      return db.updateAsset(id, {
+        ...data,
+        purchaseDate: data.purchaseDate ? new Date(data.purchaseDate) : undefined,
+        warrantyExpiry: data.warrantyExpiry ? new Date(data.warrantyExpiry) : undefined,
+      });
+    }),
+
+    delete: managerProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
+      return db.deleteAsset(input.id);
+    }),
+  }),
+
+  // ============================================================
+  // PREVENTIVE MAINTENANCE - الصيانة الوقائية
+  // ============================================================
+  preventive: router({
+    listPlans: protectedProcedure.input(z.object({
+      assetId: z.number().optional(),
+      siteId: z.number().optional(),
+      isActive: z.boolean().optional(),
+    }).optional()).query(async ({ input }) => {
+      return db.listPreventivePlans(input ?? {});
+    }),
+
+    getPlanById: protectedProcedure.input(z.object({ id: z.number() })).query(async ({ input }) => {
+      const plan = await db.getPreventivePlanById(input.id);
+      if (!plan) throw new TRPCError({ code: "NOT_FOUND", message: "الخطة غير موجودة" });
+      return plan;
+    }),
+
+    createPlan: managerProcedure.input(z.object({
+      title: z.string().min(1),
+      description: z.string().optional(),
+      assetId: z.number().optional(),
+      siteId: z.number().optional(),
+      frequency: z.enum(["daily", "weekly", "monthly", "quarterly", "biannual", "annual"]),
+      frequencyValue: z.number().default(1),
+      estimatedDurationMinutes: z.number().optional(),
+      assignedToId: z.number().optional(),
+      checklist: z.array(z.object({ id: z.string(), text: z.string(), required: z.boolean().optional() })).optional(),
+      nextDueDate: z.string().optional(),
+    })).mutation(async ({ input, ctx }) => {
+      const planNumber = await db.generatePlanNumber();
+      const nextDue = input.nextDueDate ? new Date(input.nextDueDate) : db.calcNextDueDate(new Date(), input.frequency, input.frequencyValue);
+      const result = await db.createPreventivePlan({
+        ...input,
+        planNumber,
+        checklist: input.checklist ?? [],
+        nextDueDate: nextDue,
+        createdById: ctx.user.id,
+      });
+      return result;
+    }),
+
+    updatePlan: managerProcedure.input(z.object({
+      id: z.number(),
+      title: z.string().optional(),
+      description: z.string().optional(),
+      assetId: z.number().optional(),
+      siteId: z.number().optional(),
+      frequency: z.enum(["daily", "weekly", "monthly", "quarterly", "biannual", "annual"]).optional(),
+      frequencyValue: z.number().optional(),
+      estimatedDurationMinutes: z.number().optional(),
+      assignedToId: z.number().optional(),
+      checklist: z.array(z.object({ id: z.string(), text: z.string(), required: z.boolean().optional() })).optional(),
+      isActive: z.boolean().optional(),
+      nextDueDate: z.string().optional(),
+    })).mutation(async ({ input }) => {
+      const { id, ...data } = input;
+      return db.updatePreventivePlan(id, {
+        ...data,
+        nextDueDate: data.nextDueDate ? new Date(data.nextDueDate) : undefined,
+      });
+    }),
+
+    deletePlan: managerProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
+      return db.deletePreventivePlan(input.id);
+    }),
+
+    // Work Orders
+    listWorkOrders: protectedProcedure.input(z.object({
+      planId: z.number().optional(),
+      assetId: z.number().optional(),
+      status: z.string().optional(),
+      assignedToId: z.number().optional(),
+    }).optional()).query(async ({ input }) => {
+      return db.listPMWorkOrders(input ?? {});
+    }),
+
+    getWorkOrderById: protectedProcedure.input(z.object({ id: z.number() })).query(async ({ input }) => {
+      const wo = await db.getPMWorkOrderById(input.id);
+      if (!wo) throw new TRPCError({ code: "NOT_FOUND", message: "أمر العمل غير موجود" });
+      return wo;
+    }),
+
+    generateWorkOrder: managerProcedure.input(z.object({
+      planId: z.number(),
+      scheduledDate: z.string(),
+    })).mutation(async ({ input }) => {
+      const plan = await db.getPreventivePlanById(input.planId);
+      if (!plan) throw new TRPCError({ code: "NOT_FOUND", message: "الخطة غير موجودة" });
+      const woNumber = await db.generateWorkOrderNumber();
+      const result = await db.createPMWorkOrder({
+        workOrderNumber: woNumber,
+        planId: input.planId,
+        assetId: plan.assetId ?? undefined,
+        siteId: plan.siteId ?? undefined,
+        title: plan.title,
+        scheduledDate: new Date(input.scheduledDate),
+        status: "scheduled",
+        assignedToId: plan.assignedToId ?? undefined,
+        checklistResults: plan.checklist,
+      });
+      // Update plan's lastGeneratedAt and nextDueDate
+      const nextDue = db.calcNextDueDate(new Date(input.scheduledDate), plan.frequency, plan.frequencyValue ?? 1);
+      await db.updatePreventivePlan(input.planId, { lastGeneratedAt: new Date(), nextDueDate: nextDue });
+      return result;
+    }),
+
+    updateWorkOrder: protectedProcedure.input(z.object({
+      id: z.number(),
+      status: z.enum(["scheduled", "in_progress", "completed", "overdue", "cancelled"]).optional(),
+      checklistResults: z.array(z.object({ id: z.string(), text: z.string(), done: z.boolean(), notes: z.string().optional() })).optional(),
+      technicianNotes: z.string().optional(),
+      completionPhotoUrl: z.string().optional(),
+      completedDate: z.string().optional(),
+    })).mutation(async ({ input }) => {
+      const { id, ...data } = input;
+      return db.updatePMWorkOrder(id, {
+        ...data,
+        completedDate: data.completedDate ? new Date(data.completedDate) : undefined,
+      });
+    }),
+
+    // ─── AI Predictive Analysis ──────────────────────────────────────────
+    // Analyze a fault image and return diagnosis + recommendations
+    analyzeFaultImage: protectedProcedure.input(z.object({
+      imageUrl: z.string().url(),
+      assetName: z.string().optional(),
+      assetCategory: z.string().optional(),
+      description: z.string().optional(),
+    })).mutation(async ({ input }) => {
+      const systemPrompt = `أنت خبير هندسي متخصص في تشخيص أعطال المعدات والأصول. 
+عند تحليل صورة العطل، قدم:
+1. تشخيص العطل المحتمل
+2. مستوى الخطورة (منخفض/متوسط/عالٍ/حرج)
+3. الأسباب المحتملة
+4. الإجراءات التصحيحية الموصى بها
+5. هل يحتاج إلى إيقاف تشغيل فوري؟
+أجب بصيغة JSON منظمة.`;
+
+      const userMessage = `الأصل: ${input.assetName ?? "غير محدد"} | الفئة: ${input.assetCategory ?? "غير محدد"}\nالوصف: ${input.description ?? "لا يوجد وصف"}\nرابط الصورة: ${input.imageUrl}\n\nحلل صورة العطل وقدم تشخيصاً مفصلاً.`;
+      const result = await invokeLLM({
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userMessage },
+        ],
+        response_format: {
+          type: "json_schema",
+          json_schema: {
+            name: "fault_analysis",
+            strict: true,
+            schema: {
+              type: "object",
+              properties: {
+                diagnosis: { type: "string", description: "تشخيص العطل" },
+                severity: { type: "string", enum: ["low", "medium", "high", "critical"], description: "مستوى الخطورة" },
+                causes: { type: "array", items: { type: "string" }, description: "الأسباب المحتملة" },
+                recommendations: { type: "array", items: { type: "string" }, description: "الإجراءات الموصى بها" },
+                requiresImmediateShutdown: { type: "boolean", description: "هل يحتاج إيقاف تشغيل فوري" },
+                estimatedRepairTime: { type: "string", description: "الوقت التقديري للإصلاح" },
+                confidence: { type: "number", description: "مستوى الثقة 0-100" },
+              },
+              required: ["diagnosis", "severity", "causes", "recommendations", "requiresImmediateShutdown", "estimatedRepairTime", "confidence"],
+              additionalProperties: false,
+            },
+          },
+        },
+      });
+
+      const content = result.choices?.[0]?.message?.content;
+      if (!content) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "فشل تحليل الصورة" });
+      return JSON.parse(content as string);
+    }),
+
+    // Predict assets at risk based on maintenance history
+    predictAtRiskAssets: protectedProcedure.mutation(async () => {
+      const assets = await db.listAssets({});
+      const tickets = await db.getTickets();
+
+      if (assets.length === 0) {
+        return { atRiskAssets: [], summary: "لا توجد أصول مسجلة بعد" };
+      }
+
+      // Build asset maintenance history summary
+      const assetSummaries = assets.slice(0, 20).map((asset: any) => {
+        const assetTickets = tickets.filter((t: any) => t.assetId === asset.id);
+        const recentTickets = assetTickets.filter((t: any) => {
+          const days = (Date.now() - new Date(t.createdAt).getTime()) / (1000 * 60 * 60 * 24);
+          return days <= 90;
+        });
+        return {
+          id: asset.id,
+          name: asset.name,
+          category: asset.category,
+          status: asset.status,
+          warrantyExpiry: asset.warrantyExpiry,
+          totalTickets: assetTickets.length,
+          recentTickets: recentTickets.length,
+          lastTicketDate: assetTickets.length > 0 ? assetTickets[assetTickets.length - 1].createdAt : null,
+        };
+      });
+
+      const result = await invokeLLM({
+        messages: [
+          { role: "system", content: "أنت محلل بيانات صيانة متخصص. بناءً على بيانات الأصول وتاريخ الأعطال، حدد الأصول الأكثر عرضة للأعطال وقدم توصيات وقائية." },
+          { role: "user", content: `بيانات الأصول:\n${JSON.stringify(assetSummaries, null, 2)}\n\nحدد الأصول الأكثر خطورة وقدم توصيات.` as string },
+        ],
+        response_format: {
+          type: "json_schema",
+          json_schema: {
+            name: "risk_prediction",
+            strict: true,
+            schema: {
+              type: "object",
+              properties: {
+                atRiskAssets: {
+                  type: "array",
+                  items: {
+                    type: "object",
+                    properties: {
+                      assetId: { type: "number" },
+                      assetName: { type: "string" },
+                      riskLevel: { type: "string", enum: ["low", "medium", "high", "critical"] },
+                      reason: { type: "string" },
+                      recommendation: { type: "string" },
+                    },
+                    required: ["assetId", "assetName", "riskLevel", "reason", "recommendation"],
+                    additionalProperties: false,
+                  },
+                },
+                summary: { type: "string", description: "ملخص التحليل" },
+              },
+              required: ["atRiskAssets", "summary"],
+              additionalProperties: false,
+            },
+          },
+        },
+      });
+
+      const content = result.choices?.[0]?.message?.content;
+      if (!content) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "فشل التحليل" });
+      return JSON.parse(content as string);
+    }),
+  }),
+});
 export type AppRouter = typeof appRouter;

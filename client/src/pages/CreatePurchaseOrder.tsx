@@ -6,7 +6,8 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ArrowRight, Plus, Trash2, Loader2, ShoppingCart, Camera, Link2 } from "lucide-react";
+import { ArrowRight, Plus, Trash2, Loader2, ShoppingCart, Camera, Link2, Upload } from "lucide-react";
+import DropZone, { type UploadedFile } from "@/components/DropZone";
 import { useState } from "react";
 import { toast } from "sonner";
 import { useTranslation } from "@/contexts/LanguageContext";
@@ -43,6 +44,7 @@ export default function CreatePurchaseOrder() {
   const [items, setItems] = useState<ItemForm[]>([emptyItem()]);
   const [notes, setNotes] = useState("");
   const [uploadingIdx, setUploadingIdx] = useState<number | null>(null);
+  const [showDropZoneIdx, setShowDropZoneIdx] = useState<number | null>(null);
 
   const updateItem = (idx: number, field: keyof ItemForm, value: any) => {
     setItems(prev => prev.map((item, i) => i === idx ? { ...item, [field]: value } : item));
@@ -160,20 +162,36 @@ export default function CreatePurchaseOrder() {
                 {item.photoUrl ? (
                   <div className="relative">
                     <img src={item.photoUrl} alt="" className="w-full h-20 rounded-lg object-cover border" />
-                    <Button variant="destructive" size="icon" className="absolute top-1 left-1 h-6 w-6" onClick={() => updateItem(idx, "photoUrl", "")}>
+                    <Button variant="destructive" size="icon" className="absolute top-1 left-1 h-6 w-6" onClick={() => { updateItem(idx, "photoUrl", ""); setShowDropZoneIdx(null); }}>
                       <Trash2 className="w-3 h-3" />
                     </Button>
                   </div>
+                ) : showDropZoneIdx === idx ? (
+                  <DropZone
+                    maxFiles={1}
+                    accept="image/*"
+                    label="اسحب صورة الصنف"
+                    sublabel="صورة واحدة فقط"
+                    onFilesUploaded={(files: UploadedFile[]) => {
+                      const done = files.find(f => f.status === "done" && f.url);
+                      if (done?.url) { updateItem(idx, "photoUrl", done.url); setShowDropZoneIdx(null); }
+                    }}
+                  />
                 ) : (
-                  <Button variant="outline" size="sm" className="w-full h-20 border-dashed gap-1" onClick={() => {
-                    const input = document.createElement("input");
-                    input.type = "file"; input.accept = "image/*";
-                    input.onchange = (e: any) => { if (e.target.files[0]) handleUpload(idx, e.target.files[0]); };
-                    input.click();
-                  }} disabled={uploadingIdx === idx}>
-                    {uploadingIdx === idx ? <Loader2 className="w-4 h-4 animate-spin" /> : <Camera className="w-4 h-4" />}
-                    {uploadingIdx === idx ? "..." : t.common.upload}
-                  </Button>
+                  <div className="flex gap-2">
+                    <Button variant="outline" size="sm" className="flex-1 h-20 border-dashed gap-1" onClick={() => {
+                      const input = document.createElement("input");
+                      input.type = "file"; input.accept = "image/*";
+                      input.onchange = (e: any) => { if (e.target.files[0]) handleUpload(idx, e.target.files[0]); };
+                      input.click();
+                    }} disabled={uploadingIdx === idx}>
+                      {uploadingIdx === idx ? <Loader2 className="w-4 h-4 animate-spin" /> : <Camera className="w-4 h-4" />}
+                      {uploadingIdx === idx ? "..." : t.common.upload}
+                    </Button>
+                    <Button variant="outline" size="sm" className="h-20 px-3 border-dashed" onClick={() => setShowDropZoneIdx(idx)} title="سحب وإفلات">
+                      <Upload className="w-4 h-4" />
+                    </Button>
+                  </div>
                 )}
               </div>
             </div>

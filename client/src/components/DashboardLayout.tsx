@@ -25,7 +25,8 @@ import { useIsMobile } from "@/hooks/useMobile";
 import {
   LayoutDashboard, LogOut, PanelLeft, ClipboardList, ShoppingCart,
   Package, BarChart3, Users, Bell, MapPin, Wrench, Shield,
-  Brain, FileText, Settings, ShoppingBag, Truck, Languages, Database
+  Brain, FileText, Settings, ShoppingBag, Truck, Languages, Database,
+  HardDrive, CalendarClock
 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -66,6 +67,8 @@ const allMenuDefs: MenuItemDef[] = [
   { icon: Brain, labelKey: "nav.aiAssistant", path: "/ai-assistant", roles: ["owner", "admin", "senior_management", "maintenance_manager"] },
   { icon: Shield, labelKey: "nav.auditLog", path: "/audit-log", roles: ["owner", "admin"] },
   { icon: Languages, labelKey: "nav.translationMonitor", path: "/translation-monitor", roles: ["owner", "admin"] },
+  { icon: HardDrive, labelKey: "nav.assets", path: "/assets", roles: ["owner", "admin", "maintenance_manager"] },
+  { icon: CalendarClock, labelKey: "nav.preventive", path: "/preventive", roles: ["owner", "admin", "maintenance_manager"] },
   { icon: Database, labelKey: "backup.title", path: "/backup", roles: ["owner", "admin"] },
 ];
 

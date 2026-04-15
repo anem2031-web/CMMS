@@ -25,6 +25,8 @@ import MyItems from "./pages/MyItems";
 import TranslationMonitor from "./pages/TranslationMonitor";
 import PurchaseCycle from "./pages/PurchaseCycle";
 import Backup from "./pages/Backup";
+import Assets from "./pages/Assets";
+import PreventiveMaintenance from "./pages/PreventiveMaintenance";
 
 function Router() {
   return (
@@ -49,6 +51,8 @@ function Router() {
         <Route path="/ai-assistant" component={AIAssistant} />
         <Route path="/translation-monitor" component={TranslationMonitor} />
         <Route path="/backup" component={Backup} />
+        <Route path="/assets" component={Assets} />
+        <Route path="/preventive" component={PreventiveMaintenance} />
         <Route path="/404" component={NotFound} />
         <Route component={NotFound} />
       </Switch>
