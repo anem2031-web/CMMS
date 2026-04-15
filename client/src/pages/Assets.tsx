@@ -29,6 +29,7 @@ interface AssetFormData {
   brand: string;
   model: string;
   serialNumber: string;
+  rfidTag: string;
   siteId: string;
   locationDetail: string;
   status: AssetStatus;
@@ -42,7 +43,7 @@ interface AssetFormData {
 
 const defaultForm: AssetFormData = {
   name: "", description: "", category: "", brand: "", model: "",
-  serialNumber: "", siteId: "", locationDetail: "", status: "active",
+  serialNumber: "", rfidTag: "", siteId: "", locationDetail: "", status: "active",
   purchaseDate: "", purchaseCost: "", warrantyExpiry: "", warrantyNotes: "",
   photoUrl: "", notes: "",
 };
@@ -56,6 +57,10 @@ export default function Assets() {
   const [form, setForm] = useState<AssetFormData>(defaultForm);
   const [deleteId, setDeleteId] = useState<number | null>(null);
   const [showPhotoUpload, setShowPhotoUpload] = useState(false);
+  const [showRfidScanner, setShowRfidScanner] = useState(false);
+  const [rfidInput, setRfidInput] = useState("");
+  const [rfidResult, setRfidResult] = useState<any | null>(null);
+  const [rfidError, setRfidError] = useState("");
 
   const utils = trpc.useUtils();
 
@@ -104,6 +109,7 @@ export default function Assets() {
       brand: form.brand || undefined,
       model: form.model || undefined,
       serialNumber: form.serialNumber || undefined,
+      rfidTag: form.rfidTag || undefined,
       siteId: form.siteId ? Number(form.siteId) : undefined,
       locationDetail: form.locationDetail || undefined,
       status: form.status,
@@ -130,6 +136,7 @@ export default function Assets() {
       brand: asset.brand ?? "",
       model: asset.model ?? "",
       serialNumber: asset.serialNumber ?? "",
+      rfidTag: asset.rfidTag ?? "",
       siteId: asset.siteId ? String(asset.siteId) : "",
       locationDetail: asset.locationDetail ?? "",
       status: asset.status ?? "active",
@@ -245,6 +252,9 @@ export default function Assets() {
             <SelectItem value="disposed">{t.assets.disposed}</SelectItem>
           </SelectContent>
         </Select>
+        <Button variant="outline" onClick={() => setShowRfidScanner(true)}>
+          {t.assets.scanRfid || "مسح RFID"}
+        </Button>
       </div>
 
       {/* Assets Grid */}
@@ -354,6 +364,10 @@ export default function Assets() {
               <Input value={form.serialNumber} onChange={e => setForm(f => ({ ...f, serialNumber: e.target.value }))} />
             </div>
             <div>
+              <Label>{t.assets.rfidTag || "RFID Tag"}</Label>
+              <Input value={form.rfidTag} onChange={e => setForm(f => ({ ...f, rfidTag: e.target.value }))} placeholder="مثال: 001A2B3C" />
+            </div>
+            <div>
               <Label>{t.assets.location}</Label>
               <Select value={form.siteId || "none"} onValueChange={v => setForm(f => ({ ...f, siteId: v === "none" ? "" : v }))}>
                 <SelectTrigger><SelectValue placeholder={t.common.none} /></SelectTrigger>
@@ -437,6 +451,69 @@ export default function Assets() {
             <Button variant="outline" onClick={() => setDeleteId(null)}>{t.common.cancel}</Button>
             <Button variant="destructive" onClick={() => deleteId && deleteMut.mutate({ id: deleteId })} disabled={deleteMut.isPending}>
               {deleteMut.isPending ? t.common.deleting : t.common.delete}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* RFID Scanner Dialog */}
+      <Dialog open={showRfidScanner} onOpenChange={(o) => { if (!o) { setShowRfidScanner(false); setRfidInput(""); setRfidResult(null); setRfidError(""); } }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t.assets.scanRfid || "مسح RFID"}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label>{t.assets.rfidTag || "RFID Tag"}</Label>
+              <Input
+                value={rfidInput}
+                onChange={(e) => {
+                  setRfidInput(e.target.value);
+                  setRfidError("");
+                  setRfidResult(null);
+                }}
+                placeholder="001A2B3C"
+                autoFocus
+              />
+              <p className="text-xs text-muted-foreground mt-1">الرجاء إدخال رقم RFID أو استخدم قارئ USB</p>
+            </div>
+            {rfidError && (
+              <div className="p-3 bg-red-50 border border-red-200 rounded text-sm text-red-700">
+                {rfidError}
+              </div>
+            )}
+            {rfidResult && (
+              <Card>
+                <CardContent className="p-4 space-y-2">
+                  <p className="text-sm font-semibold">{rfidResult.name}</p>
+                  <p className="text-xs text-muted-foreground">{t.assets.assetNumber}: {rfidResult.assetNumber}</p>
+                  {rfidResult.category && <p className="text-xs text-muted-foreground">{t.assets.category}: {rfidResult.category}</p>}
+                  {rfidResult.serialNumber && <p className="text-xs text-muted-foreground">S/N: {rfidResult.serialNumber}</p>}
+                </CardContent>
+              </Card>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setShowRfidScanner(false); setRfidInput(""); setRfidResult(null); setRfidError(""); }}>
+              {t.common.cancel}
+            </Button>
+            <Button onClick={async () => {
+              if (!rfidInput.trim()) {
+                setRfidError("الرجاء إدخال RFID");
+                return;
+              }
+              try {
+                const response = await fetch(`/api/trpc/assets.getByRfid?input=${encodeURIComponent(JSON.stringify({ rfidTag: rfidInput }))}`);
+                if (!response.ok) throw new Error("الأصل غير موجود");
+                const data = await response.json();
+                setRfidResult(data.result?.data);
+                setRfidError("");
+              } catch (err: any) {
+                setRfidError(err.message || "الأصل غير موجود");
+                setRfidResult(null);
+              }
+            }}>
+              {t.assets.scanRfid || "بحث"}
             </Button>
           </DialogFooter>
         </DialogContent>

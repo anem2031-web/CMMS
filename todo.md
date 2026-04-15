@@ -332,3 +332,21 @@
 
 ## Phase 20: إصلاح خطأ إضافة الأصول
 - [ ] إصلاح خطأ "An unexpected error occurred" عند إضافة أصل جديد
+
+
+## Phase 21: دعم RFID
+
+### Backend
+- [ ] إضافة حقل rfidTag في جدول assets
+- [ ] تشغيل migration
+- [ ] إضافة دوال في db.ts: getAssetByRfidTag, updateAssetRfidTag
+- [ ] إضافة API endpoints في routers.ts: assets.getByRfid, assets.updateRfid
+
+### Frontend
+- [ ] إضافة حقل RFID في نموذج إنشاء/تعديل الأصل
+- [ ] بناء واجهة البحث السريع بـ RFID (صفحة جديدة)
+- [ ] إضافة رابط في القائمة الجانبية للبحث بـ RFID
+- [ ] إضافة ترجمات RFID (عربي/إنجليزي/أردي)
+
+### Testing
+- [ ] اختبارات vitest للـ RFID APIs

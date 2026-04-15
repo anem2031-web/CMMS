@@ -50,6 +50,13 @@
       "when": 1776258591452,
       "tag": "0006_next_bullseye",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "5",
+      "when": 1776269651828,
+      "tag": "0007_slimy_purifiers",
+      "breakpoints": true
     }
   ]
 }

@@ -1333,6 +1333,24 @@ ${JSON.stringify(recentAudit.map((a: any) => ({ action: a.action, entity: a.enti
     delete: managerProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
       return db.deleteAsset(input.id);
     }),
+
+    // ============================================================
+    // RFID - تقنية تحديد الموقع بالترددات الراديوية
+    // ============================================================
+    getByRfid: protectedProcedure.input(z.object({
+      rfidTag: z.string().min(1),
+    })).query(async ({ input }) => {
+      const asset = await db.getAssetByRfidTag(input.rfidTag);
+      if (!asset) throw new TRPCError({ code: "NOT_FOUND", message: "الأصل بهذا الـ RFID غير موجود" });
+      return asset;
+    }),
+
+    updateRfid: managerProcedure.input(z.object({
+      id: z.number(),
+      rfidTag: z.string().min(1),
+    })).mutation(async ({ input }) => {
+      return db.updateAssetRfidTag(input.id, input.rfidTag);
+    }),
   }),
 
   // ============================================================

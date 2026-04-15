@@ -1,4 +1,4 @@
-import { eq, desc, and, sql, count, sum, inArray, like, or, gte, lte, isNull, ne } from "drizzle-orm";
+import { eq, desc, and, sql, count, sum, inArray, like, or, gte, lte, isNull, isNotNull, ne } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   InsertUser, users, tickets, purchaseOrders, purchaseOrderItems,
@@ -903,4 +903,42 @@ export function calcNextDueDate(from: Date, frequency: string, frequencyValue: n
     case "annual": d.setFullYear(d.getFullYear() + frequencyValue); break;
   }
   return d;
+}
+
+
+// ============================================================
+// RFID OPERATIONS
+// ============================================================
+export async function getAssetByRfidTag(rfidTag: string) {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db.select().from(assets).where(eq(assets.rfidTag, rfidTag)).limit(1);
+  return rows[0] ?? null;
+}
+
+export async function updateAssetRfidTag(assetId: number, rfidTag: string | null) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  if (rfidTag && rfidTag.trim()) {
+    // Check if RFID tag already exists
+    const existing = await db.select().from(assets).where(eq(assets.rfidTag, rfidTag)).limit(1);
+    if (existing.length > 0 && existing[0].id !== assetId) {
+      throw new Error("RFID tag already assigned to another asset");
+    }
+  }
+  await db.update(assets).set({ rfidTag: rfidTag || null }).where(eq(assets.id, assetId));
+  return { success: true };
+}
+
+export async function listAssetsWithRfid() {
+  const db = await getDb();
+  if (!db) return [];
+  return await db.select({
+    id: assets.id,
+    assetNumber: assets.assetNumber,
+    name: assets.name,
+    rfidTag: assets.rfidTag,
+    status: assets.status,
+    siteId: assets.siteId,
+  }).from(assets).where(isNotNull(assets.rfidTag));
 }

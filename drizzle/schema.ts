@@ -348,6 +348,7 @@ export const assets = mysqlTable("assets", {
   nextMaintenanceDate: timestamp("nextMaintenanceDate"),
   photoUrl: text("photoUrl"),
   qrCode: varchar("qrCode", { length: 200 }),
+  rfidTag: varchar("rfidTag", { length: 100 }).unique(),
   notes: text("notes"),
   createdById: int("createdById"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
@@ -356,6 +357,10 @@ export const assets = mysqlTable("assets", {
 
 export type Asset = typeof assets.$inferSelect;
 export type InsertAsset = typeof assets.$inferInsert;
+export type UpdateAsset = Partial<InsertAsset>;
+
+// RFID Tag type
+
 
 // ============================================================
 // 16. PREVENTIVE MAINTENANCE PLANS (خطط الصيانة الوقائية)
