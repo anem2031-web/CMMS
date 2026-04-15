@@ -417,3 +417,60 @@ export const pmWorkOrders = mysqlTable("pm_work_orders", {
 
 export type PMWorkOrder = typeof pmWorkOrders.$inferSelect;
 export type InsertPMWorkOrder = typeof pmWorkOrders.$inferInsert;
+
+// ============================================================
+// ASSET SPARE PARTS - ربط الأصول بالأجزاء (M:M)
+// ============================================================
+export const assetSpareParts = mysqlTable("asset_spare_parts", {
+  id: int("id").autoincrement().primaryKey(),
+  assetId: int("assetId").notNull(),
+  inventoryItemId: int("inventoryItemId").notNull(),
+  minStockLevel: int("minStockLevel").default(5).notNull(), // الحد الأدنى للتنبيه
+  preferredQuantity: int("preferredQuantity").default(10).notNull(), // الكمية المفضلة للطلب
+  notes: text("notes"), // ملاحظات خاصة بهذا الجزء للأصل
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type AssetSparePart = typeof assetSpareParts.$inferSelect;
+export type InsertAssetSparePart = typeof assetSpareParts.$inferInsert;
+
+// ============================================================
+// PREVENTIVE MAINTENANCE JOBS - وظائف الصيانة الوقائية التلقائية
+// ============================================================
+export const pmJobs = mysqlTable("pm_jobs", {
+  id: int("id").autoincrement().primaryKey(),
+  planId: int("planId").notNull(),
+  assetId: int("assetId").notNull(),
+  ticketId: int("ticketId"), // البلاغ المُنشأ تلقائياً
+  dueDate: timestamp("dueDate").notNull(),
+  executedDate: timestamp("executedDate"),
+  status: mysqlEnum("status", ["pending", "executed", "skipped", "overdue"]).default("pending").notNull(),
+  autoCreatedTicket: boolean("autoCreatedTicket").default(false).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type PMJob = typeof pmJobs.$inferSelect;
+export type InsertPMJob = typeof pmJobs.$inferInsert;
+
+// ============================================================
+// ASSET PERFORMANCE METRICS - مؤشرات أداء الأصول
+// ============================================================
+export const assetMetrics = mysqlTable("asset_metrics", {
+  id: int("id").autoincrement().primaryKey(),
+  assetId: int("assetId").notNull().unique(),
+  totalTickets: int("totalTickets").default(0).notNull(),
+  closedTickets: int("closedTickets").default(0).notNull(),
+  totalDowntime: int("totalDowntime").default(0).notNull(), // بالدقائق
+  mttr: decimal("mttr", { precision: 10, scale: 2 }).default("0").notNull(), // Mean Time To Repair (بالساعات)
+  mtbf: decimal("mtbf", { precision: 10, scale: 2 }).default("0").notNull(), // Mean Time Between Failures (بالساعات)
+  availability: decimal("availability", { precision: 5, scale: 2 }).default("100").notNull(), // النسبة المئوية
+  lastFailureDate: timestamp("lastFailureDate"),
+  lastRepairDate: timestamp("lastRepairDate"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type AssetMetrics = typeof assetMetrics.$inferSelect;
+export type InsertAssetMetrics = typeof assetMetrics.$inferInsert;

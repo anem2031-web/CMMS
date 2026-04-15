@@ -1369,6 +1369,54 @@ ${JSON.stringify(recentAudit.map((a: any) => ({ action: a.action, entity: a.enti
       if (!asset) throw new TRPCError({ code: "NOT_FOUND", message: "الأصل غير موجود" });
       return db.getAssetMaintenanceStats(input.id);
     }),
+
+    addSparePart: managerProcedure.input(z.object({
+      assetId: z.number(),
+      inventoryItemId: z.number(),
+      minStockLevel: z.number().optional(),
+      preferredQuantity: z.number().optional(),
+      notes: z.string().optional(),
+    })).mutation(async ({ input }) => {
+      return db.addAssetSparePart(input);
+    }),
+
+    getSpareParts: protectedProcedure.input(z.object({
+      assetId: z.number(),
+    })).query(async ({ input }) => {
+      return db.getAssetSpareParts(input.assetId);
+    }),
+
+    removeSparePart: managerProcedure.input(z.object({
+      id: z.number(),
+    })).mutation(async ({ input }) => {
+      return db.removeAssetSparePart(input.id);
+    }),
+
+    getMetrics: protectedProcedure.input(z.object({
+      assetId: z.number(),
+    })).query(async ({ input }) => {
+      return db.getAssetMetricsById(input.assetId);
+    }),
+
+    calculateMetrics: managerProcedure.input(z.object({
+      assetId: z.number(),
+    })).mutation(async ({ input }) => {
+      return db.calculateAssetMetrics(input.assetId);
+    }),
+
+    getAllMetrics: protectedProcedure.query(async () => {
+      return db.getAllAssetMetrics();
+    }),
+
+    getLowStockAlerts: managerProcedure.query(async () => {
+      return db.getInventoryAlerts();
+    }),
+
+    getAssetSparePartsWithLowStock: protectedProcedure.input(z.object({
+      assetId: z.number(),
+    })).query(async ({ input }) => {
+      return db.getAssetSparePartsWithLowStock(input.assetId);
+    }),
   }),
 
   // ============================================================

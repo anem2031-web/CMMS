@@ -1,10 +1,10 @@
-import { eq, desc, and, sql, count, sum, inArray, notInArray, like, or, gte, lte, isNull, isNotNull, ne } from "drizzle-orm";
+import { eq, desc, asc, and, sql, count, sum, inArray, notInArray, like, or, gte, lte, isNull, isNotNull, ne } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   InsertUser, users, tickets, purchaseOrders, purchaseOrderItems,
   inventory, inventoryTransactions, notifications, auditLogs,
   ticketStatusHistory, attachments, sites, backups,
-  assets, preventivePlans, pmWorkOrders,
+  assets, preventivePlans, pmWorkOrders, assetSpareParts, pmJobs, assetMetrics,
   type InsertAsset, type InsertPreventivePlan, type InsertPMWorkOrder
 } from "../drizzle/schema";
 import { ENV } from './_core/env';
@@ -1012,4 +1012,266 @@ export async function getAssetMaintenanceStats(assetId: number) {
     totalWorkOrders: woRows[0]?.cnt ?? 0,
     completedWorkOrders: completedWOs[0]?.cnt ?? 0,
   };
+}
+
+// ============================================================
+// ASSET SPARE PARTS - ربط الأصول بالأجزاء
+// ============================================================
+export async function addAssetSparePart(data: any) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  const result = await db.insert(assetSpareParts).values(data);
+  const id = (result as any)[0]?.insertId ?? null;
+  return { id };
+}
+
+export async function getAssetSpareParts(assetId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return await db
+    .select({
+      id: assetSpareParts.id,
+      assetId: assetSpareParts.assetId,
+      inventoryItemId: assetSpareParts.inventoryItemId,
+      minStockLevel: assetSpareParts.minStockLevel,
+      preferredQuantity: assetSpareParts.preferredQuantity,
+      notes: assetSpareParts.notes,
+      item: {
+        id: inventory.id,
+        itemName: inventory.itemName,
+        quantity: inventory.quantity,
+        minQuantity: inventory.minQuantity,
+      },
+    })
+    .from(assetSpareParts)
+    .innerJoin(inventory, eq(assetSpareParts.inventoryItemId, inventory.id))
+    .where(eq(assetSpareParts.assetId, assetId));
+}
+
+export async function removeAssetSparePart(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  await db.delete(assetSpareParts).where(eq(assetSpareParts.id, id));
+  return { success: true };
+}
+
+// ============================================================
+// PM JOBS - وظائف الصيانة الوقائية التلقائية
+// ============================================================
+export async function createPMJob(data: any) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  const result = await db.insert(pmJobs).values(data);
+  const id = (result as any)[0]?.insertId ?? null;
+  return { id };
+}
+
+export async function getPendingPMJobs() {
+  const db = await getDb();
+  if (!db) return [];
+  const now = new Date();
+  return await db
+    .select()
+    .from(pmJobs)
+    .where(and(eq(pmJobs.status, "pending"), lte(pmJobs.dueDate, now)))
+    .orderBy(asc(pmJobs.dueDate));
+}
+
+export async function updatePMJob(id: number, data: Partial<any>) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  await db.update(pmJobs).set(data).where(eq(pmJobs.id, id));
+  return { success: true };
+}
+
+// ============================================================
+// ASSET METRICS - مؤشرات أداء الأصول
+// ============================================================
+export async function getOrCreateAssetMetrics(assetId: number) {
+  const db = await getDb();
+  if (!db) return null;
+  
+  let metrics = await db
+    .select()
+    .from(assetMetrics)
+    .where(eq(assetMetrics.assetId, assetId))
+    .limit(1);
+  
+  if (metrics.length === 0) {
+    await db.insert(assetMetrics).values({ assetId });
+    metrics = await db
+      .select()
+      .from(assetMetrics)
+      .where(eq(assetMetrics.assetId, assetId))
+      .limit(1);
+  }
+  
+  return metrics[0] ?? null;
+}
+
+export async function calculateAssetMetrics(assetId: number) {
+  const db = await getDb();
+  if (!db) return null;
+
+  // Get all tickets for this asset
+  const assetTickets = await db
+    .select()
+    .from(tickets)
+    .where(eq(tickets.assetId, assetId));
+
+  const totalTickets = assetTickets.length;
+  const closedTickets = assetTickets.filter((t: any) => t.status === "closed").length;
+
+  // Calculate MTTR (Mean Time To Repair)
+  let totalRepairTime = 0;
+  let repairCount = 0;
+  
+  for (const ticket of assetTickets) {
+    if (ticket.closedAt && ticket.createdAt) {
+      const repairTime = (new Date(ticket.closedAt).getTime() - new Date(ticket.createdAt).getTime()) / (1000 * 60 * 60); // in hours
+      totalRepairTime += repairTime;
+      repairCount++;
+    }
+  }
+
+  const mttr = repairCount > 0 ? totalRepairTime / repairCount : 0;
+
+  // Calculate MTBF (Mean Time Between Failures)
+  let mtbf = 0;
+  if (closedTickets > 1) {
+    const sortedTickets = assetTickets
+      .filter((t: any) => t.status === "closed")
+      .sort((a: any, b: any) => new Date(a.closedAt).getTime() - new Date(b.closedAt).getTime());
+    
+    let totalTimeBetweenFailures = 0;
+    for (let i = 1; i < sortedTickets.length; i++) {
+      const prevClosedAt = sortedTickets[i - 1].closedAt as Date | null;
+      const closedTime = prevClosedAt ? new Date(prevClosedAt).getTime() : new Date(sortedTickets[i - 1].createdAt).getTime();
+      const timeBetween = (new Date(sortedTickets[i].createdAt).getTime() - closedTime) / (1000 * 60 * 60); // in hours
+      totalTimeBetweenFailures += timeBetween;
+    }
+    mtbf = totalTimeBetweenFailures / (sortedTickets.length - 1);
+  }
+
+  // Calculate availability
+  const totalDowntime = assetTickets.reduce((sum: number, t: any) => {
+    if (t.closedAt && t.createdAt) {
+      return sum + (new Date(t.closedAt).getTime() - new Date(t.createdAt).getTime());
+    }
+    return sum;
+  }, 0);
+
+  const availability = 100 - (totalDowntime / (90 * 24 * 60 * 60 * 1000)) * 100; // Assuming 90 days reference period
+
+  // Update metrics
+  const lastFailure = assetTickets
+    .filter((t: any) => t.status === "closed")
+    .sort((a: any, b: any) => new Date(b.closedAt).getTime() - new Date(a.closedAt).getTime())[0];
+
+  const metrics = await getOrCreateAssetMetrics(assetId);
+  if (metrics) {
+    await db.update(assetMetrics).set({
+      totalTickets,
+      closedTickets,
+      totalDowntime: Math.floor(totalDowntime / (1000 * 60)),
+      mttr: String(Math.round(mttr * 100) / 100),
+      mtbf: String(Math.round(mtbf * 100) / 100),
+      availability: String(Math.max(0, Math.min(100, Math.round(availability * 100) / 100))),
+      lastFailureDate: lastFailure?.closedAt,
+      lastRepairDate: lastFailure?.closedAt,
+    }).where(eq(assetMetrics.assetId, assetId));
+  }
+
+  return metrics;
+}
+
+export async function getAssetMetricsById(assetId: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db
+    .select()
+    .from(assetMetrics)
+    .where(eq(assetMetrics.assetId, assetId))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
+export async function getAllAssetMetrics() {
+  const db = await getDb();
+  if (!db) return [];
+  return await db.select().from(assetMetrics).orderBy(desc(assetMetrics.mttr));
+}
+
+
+/**
+ * Get low stock inventory items
+ */
+export async function getLowStockItems() {
+  const db = await getDb();
+  if (!db) return [];
+
+  return db
+    .select({
+      id: inventory.id,
+      itemName: inventory.itemName,
+      quantity: inventory.quantity,
+      minQuantity: inventory.minQuantity,
+      unit: inventory.unit,
+      location: inventory.location,
+      siteId: inventory.siteId,
+    })
+    .from(inventory)
+    .where(lte(inventory.quantity, inventory.minQuantity));
+}
+
+/**
+ * Get spare parts for asset with low stock
+ */
+export async function getAssetSparePartsWithLowStock(assetId: number) {
+  const db = await getDb();
+  if (!db) return [];
+
+  return db
+    .select({
+      assetId: assetSpareParts.assetId,
+      minStockLevel: assetSpareParts.minStockLevel,
+      preferredQuantity: assetSpareParts.preferredQuantity,
+      item: {
+        id: inventory.id,
+        itemName: inventory.itemName,
+        quantity: inventory.quantity,
+        minQuantity: inventory.minQuantity,
+      },
+    })
+    .from(assetSpareParts)
+    .innerJoin(inventory, eq(assetSpareParts.inventoryItemId, inventory.id))
+    .where(and(
+      eq(assetSpareParts.assetId, assetId),
+      lte(inventory.quantity, assetSpareParts.minStockLevel)
+    ));
+}
+
+/**
+ * Get inventory alerts
+ */
+export async function getInventoryAlerts() {
+  const db = await getDb();
+  if (!db) return [];
+
+  const lowStockItems = await getLowStockItems();
+  
+  return lowStockItems.map((item: any) => ({
+    id: item.id,
+    type: "low_stock" as const,
+    itemName: item.itemName,
+    currentQuantity: item.quantity,
+    minimumQuantity: item.minQuantity,
+    unit: item.unit,
+    location: item.location,
+    siteId: item.siteId,
+    severity: item.quantity === 0 ? "critical" : item.quantity <= item.minQuantity / 2 ? "high" : "medium",
+    message: item.quantity === 0 
+      ? `${item.itemName} is out of stock` 
+      : `${item.itemName} is below minimum level (${item.quantity}/${item.minQuantity} ${item.unit})`,
+  }));
 }
