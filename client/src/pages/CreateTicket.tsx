@@ -30,10 +30,11 @@ export default function CreateTicket() {
   const { t } = useTranslation();
   const { getPriorityLabel, getCategoryLabel } = useStaticLabels();
   const { data: sites } = trpc.sites.list.useQuery();
+  const { data: assets } = trpc.assets.list.useQuery();
 
   const [form, setForm] = useState({
     title: "", description: "", priority: "medium",
-    category: "general", siteId: "", locationDetail: "", beforePhotoUrl: "",
+    category: "general", siteId: "", assetId: "", locationDetail: "", beforePhotoUrl: "",
   });
   const [fileEntries, setFileEntries] = useState<FileEntry[]>([]);
   const [isDragging, setIsDragging] = useState(false);
@@ -215,7 +216,7 @@ export default function CreateTicket() {
     if (!form.title.trim()) { toast.error(t.tickets.ticketTitle); return; }
     const uploading = fileEntries.some(e => e.status === "uploading" || e.status === "pending");
     if (uploading) { toast.error(at.uploading || "الرجاء انتظار اكتمال رفع الملفات"); return; }
-    createMut.mutate({ ...form, siteId: form.siteId ? parseInt(form.siteId) : undefined });
+    createMut.mutate({ ...form, siteId: form.siteId ? parseInt(form.siteId) : undefined, assetId: form.assetId ? parseInt(form.assetId) : undefined });
   };
 
   const isImage = (type: string) => type.startsWith("image/");
@@ -273,7 +274,7 @@ export default function CreateTicket() {
             </div>
           </div>
 
-          {/* Site + Location */}
+          {/* Site + Asset */}
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label>{t.tickets.site}</Label>
@@ -285,9 +286,20 @@ export default function CreateTicket() {
               </Select>
             </div>
             <div className="space-y-2">
-              <Label>{t.tickets.site}</Label>
-              <Input value={form.locationDetail} onChange={e => setForm(f => ({ ...f, locationDetail: e.target.value }))} />
+              <Label>{t.assets.title || "الأصل"}</Label>
+              <Select value={form.assetId} onValueChange={v => setForm(f => ({ ...f, assetId: v }))}>
+                <SelectTrigger><SelectValue placeholder={t.assets.title} /></SelectTrigger>
+                <SelectContent>
+                  {assets?.map((a: any) => <SelectItem key={a.id} value={String(a.id)}>{a.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
             </div>
+          </div>
+
+          {/* Location Detail */}
+          <div className="space-y-2">
+            <Label>{"تفاصيل الموقع"}</Label>
+            <Input value={form.locationDetail} onChange={e => setForm(f => ({ ...f, locationDetail: e.target.value }))} />
           </div>
 
           {/* ───── Attachments Section ───── */}

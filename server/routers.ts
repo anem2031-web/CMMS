@@ -205,6 +205,7 @@ export const appRouter = router({
       status: z.string().optional(),
       priority: z.string().optional(),
       siteId: z.number().optional(),
+      assetId: z.number().optional(),
       search: z.string().optional(),
     }).optional()).query(async ({ input, ctx }) => {
       const role = ctx.user.role;
@@ -226,6 +227,7 @@ export const appRouter = router({
       priority: z.string().default("medium"),
       category: z.string().default("general"),
       siteId: z.number().optional(),
+      assetId: z.number().optional(),
       locationDetail: z.string().optional(),
       beforePhotoUrl: z.string().optional(),
     })).mutation(async ({ input, ctx }) => {

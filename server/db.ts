@@ -142,13 +142,14 @@ export async function createTicket(data: any) {
   return result[0].insertId;
 }
 
-export async function getTickets(filters?: { status?: string; priority?: string; siteId?: number; assignedToId?: number; reportedById?: number; search?: string }) {
+export async function getTickets(filters?: { status?: string; priority?: string; siteId?: number; assetId?: number; assignedToId?: number; reportedById?: number; search?: string }) {
   const db = await getDb();
   if (!db) return [];
   const conditions: any[] = [];
   if (filters?.status) conditions.push(eq(tickets.status, filters.status as any));
   if (filters?.priority) conditions.push(eq(tickets.priority, filters.priority as any));
   if (filters?.siteId) conditions.push(eq(tickets.siteId, filters.siteId));
+  if (filters?.assetId) conditions.push(eq(tickets.assetId, filters.assetId));
   if (filters?.assignedToId) conditions.push(eq(tickets.assignedToId, filters.assignedToId));
   if (filters?.reportedById) conditions.push(eq(tickets.reportedById, filters.reportedById));
   if (filters?.search) conditions.push(or(like(tickets.title, `%${filters.search}%`), like(tickets.ticketNumber, `%${filters.search}%`)));
@@ -161,6 +162,12 @@ export async function getTicketById(id: number) {
   if (!db) return null;
   const result = await db.select().from(tickets).where(eq(tickets.id, id)).limit(1);
   return result[0] || null;
+}
+
+export async function getTicketsByAsset(assetId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(tickets).where(eq(tickets.assetId, assetId)).orderBy(desc(tickets.createdAt));
 }
 
 export async function updateTicket(id: number, data: any) {

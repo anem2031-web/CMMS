@@ -65,6 +65,7 @@ export const tickets = mysqlTable("tickets", {
   priority: mysqlEnum("priority", [...ticketPriorities]).default("medium").notNull(),
   category: mysqlEnum("category", [...ticketCategories]).default("general").notNull(),
   siteId: int("siteId"),
+  assetId: int("assetId"),
   locationDetail: varchar("locationDetail", { length: 300 }),
   reportedById: int("reportedById").notNull(),
   assignedToId: int("assignedToId"),
