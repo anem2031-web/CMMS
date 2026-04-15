@@ -1,4 +1,4 @@
-import { eq, desc, and, sql, count, sum, inArray, like, or, gte, lte, isNull, isNotNull, ne } from "drizzle-orm";
+import { eq, desc, and, sql, count, sum, inArray, notInArray, like, or, gte, lte, isNull, isNotNull, ne } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   InsertUser, users, tickets, purchaseOrders, purchaseOrderItems,
@@ -948,4 +948,68 @@ export async function listAssetsWithRfid() {
     status: assets.status,
     siteId: assets.siteId,
   }).from(assets).where(isNotNull(assets.rfidTag));
+}
+
+// ============================================================
+// ASSET MAINTENANCE HISTORY - سجل الصيانة الكامل للأصل
+// ============================================================
+export async function getAssetMaintenanceHistory(assetId: number) {
+  const db = await getDb();
+  if (!db) return { tickets: [], pmPlans: [], workOrders: [] };
+
+  // Fetch all tickets linked to this asset
+  const assetTickets = await db
+    .select()
+    .from(tickets)
+    .where(eq(tickets.assetId, assetId))
+    .orderBy(desc(tickets.createdAt));
+
+  // Fetch all preventive plans for this asset
+  const assetPlans = await db
+    .select()
+    .from(preventivePlans)
+    .where(eq(preventivePlans.assetId, assetId))
+    .orderBy(desc(preventivePlans.createdAt));
+
+  // Fetch all PM work orders for this asset
+  const assetWorkOrders = await db
+    .select()
+    .from(pmWorkOrders)
+    .where(eq(pmWorkOrders.assetId, assetId))
+    .orderBy(desc(pmWorkOrders.scheduledDate));
+
+  return {
+    tickets: assetTickets,
+    pmPlans: assetPlans,
+    workOrders: assetWorkOrders,
+  };
+}
+
+export async function getAssetMaintenanceStats(assetId: number) {
+  const db = await getDb();
+  if (!db) return null;
+
+  const [ticketRows, planRows, woRows] = await Promise.all([
+    db.select({ cnt: count() }).from(tickets).where(eq(tickets.assetId, assetId)),
+    db.select({ cnt: count() }).from(preventivePlans).where(eq(preventivePlans.assetId, assetId)),
+    db.select({ cnt: count() }).from(pmWorkOrders).where(eq(pmWorkOrders.assetId, assetId)),
+  ]);
+
+  const openTickets = await db
+    .select({ cnt: count() })
+    .from(tickets)
+    .where(and(eq(tickets.assetId, assetId), notInArray(tickets.status, ["closed", "rejected"] as any)));
+
+  const completedWOs = await db
+    .select({ cnt: count() })
+    .from(pmWorkOrders)
+    .where(and(eq(pmWorkOrders.assetId, assetId), eq(pmWorkOrders.status, "completed")));
+
+  return {
+    totalTickets: ticketRows[0]?.cnt ?? 0,
+    openTickets: openTickets[0]?.cnt ?? 0,
+    totalPMPlans: planRows[0]?.cnt ?? 0,
+    totalWorkOrders: woRows[0]?.cnt ?? 0,
+    completedWorkOrders: completedWOs[0]?.cnt ?? 0,
+  };
 }

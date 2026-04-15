@@ -26,6 +26,7 @@ import TranslationMonitor from "./pages/TranslationMonitor";
 import PurchaseCycle from "./pages/PurchaseCycle";
 import Backup from "./pages/Backup";
 import Assets from "./pages/Assets";
+import AssetHistory from "./pages/AssetHistory";
 import PreventiveMaintenance from "./pages/PreventiveMaintenance";
 
 function Router() {
@@ -52,6 +53,7 @@ function Router() {
         <Route path="/translation-monitor" component={TranslationMonitor} />
         <Route path="/backup" component={Backup} />
         <Route path="/assets" component={Assets} />
+        <Route path="/assets/history" component={AssetHistory} />
         <Route path="/preventive" component={PreventiveMaintenance} />
         <Route path="/404" component={NotFound} />
         <Route component={NotFound} />

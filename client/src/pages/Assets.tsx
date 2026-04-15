@@ -16,7 +16,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Plus, Search, Edit, Trash2, Package, AlertTriangle,
-  CheckCircle, Wrench, XCircle, ShieldCheck, ShieldOff,
+  CheckCircle, Wrench, XCircle, ShieldCheck, ShieldOff, History,
 } from "lucide-react";
 import DropZone from "@/components/DropZone";
 
@@ -315,6 +315,9 @@ export default function Assets() {
                     </Button>
                     <Button size="sm" variant="outline" className="text-destructive hover:text-destructive" onClick={() => setDeleteId(asset.id)}>
                       <Trash2 className="h-3 w-3" />
+                    <Button size="sm" variant="outline" onClick={() => window.location.href = `/assets/history?id=${asset.id}`}>
+                      <History className="h-3 w-3" />
+                    </Button>
                     </Button>
                   </div>
                 </CardContent>
