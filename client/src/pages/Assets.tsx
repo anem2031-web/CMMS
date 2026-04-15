@@ -355,10 +355,10 @@ export default function Assets() {
             </div>
             <div>
               <Label>{t.assets.location}</Label>
-              <Select value={form.siteId} onValueChange={v => setForm(f => ({ ...f, siteId: v }))}>
+              <Select value={form.siteId || "none"} onValueChange={v => setForm(f => ({ ...f, siteId: v === "none" ? "" : v }))}>
                 <SelectTrigger><SelectValue placeholder={t.common.none} /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">{t.common.none}</SelectItem>
+                  <SelectItem value="none">{t.common.none}</SelectItem>
                   {sites.map((s: any) => (
                     <SelectItem key={s.id} value={String(s.id)}>{s.name}</SelectItem>
                   ))}

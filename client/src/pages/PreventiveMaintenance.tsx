@@ -422,20 +422,20 @@ export default function PreventiveMaintenance() {
             </div>
             <div>
               <Label>{t.assets.location}</Label>
-              <Select value={planForm.siteId} onValueChange={v => setPlanForm(f => ({ ...f, siteId: v }))}>
+              <Select value={planForm.siteId || "none"} onValueChange={v => setPlanForm(f => ({ ...f, siteId: v === "none" ? "" : v }))}>
                 <SelectTrigger><SelectValue placeholder={t.common.none} /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">{t.common.none}</SelectItem>
+                  <SelectItem value="none">{t.common.none}</SelectItem>
                   {sites.map((s: any) => <SelectItem key={s.id} value={String(s.id)}>{s.name}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
             <div>
               <Label>{t.preventive.assignedTo}</Label>
-              <Select value={planForm.assignedToId} onValueChange={v => setPlanForm(f => ({ ...f, assignedToId: v }))}>
+              <Select value={planForm.assignedToId || "none"} onValueChange={v => setPlanForm(f => ({ ...f, assignedToId: v === "none" ? "" : v }))}>
                 <SelectTrigger><SelectValue placeholder={t.common.none} /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">{t.common.none}</SelectItem>
+                  <SelectItem value="none">{t.common.none}</SelectItem>
                   {users.map((u: any) => <SelectItem key={u.id} value={String(u.id)}>{u.name}</SelectItem>)}
                 </SelectContent>
               </Select>
@@ -446,10 +446,10 @@ export default function PreventiveMaintenance() {
             </div>
             <div>
               <Label>{t.assets.assetName}</Label>
-              <Select value={planForm.assetId} onValueChange={v => setPlanForm(f => ({ ...f, assetId: v }))}>
+              <Select value={planForm.assetId || "none"} onValueChange={v => setPlanForm(f => ({ ...f, assetId: v === "none" ? "" : v }))}>
                 <SelectTrigger><SelectValue placeholder={t.common.none} /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">{t.common.none}</SelectItem>
+                  <SelectItem value="none">{t.common.none}</SelectItem>
                   {assets.map((a: any) => <SelectItem key={a.id} value={String(a.id)}>{a.name}</SelectItem>)}
                 </SelectContent>
               </Select>
