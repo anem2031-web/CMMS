@@ -13,6 +13,7 @@ import multer from "multer";
 import { storagePut } from "../storage";
 import { nanoid } from "nanoid";
 import { exportTicketsToExcel, exportPurchaseOrdersToExcel, exportTechnicianPerformanceToExcel, exportAuditLogToExcel, exportInventoryToExcel } from "../exportService";
+import { generateWorkflowGuidePDF } from "../workflowPdfService";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -115,6 +116,16 @@ async function startServer() {
       const buffer = await exportInventoryToExcel();
       res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
       res.setHeader("Content-Disposition", `attachment; filename=inventory-${Date.now()}.xlsx`);
+      res.send(buffer);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // Workflow Guide PDF Export
+  app.get("/api/export/workflow-guide", async (_req: any, res: any) => {
+    try {
+      const buffer = await generateWorkflowGuidePDF();
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `attachment; filename=CMMS-Workflow-Guide-${new Date().toISOString().slice(0, 10)}.pdf`);
       res.send(buffer);
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });

@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
+import { SLATimer } from "@/components/SLATimer";
 import {
   ClipboardList, AlertTriangle, Eye, CheckCircle2, Users,
   Zap, Search, ArrowRight, Clock, Microscope
@@ -251,7 +252,13 @@ export default function TriageDashboard() {
                     {ticket.description && (
                       <p className="text-sm text-muted-foreground mt-1 line-clamp-1">{ticket.description}</p>
                     )}
-                    <div className="flex items-center gap-3 mt-2 text-xs text-muted-foreground">
+                    <div className="flex items-center gap-3 mt-2 text-xs text-muted-foreground flex-wrap">
+                      <SLATimer
+                        createdAt={ticket.createdAt}
+                        statusChangedAt={ticket.updatedAt}
+                        statusLabel={activeTab === "pending" ? "في الفرز" : "قيد الفحص"}
+                        compact
+                      />
                       <span className="flex items-center gap-1">
                         <Clock className="w-3 h-3" />
                         {new Date(ticket.createdAt).toLocaleString("ar-SA")}
