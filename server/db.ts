@@ -1,4 +1,4 @@
-import { eq, desc, asc, and, sql, count, sum, inArray, notInArray, like, or, gte, lte, isNull, isNotNull, ne } from "drizzle-orm";
+import { eq, desc, asc, and, sql, count, sum, inArray, notInArray, like, or, gte, lte, lt, isNull, isNotNull, ne } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   InsertUser, users, tickets, purchaseOrders, purchaseOrderItems,
@@ -533,6 +533,20 @@ export async function getDashboardStats() {
   // New workflow stats
   const [pendingTriageCount] = await db.select({ cnt: count() }).from(tickets).where(eq(tickets.status, "pending_triage"));
   const [underInspectionCount] = await db.select({ cnt: count() }).from(tickets).where(eq(tickets.status, "under_inspection"));
+  // 7-day trend: tickets created per day for the last 7 days
+  const trend7: number[] = [];
+  for (let i = 6; i >= 0; i--) {
+    const dayStart = sql`DATE_SUB(CURDATE(), INTERVAL ${i} DAY)`;
+    const dayEnd = sql`DATE_SUB(CURDATE(), INTERVAL ${i - 1} DAY)`;
+    const [row] = await db.select({ cnt: count() }).from(tickets).where(
+      and(gte(tickets.createdAt, dayStart as any), lt(tickets.createdAt, dayEnd as any))
+    );
+    trend7.push(row?.cnt || 0);
+  }
+  // SLA breaches: tickets in non-closed status for > 48 hours
+  const [slaBreaches] = await db.select({ cnt: count() }).from(tickets).where(
+    and(ne(tickets.status, "closed"), lt(tickets.createdAt, sql`DATE_SUB(NOW(), INTERVAL 48 HOUR)` as any))
+  );
   return {
     openTickets: openTickets?.cnt || 0,
     closedToday: closedToday?.cnt || 0,
@@ -543,6 +557,8 @@ export async function getDashboardStats() {
     purchasedItems: purchasedItems?.cnt || 0,
     pendingTriage: pendingTriageCount?.cnt || 0,
     underInspection: underInspectionCount?.cnt || 0,
+    trend7,
+    slaBreaches: slaBreaches?.cnt || 0,
   };
 }
 

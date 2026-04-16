@@ -471,3 +471,17 @@
 - [x] Task 2: PDF Export (workflowPdfService.ts + /api/export/workflow-guide + زر تصدير في Reports)
 - [x] Task 3: Quick Start Guide (دليل شامل للفني/خالد/عبدالفتاح/حارس البوابة)
 - [x] Task 4: Code Cleanup (0 console.logs غير مشروعة - كود نظيف)
+
+## Phase 25: Smart Dashboard & Sidebar Refactor ✅ COMPLETED
+### Part 1: Sidebar Restructuring
+- [x] تجميع الروابط في 4 أقسام قابلة للطي (Core Ops / Logistics / Management / Admin Tools)
+- [x] Role-Based Visibility: Gate Security يرى Gate+NFC فقط، Technician يرى Tickets+NFC فقط
+- [x] إضافة Search Menu بار في أعلى الـ Sidebar
+- [x] تحسين التباعد والأيقونات
+
+### Part 2: Smart Dashboard
+- [x] Contextual Cards حسب الدور (Admin/Manager: SLA+Budget، Supervisor: Triage+Inspection، Staff: My Tasks)
+- [x] Slide-over Panel عند النقر على البطاقة مع Quick Actions (Approve/Assign/Update)
+- [x] Dynamic Border Colors (Red SLA breach / Amber urgent)
+- [x] Sparkline Charts لكل بطاقة (7-day trend من getDashboardStats)
+- [x] Monitor Mode (full-screen high-contrast مع زر تفعيل)

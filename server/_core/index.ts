@@ -36,6 +36,7 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
 
 async function startServer() {
   const app = express();
+  app.set('trust proxy', 1); // Trust first proxy for accurate rate-limit IP detection
   const server = createServer(app);
 
   // Security: Helmet for HTTP headers

@@ -25,65 +25,123 @@ import { useIsMobile } from "@/hooks/useMobile";
 import {
   LayoutDashboard, LogOut, PanelLeft, ClipboardList, ShoppingCart,
   Package, BarChart3, Users, Bell, MapPin, Wrench, Shield,
-  Brain, FileText, Settings, ShoppingBag, Truck, Languages, Database,
-  HardDrive, CalendarClock, ScanSearch, DoorOpen, Nfc
+  Brain, ShoppingBag, Truck, Languages, Database,
+  HardDrive, CalendarClock, ScanSearch, DoorOpen, Nfc,
+  ChevronDown, Search, X
 } from "lucide-react";
-import { CSSProperties, useEffect, useRef, useState } from "react";
+import { CSSProperties, useEffect, useRef, useState, useMemo } from "react";
 import { useLocation } from "wouter";
 import { DashboardLayoutSkeleton } from './DashboardLayoutSkeleton';
-import { Button } from "./ui/button";
 import { trpc } from "@/lib/trpc";
-import { Badge } from "@/components/ui/badge";
 import { useTranslation } from "@/contexts/LanguageContext";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
 
-type MenuItem = {
-  icon: any;
-  label: string;
-  path: string;
-  roles?: string[];
-  badge?: number;
-};
-
+// ─── Types ────────────────────────────────────────────────────────────────────
 type MenuItemDef = {
   icon: any;
   labelKey: string;
   path: string;
   roles?: string[];
-  badge?: number;
 };
 
-const allMenuDefs: MenuItemDef[] = [
-  { icon: LayoutDashboard, labelKey: "nav.dashboard", path: "/" },
-  { icon: ClipboardList, labelKey: "nav.tickets", path: "/tickets" },
-  { icon: ShoppingCart, labelKey: "nav.purchaseOrders", path: "/purchase-orders" },
-  { icon: Truck, labelKey: "nav.purchaseCycle", path: "/purchase-cycle", roles: ["delegate", "warehouse", "owner", "admin"] },
-  { icon: ShoppingBag, labelKey: "nav.myItems", path: "/my-items", roles: ["delegate"] },
-  { icon: Package, labelKey: "nav.inventory", path: "/inventory", roles: ["warehouse", "maintenance_manager", "owner", "admin"] },
-  { icon: BarChart3, labelKey: "nav.reports", path: "/reports", roles: ["owner", "admin", "senior_management", "accountant", "maintenance_manager"] },
-  { icon: Wrench, labelKey: "nav.technicianReport", path: "/reports/technicians", roles: ["owner", "admin", "senior_management", "maintenance_manager"] },
-  { icon: Users, labelKey: "nav.users", path: "/users", roles: ["owner", "admin"] },
-  { icon: MapPin, labelKey: "nav.sites", path: "/sites", roles: ["owner", "admin", "maintenance_manager"] },
-  { icon: Brain, labelKey: "nav.aiAssistant", path: "/ai-assistant", roles: ["owner", "admin", "senior_management", "maintenance_manager"] },
-  { icon: Shield, labelKey: "nav.auditLog", path: "/audit-log", roles: ["owner", "admin"] },
-  { icon: Languages, labelKey: "nav.translationMonitor", path: "/translation-monitor", roles: ["owner", "admin"] },
-  { icon: HardDrive, labelKey: "nav.assets", path: "/assets", roles: ["owner", "admin", "maintenance_manager"] },
-  { icon: CalendarClock, labelKey: "nav.preventive", path: "/preventive", roles: ["owner", "admin", "maintenance_manager"] },
-  { icon: ScanSearch, labelKey: "nav.triage", path: "/triage", roles: ["supervisor", "maintenance_manager", "owner", "admin"] },
-  { icon: DoorOpen, labelKey: "nav.gateSecurity", path: "/gate-security", roles: ["gate_security", "owner", "admin"] },
-  { icon: Nfc, labelKey: "nav.scanAsset", path: "/scan-asset", roles: ["operator", "technician", "maintenance_manager", "supervisor", "owner", "admin"] },
-  { icon: Database, labelKey: "backup.title", path: "/backup", roles: ["owner", "admin"] },
+type NavSection = {
+  id: string;
+  labelKey: string;
+  icon: any;
+  items: MenuItemDef[];
+  /** roles that can see this entire section; undefined = all */
+  roles?: string[];
+};
+
+// ─── Navigation Structure ─────────────────────────────────────────────────────
+const NAV_SECTIONS: NavSection[] = [
+  {
+    id: "core",
+    labelKey: "nav.sections.coreOps",
+    icon: LayoutDashboard,
+    items: [
+      { icon: LayoutDashboard, labelKey: "nav.dashboard", path: "/" },
+      { icon: ClipboardList,   labelKey: "nav.tickets",   path: "/tickets" },
+      { icon: Nfc,             labelKey: "nav.scanAsset", path: "/scan-asset",
+        roles: ["operator","technician","maintenance_manager","supervisor","gate_security","owner","admin"] },
+      { icon: ScanSearch,      labelKey: "nav.triage",    path: "/triage",
+        roles: ["supervisor","maintenance_manager","owner","admin"] },
+      { icon: DoorOpen,        labelKey: "nav.gateSecurity", path: "/gate-security",
+        roles: ["gate_security","owner","admin"] },
+    ],
+  },
+  {
+    id: "logistics",
+    labelKey: "nav.sections.logistics",
+    icon: ShoppingCart,
+    roles: ["delegate","warehouse","accountant","senior_management","maintenance_manager","owner","admin"],
+    items: [
+      { icon: ShoppingCart, labelKey: "nav.purchaseOrders", path: "/purchase-orders" },
+      { icon: Truck,        labelKey: "nav.purchaseCycle",  path: "/purchase-cycle",
+        roles: ["delegate","warehouse","owner","admin"] },
+      { icon: ShoppingBag,  labelKey: "nav.myItems",        path: "/my-items",
+        roles: ["delegate"] },
+      { icon: Package,      labelKey: "nav.inventory",      path: "/inventory",
+        roles: ["warehouse","maintenance_manager","owner","admin"] },
+    ],
+  },
+  {
+    id: "management",
+    labelKey: "nav.sections.management",
+    icon: BarChart3,
+    roles: ["supervisor","maintenance_manager","accountant","senior_management","owner","admin"],
+    items: [
+      { icon: BarChart3,     labelKey: "nav.reports",          path: "/reports",
+        roles: ["owner","admin","senior_management","accountant","maintenance_manager"] },
+      { icon: Wrench,        labelKey: "nav.technicianReport",  path: "/reports/technicians",
+        roles: ["owner","admin","senior_management","maintenance_manager"] },
+      { icon: HardDrive,     labelKey: "nav.assets",            path: "/assets",
+        roles: ["owner","admin","maintenance_manager"] },
+      { icon: CalendarClock, labelKey: "nav.preventive",        path: "/preventive",
+        roles: ["owner","admin","maintenance_manager"] },
+      { icon: MapPin,        labelKey: "nav.sites",             path: "/sites",
+        roles: ["owner","admin","maintenance_manager"] },
+      { icon: Brain,         labelKey: "nav.aiAssistant",       path: "/ai-assistant",
+        roles: ["owner","admin","senior_management","maintenance_manager"] },
+    ],
+  },
+  {
+    id: "admin",
+    labelKey: "nav.sections.adminTools",
+    icon: Shield,
+    roles: ["owner","admin"],
+    items: [
+      { icon: Users,     labelKey: "nav.users",              path: "/users" },
+      { icon: Shield,    labelKey: "nav.auditLog",           path: "/audit-log" },
+      { icon: Database,  labelKey: "backup.title",           path: "/backup" },
+      { icon: Languages, labelKey: "nav.translationMonitor", path: "/translation-monitor" },
+    ],
+  },
 ];
 
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 function getNestedValue(obj: any, path: string): string {
   return path.split(".").reduce((o, k) => o?.[k], obj) || path;
 }
 
+function canSeeItem(item: MenuItemDef, role: string): boolean {
+  if (!item.roles) return true;
+  return item.roles.includes(role);
+}
+
+function canSeeSection(section: NavSection, role: string): boolean {
+  if (!section.roles) return true;
+  return section.roles.includes(role);
+}
+
+// ─── Constants ────────────────────────────────────────────────────────────────
 const SIDEBAR_WIDTH_KEY = "sidebar-width";
-const DEFAULT_WIDTH = 260;
-const MIN_WIDTH = 200;
+const COLLAPSED_SECTIONS_KEY = "sidebar-collapsed-sections";
+const DEFAULT_WIDTH = 268;
+const MIN_WIDTH = 210;
 const MAX_WIDTH = 400;
 
+// ─── Root Component ───────────────────────────────────────────────────────────
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const [sidebarWidth, setSidebarWidth] = useState(() => {
     const saved = localStorage.getItem(SIDEBAR_WIDTH_KEY);
@@ -96,10 +154,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   }, [sidebarWidth]);
 
   if (loading) return <DashboardLayoutSkeleton />;
-
-  if (!user) {
-    return <Login />;
-  }
+  if (!user) return <Login />;
 
   return (
     <SidebarProvider style={{ "--sidebar-width": `${sidebarWidth}px` } as CSSProperties}>
@@ -108,25 +163,68 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   );
 }
 
+// ─── Inner Component ──────────────────────────────────────────────────────────
 function DashboardLayoutContent({ children, setSidebarWidth }: { children: React.ReactNode; setSidebarWidth: (w: number) => void }) {
   const { user, logout } = useAuth();
   const [location, setLocation] = useLocation();
   const { state, toggleSidebar } = useSidebar();
   const isCollapsed = state === "collapsed";
   const [isResizing, setIsResizing] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [collapsedSections, setCollapsedSections] = useState<Set<string>>(() => {
+    try {
+      const saved = localStorage.getItem(COLLAPSED_SECTIONS_KEY);
+      return saved ? new Set(JSON.parse(saved)) : new Set<string>();
+    } catch { return new Set<string>(); }
+  });
   const sidebarRef = useRef<HTMLDivElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
   const isMobile = useIsMobile();
   const { t } = useTranslation();
 
   const { data: unreadCount } = trpc.notifications.unreadCount.useQuery(undefined, { refetchInterval: 30000 });
 
-  const menuItems = allMenuDefs.filter(item => {
-    if (!item.roles) return true;
-    return item.roles.includes(user?.role || "");
-  }).map(item => ({ ...item, label: getNestedValue(t, item.labelKey) }));
+  const role = user?.role || "user";
 
-  const activeMenuItem = menuItems.find(item => location === item.path || (item.path !== "/" && location.startsWith(item.path)));
+  // ── Build visible sections with translated labels ──
+  const visibleSections = useMemo(() => {
+    return NAV_SECTIONS
+      .filter(s => canSeeSection(s, role))
+      .map(s => ({
+        ...s,
+        label: getNestedValue(t, s.labelKey),
+        items: s.items
+          .filter(item => canSeeItem(item, role))
+          .map(item => ({ ...item, label: getNestedValue(t, item.labelKey) })),
+      }))
+      .filter(s => s.items.length > 0);
+  }, [t, role]);
 
+  // ── Search filter ──
+  const searchResults = useMemo(() => {
+    if (!searchQuery.trim()) return null;
+    const q = searchQuery.toLowerCase();
+    const results: { label: string; path: string; icon: any; section: string }[] = [];
+    visibleSections.forEach(s => {
+      s.items.forEach(item => {
+        if (item.label.toLowerCase().includes(q)) {
+          results.push({ label: item.label, path: item.path, icon: item.icon, section: s.label });
+        }
+      });
+    });
+    return results;
+  }, [searchQuery, visibleSections]);
+
+  const toggleSection = (id: string) => {
+    setCollapsedSections(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      localStorage.setItem(COLLAPSED_SECTIONS_KEY, JSON.stringify(Array.from(next)));
+      return next;
+    });
+  };
+
+  // ── Resize logic ──
   useEffect(() => {
     if (isCollapsed) setIsResizing(false);
   }, [isCollapsed]);
@@ -134,7 +232,6 @@ function DashboardLayoutContent({ children, setSidebarWidth }: { children: React
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
       if (!isResizing) return;
-      const sidebarLeft = sidebarRef.current?.getBoundingClientRect().left ?? 0;
       const sidebarRight = sidebarRef.current?.getBoundingClientRect().right ?? 0;
       const newWidth = sidebarRight - e.clientX;
       if (newWidth >= MIN_WIDTH && newWidth <= MAX_WIDTH) setSidebarWidth(newWidth);
@@ -154,93 +251,191 @@ function DashboardLayoutContent({ children, setSidebarWidth }: { children: React
     };
   }, [isResizing, setSidebarWidth]);
 
+  const isItemActive = (path: string) =>
+    location === path || (path !== "/" && location.startsWith(path));
+
   return (
     <>
       <div className="relative" ref={sidebarRef}>
-        <Sidebar collapsible="icon" className="border-l-0 border-r" side="right" disableTransition={isResizing}>
-          <SidebarHeader className="h-16 justify-center border-b border-sidebar-border/50">
-            <div className="flex items-center gap-3 px-2 transition-all w-full">
+        <Sidebar collapsible="icon" className="border-l-0 border-r border-sidebar-border/40" side="right" disableTransition={isResizing}>
+
+          {/* ── Header ── */}
+          <SidebarHeader className="h-14 justify-center border-b border-sidebar-border/40 px-3">
+            <div className="flex items-center gap-2.5 w-full">
               {!isCollapsed && (
-                <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                  <div className="w-8 h-8 rounded-lg bg-sidebar-primary/20 flex items-center justify-center shrink-0">
-                    <Wrench className="h-4 w-4 text-sidebar-primary" />
+                <div className="flex items-center gap-2 min-w-0 flex-1">
+                  <div className="w-7 h-7 rounded-lg bg-sidebar-primary/15 flex items-center justify-center shrink-0">
+                    <Wrench className="h-3.5 w-3.5 text-sidebar-primary" />
                   </div>
-                  <span className="font-bold tracking-tight truncate text-sm">{t.appShort}</span>
+                  <span className="font-bold tracking-tight truncate text-[13px] text-sidebar-foreground">{t.appShort}</span>
                 </div>
               )}
               <button
                 onClick={toggleSidebar}
-                className="h-8 w-8 flex items-center justify-center hover:bg-sidebar-accent rounded-lg transition-colors shrink-0"
+                className="h-7 w-7 flex items-center justify-center hover:bg-sidebar-accent rounded-md transition-colors shrink-0 ml-auto"
               >
-                <PanelLeft className="h-4 w-4 text-sidebar-foreground/70" />
+                <PanelLeft className="h-3.5 w-3.5 text-sidebar-foreground/50" />
               </button>
             </div>
           </SidebarHeader>
 
-          <SidebarContent className="gap-0 pt-2">
-            <SidebarMenu className="px-2 py-1 gap-0.5">
-              {menuItems.map(item => {
-                const isActive = location === item.path || (item.path !== "/" && location.startsWith(item.path));
+          {/* ── Search Bar ── */}
+          {!isCollapsed && (
+            <div className="px-3 pt-3 pb-1">
+              <div className="relative">
+                <Search className="absolute right-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-sidebar-foreground/40 pointer-events-none" />
+                <input
+                  ref={searchRef}
+                  value={searchQuery}
+                  onChange={e => setSearchQuery(e.target.value)}
+                  placeholder="بحث في القائمة..."
+                  className="w-full h-8 bg-sidebar-accent/40 border border-sidebar-border/30 rounded-md pr-8 pl-7 text-[12px] text-sidebar-foreground placeholder:text-sidebar-foreground/40 focus:outline-none focus:ring-1 focus:ring-sidebar-primary/40 transition-all"
+                />
+                {searchQuery && (
+                  <button
+                    onClick={() => setSearchQuery("")}
+                    className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 flex items-center justify-center hover:text-sidebar-foreground/80 text-sidebar-foreground/40"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* ── Content ── */}
+          <SidebarContent className="gap-0 overflow-y-auto pt-1 pb-2">
+
+            {/* Search Results */}
+            {searchResults !== null ? (
+              <div className="px-2 py-1">
+                {searchResults.length === 0 ? (
+                  <p className="text-[11px] text-sidebar-foreground/40 text-center py-4">لا توجد نتائج</p>
+                ) : (
+                  <SidebarMenu className="gap-0.5">
+                    {searchResults.map(item => (
+                      <SidebarMenuItem key={item.path}>
+                        <SidebarMenuButton
+                          isActive={isItemActive(item.path)}
+                          onClick={() => { setLocation(item.path); setSearchQuery(""); }}
+                          className="h-9 transition-all font-normal text-[13px]"
+                        >
+                          <item.icon className={`h-3.5 w-3.5 shrink-0 ${isItemActive(item.path) ? "text-sidebar-primary" : "text-sidebar-foreground/60"}`} />
+                          <div className="flex flex-col min-w-0">
+                            <span className="truncate leading-none">{item.label}</span>
+                            <span className="text-[10px] text-sidebar-foreground/40 truncate mt-0.5">{item.section}</span>
+                          </div>
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
+                    ))}
+                  </SidebarMenu>
+                )}
+              </div>
+            ) : (
+              /* Grouped Sections */
+              visibleSections.map((section, sIdx) => {
+                const isSectionCollapsed = collapsedSections.has(section.id);
                 return (
-                  <SidebarMenuItem key={item.path}>
-                    <SidebarMenuButton
-                      isActive={isActive}
-                      onClick={() => setLocation(item.path)}
-                      tooltip={item.label}
-                      className="h-10 transition-all font-normal"
-                    >
-                      <item.icon className={`h-4 w-4 ${isActive ? "text-sidebar-primary" : ""}`} />
-                      <span>{item.label}</span>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                );
-              })}
-              {/* Notifications - always visible */}
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  isActive={location === "/notifications"}
-                  onClick={() => setLocation("/notifications")}
-                  tooltip="الإشعارات"
-                  className="h-10 transition-all font-normal"
-                >
-                  <div className="relative">
-                    <Bell className={`h-4 w-4 ${location === "/notifications" ? "text-sidebar-primary" : ""}`} />
-                    {(unreadCount || 0) > 0 && (
-                      <span className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-destructive text-destructive-foreground text-[10px] rounded-full flex items-center justify-center font-bold">
-                        {unreadCount}
-                      </span>
+                  <div key={section.id} className={sIdx > 0 ? "mt-1" : ""}>
+                    {/* Section Header */}
+                    {!isCollapsed && (
+                      <button
+                        onClick={() => toggleSection(section.id)}
+                        className="w-full flex items-center justify-between px-3 py-1.5 group"
+                      >
+                        <div className="flex items-center gap-1.5">
+                          <section.icon className="h-3 w-3 text-sidebar-foreground/35" />
+                          <span className="text-[10.5px] font-semibold uppercase tracking-wider text-sidebar-foreground/40 group-hover:text-sidebar-foreground/60 transition-colors">
+                            {section.label}
+                          </span>
+                        </div>
+                        <ChevronDown
+                          className={`h-3 w-3 text-sidebar-foreground/30 transition-transform duration-200 ${isSectionCollapsed ? "-rotate-90" : ""}`}
+                        />
+                      </button>
+                    )}
+
+                    {/* Section Items */}
+                    {(!isSectionCollapsed || isCollapsed) && (
+                      <SidebarMenu className={`px-2 gap-0.5 ${!isCollapsed ? "pb-1" : "py-1"}`}>
+                        {section.items.map(item => {
+                          const isActive = isItemActive(item.path);
+                          return (
+                            <SidebarMenuItem key={item.path}>
+                              <SidebarMenuButton
+                                isActive={isActive}
+                                onClick={() => setLocation(item.path)}
+                                tooltip={item.label}
+                                className="h-9 transition-all font-normal text-[13px] group/item"
+                              >
+                                <item.icon className={`h-3.5 w-3.5 shrink-0 transition-colors ${isActive ? "text-sidebar-primary" : "text-sidebar-foreground/55 group-hover/item:text-sidebar-foreground/80"}`} />
+                                <span className={`truncate ${isActive ? "font-medium" : ""}`}>{item.label}</span>
+                              </SidebarMenuButton>
+                            </SidebarMenuItem>
+                          );
+                        })}
+                      </SidebarMenu>
+                    )}
+
+                    {/* Section Divider */}
+                    {!isCollapsed && sIdx < visibleSections.length - 1 && (
+                      <div className="mx-3 border-b border-sidebar-border/25" />
                     )}
                   </div>
-                  <span>{t.nav.notifications}</span>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            </SidebarMenu>
+                );
+              })
+            )}
+
+            {/* ── Notifications (always visible) ── */}
+            <div className={`px-2 ${!isCollapsed ? "mt-1 pt-1 border-t border-sidebar-border/25 mx-0" : ""}`}>
+              <SidebarMenu>
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    isActive={location === "/notifications"}
+                    onClick={() => setLocation("/notifications")}
+                    tooltip={t.nav.notifications}
+                    className="h-9 transition-all font-normal text-[13px]"
+                  >
+                    <div className="relative shrink-0">
+                      <Bell className={`h-3.5 w-3.5 ${location === "/notifications" ? "text-sidebar-primary" : "text-sidebar-foreground/55"}`} />
+                      {(unreadCount || 0) > 0 && (
+                        <span className="absolute -top-1.5 -right-1.5 w-3.5 h-3.5 bg-destructive text-destructive-foreground text-[9px] rounded-full flex items-center justify-center font-bold leading-none">
+                          {(unreadCount || 0) > 9 ? "9+" : unreadCount}
+                        </span>
+                      )}
+                    </div>
+                    <span>{t.nav.notifications}</span>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              </SidebarMenu>
+            </div>
           </SidebarContent>
 
-          <SidebarFooter className="p-3 border-t border-sidebar-border/50">
-            <div className="flex justify-center mb-2 group-data-[collapsible=icon]:px-0">
+          {/* ── Footer ── */}
+          <SidebarFooter className="p-3 border-t border-sidebar-border/40">
+            <div className="flex justify-center mb-2">
               <LanguageSwitcher compact={isCollapsed} />
             </div>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <button className="flex items-center gap-3 rounded-lg px-1 py-1.5 hover:bg-sidebar-accent/50 transition-colors w-full text-right group-data-[collapsible=icon]:justify-center">
-                  <Avatar className="h-9 w-9 border border-sidebar-border shrink-0">
-                    <AvatarFallback className="text-xs font-bold bg-sidebar-primary/20 text-sidebar-primary">
+                <button className="flex items-center gap-2.5 rounded-lg px-2 py-2 hover:bg-sidebar-accent/50 transition-colors w-full text-right">
+                  <Avatar className="h-8 w-8 border border-sidebar-border shrink-0">
+                    <AvatarFallback className="text-[11px] font-bold bg-sidebar-primary/15 text-sidebar-primary">
                       {user?.name?.charAt(0)?.toUpperCase() || "U"}
                     </AvatarFallback>
                   </Avatar>
-                  <div className="flex-1 min-w-0 group-data-[collapsible=icon]:hidden">
-                    <p className="text-sm font-medium truncate leading-none">{user?.name || "-"}</p>
-                    <p className="text-[11px] text-sidebar-foreground/60 truncate mt-1">
-                      {(t.roles as any)[user?.role || "user"] || user?.role}
-                    </p>
-                  </div>
+                  {!isCollapsed && (
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[12.5px] font-medium truncate leading-none text-sidebar-foreground">{user?.name || "-"}</p>
+                      <p className="text-[10.5px] text-sidebar-foreground/50 truncate mt-0.5">
+                        {(t.roles as any)[user?.role || "user"] || user?.role}
+                      </p>
+                    </div>
+                  )}
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-52">
-                <div className="px-2 py-2 text-xs text-muted-foreground">
-                  {user?.email || ""}
-                </div>
+                <div className="px-2 py-2 text-xs text-muted-foreground">{user?.email || ""}</div>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={logout} className="cursor-pointer text-destructive focus:text-destructive">
                   <LogOut className="ml-2 h-4 w-4" />
@@ -250,6 +445,8 @@ function DashboardLayoutContent({ children, setSidebarWidth }: { children: React
             </DropdownMenu>
           </SidebarFooter>
         </Sidebar>
+
+        {/* Resize Handle */}
         <div
           className={`absolute top-0 left-0 w-1 h-full cursor-col-resize hover:bg-primary/20 transition-colors ${isCollapsed ? "hidden" : ""}`}
           onMouseDown={() => { if (!isCollapsed) setIsResizing(true); }}
@@ -259,10 +456,12 @@ function DashboardLayoutContent({ children, setSidebarWidth }: { children: React
 
       <SidebarInset>
         {isMobile && (
-          <div className="flex border-b h-14 items-center justify-between bg-background/95 px-3 backdrop-blur sticky top-0 z-40">
+          <div className="flex border-b h-13 items-center justify-between bg-background/95 px-3 backdrop-blur sticky top-0 z-40">
             <div className="flex items-center gap-2">
-              <SidebarTrigger className="h-9 w-9 rounded-lg" />
-              <span className="font-medium text-sm">{activeMenuItem?.label ?? t.nav.menu}</span>
+              <SidebarTrigger className="h-8 w-8 rounded-lg" />
+              <span className="font-medium text-[13px]">
+                {visibleSections.flatMap(s => s.items).find(i => isItemActive(i.path))?.label ?? t.nav.menu}
+              </span>
             </div>
             <div className="relative cursor-pointer" onClick={() => setLocation("/notifications")}>
               <Bell className="h-5 w-5 text-muted-foreground" />
