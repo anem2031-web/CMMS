@@ -28,6 +28,7 @@ const ur: TranslationKeys = {
     menu: "مینو",
     triage: "ٹریاج اور تصنیف",
     gateSecurity: "گیٹ سیکیورٹی",
+    scanAsset: "اثاثہ سکین (NFC)",
   },
 
   common: {
@@ -568,5 +569,35 @@ const ur: TranslationKeys = {
     percent: "فیصد",
   },
 
+  // NFC / RFID Scanning
+  nfc: {
+    title: "اثاثہ سکین",
+    subtitle: "مینٹیننس ٹکٹ بنانے کے لیے NFC/RFID ٹیگ سکین کریں",
+    supported: "NFC دستیاب",
+    notSupportedBadge: "NFC دستیاب نہیں - دستی اینپٹ استعمال کریں",
+    readyToScan: "سکین کے لیے تیار",
+    tapInstruction: "نیچے بٹن دبائیں پھر ٹیگ کو ڈیوائس کے قریب رکھیں",
+    manualInstruction: "اثاثہ تلاش کرنے کے لیے ٹیگ نمبر دستی درج کریں",
+    startScan: "سکین شروع کریں",
+    manualEntry: "دستی ٹیگ اینپٹ",
+    enterTagId: "ٹیگ نمبر / RFID Tag",
+    search: "تلاش",
+    scanning: "سکین ہو رہا ہے...",
+    holdDevice: "ٹیگ کو ڈیوائس کے قریب رکھیں",
+    assetFound: "اثاثہ مل گیا",
+    tagId: "ٹیگ نمبر",
+    createTicket: "مینٹیننس ٹکٹ بنائیں",
+    scanAnother: "دوسرا اثاثہ سکین کریں",
+    assetNotFound: "اثاثہ نہیں ملا",
+    scanFailed: "سکین ناکام",
+    scanError: "سکین کے دوران غلطی ہوئی۔ دوبارہ کوشش کریں۔",
+    permissionDenied: "NFC اجازت مسترد کر دی گئی۔ براہ کرم اجازت دیں۔",
+    notSupported: "NFC دستیاب نہیں۔ دستی اینپٹ استعمال کریں۔",
+    unknownError: "ایک غیر متوقع غلطی ہوئی۔",
+    registerHint: "یہ ٹیگ سسٹم میں رجسٹر نہیں ہے",
+    registerHintSub: "براہ کرم اثاثہ رجسٹر کریں اور اسے اس ٹیگ سے لنک کریں",
+    goToAssets: "اثاثہ مینیجمینٹ پر جائیں",
+    tryAgain: "دوبارہ کوشش کریں",
+  },
 } as const;
 export default ur;

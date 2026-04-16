@@ -31,6 +31,7 @@ import AssetMetrics from "./pages/AssetMetrics";
 import PreventiveMaintenance from "./pages/PreventiveMaintenance";
 import TriageDashboard from "./pages/TriageDashboard";
 import GateSecurity from "./pages/GateSecurity";
+import ScanAsset from "./pages/ScanAsset";
 
 function Router() {
   return (
@@ -61,6 +62,7 @@ function Router() {
         <Route path="/preventive" component={PreventiveMaintenance} />
         <Route path="/triage" component={TriageDashboard} />
         <Route path="/gate-security" component={GateSecurity} />
+        <Route path="/scan-asset" component={ScanAsset} />
         <Route path="/404" component={NotFound} />
         <Route component={NotFound} />
       </Switch>

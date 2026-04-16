@@ -28,6 +28,7 @@ const ar = {
     menu: "القائمة",
     triage: "الفرز والتصنيف",
     gateSecurity: "حارس البوابة",
+    scanAsset: "مسح الأصل (NFC)",
   },
 
   // Common
@@ -584,6 +585,37 @@ const ar = {
     asset: "الأصل",
     hours: "ساعات",
     percent: "نسبة مئوية",
+  },
+
+  // NFC / RFID Scanning
+  nfc: {
+    title: "مسح الأصل",
+    subtitle: "امسح رقاقة NFC/RFID لإنشاء بلاغ صيانة تلقائياً",
+    supported: "NFC متاح",
+    notSupportedBadge: "NFC غير متاح - استخدم الإدخال اليدوي",
+    readyToScan: "جاهز للمسح",
+    tapInstruction: "اضغط على الزر أدناه ثم قرّب الرقاقة من الجهاز",
+    manualInstruction: "أدخل رقم الرقاقة يدوياً لإيجاد الأصل",
+    startScan: "ابدأ المسح",
+    manualEntry: "إدخال يدوي للرقاقة",
+    enterTagId: "رقم الرقاقة / RFID Tag",
+    search: "بحث",
+    scanning: "جاري المسح...",
+    holdDevice: "قرّب الرقاقة من الجهاز",
+    assetFound: "تم العثور على الأصل",
+    tagId: "رقم الرقاقة",
+    createTicket: "إنشاء بلاغ صيانة",
+    scanAnother: "مسح أصل آخر",
+    assetNotFound: "الأصل غير موجود",
+    scanFailed: "فشل المسح",
+    scanError: "حدث خطأ أثناء المسح. حاول مرة أخرى.",
+    permissionDenied: "تم رفض إذن NFC. يرجى السماح بالوصول.",
+    notSupported: "NFC غير متاح. استخدم الإدخال اليدوي.",
+    unknownError: "حدث خطأ غير متوقع.",
+    registerHint: "هذه الرقاقة غير مسجلة في النظام",
+    registerHintSub: "يرجى تسجيل الأصل وربطه بهذه الرقاقة من صفحة إدارة الأصول",
+    goToAssets: "الذهاب إلى إدارة الأصول",
+    tryAgain: "حاول مرة أخرى",
   },
 
   // User Management

@@ -616,6 +616,65 @@ export const appRouter = router({
   }),
 
   // ============================================================
+  // NFC / RFID SCANNING
+  // ============================================================
+  nfc: router({
+    // Scan an NFC/RFID tag and return asset + location info
+    scanTag: protectedProcedure.input(z.object({
+      rfidTag: z.string().min(1, "يجب توفير رقم الرقاقة"),
+    })).mutation(async ({ input }) => {
+      // ✅ Find asset by RFID tag
+      const asset = await db.getAssetByRfidTag(input.rfidTag);
+      if (!asset) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "الأصل غير موجود. يرجى تسجيل الرقاقة أولاً.",
+        });
+      }
+      // ✅ Get site/location associated with the asset
+      const site = asset.siteId ? await db.getSiteById(asset.siteId) : null;
+      return {
+        success: true,
+        asset: {
+          id: asset.id,
+          assetNumber: asset.assetNumber,
+          name: asset.name,
+          description: asset.description,
+          category: asset.category,
+          brand: asset.brand,
+          model: asset.model,
+          serialNumber: asset.serialNumber,
+          siteId: asset.siteId,
+          locationDetail: asset.locationDetail,
+          photoUrl: asset.photoUrl,
+          rfidTag: asset.rfidTag,
+        },
+        site: site ? { id: site.id, name: site.name, address: site.address } : null,
+      };
+    }),
+
+    // Lookup asset by tag without mutation (for QR code or manual entry)
+    lookupTag: protectedProcedure.input(z.object({
+      rfidTag: z.string().min(1),
+    })).query(async ({ input }) => {
+      const asset = await db.getAssetByRfidTag(input.rfidTag);
+      if (!asset) return null;
+      const site = asset.siteId ? await db.getSiteById(asset.siteId) : null;
+      return {
+        asset: {
+          id: asset.id,
+          assetNumber: asset.assetNumber,
+          name: asset.name,
+          siteId: asset.siteId,
+          locationDetail: asset.locationDetail,
+          photoUrl: asset.photoUrl,
+        },
+        site: site ? { id: site.id, name: site.name } : null,
+      };
+    }),
+  }),
+
+  // ============================================================
   // PURCHASE ORDERS
   // ============================================================
   purchaseOrders: router({

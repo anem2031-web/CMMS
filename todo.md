@@ -370,37 +370,64 @@
 - [x] إضافة validation في create purchase order
 - [x] التحقق من عدد الأصناف ≤ 15
 - [x] رسالة خطأ واضحة عند تجاوز الحد
-- [ ] اختبار vitest
+- [x] اختبار vitest (3 اختبارات)
 
 ### Task 2: Path C Status Fix
 - [x] تصحيح approveGateEntry ليستخدم ready_for_closure بدلاً من repaired
 - [x] تحديث التاريخ والمستخدم
-- [ ] اختبار vitest
+- [x] اختبار vitest (2 اختبارات)
 
 ### Task 3: Triage & Inspection Procedures
 - [x] إضافة triageTicket procedure (pending_triage → under_inspection)
 - [x] إضافة inspectTicket procedure (under_inspection → inspection complete)
 - [x] تحديث الإشعارات
-- [ ] اختبارات vitest
+- [x] اختبارات vitest (6 اختبارات)
 
 ### Task 4: Auto-Transition to pending_triage
 - [x] تعديل create ticket ليبدأ بـ pending_triage مباشرة
 - [x] التحقق من seed data
-- [ ] اختبار vitest
+- [x] اختبار vitest (1 اختبار)
 
-## Phase 21: NFC/RFID Integration - Scan Asset Page
-- [ ] إضافة scanNFCTag procedure في routers.ts
-- [ ] البحث عن الأصل بـ RFID Tag
-- [ ] جلب الموقع المرتبط
-- [ ] إنشاء صفحة ScanAsset.tsx
-- [ ] UI: Ready to Scan status
-- [ ] تحويل إلى Create Ticket مع pre-filled fields
-- [ ] معالجة الأخطاء: Asset Not Found
-- [ ] تحسين Mobile View
-- [ ] اختبارات vitest
+## Phase 21: NFC/RFID Integration - Scan Asset Page ✅ COMPLETED
+- [x] إضافة scanNFCTag procedure في routers.ts
+- [x] البحث عن الأصل بـ RFID Tag (getAssetByRfidTag موجود في db.ts)
+- [x] جلب الموقع المرتبط بالأصل
+- [x] إنشاء صفحة ScanAsset.tsx
+- [x] UI: Ready to Scan status + وضع المسح
+- [x] تحويل إلى Create Ticket مع pre-filled fields
+- [x] معالجة الأخطاء: Asset Not Found
+- [x] تحسين Mobile View
+- [x] إضافة nav item في DashboardLayout
+- [x] تحديث الترجمات (ar/en/ur)
+- [x] اختبارات vitest (1 اختبار)
 
 ## Phase 22: Warehouse Visibility Enforcement
 - [ ] إضافة filter في getInventoryItems
 - [ ] المستودع يرى فقط الأصناف المشتراة
 - [ ] تحديث routers.ts
 - [ ] اختبارات vitest
+
+## Phase 21: NFC/RFID Integration - Scan Asset Page
+- [ ] إضافة getAssetByRFIDTag في db.ts
+- [ ] إضافة getSiteById في db.ts
+- [ ] إضافة scanNFCTag procedure في routers.ts
+- [ ] إنشاء صفحة ScanAsset.tsx
+- [ ] UI: Ready to Scan status مع animation
+- [ ] منطق البحث التلقائي بالـ RFID Tag
+- [ ] تحويل إلى Create Ticket مع pre-filled fields مقفلة
+- [ ] معالجة الأخطاء: Asset Not Found
+- [ ] تحسين Mobile View
+- [ ] إضافة route في App.tsx
+- [ ] إضافة nav item في DashboardLayout
+
+## Phase 22: Warehouse Visibility Enforcement
+- [ ] تحديث getPOItemsForWarehouse في db.ts
+- [ ] المستودع يرى فقط الأصناف بحالة purchased أو بعدها
+- [ ] تحديث pendingWarehouseItems في routers.ts
+- [ ] اختبارات vitest
+
+## Phase 23: Vitest Tests
+- [ ] اختبار Batching Limit (15 items)
+- [ ] اختبار Path C Status Fix
+- [ ] اختبار triageTicket procedure
+- [ ] اختبار inspectTicket procedure

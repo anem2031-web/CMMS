@@ -28,6 +28,7 @@ const en: TranslationKeys = {
     menu: "Menu",
     triage: "Triage & Classification",
     gateSecurity: "Gate Security",
+    scanAsset: "Scan Asset (NFC)",
   },
 
   common: {
@@ -568,6 +569,36 @@ const en: TranslationKeys = {
     percent: "Percentage",
   },
 
+  // NFC / RFID Scanning
+  nfc: {
+    title: "Scan Asset",
+    subtitle: "Scan an NFC/RFID tag to auto-create a maintenance ticket",
+    supported: "NFC Available",
+    notSupportedBadge: "NFC Not Available - Use Manual Entry",
+    readyToScan: "Ready to Scan",
+    tapInstruction: "Press the button below then hold the tag near the device",
+    manualInstruction: "Enter the tag number manually to find the asset",
+    startScan: "Start Scan",
+    manualEntry: "Manual Tag Entry",
+    enterTagId: "Tag Number / RFID Tag",
+    search: "Search",
+    scanning: "Scanning...",
+    holdDevice: "Hold the tag near the device",
+    assetFound: "Asset Found",
+    tagId: "Tag Number",
+    createTicket: "Create Maintenance Ticket",
+    scanAnother: "Scan Another Asset",
+    assetNotFound: "Asset Not Found",
+    scanFailed: "Scan Failed",
+    scanError: "An error occurred during scanning. Please try again.",
+    permissionDenied: "NFC permission denied. Please allow access.",
+    notSupported: "NFC not available. Use manual entry.",
+    unknownError: "An unexpected error occurred.",
+    registerHint: "This tag is not registered in the system",
+    registerHintSub: "Please register the asset and link it to this tag from the Asset Management page",
+    goToAssets: "Go to Asset Management",
+    tryAgain: "Try Again",
+  },
 } as const;
 
 export default en;
