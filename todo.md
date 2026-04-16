@@ -431,3 +431,31 @@
 - [ ] اختبار Path C Status Fix
 - [ ] اختبار triageTicket procedure
 - [ ] اختبار inspectTicket procedure
+
+## Phase 22: Management Cycle Completion
+### Task 1: Smart Action Buttons in TicketDetail
+- [ ] أزرار Supervisor (Khaled): Start Triage + Final Closure (Path A)
+- [ ] أزرار Maintenance Manager (Abdel Fattah): Approve Work Start + Close Ticket (Path B & C)
+- [ ] أزرار Technician: Upload After Photo / Complete Repair
+- [ ] الأزرار تظهر فقط حسب الدور والحالة الحالية
+
+### Task 2: Dynamic Dashboard Cards
+- [ ] بطاقة "بانتظار الفرز" (pending_triage) للمشرف ومدير الصيانة
+- [ ] بطاقة "قيد الفحص" (under_inspection) للمشرف ومدير الصيانة
+
+### Task 3: NFC/RFID Registration in Assets
+- [ ] إضافة حقل rfidTag في نموذج إنشاء الأصل
+- [ ] إضافة حقل rfidTag في نموذج تعديل الأصل
+- [ ] API: تحديث rfidTag للأصل
+
+### Task 4: Gate Security Dashboard Enhancement
+- [ ] عرض الأصول المعتمدة للصيانة الخارجية (Path C)
+- [ ] زر "اعتماد الخروج" (Gate Exit Approval)
+- [ ] زر "اعتماد الدخول" (Gate Entry Approval)
+- [ ] عرض حالة كل أصل (خارج / داخل)
+
+## Phase 22: Management Cycle Completion ✅ COMPLETED
+- [x] Task 1: Smart Action Buttons في TicketDetail (حسب الدور والحالة - Khaled/AbdelFattah/Technician)
+- [x] Task 2: Dynamic Dashboard Cards (pendingTriage + underInspection ببطاقات تنبيه عاجلة)
+- [x] Task 3: NFC/RFID Registration في Assets (موجود بالفعل - حقل rfidTag في نموذج الأصل)
+- [x] Task 4: Gate Security Dashboard Enhancement (تبويب ثالث السجل + مؤشر وقت + حوار تفاصيل)

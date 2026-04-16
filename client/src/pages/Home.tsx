@@ -4,7 +4,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { useLocation } from "wouter";
 import {
   ClipboardList, CheckCircle2, AlertTriangle, ShoppingCart,
-  DollarSign, Package, Clock,
+  DollarSign, Package, Clock, Search, Microscope,
 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useTranslation } from "@/contexts/LanguageContext";
@@ -14,6 +14,8 @@ export default function Home() {
   const [, setLocation] = useLocation();
   const { data: stats, isLoading } = trpc.dashboard.stats.useQuery();
   const { t, language } = useTranslation();
+
+  const isSupervisorOrManager = ["supervisor", "maintenance_manager", "owner", "admin"].includes(user?.role || "");
 
   const cards = [
     {
@@ -68,6 +70,25 @@ export default function Home() {
       onClick: () => setLocation("/reports"),
       isLarge: true,
     },
+    // === New Workflow Cards (Supervisor & Manager only) ===
+    ...(isSupervisorOrManager ? [
+      {
+        title: language === "en" ? "Awaiting Triage" : language === "ur" ? "درجہ بندی کا انتظار" : "بانتظار الفرز",
+        value: stats?.pendingTriage ?? 0,
+        icon: Search,
+        color: "text-amber-600 bg-amber-50",
+        onClick: () => setLocation("/triage"),
+        urgent: (stats?.pendingTriage ?? 0) > 0,
+      },
+      {
+        title: language === "en" ? "Under Inspection" : language === "ur" ? "معائنہ جاری" : "قيد الفحص",
+        value: stats?.underInspection ?? 0,
+        icon: Microscope,
+        color: "text-blue-600 bg-blue-50",
+        onClick: () => setLocation("/triage"),
+        urgent: false,
+      },
+    ] : []),
   ];
 
   return (
@@ -94,17 +115,25 @@ export default function Home() {
           : cards.map((card, i) => (
               <Card
                 key={i}
-                className={`stat-card group ${card.isLarge ? "sm:col-span-2 lg:col-span-1" : ""}`}
+                className={`stat-card group ${card.isLarge ? "sm:col-span-2 lg:col-span-1" : ""} ${'urgent' in card && card.urgent ? "ring-2 ring-amber-400 dark:ring-amber-500 animate-pulse-subtle" : ""}`}
                 onClick={card.onClick}
               >
                 <CardContent className="p-5">
                   <div className="flex items-center justify-between mb-3">
                     <span className="text-sm font-medium text-muted-foreground">{card.title}</span>
-                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${card.color} transition-transform group-hover:scale-110`}>
-                      <card.icon className="w-5 h-5" />
+                    <div className="flex items-center gap-1.5">
+                      {'urgent' in card && card.urgent && (
+                        <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping" />
+                      )}
+                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${card.color} transition-transform group-hover:scale-110`}>
+                        <card.icon className="w-5 h-5" />
+                      </div>
                     </div>
                   </div>
                   <p className="text-2xl font-bold tracking-tight">{card.value}</p>
+                  {'urgent' in card && card.urgent && (
+                    <p className="text-xs text-amber-600 dark:text-amber-400 mt-1 font-medium">⚠ يحتاج مراجعة فورية</p>
+                  )}
                 </CardContent>
               </Card>
             ))}

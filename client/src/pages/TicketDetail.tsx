@@ -43,6 +43,21 @@ export default function TicketDetail() {
   const completeMut = trpc.tickets.completeRepair.useMutation({ onSuccess: () => { toast.success(t.tickets.completeRepair); refetch(); } });
   const closeMut = trpc.tickets.close.useMutation({ onSuccess: () => { toast.success(t.tickets.closeTicket); refetch(); } });
 
+  // === New Workflow Mutations ===
+  const triageMut = trpc.tickets.triageTicket.useMutation({ onSuccess: () => { toast.success("تم نقل البلاغ لمرحلة الفحص"); refetch(); } });
+  const inspectMut = trpc.tickets.inspectTicket.useMutation({ onSuccess: () => { toast.success("تم تسجيل ملاحظات الفحص"); refetch(); } });
+  const approveWorkMut = trpc.tickets.approveWork.useMutation({ onSuccess: () => { toast.success("تم اعتماد بدء العمل"); refetch(); } });
+  const markReadyMut = trpc.tickets.markReadyForClosure.useMutation({ onSuccess: () => { toast.success("تم رفع صورة الإصلاح - جاهز للإغلاق"); refetch(); } });
+  const closeBySupervisorMut = trpc.tickets.closeBySupervisor.useMutation({ onSuccess: () => { toast.success("تم إغلاق البلاغ"); refetch(); } });
+  const approveGateExitMut = trpc.tickets.approveGateExit.useMutation({ onSuccess: () => { toast.success("تمت الموافقة على خروج الأصل"); refetch(); } });
+  const approveGateEntryMut = trpc.tickets.approveGateEntry.useMutation({ onSuccess: () => { toast.success("تمت الموافقة على دخول الأصل"); refetch(); } });
+
+  // Workflow state
+  const [inspectionNotes, setInspectionNotes] = useState("");
+  const [selectedPath, setSelectedPath] = useState<"A" | "B" | "C">("A");
+  const [pathJustification, setPathJustification] = useState("");
+  const [showApproveWorkForm, setShowApproveWorkForm] = useState(false);
+
   const [selectedTech, setSelectedTech] = useState("");
   const [repairNotes, setRepairNotes] = useState("");
   const [materialsUsed, setMaterialsUsed] = useState("");
@@ -78,13 +93,34 @@ export default function TicketDetail() {
   const linkedPOs = allPOs?.filter(po => po.ticketId === ticketId) || [];
 
   const isManager = ["maintenance_manager", "purchase_manager", "owner", "admin"].includes(role);
+  const isSupervisor = ["supervisor", "owner", "admin"].includes(role);
   const isTechnician = role === "technician";
+  const isGateSecurity = ["gate_security", "owner", "admin"].includes(role);
+
+  // Legacy actions
   const canApprove = isManager && ticket?.status === "new";
-  const canAssign = isManager && ["approved", "received_warehouse"].includes(ticket?.status || "");
-  const canStartRepair = isTechnician && ticket?.status === "assigned";
+  const canAssign = isManager && ["approved", "received_warehouse", "work_approved"].includes(ticket?.status || "");
+  const canStartRepair = isTechnician && ["assigned", "work_approved"].includes(ticket?.status || "");
   const canCompleteRepair = isTechnician && ticket?.status === "in_progress";
   const canClose = isManager && ticket?.status === "repaired";
-  const canCreatePO = isManager && ["approved", "assigned", "in_progress"].includes(ticket?.status || "");
+  const canCreatePO = isManager && ["approved", "assigned", "in_progress", "work_approved", "needs_purchase"].includes(ticket?.status || "");
+
+  // === New Workflow Smart Buttons ===
+  // Supervisor (Khaled)
+  const canTriage = isSupervisor && ticket?.status === "pending_triage";
+  const canInspect = isSupervisor && ticket?.status === "under_inspection";
+  const canClosePathA = isSupervisor && ticket?.status === "ready_for_closure" && ticket?.maintenancePath === "A";
+
+  // Maintenance Manager (Abdel Fattah)
+  const canApproveWork = isManager && ticket?.status === "under_inspection";
+  const canClosePathBC = isManager && ticket?.status === "ready_for_closure" && ["B", "C", null, undefined].includes(ticket?.maintenancePath as any);
+
+  // Technician (Path A)
+  const canMarkReadyForClosure = isTechnician && ticket?.status === "work_approved" && ticket?.maintenancePath === "A";
+
+  // Gate Security (Path C)
+  const canApproveExit = isGateSecurity && ticket?.status === "work_approved" && ticket?.maintenancePath === "C";
+  const canApproveEntry = isGateSecurity && ticket?.status === "out_for_repair" && ticket?.maintenancePath === "C";
 
   const handleUploadAfterPhoto = async (file: File) => {
     setUploading(true);
@@ -372,6 +408,165 @@ export default function TicketDetail() {
                 </Button>
               )}
 
+              {/* ===== NEW WORKFLOW SMART BUTTONS ===== */}
+
+              {/* Supervisor: Start Triage */}
+              {canTriage && (
+                <div className="space-y-2 bg-amber-50 dark:bg-amber-950/20 rounded-xl p-4 border border-amber-200 dark:border-amber-800">
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-amber-600 dark:text-amber-400 font-semibold text-sm">🔍 فرز وتصنيف البلاغ</span>
+                  </div>
+                  <Button onClick={() => triageMut.mutate({ id: ticket.id })} disabled={triageMut.isPending} className="w-full gap-2 bg-amber-600 hover:bg-amber-700 text-white" size="lg">
+                    {triageMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+                    بدء الفرز والفحص
+                  </Button>
+                </div>
+              )}
+
+              {/* Supervisor: Complete Inspection */}
+              {canInspect && (
+                <div className="space-y-3 bg-blue-50 dark:bg-blue-950/20 rounded-xl p-4 border border-blue-200 dark:border-blue-800">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-blue-600 dark:text-blue-400 font-semibold text-sm">📋 تسجيل نتائج الفحص</span>
+                  </div>
+                  <Textarea
+                    placeholder="ملاحظات الفحص الميداني..."
+                    value={inspectionNotes}
+                    onChange={e => setInspectionNotes(e.target.value)}
+                    rows={3}
+                    className="text-sm"
+                  />
+                  <Button onClick={() => inspectMut.mutate({ id: ticket.id, inspectionNotes })} disabled={inspectMut.isPending || !inspectionNotes.trim()} className="w-full gap-2 bg-blue-600 hover:bg-blue-700 text-white" size="lg">
+                    {inspectMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
+                    تسجيل نتائج الفحص
+                  </Button>
+                </div>
+              )}
+
+              {/* Maintenance Manager: Approve Work + Select Path */}
+              {canApproveWork && (
+                <div className="space-y-3 bg-green-50 dark:bg-green-950/20 rounded-xl p-4 border border-green-200 dark:border-green-800">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-green-600 dark:text-green-400 font-semibold text-sm">✅ اعتماد بدء العمل - اختر المسار</span>
+                  </div>
+                  <Select value={selectedPath} onValueChange={(v: "A" | "B" | "C") => setSelectedPath(v)}>
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="اختر مسار الصيانة" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="A">🔧 المسار A - صيانة داخلية مباشرة</SelectItem>
+                      <SelectItem value="B">🛒 المسار B - صيانة داخلية + شراء قطع غيار</SelectItem>
+                      <SelectItem value="C">🚛 المسار C - صيانة خارجية (ورشة خارجية)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {selectedPath === "C" && (
+                    <Textarea
+                      placeholder="مبرر الصيانة الخارجية (مطلوب للمسار C)..."
+                      value={pathJustification}
+                      onChange={e => setPathJustification(e.target.value)}
+                      rows={2}
+                      className="text-sm"
+                    />
+                  )}
+                  <Button
+                    onClick={() => approveWorkMut.mutate({ id: ticket.id, maintenancePath: selectedPath, justification: pathJustification || undefined })}
+                    disabled={approveWorkMut.isPending || (selectedPath === "C" && !pathJustification.trim())}
+                    className="w-full gap-2 bg-green-600 hover:bg-green-700 text-white"
+                    size="lg"
+                  >
+                    {approveWorkMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+                    اعتماد بدء العمل (المسار {selectedPath})
+                  </Button>
+                </div>
+              )}
+
+              {/* Technician: Upload After Photo (Path A) */}
+              {canMarkReadyForClosure && (
+                <div className="space-y-3 bg-purple-50 dark:bg-purple-950/20 rounded-xl p-4 border border-purple-200 dark:border-purple-800">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-purple-600 dark:text-purple-400 font-semibold text-sm">📸 رفع صورة الإصلاح - المسار A</span>
+                  </div>
+                  <Textarea placeholder="ملاحظات الإصلاح..." value={repairNotes} onChange={e => setRepairNotes(e.target.value)} rows={2} className="text-sm" />
+                  {afterPhotoUrl ? (
+                    <div className="relative">
+                      <img src={afterPhotoUrl} alt="after repair" className="rounded-lg max-h-40 object-cover border w-full" />
+                      <Button variant="destructive" size="sm" className="absolute top-2 left-2" onClick={() => setAfterPhotoUrl("")}>{t.common.delete}</Button>
+                    </div>
+                  ) : (
+                    <Button variant="outline" className="w-full h-20 border-dashed gap-2" onClick={() => {
+                      const input = document.createElement("input");
+                      input.type = "file"; input.accept = "image/*";
+                      input.onchange = (e: any) => { if (e.target.files[0]) handleUploadAfterPhoto(e.target.files[0]); };
+                      input.click();
+                    }} disabled={uploading}>
+                      {uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Camera className="w-4 h-4" />}
+                      {uploading ? t.common.loading : "رفع صورة بعد الإصلاح"}
+                    </Button>
+                  )}
+                  <Button
+                    onClick={() => markReadyMut.mutate({ id: ticket.id, afterPhotoUrl: afterPhotoUrl || undefined, repairNotes: repairNotes || undefined })}
+                    disabled={markReadyMut.isPending}
+                    className="w-full gap-2 bg-purple-600 hover:bg-purple-700 text-white"
+                    size="lg"
+                  >
+                    {markReadyMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+                    إكمال الإصلاح - إرسال للإغلاق
+                  </Button>
+                </div>
+              )}
+
+              {/* Supervisor: Final Closure (Path A) */}
+              {canClosePathA && (
+                <div className="space-y-2 bg-emerald-50 dark:bg-emerald-950/20 rounded-xl p-4 border border-emerald-200 dark:border-emerald-800">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-emerald-600 dark:text-emerald-400 font-semibold text-sm">🔒 إغلاق نهائي - المسار A (صلاحية المشرف)</span>
+                  </div>
+                  <Button onClick={() => closeBySupervisorMut.mutate({ id: ticket.id })} disabled={closeBySupervisorMut.isPending} className="w-full gap-2 bg-emerald-600 hover:bg-emerald-700 text-white" size="lg">
+                    {closeBySupervisorMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+                    إغلاق البلاغ نهائياً
+                  </Button>
+                </div>
+              )}
+
+              {/* Manager: Close Ticket (Path B & C) */}
+              {canClosePathBC && (
+                <div className="space-y-2 bg-teal-50 dark:bg-teal-950/20 rounded-xl p-4 border border-teal-200 dark:border-teal-800">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-teal-600 dark:text-teal-400 font-semibold text-sm">🔒 إغلاق نهائي - المسار {ticket?.maintenancePath || "B/C"} (صلاحية مدير الصيانة)</span>
+                  </div>
+                  <Button onClick={() => closeMut.mutate({ id: ticket.id })} disabled={closeMut.isPending} className="w-full gap-2 bg-teal-600 hover:bg-teal-700 text-white" size="lg">
+                    {closeMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+                    إغلاق البلاغ نهائياً
+                  </Button>
+                </div>
+              )}
+
+              {/* Gate Security: Approve Exit (Path C) */}
+              {canApproveExit && (
+                <div className="space-y-2 bg-orange-50 dark:bg-orange-950/20 rounded-xl p-4 border border-orange-200 dark:border-orange-800">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-orange-600 dark:text-orange-400 font-semibold text-sm">🚪 اعتماد خروج الأصل - حارس البوابة</span>
+                  </div>
+                  <Button onClick={() => approveGateExitMut.mutate({ id: ticket.id })} disabled={approveGateExitMut.isPending} className="w-full gap-2 bg-orange-600 hover:bg-orange-700 text-white" size="lg">
+                    {approveGateExitMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <ExternalLink className="w-4 h-4" />}
+                    اعتماد خروج الأصل للورشة الخارجية
+                  </Button>
+                </div>
+              )}
+
+              {/* Gate Security: Approve Entry (Path C) */}
+              {canApproveEntry && (
+                <div className="space-y-2 bg-cyan-50 dark:bg-cyan-950/20 rounded-xl p-4 border border-cyan-200 dark:border-cyan-800">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-cyan-600 dark:text-cyan-400 font-semibold text-sm">🏠 اعتماد عودة الأصل - حارس البوابة</span>
+                  </div>
+                  <Button onClick={() => approveGateEntryMut.mutate({ id: ticket.id })} disabled={approveGateEntryMut.isPending} className="w-full gap-2 bg-cyan-600 hover:bg-cyan-700 text-white" size="lg">
+                    {approveGateEntryMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+                    اعتماد عودة الأصل بعد الإصلاح
+                  </Button>
+                </div>
+              )}
+
               {canCreatePO && (
                 <div className="border-t pt-4">
                   <Button variant="default" onClick={() => setLocation(`/purchase-orders/new?ticketId=${ticket.id}`)} className="w-full gap-2 bg-teal-600 hover:bg-teal-700" size="lg">
@@ -380,7 +575,7 @@ export default function TicketDetail() {
                 </div>
               )}
 
-              {!canApprove && !canAssign && !canStartRepair && !canCompleteRepair && !canClose && !canCreatePO && (
+              {!canApprove && !canAssign && !canStartRepair && !canCompleteRepair && !canClose && !canCreatePO && !canTriage && !canInspect && !canClosePathA && !canApproveWork && !canClosePathBC && !canMarkReadyForClosure && !canApproveExit && !canApproveEntry && (
                 <div className="text-center py-4 text-sm text-muted-foreground flex items-center justify-center gap-2">
                   <AlertCircle className="w-4 h-4" />
                   {t.tickets.noTickets}

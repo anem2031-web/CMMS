@@ -530,6 +530,9 @@ export async function getDashboardStats() {
   const [totalCostResult] = await db.select({ total: sum(purchaseOrderItems.actualTotalCost) }).from(purchaseOrderItems).where(or(eq(purchaseOrderItems.status, "delivered_to_warehouse"), eq(purchaseOrderItems.status, "delivered_to_requester")));
   const [pendingItems] = await db.select({ cnt: count() }).from(purchaseOrderItems).where(ne(purchaseOrderItems.status, "purchased"));
   const [purchasedItems] = await db.select({ cnt: count() }).from(purchaseOrderItems).where(eq(purchaseOrderItems.status, "purchased"));
+  // New workflow stats
+  const [pendingTriageCount] = await db.select({ cnt: count() }).from(tickets).where(eq(tickets.status, "pending_triage"));
+  const [underInspectionCount] = await db.select({ cnt: count() }).from(tickets).where(eq(tickets.status, "under_inspection"));
   return {
     openTickets: openTickets?.cnt || 0,
     closedToday: closedToday?.cnt || 0,
@@ -538,6 +541,8 @@ export async function getDashboardStats() {
     totalMaintenanceCost: totalCostResult?.total || "0",
     pendingPurchaseItems: pendingItems?.cnt || 0,
     purchasedItems: purchasedItems?.cnt || 0,
+    pendingTriage: pendingTriageCount?.cnt || 0,
+    underInspection: underInspectionCount?.cnt || 0,
   };
 }
 
