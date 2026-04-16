@@ -77,6 +77,16 @@ export const tickets = mysqlTable("tickets", {
   estimatedCost: decimal("estimatedCost", { precision: 12, scale: 2 }),
   actualCost: decimal("actualCost", { precision: 12, scale: 2 }),
   originalLanguage: mysqlEnum("originalLanguage", ["ar", "en", "ur"]).default("ar").notNull(),
+  // Auto-translation fields
+  title_ar: text("title_ar"),
+  title_en: text("title_en"),
+  title_ur: text("title_ur"),
+  description_ar: text("description_ar"),
+  description_en: text("description_en"),
+  description_ur: text("description_ur"),
+  repairNotes_ar: text("repairNotes_ar"),
+  repairNotes_en: text("repairNotes_en"),
+  repairNotes_ur: text("repairNotes_ur"),
   closedAt: timestamp("closedAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
@@ -351,6 +361,14 @@ export const assets = mysqlTable("assets", {
   qrCode: varchar("qrCode", { length: 200 }),
   rfidTag: varchar("rfidTag", { length: 100 }).unique(),
   notes: text("notes"),
+  // Auto-translation fields
+  description_ar: text("description_ar"),
+  description_en: text("description_en"),
+  description_ur: text("description_ur"),
+  notes_ar: text("notes_ar"),
+  notes_en: text("notes_en"),
+  notes_ur: text("notes_ur"),
+  originalLanguage: mysqlEnum("originalLanguage", ["ar", "en", "ur"]).default("ar").notNull(),
   createdById: int("createdById"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
@@ -411,6 +429,11 @@ export const pmWorkOrders = mysqlTable("pm_work_orders", {
   checklistResults: json("checklistResults"), // array of {id, text, done, notes}
   technicianNotes: text("technicianNotes"),
   completionPhotoUrl: text("completionPhotoUrl"),
+  // Auto-translation fields
+  technicianNotes_ar: text("technicianNotes_ar"),
+  technicianNotes_en: text("technicianNotes_en"),
+  technicianNotes_ur: text("technicianNotes_ur"),
+  originalLanguage: mysqlEnum("originalLanguage", ["ar", "en", "ur"]).default("ar").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });

@@ -1,12 +1,12 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
 import { useLocation } from "wouter";
+import { useLanguage } from "@/contexts/LanguageContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
-import { AlertCircle, TrendingUp, TrendingDown, Activity } from "lucide-react";
-
+import { AlertCircle, TrendingUp, Activity, ArrowLeft } from "lucide-react";
 
 interface MetricsData {
   id: number;
@@ -24,6 +24,7 @@ interface MetricsData {
 export default function AssetMetrics() {
   const { user } = useAuth();
   const [, setLocation] = useLocation();
+  const { t } = useLanguage();
   const [selectedAsset, setSelectedAsset] = useState<number | null>(null);
 
   if (!user) {
@@ -48,7 +49,7 @@ export default function AssetMetrics() {
   }));
 
   const availabilityData = allMetrics.map((m: MetricsData) => ({
-    name: `Asset ${m.assetId}`,
+    name: `${t.assetMetrics.asset} ${m.assetId}`,
     available: parseFloat(String(m.availability)),
     downtime: 100 - parseFloat(String(m.availability)),
   }));
@@ -56,10 +57,10 @@ export default function AssetMetrics() {
   const COLORS = ["#10b981", "#ef4444"];
 
   const getAvailabilityStatus = (availability: number) => {
-    if (availability >= 95) return { label: "Excellent", color: "text-green-600" };
-    if (availability >= 85) return { label: "Good", color: "text-blue-600" };
-    if (availability >= 75) return { label: "Fair", color: "text-yellow-600" };
-    return { label: "Poor", color: "text-red-600" };
+    if (availability >= 95) return { label: t.assetMetrics.excellent, color: "text-green-600" };
+    if (availability >= 85) return { label: t.assetMetrics.good, color: "text-blue-600" };
+    if (availability >= 75) return { label: t.assetMetrics.fair, color: "text-yellow-600" };
+    return { label: t.assetMetrics.poor, color: "text-red-600" };
   };
 
   return (
@@ -67,11 +68,14 @@ export default function AssetMetrics() {
       <div className="max-w-7xl mx-auto space-y-6">
         {/* Header */}
         <div className="flex justify-between items-center">
-          <div>
-            <h1 className="text-3xl font-bold text-foreground">Asset Performance Metrics</h1>
-            <p className="text-muted-foreground mt-2">
-              MTTR, MTBF, and Availability Analysis
-            </p>
+          <div className="flex items-center gap-4">
+            <Button variant="ghost" size="icon" onClick={() => setLocation("/assets")}>
+              <ArrowLeft className="w-5 h-5" />
+            </Button>
+            <div>
+              <h1 className="text-3xl font-bold text-foreground">{t.assetMetrics.title}</h1>
+              <p className="text-muted-foreground mt-2">{t.assetMetrics.subtitle}</p>
+            </div>
           </div>
         </div>
 
@@ -82,12 +86,12 @@ export default function AssetMetrics() {
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
                   <Activity className="w-4 h-4" />
-                  MTTR (Hours)
+                  {t.assetMetrics.mttr}
                 </CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">{parseFloat(String(selectedMetrics.mttr)).toFixed(2)}</div>
-                <p className="text-xs text-muted-foreground mt-1">Mean Time To Repair</p>
+                <p className="text-xs text-muted-foreground mt-1">{t.assetMetrics.mttrFull}</p>
               </CardContent>
             </Card>
 
@@ -95,12 +99,12 @@ export default function AssetMetrics() {
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
                   <TrendingUp className="w-4 h-4" />
-                  MTBF (Hours)
+                  {t.assetMetrics.mtbf}
                 </CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">{parseFloat(String(selectedMetrics.mtbf)).toFixed(2)}</div>
-                <p className="text-xs text-muted-foreground mt-1">Mean Time Between Failures</p>
+                <p className="text-xs text-muted-foreground mt-1">{t.assetMetrics.mtbfFull}</p>
               </CardContent>
             </Card>
 
@@ -108,7 +112,7 @@ export default function AssetMetrics() {
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
                   <TrendingUp className="w-4 h-4" />
-                  Availability
+                  {t.assetMetrics.availability}
                 </CardTitle>
               </CardHeader>
               <CardContent>
@@ -125,13 +129,13 @@ export default function AssetMetrics() {
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
                   <AlertCircle className="w-4 h-4" />
-                  Total Tickets
+                  {t.assetMetrics.totalTickets}
                 </CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">{selectedMetrics.totalTickets}</div>
                 <p className="text-xs text-muted-foreground mt-1">
-                  {selectedMetrics.closedTickets} closed
+                  {selectedMetrics.closedTickets} {t.assetMetrics.closedTickets}
                 </p>
               </CardContent>
             </Card>
@@ -143,7 +147,7 @@ export default function AssetMetrics() {
           {/* MTTR vs MTBF Chart */}
           <Card>
             <CardHeader>
-              <CardTitle>MTTR vs MTBF</CardTitle>
+              <CardTitle>{t.assetMetrics.mttrVsMtbf}</CardTitle>
             </CardHeader>
             <CardContent>
               <ResponsiveContainer width="100%" height={300}>
@@ -153,8 +157,8 @@ export default function AssetMetrics() {
                   <YAxis />
                   <Tooltip />
                   <Legend />
-                  <Bar dataKey="mttr" fill="#3b82f6" name="MTTR (Hours)" />
-                  <Bar dataKey="mtbf" fill="#10b981" name="MTBF (Hours)" />
+                  <Bar dataKey="mttr" fill="#3b82f6" name={`MTTR (${t.assetMetrics.hours})`} />
+                  <Bar dataKey="mtbf" fill="#10b981" name={`MTBF (${t.assetMetrics.hours})`} />
                 </BarChart>
               </ResponsiveContainer>
             </CardContent>
@@ -163,7 +167,7 @@ export default function AssetMetrics() {
           {/* Availability Chart */}
           <Card>
             <CardHeader>
-              <CardTitle>Availability Trend</CardTitle>
+              <CardTitle>{t.assetMetrics.availabilityTrend}</CardTitle>
             </CardHeader>
             <CardContent>
               <ResponsiveContainer width="100%" height={300}>
@@ -173,7 +177,7 @@ export default function AssetMetrics() {
                   <YAxis domain={[0, 100]} />
                   <Tooltip />
                   <Legend />
-                  <Line type="monotone" dataKey="availability" stroke="#10b981" name="Availability %" />
+                  <Line type="monotone" dataKey="availability" stroke="#10b981" name={`${t.assetMetrics.availability} %`} />
                 </LineChart>
               </ResponsiveContainer>
             </CardContent>
@@ -182,7 +186,7 @@ export default function AssetMetrics() {
           {/* Availability Breakdown */}
           <Card>
             <CardHeader>
-              <CardTitle>Availability Breakdown</CardTitle>
+              <CardTitle>{t.assetMetrics.availabilityBreakdown}</CardTitle>
             </CardHeader>
             <CardContent>
               <ResponsiveContainer width="100%" height={300}>
@@ -197,7 +201,7 @@ export default function AssetMetrics() {
                     fill="#8884d8"
                     dataKey="available"
                   >
-                    {availabilityData.map((entry, index) => (
+                    {availabilityData.map((_entry: any, index: number) => (
                       <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                     ))}
                   </Pie>
@@ -210,7 +214,7 @@ export default function AssetMetrics() {
           {/* Tickets Trend */}
           <Card>
             <CardHeader>
-              <CardTitle>Tickets Trend</CardTitle>
+              <CardTitle>{t.assetMetrics.ticketsTrend}</CardTitle>
             </CardHeader>
             <CardContent>
               <ResponsiveContainer width="100%" height={300}>
@@ -220,7 +224,7 @@ export default function AssetMetrics() {
                   <YAxis />
                   <Tooltip />
                   <Legend />
-                  <Bar dataKey="tickets" fill="#f59e0b" name="Total Tickets" />
+                  <Bar dataKey="tickets" fill="#f59e0b" name={t.assetMetrics.totalTickets} />
                 </BarChart>
               </ResponsiveContainer>
             </CardContent>
@@ -231,7 +235,7 @@ export default function AssetMetrics() {
         {!selectedMetrics && (
           <Card>
             <CardHeader>
-              <CardTitle>Select Asset for Details</CardTitle>
+              <CardTitle>{t.assetMetrics.selectAsset}</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
@@ -254,25 +258,25 @@ export default function AssetMetrics() {
         {allMetrics.length > 0 && (
           <Card>
             <CardHeader>
-              <CardTitle>All Asset Metrics</CardTitle>
+              <CardTitle>{t.assetMetrics.allMetrics}</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b">
-                      <th className="text-left py-2 px-4">Asset</th>
+                      <th className="text-left py-2 px-4">{t.assetMetrics.asset}</th>
                       <th className="text-right py-2 px-4">MTTR (h)</th>
                       <th className="text-right py-2 px-4">MTBF (h)</th>
-                      <th className="text-right py-2 px-4">Availability</th>
-                      <th className="text-right py-2 px-4">Tickets</th>
-                      <th className="text-right py-2 px-4">Downtime (min)</th>
+                      <th className="text-right py-2 px-4">{t.assetMetrics.availability}</th>
+                      <th className="text-right py-2 px-4">{t.assetMetrics.totalTickets}</th>
+                      <th className="text-right py-2 px-4">{t.assetMetrics.totalDowntime}</th>
                     </tr>
                   </thead>
                   <tbody>
                     {allMetrics.map((m: MetricsData) => (
                       <tr key={m.id} className="border-b hover:bg-muted/50 cursor-pointer" onClick={() => setSelectedAsset(m.assetId)}>
-                        <td className="py-2 px-4">Asset {m.assetId}</td>
+                        <td className="py-2 px-4">{t.assetMetrics.asset} {m.assetId}</td>
                         <td className="text-right py-2 px-4">{parseFloat(String(m.mttr)).toFixed(2)}</td>
                         <td className="text-right py-2 px-4">{parseFloat(String(m.mtbf)).toFixed(2)}</td>
                         <td className={`text-right py-2 px-4 font-semibold ${getAvailabilityStatus(parseFloat(String(m.availability))).color}`}>
@@ -292,7 +296,15 @@ export default function AssetMetrics() {
         {metricsLoading && (
           <Card>
             <CardContent className="py-8">
-              <p className="text-center text-muted-foreground">Loading...</p>
+              <p className="text-center text-muted-foreground">{t.common.loading}</p>
+            </CardContent>
+          </Card>
+        )}
+
+        {!metricsLoading && allMetrics.length === 0 && (
+          <Card>
+            <CardContent className="py-8">
+              <p className="text-center text-muted-foreground">{t.assetMetrics.noMetrics}</p>
             </CardContent>
           </Card>
         )}

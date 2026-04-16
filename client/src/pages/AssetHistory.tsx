@@ -8,12 +8,14 @@ import { ArrowLeft, Wrench, CheckCircle2, AlertCircle, Clock, FileText } from "l
 import { Skeleton } from "@/components/ui/skeleton";
 import { useTranslation } from "@/contexts/LanguageContext";
 import { useStaticLabels } from "@/hooks/useContentTranslation";
+import { useTranslatedField } from "@/hooks/useTranslatedField";
 import { STATUS_COLORS, PRIORITY_COLORS } from "@shared/types";
 
 export default function AssetHistory() {
   const [, setLocation] = useLocation();
   const { t, language } = useTranslation();
   const { getStatusLabel, getPriorityLabel } = useStaticLabels();
+  const { getField } = useTranslatedField();
 
   // Get assetId from URL params
   const params = new URLSearchParams(window.location.search);
@@ -180,7 +182,7 @@ export default function AssetHistory() {
                           {getPriorityLabel(ticket.priority)}
                         </Badge>
                       </div>
-                      <h4 className="font-medium truncate">{ticket.title}</h4>
+                      <h4 className="font-medium truncate">{getField(ticket, "title")}</h4>
                       <p className="text-xs text-muted-foreground mt-1">
                         {new Date(ticket.createdAt).toLocaleDateString(locale)}
                       </p>
@@ -214,7 +216,7 @@ export default function AssetHistory() {
                         <span className="text-xs font-mono text-muted-foreground">{plan.planNumber}</span>
                         {plan.isActive && <Badge className="bg-green-500">نشطة</Badge>}
                       </div>
-                      <h4 className="font-medium truncate">{plan.title}</h4>
+                      <h4 className="font-medium truncate">{getField(plan, "title")}</h4>
                       <p className="text-xs text-muted-foreground mt-1">
                         التكرار: {plan.frequency} كل {plan.frequencyValue} {plan.frequencyValue > 1 ? "مرات" : "مرة"}
                       </p>

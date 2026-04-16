@@ -526,5 +526,38 @@ const ur: TranslationKeys = {
     overduePlans: "تاخیری منصوبے",
     upcomingThisWeek: "اس ہفتے کے آنے والے",
   },
+
+  // Asset Metrics
+  assetMetrics: {
+    title: "اثاثہ کارکردگی میٹرکس",
+    subtitle: "MTTR، MTBF اور دستیابی کا تجزیہ",
+    mttr: "MTTR (گھنٹے)",
+    mttrFull: "Mean Time To Repair",
+    mtbf: "MTBF (گھنٹے)",
+    mtbfFull: "Mean Time Between Failures",
+    availability: "دستیابی",
+    totalTickets: "کل ٹکٹس",
+    closedTickets: "بند ٹکٹس",
+    totalDowntime: "کل بند وقت",
+    lastFailure: "آخری خرابی",
+    lastRepair: "آخری مرمت",
+    selectAsset: "تفصیلات کے لیے اثاثہ منتخب کریں",
+    allMetrics: "تمام اثاثہ میٹرکس",
+    mttrVsMtbf: "MTTR بمقابلہ MTBF",
+    availabilityTrend: "دستیابی کا رجحان",
+    availabilityBreakdown: "دستیابی کی تقسیم",
+    ticketsTrend: "ٹکٹس کا رجحان",
+    excellent: "بہترین",
+    good: "اچھا",
+    fair: "قابل قبول",
+    poor: "کمزور",
+    available: "دستیاب",
+    downtime: "بند وقت",
+    noMetrics: "کوئی میٹرکس ڈیٹا نہیں",
+    asset: "اثاثہ",
+    hours: "گھنٹے",
+    percent: "فیصد",
+  },
+
 } as const;
 export default ur;

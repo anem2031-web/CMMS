@@ -15,6 +15,7 @@ import { useState } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useTranslation } from "@/contexts/LanguageContext";
 import { useStaticLabels } from "@/hooks/useContentTranslation";
+import { useTranslatedField } from "@/hooks/useTranslatedField";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { toast } from "sonner";
 
@@ -25,6 +26,7 @@ export default function Tickets() {
   const [priorityFilter, setPriorityFilter] = useState("all");
   const { t, language } = useTranslation();
   const { getStatusLabel, getPriorityLabel, getCategoryLabel } = useStaticLabels();
+  const { getField } = useTranslatedField();
   const { user } = useAuth();
   const utils = trpc.useUtils();
 
@@ -155,7 +157,7 @@ export default function Tickets() {
                         {getPriorityLabel(ticket.priority)}
                       </Badge>
                     </div>
-                    <h3 className="font-medium text-sm truncate">{ticket.title}</h3>
+                    <h3 className="font-medium text-sm truncate">{getField(ticket, "title")}</h3>
                     <div className="flex items-center gap-3 mt-1.5 text-xs text-muted-foreground">
                       <span>{getCategoryLabel(ticket.category)}</span>
                       <span>{new Date(ticket.createdAt).toLocaleDateString(locale)}</span>

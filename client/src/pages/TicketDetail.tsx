@@ -16,6 +16,7 @@ import { toast } from "sonner";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useTranslation } from "@/contexts/LanguageContext";
 import { useStaticLabels } from "@/hooks/useContentTranslation";
+import { useTranslatedField } from "@/hooks/useTranslatedField";
 import DropZone, { type UploadedFile } from "@/components/DropZone";
 
 export default function TicketDetail() {
@@ -24,6 +25,7 @@ export default function TicketDetail() {
   const { user } = useAuth();
   const { t, language } = useTranslation();
   const { getStatusLabel, getPriorityLabel, getCategoryLabel, getPOStatusLabel } = useStaticLabels();
+  const { getField } = useTranslatedField();
   const locale = language === "ar" ? "ar-SA" : language === "ur" ? "ur-PK" : "en-US";
   const currency = language === "en" ? "SAR" : "ر.س";
   const ticketId = parseInt(params?.id || "0");
@@ -130,7 +132,7 @@ export default function TicketDetail() {
             <Badge variant="outline" className={PRIORITY_COLORS[ticket.priority]}>{getPriorityLabel(ticket.priority)}</Badge>
             <Badge variant="outline">{getCategoryLabel(ticket.category)}</Badge>
           </div>
-          <h1 className="text-xl font-bold mt-1">{ticket.title}</h1>
+          <h1 className="text-xl font-bold mt-1">{getField(ticket, "title")}</h1>
         </div>
       </div>
 
@@ -170,7 +172,7 @@ export default function TicketDetail() {
           <Card>
             <CardHeader><CardTitle className="text-base">{t.tickets.ticketTitle}</CardTitle></CardHeader>
             <CardContent className="space-y-4">
-              {ticket.description && <p className="text-sm leading-relaxed">{ticket.description}</p>}
+              {ticket.description && <p className="text-sm leading-relaxed">{getField(ticket, "description")}</p>}
               <div className="grid grid-cols-2 gap-4 text-sm">
                 <div className="flex items-center gap-2">
                   <span className="text-muted-foreground">{t.tickets.category}:</span>
@@ -249,7 +251,7 @@ export default function TicketDetail() {
               {ticket.repairNotes && (
                 <div className="bg-muted/50 rounded-lg p-3">
                   <p className="text-sm font-medium mb-1">{t.tickets.repairNotes}</p>
-                  <p className="text-sm text-muted-foreground">{ticket.repairNotes}</p>
+                  <p className="text-sm text-muted-foreground">{getField(ticket, "repairNotes")}</p>
                 </div>
               )}
               {ticket.materialsUsed && (

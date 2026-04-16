@@ -545,6 +545,38 @@ const ar = {
     upcomingThisWeek: "مواعيد هذا الأسبوع",
   },
 
+  // Asset Metrics
+  assetMetrics: {
+    title: "مقاييس أداء الأصول",
+    subtitle: "تحليل MTTR وMTBF ومعدل التوفر",
+    mttr: "متوسط وقت الإصلاح (ساعات)",
+    mttrFull: "Mean Time To Repair",
+    mtbf: "متوسط الوقت بين الأعطال (ساعات)",
+    mtbfFull: "Mean Time Between Failures",
+    availability: "معدل التوفر",
+    totalTickets: "إجمالي البلاغات",
+    closedTickets: "البلاغات المغلقة",
+    totalDowntime: "إجمالي وقت التوقف",
+    lastFailure: "آخر عطل",
+    lastRepair: "آخر إصلاح",
+    selectAsset: "اختر أصلاً لعرض التفاصيل",
+    allMetrics: "مقاييس جميع الأصول",
+    mttrVsMtbf: "MTTR مقابل MTBF",
+    availabilityTrend: "اتجاه التوفر",
+    availabilityBreakdown: "توزيع التوفر",
+    ticketsTrend: "اتجاه البلاغات",
+    excellent: "ممتاز",
+    good: "جيد",
+    fair: "مقبول",
+    poor: "ضعيف",
+    available: "متاح",
+    downtime: "توقف",
+    noMetrics: "لا توجد بيانات مقاييس",
+    asset: "الأصل",
+    hours: "ساعات",
+    percent: "نسبة مئوية",
+  },
+
   // User Management
   userManagement: {
     createUser: "إنشاء مستخدم",

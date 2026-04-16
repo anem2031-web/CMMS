@@ -526,6 +526,39 @@ const en: TranslationKeys = {
     overduePlans: "Overdue Plans",
     upcomingThisWeek: "Upcoming This Week",
   },
+
+  // Asset Metrics
+  assetMetrics: {
+    title: "Asset Performance Metrics",
+    subtitle: "MTTR, MTBF, and Availability Analysis",
+    mttr: "MTTR (Hours)",
+    mttrFull: "Mean Time To Repair",
+    mtbf: "MTBF (Hours)",
+    mtbfFull: "Mean Time Between Failures",
+    availability: "Availability",
+    totalTickets: "Total Tickets",
+    closedTickets: "Closed Tickets",
+    totalDowntime: "Total Downtime",
+    lastFailure: "Last Failure",
+    lastRepair: "Last Repair",
+    selectAsset: "Select Asset for Details",
+    allMetrics: "All Asset Metrics",
+    mttrVsMtbf: "MTTR vs MTBF",
+    availabilityTrend: "Availability Trend",
+    availabilityBreakdown: "Availability Breakdown",
+    ticketsTrend: "Tickets Trend",
+    excellent: "Excellent",
+    good: "Good",
+    fair: "Fair",
+    poor: "Poor",
+    available: "Available",
+    downtime: "Downtime",
+    noMetrics: "No metrics data available",
+    asset: "Asset",
+    hours: "Hours",
+    percent: "Percentage",
+  },
+
 } as const;
 
 export default en;

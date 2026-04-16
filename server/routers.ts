@@ -10,6 +10,7 @@ import { notifyOwner } from "./_core/notification";
 import { invokeLLM } from "./_core/llm";
 import { nanoid } from "nanoid";
 import { translationRouter } from "./routers/translation";
+import { translateFields, detectLanguage, type SupportedLanguage } from "./services/translation";
 import bcrypt from "bcryptjs";
 
 // Role-based middleware
@@ -232,7 +233,31 @@ export const appRouter = router({
       beforePhotoUrl: z.string().optional(),
     })).mutation(async ({ input, ctx }) => {
       const ticketNumber = await db.getNextTicketNumber();
-      const id = await db.createTicket({ ...input, ticketNumber, reportedById: ctx.user.id, status: "new" });
+      // Auto-translate fields
+      const fieldsToTranslate: Record<string, string> = {};
+      if (input.title) fieldsToTranslate.title = input.title;
+      if (input.description) fieldsToTranslate.description = input.description;
+      let translationData: Record<string, any> = {};
+      let detectedLang: SupportedLanguage = "ar";
+      if (Object.keys(fieldsToTranslate).length > 0) {
+        try {
+          detectedLang = await detectLanguage(input.title);
+          const translations = await translateFields(fieldsToTranslate, detectedLang);
+          if (translations.title) {
+            translationData.title_ar = translations.title.ar;
+            translationData.title_en = translations.title.en;
+            translationData.title_ur = translations.title.ur;
+          }
+          if (translations.description) {
+            translationData.description_ar = translations.description.ar;
+            translationData.description_en = translations.description.en;
+            translationData.description_ur = translations.description.ur;
+          }
+        } catch (e) {
+          console.error("[Ticket] Translation failed:", e);
+        }
+      }
+      const id = await db.createTicket({ ...input, ...translationData, originalLanguage: detectedLang, ticketNumber, reportedById: ctx.user.id, status: "new" });
       await db.addTicketStatusHistory({ ticketId: id!, fromStatus: undefined, toStatus: "new", changedById: ctx.user.id });
       await db.createAuditLog({ userId: ctx.user.id, action: "create_ticket", entityType: "ticket", entityId: id! });
       // Notify maintenance manager
@@ -276,7 +301,22 @@ export const appRouter = router({
     })).mutation(async ({ input, ctx }) => {
       const ticket = await db.getTicketById(input.id);
       if (!ticket) throw new TRPCError({ code: "NOT_FOUND" });
-      await db.updateTicket(input.id, { status: "repaired", afterPhotoUrl: input.afterPhotoUrl, repairNotes: input.repairNotes, materialsUsed: input.materialsUsed });
+      // Auto-translate repairNotes
+      let repairTranslation: Record<string, any> = {};
+      if (input.repairNotes) {
+        try {
+          const lang = await detectLanguage(input.repairNotes);
+          const translations = await translateFields({ repairNotes: input.repairNotes }, lang);
+          if (translations.repairNotes) {
+            repairTranslation.repairNotes_ar = translations.repairNotes.ar;
+            repairTranslation.repairNotes_en = translations.repairNotes.en;
+            repairTranslation.repairNotes_ur = translations.repairNotes.ur;
+          }
+        } catch (e) {
+          console.error("[Ticket] RepairNotes translation failed:", e);
+        }
+      }
+      await db.updateTicket(input.id, { status: "repaired", afterPhotoUrl: input.afterPhotoUrl, repairNotes: input.repairNotes, materialsUsed: input.materialsUsed, ...repairTranslation });
       await db.addTicketStatusHistory({ ticketId: input.id, fromStatus: ticket.status, toStatus: "repaired", changedById: ctx.user.id });
       const managers = await db.getUsersByRole("maintenance_manager");
       for (const mgr of managers) {
@@ -1295,8 +1335,33 @@ ${JSON.stringify(recentAudit.map((a: any) => ({ action: a.action, entity: a.enti
       notes: z.string().optional(),
     })).mutation(async ({ input, ctx }) => {
       const assetNumber = await db.generateAssetNumber();
+      // Auto-translate description and notes
+      let assetTranslation: Record<string, any> = {};
+      const fieldsToTranslate: Record<string, string> = {};
+      if (input.description) fieldsToTranslate.description = input.description;
+      if (input.notes) fieldsToTranslate.notes = input.notes;
+      if (Object.keys(fieldsToTranslate).length > 0) {
+        try {
+          const lang = await detectLanguage(Object.values(fieldsToTranslate)[0]);
+          const translations = await translateFields(fieldsToTranslate, lang);
+          if (translations.description) {
+            assetTranslation.description_ar = translations.description.ar;
+            assetTranslation.description_en = translations.description.en;
+            assetTranslation.description_ur = translations.description.ur;
+          }
+          if (translations.notes) {
+            assetTranslation.notes_ar = translations.notes.ar;
+            assetTranslation.notes_en = translations.notes.en;
+            assetTranslation.notes_ur = translations.notes.ur;
+          }
+          assetTranslation.originalLanguage = lang;
+        } catch (e) {
+          console.error("[Asset] Translation failed:", e);
+        }
+      }
       const result = await db.createAsset({
         ...input,
+        ...assetTranslation,
         assetNumber,
         purchaseDate: input.purchaseDate ? new Date(input.purchaseDate) : undefined,
         warrantyExpiry: input.warrantyExpiry ? new Date(input.warrantyExpiry) : undefined,
