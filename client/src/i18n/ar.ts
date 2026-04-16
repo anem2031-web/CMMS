@@ -29,6 +29,12 @@ const ar = {
     triage: "الفرز والتصنيف",
     gateSecurity: "حارس البوابة",
     scanAsset: "مسح الأصل (NFC)",
+    sections: {
+      coreOps: "العمليات الأساسية",
+      logistics: "اللوجستيات والشراء",
+      management: "الإدارة والتقارير",
+      adminTools: "أدوات المسؤول",
+    },
   },
 
   // Common

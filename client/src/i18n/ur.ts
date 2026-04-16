@@ -29,6 +29,12 @@ const ur: TranslationKeys = {
     triage: "ٹریاج اور تصنیف",
     gateSecurity: "گیٹ سیکیورٹی",
     scanAsset: "اثاثہ سکین (NFC)",
+    sections: {
+      coreOps: "بنیادی آپریشن",
+      logistics: "لاجسٹکس اور خریداری",
+      management: "انتظام اور رپورٹیں",
+      adminTools: "ایڈمن ٹولز",
+    },
   },
 
   common: {

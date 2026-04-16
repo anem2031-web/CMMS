@@ -29,6 +29,12 @@ const en: TranslationKeys = {
     triage: "Triage & Classification",
     gateSecurity: "Gate Security",
     scanAsset: "Scan Asset (NFC)",
+    sections: {
+      coreOps: "Core Operations",
+      logistics: "Logistics & Buying",
+      management: "Management & Reports",
+      adminTools: "Admin Tools",
+    },
   },
 
   common: {
