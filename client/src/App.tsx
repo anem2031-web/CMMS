@@ -6,6 +6,7 @@ import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { LanguageProvider } from "./contexts/LanguageContext";
 import DashboardLayout from "./components/DashboardLayout";
+import Login from "./pages/Login";
 import Home from "./pages/Home";
 import Tickets from "./pages/Tickets";
 import TicketDetail from "./pages/TicketDetail";
@@ -35,38 +36,46 @@ import ScanAsset from "./pages/ScanAsset";
 
 function Router() {
   return (
-    <DashboardLayout>
-      <Switch>
-        <Route path="/" component={Home} />
-        <Route path="/tickets" component={Tickets} />
-        <Route path="/tickets/new" component={CreateTicket} />
-        <Route path="/tickets/:id" component={TicketDetail} />
-        <Route path="/purchase-orders" component={PurchaseOrders} />
-        <Route path="/purchase-orders/new" component={CreatePurchaseOrder} />
-        <Route path="/purchase-orders/:id" component={PurchaseOrderDetail} />
-        <Route path="/purchase-cycle" component={PurchaseCycle} />
-        <Route path="/my-items" component={MyItems} />
-        <Route path="/inventory" component={Inventory} />
-        <Route path="/reports" component={Reports} />
-        <Route path="/reports/technicians" component={TechnicianReport} />
-        <Route path="/users" component={UsersPage} />
-        <Route path="/sites" component={Sites} />
-        <Route path="/notifications" component={Notifications} />
-        <Route path="/audit-log" component={AuditLog} />
-        <Route path="/ai-assistant" component={AIAssistant} />
-        <Route path="/translation-monitor" component={TranslationMonitor} />
-        <Route path="/backup" component={Backup} />
-        <Route path="/assets" component={Assets} />
-        <Route path="/assets/history" component={AssetHistory} />
-        <Route path="/assets/metrics" component={AssetMetrics} />
-        <Route path="/preventive" component={PreventiveMaintenance} />
-        <Route path="/triage" component={TriageDashboard} />
-        <Route path="/gate-security" component={GateSecurity} />
-        <Route path="/scan-asset" component={ScanAsset} />
-        <Route path="/404" component={NotFound} />
-        <Route component={NotFound} />
-      </Switch>
-    </DashboardLayout>
+    <Switch>
+      {/* Standalone login page - outside DashboardLayout */}
+      <Route path="/login" component={Login} />
+
+      {/* All other routes inside DashboardLayout */}
+      <Route>
+        <DashboardLayout>
+          <Switch>
+            <Route path="/" component={Home} />
+            <Route path="/tickets" component={Tickets} />
+            <Route path="/tickets/new" component={CreateTicket} />
+            <Route path="/tickets/:id" component={TicketDetail} />
+            <Route path="/purchase-orders" component={PurchaseOrders} />
+            <Route path="/purchase-orders/new" component={CreatePurchaseOrder} />
+            <Route path="/purchase-orders/:id" component={PurchaseOrderDetail} />
+            <Route path="/purchase-cycle" component={PurchaseCycle} />
+            <Route path="/my-items" component={MyItems} />
+            <Route path="/inventory" component={Inventory} />
+            <Route path="/reports" component={Reports} />
+            <Route path="/reports/technicians" component={TechnicianReport} />
+            <Route path="/users" component={UsersPage} />
+            <Route path="/sites" component={Sites} />
+            <Route path="/notifications" component={Notifications} />
+            <Route path="/audit-log" component={AuditLog} />
+            <Route path="/ai-assistant" component={AIAssistant} />
+            <Route path="/translation-monitor" component={TranslationMonitor} />
+            <Route path="/backup" component={Backup} />
+            <Route path="/assets" component={Assets} />
+            <Route path="/assets/history" component={AssetHistory} />
+            <Route path="/assets/metrics" component={AssetMetrics} />
+            <Route path="/preventive" component={PreventiveMaintenance} />
+            <Route path="/triage" component={TriageDashboard} />
+            <Route path="/gate-security" component={GateSecurity} />
+            <Route path="/scan-asset" component={ScanAsset} />
+            <Route path="/404" component={NotFound} />
+            <Route component={NotFound} />
+          </Switch>
+        </DashboardLayout>
+      </Route>
+    </Switch>
   );
 }
 

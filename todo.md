@@ -485,3 +485,12 @@
 - [x] Dynamic Border Colors (Red SLA breach / Amber urgent)
 - [x] Sparkline Charts لكل بطاقة (7-day trend من getDashboardStats)
 - [x] Monitor Mode (full-screen high-contrast مع زر تفعيل)
+
+## Phase 20: نظام تسجيل الدخول المحلي وإدارة المستخدمين
+- [x] إلغاء OAuth وتوجيه getLoginUrl إلى صفحة /login المحلية
+- [x] إضافة route /login منفصل خارج DashboardLayout في App.tsx
+- [x] إنشاء/تحديث حساب admin الافتراضي (username: admin, password: ADMIN2025, role: owner)
+- [x] إعادة بناء صفحة Users.tsx مع زر "إضافة مستخدم جديد" (اسم + username + password + دور + هاتف + قسم + بريد)
+- [x] إضافة زر تغيير كلمة المرور لكل مستخدم
+- [x] إضافة حقل بحث في صفحة المستخدمين
+- [x] التحقق من صحة دورة التسعير والاعتماد في PurchaseOrderDetail
