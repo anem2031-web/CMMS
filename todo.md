@@ -350,3 +350,16 @@
 
 ### Testing
 - [ ] اختبارات vitest للـ RFID APIs
+
+## Phase 19: Workflow العميل الكامل (Triage + Gate/Security)
+- [x] إضافة دور supervisor و gate_security في Schema
+- [x] إضافة حالات جديدة: pending_triage, under_inspection, work_approved, ready_for_closure, out_for_repair
+- [x] إضافة حقول: maintenancePath, supervisorId, gateSecurityId, nfcTagId, batchGroupId في tickets
+- [x] إضافة procedures جديدة في Backend: triageTicket, inspectTicket, approveWork, sendOutForRepair, markReadyForClosure
+- [x] إنشاء صفحة TriageDashboard للمشرف (Eng. Khaled)
+- [x] إنشاء صفحة GateSecurity لحارس البوابة
+- [x] تحديث nav في DashboardLayout للأدوار الجديدة
+- [x] تحديث الترجمات الثلاث (ar, en, ur) للحالات والأدوار والـ nav الجديدة
+- [x] تحديث routes في App.tsx
+- [ ] تحديث TicketDetail لدعم المسارات A/B/C وإظهار أزرار Workflow الجديدة
+- [ ] تحديث Dashboard لإظهار بطاقات pending_triage و under_inspection

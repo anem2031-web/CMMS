@@ -26,6 +26,8 @@ const ar = {
     translationMonitor: "مراقبة الترجمات",
     purchaseCycle: "دورة الشراء",
     menu: "القائمة",
+    triage: "الفرز والتصنيف",
+    gateSecurity: "حارس البوابة",
   },
 
   // Common
@@ -91,6 +93,8 @@ const ar = {
     accountant: "حسابات",
     senior_management: "إدارة عليا",
     warehouse: "مستودع",
+    supervisor: "مشرف",
+    gate_security: "حارس البوابة",
     owner: "مالك",
     admin: "مدير النظام",
     user: "مستخدم",
@@ -99,6 +103,11 @@ const ar = {
   // Ticket statuses
   ticketStatus: {
     new: "جديد",
+    pending_triage: "بانتظار الفرز",
+    under_inspection: "قيد الفحص",
+    work_approved: "تم اعتماد العمل",
+    ready_for_closure: "جاهز للإغلاق",
+    out_for_repair: "خارج للإصلاح",
     approved: "معتمد",
     assigned: "مُسند",
     in_progress: "قيد التنفيذ",

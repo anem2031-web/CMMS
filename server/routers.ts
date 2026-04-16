@@ -24,6 +24,8 @@ const roleMiddleware = (allowedRoles: string[]) => {
 };
 
 const managerProcedure = roleMiddleware(["maintenance_manager", "purchase_manager", "owner", "admin"]);
+const supervisorProcedure = roleMiddleware(["supervisor", "maintenance_manager"]);
+const gateSecurityProcedure = roleMiddleware(["gate_security"]);
 const accountantProcedure = roleMiddleware(["accountant"]);
 const managementProcedure = roleMiddleware(["senior_management"]);
 const warehouseProcedure = roleMiddleware(["warehouse"]);
@@ -257,10 +259,16 @@ export const appRouter = router({
           console.error("[Ticket] Translation failed:", e);
         }
       }
-      const id = await db.createTicket({ ...input, ...translationData, originalLanguage: detectedLang, ticketNumber, reportedById: ctx.user.id, status: "new" });
-      await db.addTicketStatusHistory({ ticketId: id!, fromStatus: undefined, toStatus: "new", changedById: ctx.user.id });
+      // New workflow: tickets start as pending_triage and go to supervisor
+      const id = await db.createTicket({ ...input, ...translationData, originalLanguage: detectedLang, ticketNumber, reportedById: ctx.user.id, status: "pending_triage" });
+      await db.addTicketStatusHistory({ ticketId: id!, fromStatus: undefined, toStatus: "pending_triage", changedById: ctx.user.id });
       await db.createAuditLog({ userId: ctx.user.id, action: "create_ticket", entityType: "ticket", entityId: id! });
-      // Notify maintenance manager
+      // Notify supervisors first (new workflow)
+      const supervisors = await db.getUsersByRole("supervisor");
+      for (const sup of supervisors) {
+        await db.createNotification({ userId: sup.id, title: "بلاغ جديد بانتظار الفرز", message: `البلاغ ${ticketNumber} - ${input.title} بانتظار الفرز والتصنيف`, type: "info", relatedTicketId: id! });
+      }
+      // Also notify maintenance managers
       const managers = await db.getUsersByRole("maintenance_manager");
       for (const mgr of managers) {
         await db.createNotification({ userId: mgr.id, title: "بلاغ جديد", message: `تم إنشاء بلاغ جديد: ${ticketNumber} - ${input.title}`, type: "info", relatedTicketId: id! });
@@ -402,6 +410,171 @@ export const appRouter = router({
 
     history: protectedProcedure.input(z.object({ ticketId: z.number() })).query(async ({ input }) => {
       return db.getTicketHistory(input.ticketId);
+    }),
+
+    // =============================================
+    // NEW WORKFLOW PROCEDURES
+    // =============================================
+
+    // 1. Submit for Triage (after creation, ticket goes to supervisor)
+    submitForTriage: protectedProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
+      const ticket = await db.getTicketById(input.id);
+      if (!ticket) throw new TRPCError({ code: "NOT_FOUND" });
+      await db.updateTicket(input.id, { status: "pending_triage" });
+      await db.addTicketStatusHistory({ ticketId: input.id, fromStatus: ticket.status, toStatus: "pending_triage", changedById: ctx.user.id });
+      // Notify supervisors
+      const supervisors = await db.getUsersByRole("supervisor");
+      for (const sup of supervisors) {
+        await db.createNotification({ userId: sup.id, title: "بلاغ بانتظار الفرز", message: `البلاغ ${ticket.ticketNumber} بانتظار الفرز والتصنيف`, type: "info", relatedTicketId: input.id });
+      }
+      return { success: true };
+    }),
+
+    // 2. Triage by Supervisor (Eng. Khaled)
+    triage: supervisorProcedure.input(z.object({
+      id: z.number(),
+      ticketType: z.enum(["internal", "external", "procurement"]),
+      priority: z.string().optional(),
+      triageNotes: z.string().optional(),
+      assignedToId: z.number().optional(), // Assign inspection team
+    })).mutation(async ({ input, ctx }) => {
+      const ticket = await db.getTicketById(input.id);
+      if (!ticket) throw new TRPCError({ code: "NOT_FOUND" });
+      if (ticket.status !== "pending_triage") throw new TRPCError({ code: "BAD_REQUEST", message: "البلاغ ليس في مرحلة الفرز" });
+      const updateData: any = {
+        status: "under_inspection",
+        ticketType: input.ticketType,
+        supervisorId: ctx.user.id,
+        triageNotes: input.triageNotes,
+      };
+      if (input.priority) updateData.priority = input.priority;
+      if (input.assignedToId) updateData.assignedToId = input.assignedToId;
+      await db.updateTicket(input.id, updateData);
+      await db.addTicketStatusHistory({ ticketId: input.id, fromStatus: ticket.status, toStatus: "under_inspection", changedById: ctx.user.id, notes: input.triageNotes });
+      // Notify maintenance manager
+      const managers = await db.getUsersByRole("maintenance_manager");
+      for (const mgr of managers) {
+        await db.createNotification({ userId: mgr.id, title: "بلاغ قيد الفحص", message: `تم فرز البلاغ ${ticket.ticketNumber} وهو الآن قيد الفحص`, type: "info", relatedTicketId: input.id });
+      }
+      return { success: true };
+    }),
+
+    // 3. Work Approval by Maintenance Manager (Abdel Fattah) + Path Selection
+    approveWork: managerProcedure.input(z.object({
+      id: z.number(),
+      maintenancePath: z.enum(["A", "B", "C"]),
+      inspectionNotes: z.string().optional(),
+      justification: z.string().optional(), // Required for Path C
+    })).mutation(async ({ input, ctx }) => {
+      const ticket = await db.getTicketById(input.id);
+      if (!ticket) throw new TRPCError({ code: "NOT_FOUND" });
+      if (ticket.status !== "under_inspection") throw new TRPCError({ code: "BAD_REQUEST", message: "البلاغ ليس في مرحلة الفحص" });
+      if (input.maintenancePath === "C" && !input.justification) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "المسار C يتطلب مبرراً للصيانة الخارجية" });
+      }
+      const updateData: any = {
+        status: "work_approved",
+        maintenancePath: input.maintenancePath,
+        approvedById: ctx.user.id,
+        inspectionNotes: input.inspectionNotes,
+        justification: input.justification,
+      };
+      await db.updateTicket(input.id, updateData);
+      await db.addTicketStatusHistory({ ticketId: input.id, fromStatus: ticket.status, toStatus: "work_approved", changedById: ctx.user.id, notes: `المسار: ${input.maintenancePath}` });
+      // Notify based on path
+      if (input.maintenancePath === "C") {
+        // Notify supervisor for external path approval
+        const supervisors = await db.getUsersByRole("supervisor");
+        for (const sup of supervisors) {
+          await db.createNotification({ userId: sup.id, title: "بلاغ مسار خارجي", message: `البلاغ ${ticket.ticketNumber} يحتاج موافقة للصيانة الخارجية (المسار C)`, type: "warning", relatedTicketId: input.id });
+        }
+      } else if (input.maintenancePath === "A") {
+        // Notify assigned technician
+        if (ticket.assignedToId) {
+          await db.createNotification({ userId: ticket.assignedToId, title: "اعتماد بدء العمل", message: `تم اعتماد البلاغ ${ticket.ticketNumber} للإصلاح المباشر`, type: "success", relatedTicketId: input.id });
+        }
+      }
+      return { success: true };
+    }),
+
+    // 4. Mark Ready for Closure (Path A - after technician completes repair)
+    markReadyForClosure: protectedProcedure.input(z.object({
+      id: z.number(),
+      afterPhotoUrl: z.string().optional(),
+      repairNotes: z.string().optional(),
+    })).mutation(async ({ input, ctx }) => {
+      const ticket = await db.getTicketById(input.id);
+      if (!ticket) throw new TRPCError({ code: "NOT_FOUND" });
+      if (ticket.maintenancePath !== "A") throw new TRPCError({ code: "BAD_REQUEST", message: "هذا الإجراء للمسار A فقط" });
+      await db.updateTicket(input.id, { status: "ready_for_closure", afterPhotoUrl: input.afterPhotoUrl, repairNotes: input.repairNotes });
+      await db.addTicketStatusHistory({ ticketId: input.id, fromStatus: ticket.status, toStatus: "ready_for_closure", changedById: ctx.user.id });
+      // Notify supervisor to close
+      const supervisors = await db.getUsersByRole("supervisor");
+      for (const sup of supervisors) {
+        await db.createNotification({ userId: sup.id, title: "بلاغ جاهز للإغلاق", message: `البلاغ ${ticket.ticketNumber} جاهز للإغلاق - المسار A`, type: "success", relatedTicketId: input.id });
+      }
+      return { success: true };
+    }),
+
+    // 5. Supervisor closes ticket (Path A)
+    closeBySupervisor: supervisorProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
+      const ticket = await db.getTicketById(input.id);
+      if (!ticket) throw new TRPCError({ code: "NOT_FOUND" });
+      if (ticket.status !== "ready_for_closure") throw new TRPCError({ code: "BAD_REQUEST", message: "البلاغ ليس جاهزاً للإغلاق" });
+      await db.updateTicket(input.id, { status: "closed", closedAt: new Date() });
+      await db.addTicketStatusHistory({ ticketId: input.id, fromStatus: ticket.status, toStatus: "closed", changedById: ctx.user.id });
+      await db.createAuditLog({ userId: ctx.user.id, action: "close_ticket", entityType: "ticket", entityId: input.id });
+      return { success: true };
+    }),
+
+    // 6. Gate Exit Approval (Path C - asset leaves for external repair)
+    approveGateExit: gateSecurityProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
+      const ticket = await db.getTicketById(input.id);
+      if (!ticket) throw new TRPCError({ code: "NOT_FOUND" });
+      if (ticket.maintenancePath !== "C") throw new TRPCError({ code: "BAD_REQUEST", message: "هذا الإجراء للمسار C فقط" });
+      await db.updateTicket(input.id, { status: "out_for_repair", gateExitApprovedById: ctx.user.id, gateExitApprovedAt: new Date() });
+      await db.addTicketStatusHistory({ ticketId: input.id, fromStatus: ticket.status, toStatus: "out_for_repair", changedById: ctx.user.id, notes: "تمت الموافقة على خروج الأصل" });
+      await db.createAuditLog({ userId: ctx.user.id, action: "gate_exit_approved", entityType: "ticket", entityId: input.id });
+      return { success: true };
+    }),
+
+    // 7. Mark External Repair Completed (Delegate)
+    markExternalRepairDone: delegateProcedure.input(z.object({
+      id: z.number(),
+      repairNotes: z.string().optional(),
+    })).mutation(async ({ input, ctx }) => {
+      const ticket = await db.getTicketById(input.id);
+      if (!ticket) throw new TRPCError({ code: "NOT_FOUND" });
+      if (ticket.status !== "out_for_repair") throw new TRPCError({ code: "BAD_REQUEST", message: "الأصل ليس خارجاً للإصلاح" });
+      await db.updateTicket(input.id, { externalRepairCompletedAt: new Date(), externalRepairCompletedById: ctx.user.id, repairNotes: input.repairNotes });
+      await db.addTicketStatusHistory({ ticketId: input.id, fromStatus: ticket.status, toStatus: "out_for_repair", changedById: ctx.user.id, notes: "تم الإصلاح الخارجي - بانتظار موافقة الدخول" });
+      // Notify gate security
+      const gateUsers = await db.getUsersByRole("gate_security");
+      for (const g of gateUsers) {
+        await db.createNotification({ userId: g.id, title: "أصل عائد للمنشأة", message: `الأصل المرتبط بالبلاغ ${ticket.ticketNumber} عائد بعد الإصلاح الخارجي`, type: "info", relatedTicketId: input.id });
+      }
+      return { success: true };
+    }),
+
+    // 8. Gate Entry Approval (Path C - asset returns after external repair)
+    approveGateEntry: gateSecurityProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
+      const ticket = await db.getTicketById(input.id);
+      if (!ticket) throw new TRPCError({ code: "NOT_FOUND" });
+      if (ticket.maintenancePath !== "C") throw new TRPCError({ code: "BAD_REQUEST", message: "هذا الإجراء للمسار C فقط" });
+      await db.updateTicket(input.id, { status: "repaired", gateEntryApprovedById: ctx.user.id, gateEntryApprovedAt: new Date() });
+      await db.addTicketStatusHistory({ ticketId: input.id, fromStatus: ticket.status, toStatus: "repaired", changedById: ctx.user.id, notes: "تمت الموافقة على دخول الأصل" });
+      await db.createAuditLog({ userId: ctx.user.id, action: "gate_entry_approved", entityType: "ticket", entityId: input.id });
+      // Notify maintenance manager to close
+      const managers = await db.getUsersByRole("maintenance_manager");
+      for (const mgr of managers) {
+        await db.createNotification({ userId: mgr.id, title: "أصل عاد بعد الإصلاح", message: `البلاغ ${ticket.ticketNumber} - الأصل عاد بعد الإصلاح الخارجي وجاهز للإغلاق`, type: "success", relatedTicketId: input.id });
+      }
+      return { success: true };
+    }),
+
+    // 9. Get tickets for gate security
+    listForGate: gateSecurityProcedure.query(async () => {
+      return db.getTickets({ status: "work_approved" });
     }),
   }),
 

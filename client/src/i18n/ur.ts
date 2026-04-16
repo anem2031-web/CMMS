@@ -26,6 +26,8 @@ const ur: TranslationKeys = {
     translationMonitor: "ترجمہ مانیٹر",
     purchaseCycle: "خریداری سائیکل",
     menu: "مینو",
+    triage: "ٹریاج اور تصنیف",
+    gateSecurity: "گیٹ سیکیورٹی",
   },
 
   common: {
@@ -89,6 +91,8 @@ const ur: TranslationKeys = {
     accountant: "اکاؤنٹنگ",
     senior_management: "اعلیٰ انتظامیہ",
     warehouse: "گودام",
+    supervisor: "سپروائزر",
+    gate_security: "گیٹ سیکیورٹی",
     owner: "مالک",
     admin: "سسٹم ایڈمن",
     user: "صارف",
@@ -96,6 +100,11 @@ const ur: TranslationKeys = {
 
   ticketStatus: {
     new: "نیا",
+    pending_triage: "ٹریاج زیر التوا",
+    under_inspection: "معائنہ جاری",
+    work_approved: "کام منظور",
+    ready_for_closure: "بند کرنے کے لیے تیار",
+    out_for_repair: "مرمت کے لیے باہر",
     approved: "منظور",
     assigned: "تفویض شدہ",
     in_progress: "جاری",

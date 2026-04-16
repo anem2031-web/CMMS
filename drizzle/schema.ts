@@ -3,7 +3,7 @@ import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, decimal, json, bo
 // ============================================================
 // 1. USERS TABLE (extended with CMMS roles)
 // ============================================================
-export const userRoles = ["operator", "technician", "maintenance_manager", "purchase_manager", "delegate", "accountant", "senior_management", "warehouse", "owner"] as const;
+export const userRoles = ["operator", "technician", "maintenance_manager", "supervisor", "purchase_manager", "delegate", "accountant", "senior_management", "warehouse", "gate_security", "owner"] as const;
 export type UserRole = typeof userRoles[number];
 
 export const supportedLanguages = ["ar", "en", "ur"] as const;
@@ -46,10 +46,20 @@ export const sites = mysqlTable("sites", {
 // 3. MAINTENANCE TICKETS
 // ============================================================
 export const ticketStatuses = [
-  "new", "approved", "assigned", "in_progress",
+  "new",
+  // New Workflow statuses
+  "pending_triage", "under_inspection", "work_approved",
+  // Path A (Internal Direct)
+  "ready_for_closure",
+  // Path B (Internal with Procurement)
+  "approved", "assigned", "in_progress",
   "needs_purchase", "purchase_pending_estimate", "purchase_pending_accounting",
   "purchase_pending_management", "purchase_approved", "partial_purchase",
-  "purchased", "received_warehouse", "repaired", "verified", "closed"
+  "purchased", "received_warehouse",
+  // Path C (External)
+  "out_for_repair",
+  // Final
+  "repaired", "verified", "closed"
 ] as const;
 export type TicketStatus = typeof ticketStatuses[number];
 
@@ -70,6 +80,20 @@ export const tickets = mysqlTable("tickets", {
   reportedById: int("reportedById").notNull(),
   assignedToId: int("assignedToId"),
   approvedById: int("approvedById"),
+  // Workflow fields
+  maintenancePath: mysqlEnum("maintenancePath", ["A", "B", "C"]),  // A=Internal Direct, B=Internal+Procurement, C=External
+  ticketType: mysqlEnum("ticketType", ["internal", "external", "procurement"]),
+  supervisorId: int("supervisorId"),  // Eng. Khaled
+  inspectionNotes: text("inspectionNotes"),
+  justification: text("justification"),  // Required for Path C
+  triageNotes: text("triageNotes"),
+  // Gate/Security fields (Path C)
+  gateExitApprovedById: int("gateExitApprovedById"),
+  gateExitApprovedAt: timestamp("gateExitApprovedAt"),
+  gateEntryApprovedById: int("gateEntryApprovedById"),
+  gateEntryApprovedAt: timestamp("gateEntryApprovedAt"),
+  externalRepairCompletedAt: timestamp("externalRepairCompletedAt"),
+  externalRepairCompletedById: int("externalRepairCompletedById"),
   beforePhotoUrl: text("beforePhotoUrl"),
   afterPhotoUrl: text("afterPhotoUrl"),
   repairNotes: text("repairNotes"),

@@ -29,6 +29,8 @@ import Assets from "./pages/Assets";
 import AssetHistory from "./pages/AssetHistory";
 import AssetMetrics from "./pages/AssetMetrics";
 import PreventiveMaintenance from "./pages/PreventiveMaintenance";
+import TriageDashboard from "./pages/TriageDashboard";
+import GateSecurity from "./pages/GateSecurity";
 
 function Router() {
   return (
@@ -57,6 +59,8 @@ function Router() {
         <Route path="/assets/history" component={AssetHistory} />
         <Route path="/assets/metrics" component={AssetMetrics} />
         <Route path="/preventive" component={PreventiveMaintenance} />
+        <Route path="/triage" component={TriageDashboard} />
+        <Route path="/gate-security" component={GateSecurity} />
         <Route path="/404" component={NotFound} />
         <Route component={NotFound} />
       </Switch>

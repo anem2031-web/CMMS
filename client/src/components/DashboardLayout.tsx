@@ -26,7 +26,7 @@ import {
   LayoutDashboard, LogOut, PanelLeft, ClipboardList, ShoppingCart,
   Package, BarChart3, Users, Bell, MapPin, Wrench, Shield,
   Brain, FileText, Settings, ShoppingBag, Truck, Languages, Database,
-  HardDrive, CalendarClock
+  HardDrive, CalendarClock, ScanSearch, DoorOpen
 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -69,6 +69,8 @@ const allMenuDefs: MenuItemDef[] = [
   { icon: Languages, labelKey: "nav.translationMonitor", path: "/translation-monitor", roles: ["owner", "admin"] },
   { icon: HardDrive, labelKey: "nav.assets", path: "/assets", roles: ["owner", "admin", "maintenance_manager"] },
   { icon: CalendarClock, labelKey: "nav.preventive", path: "/preventive", roles: ["owner", "admin", "maintenance_manager"] },
+  { icon: ScanSearch, labelKey: "nav.triage", path: "/triage", roles: ["supervisor", "maintenance_manager", "owner", "admin"] },
+  { icon: DoorOpen, labelKey: "nav.gateSecurity", path: "/gate-security", roles: ["gate_security", "owner", "admin"] },
   { icon: Database, labelKey: "backup.title", path: "/backup", roles: ["owner", "admin"] },
 ];
 

@@ -26,6 +26,8 @@ const en: TranslationKeys = {
     translationMonitor: "Translation Monitor",
     purchaseCycle: "Purchase Cycle",
     menu: "Menu",
+    triage: "Triage & Classification",
+    gateSecurity: "Gate Security",
   },
 
   common: {
@@ -89,6 +91,8 @@ const en: TranslationKeys = {
     accountant: "Accounting",
     senior_management: "Senior Management",
     warehouse: "Warehouse",
+    supervisor: "Supervisor",
+    gate_security: "Gate Security",
     owner: "Owner",
     admin: "System Admin",
     user: "User",
@@ -96,6 +100,11 @@ const en: TranslationKeys = {
 
   ticketStatus: {
     new: "New",
+    pending_triage: "Pending Triage",
+    under_inspection: "Under Inspection",
+    work_approved: "Work Approved",
+    ready_for_closure: "Ready for Closure",
+    out_for_repair: "Out for Repair",
     approved: "Approved",
     assigned: "Assigned",
     in_progress: "In Progress",
