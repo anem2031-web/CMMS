@@ -459,6 +459,42 @@ export const appRouter = router({
       return { success: true };
     }),
 
+    // 2b. Triage Ticket (Supervisor moves ticket from pending_triage to under_inspection)
+    triageTicket: supervisorProcedure.input(z.object({
+      id: z.number(),
+    })).mutation(async ({ input, ctx }) => {
+      const ticket = await db.getTicketById(input.id);
+      if (!ticket) throw new TRPCError({ code: "NOT_FOUND" });
+      if (ticket.status !== "pending_triage") throw new TRPCError({ code: "BAD_REQUEST", message: "البلاغ ليس في مرحلة الفرز" });
+      await db.updateTicket(input.id, { status: "under_inspection", supervisorId: ctx.user.id });
+      await db.addTicketStatusHistory({ ticketId: input.id, fromStatus: ticket.status, toStatus: "under_inspection", changedById: ctx.user.id, notes: "تم نقل البلاغ لمرحلة الفحص" });
+      // Notify maintenance manager
+      const managers = await db.getUsersByRole("maintenance_manager");
+      for (const mgr of managers) {
+        await db.createNotification({ userId: mgr.id, title: "بلاغ قيد الفحص", message: `البلاغ ${ticket.ticketNumber} الآن قيد الفحص من قبل المشرف`, type: "info", relatedTicketId: input.id });
+      }
+      return { success: true };
+    }),
+
+    // 2c. Inspect Ticket (Supervisor completes inspection and prepares for approval)
+    inspectTicket: supervisorProcedure.input(z.object({
+      id: z.number(),
+      inspectionNotes: z.string(),
+    })).mutation(async ({ input, ctx }) => {
+      const ticket = await db.getTicketById(input.id);
+      if (!ticket) throw new TRPCError({ code: "NOT_FOUND" });
+      if (ticket.status !== "under_inspection") throw new TRPCError({ code: "BAD_REQUEST", message: "البلاغ ليس في مرحلة الفحص" });
+      // Update inspection notes
+      await db.updateTicket(input.id, { inspectionNotes: input.inspectionNotes });
+      await db.addTicketStatusHistory({ ticketId: input.id, fromStatus: ticket.status, toStatus: "under_inspection", changedById: ctx.user.id, notes: `ملاحظات الفحص: ${input.inspectionNotes}` });
+      // Notify maintenance manager to approve work
+      const managers = await db.getUsersByRole("maintenance_manager");
+      for (const mgr of managers) {
+        await db.createNotification({ userId: mgr.id, title: "بلاغ جاهز للموافقة", message: `البلاغ ${ticket.ticketNumber} انتهى من الفحص وجاهز للموافقة على العمل`, type: "warning", relatedTicketId: input.id });
+      }
+      return { success: true };
+    }),
+
     // 3. Work Approval by Maintenance Manager (Abdel Fattah) + Path Selection
     approveWork: managerProcedure.input(z.object({
       id: z.number(),
@@ -561,8 +597,9 @@ export const appRouter = router({
       const ticket = await db.getTicketById(input.id);
       if (!ticket) throw new TRPCError({ code: "NOT_FOUND" });
       if (ticket.maintenancePath !== "C") throw new TRPCError({ code: "BAD_REQUEST", message: "هذا الإجراء للمسار C فقط" });
-      await db.updateTicket(input.id, { status: "repaired", gateEntryApprovedById: ctx.user.id, gateEntryApprovedAt: new Date() });
-      await db.addTicketStatusHistory({ ticketId: input.id, fromStatus: ticket.status, toStatus: "repaired", changedById: ctx.user.id, notes: "تمت الموافقة على دخول الأصل" });
+      // ✅ Fixed: Move to ready_for_closure (NOT repaired)
+      await db.updateTicket(input.id, { status: "ready_for_closure", gateEntryApprovedById: ctx.user.id, gateEntryApprovedAt: new Date() });
+      await db.addTicketStatusHistory({ ticketId: input.id, fromStatus: ticket.status, toStatus: "ready_for_closure", changedById: ctx.user.id, notes: "تمت الموافقة على دخول الأصل - جاهز للإغلاق" });
       await db.createAuditLog({ userId: ctx.user.id, action: "gate_entry_approved", entityType: "ticket", entityId: input.id });
       // Notify maintenance manager to close
       const managers = await db.getUsersByRole("maintenance_manager");
@@ -616,6 +653,13 @@ export const appRouter = router({
         delegateId: z.number().optional(),
       })),
     })).mutation(async ({ input, ctx }) => {
+      // ✅ Batching Limit: Max 15 items per PO
+      if (input.items.length === 0) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "يجب إضافة صنف واحد على الأقل" });
+      }
+      if (input.items.length > 15) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: `الحد الأقصى 15 صنف لكل طلب شراء. لديك ${input.items.length} صنف` });
+      }
       const poNumber = await db.getNextPONumber();
       const poId = await db.createPurchaseOrder({
         poNumber,

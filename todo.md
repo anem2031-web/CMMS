@@ -363,3 +363,44 @@
 - [x] تحديث routes في App.tsx
 - [ ] تحديث TicketDetail لدعم المسارات A/B/C وإظهار أزرار Workflow الجديدة
 - [ ] تحديث Dashboard لإظهار بطاقات pending_triage و under_inspection
+
+
+## Phase 20: Gap Analysis Fixes - Critical Fixes (Phase 1) ✅ COMPLETED
+### Task 1: Batching Limit (15 items)
+- [x] إضافة validation في create purchase order
+- [x] التحقق من عدد الأصناف ≤ 15
+- [x] رسالة خطأ واضحة عند تجاوز الحد
+- [ ] اختبار vitest
+
+### Task 2: Path C Status Fix
+- [x] تصحيح approveGateEntry ليستخدم ready_for_closure بدلاً من repaired
+- [x] تحديث التاريخ والمستخدم
+- [ ] اختبار vitest
+
+### Task 3: Triage & Inspection Procedures
+- [x] إضافة triageTicket procedure (pending_triage → under_inspection)
+- [x] إضافة inspectTicket procedure (under_inspection → inspection complete)
+- [x] تحديث الإشعارات
+- [ ] اختبارات vitest
+
+### Task 4: Auto-Transition to pending_triage
+- [x] تعديل create ticket ليبدأ بـ pending_triage مباشرة
+- [x] التحقق من seed data
+- [ ] اختبار vitest
+
+## Phase 21: NFC/RFID Integration - Scan Asset Page
+- [ ] إضافة scanNFCTag procedure في routers.ts
+- [ ] البحث عن الأصل بـ RFID Tag
+- [ ] جلب الموقع المرتبط
+- [ ] إنشاء صفحة ScanAsset.tsx
+- [ ] UI: Ready to Scan status
+- [ ] تحويل إلى Create Ticket مع pre-filled fields
+- [ ] معالجة الأخطاء: Asset Not Found
+- [ ] تحسين Mobile View
+- [ ] اختبارات vitest
+
+## Phase 22: Warehouse Visibility Enforcement
+- [ ] إضافة filter في getInventoryItems
+- [ ] المستودع يرى فقط الأصناف المشتراة
+- [ ] تحديث routers.ts
+- [ ] اختبارات vitest
