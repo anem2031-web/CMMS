@@ -65,7 +65,16 @@ export const appRouter = router({
       ctx.res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: 1000 * 60 * 60 * 24 * 365 });
       // Update last signed in
       await db.upsertUser({ openId: user.openId, lastSignedIn: new Date() });
-      return { success: true, user: { id: user.id, name: user.name, role: user.role, username: user.username } };
+      // Get 2FA enforcement status
+      const twoFactorSecret = await db.getTwoFactorSecret(user.id);
+      const { getTwoFactorEnforcementStatus } = await import("./_core/twoFactorEnforcement");
+      const twoFactorEnforcementStatus = getTwoFactorEnforcementStatus(user, twoFactorSecret?.isEnabled || false);
+      
+      return {
+        success: true,
+        user: { id: user.id, name: user.name, role: user.role, username: user.username },
+        twoFactorEnforcementStatus
+      };
     }),
     changePassword: protectedProcedure.input(z.object({
       currentPassword: z.string().optional(),

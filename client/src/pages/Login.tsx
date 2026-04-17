@@ -1,22 +1,42 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
-import { Wrench, Loader2, Eye, EyeOff } from "lucide-react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Wrench, Loader2, Eye, EyeOff, AlertTriangle, Clock } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslation } from "@/contexts/LanguageContext";
+
 
 export default function Login() {
   const { t } = useTranslation();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  const [gracePeriodWarning, setGracePeriodWarning] = useState<string | null>(null);
+  const [twoFactorRequired, setTwoFactorRequired] = useState(false);
 
   const loginMut = trpc.auth.login.useMutation({
-    onSuccess: () => {
-      window.location.href = "/";
+    onSuccess: (data) => {
+      // Check 2FA enforcement status from server response
+      if (data.twoFactorEnforcementStatus?.isEnforced) {
+        setTwoFactorRequired(true);
+        toast.error("المصادقة الثنائية إلزامية. يرجى تفعيلها الآن.");
+        return;
+      }
+      
+      if (data.twoFactorEnforcementStatus?.withinGracePeriod) {
+        setGracePeriodWarning(
+          `⏰ فترة السماح: بقي لك ${data.twoFactorEnforcementStatus.daysUntilEnforcement} أيام لتفعيل المصادقة الثنائية`
+        );
+      }
+      
+      // Redirect after 2 seconds to show warning
+      setTimeout(() => {
+        window.location.href = "/";
+      }, 2000);
     },
     onError: (err) => {
       toast.error(err.message || "خطأ في تسجيل الدخول");
@@ -36,6 +56,25 @@ export default function Login() {
     <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-primary/5 via-background to-primary/10" dir="rtl">
       <Card className="w-full max-w-md mx-4 shadow-xl border">
         <CardContent className="p-8 space-y-6">
+          {/* Grace Period Warning */}
+          {gracePeriodWarning && (
+            <Alert className="border-orange-200 bg-orange-50">
+              <Clock className="h-4 w-4 text-orange-600" />
+              <AlertDescription className="text-orange-800 text-right">
+                {gracePeriodWarning}
+              </AlertDescription>
+            </Alert>
+          )}
+
+          {/* 2FA Required Alert */}
+          {twoFactorRequired && (
+            <Alert className="border-red-200 bg-red-50">
+              <AlertTriangle className="h-4 w-4 text-red-600" />
+              <AlertDescription className="text-red-800 text-right">
+                🔒 المصادقة الثنائية إلزامية الآن. يرجى الانتقال إلى إعدادات الحساب لتفعيلها.
+              </AlertDescription>
+            </Alert>
+          )}
           <div className="flex flex-col items-center gap-4 text-center">
             <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center">
               <Wrench className="w-8 h-8 text-primary" />
@@ -50,6 +89,7 @@ export default function Login() {
             </div>
           </div>
 
+          {!twoFactorRequired && (
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="username">{(t.users as any)?.username || "اسم المستخدم"}</Label>
@@ -99,6 +139,7 @@ export default function Login() {
               {t.login}
             </Button>
           </form>
+          )}
         </CardContent>
       </Card>
     </div>
