@@ -187,6 +187,9 @@ importers:
       next-themes:
         specifier: ^0.4.6
         version: 0.4.6(react-dom@19.2.1(react@19.2.1))(react@19.2.1)
+      node-cache:
+        specifier: ^5.1.2
+        version: 5.1.2
       pdfkit:
         specifier: ^0.18.0
         version: 0.18.0
@@ -260,6 +263,9 @@ importers:
       '@types/node':
         specifier: ^24.7.0
         version: 24.7.0
+      '@types/node-cache':
+        specifier: ^4.2.5
+        version: 4.2.5
       '@types/react':
         specifier: ^19.2.1
         version: 19.2.1
@@ -2354,6 +2360,10 @@ packages:
   '@types/multer@2.0.0':
     resolution: {integrity: sha512-C3Z9v9Evij2yST3RSBktxP9STm6OdMc5uR1xF1SGr98uv8dUlAL2hqwrZ3GVB3uyMyiegnscEK6PGtYvNrjTjw==}
 
+  '@types/node-cache@4.2.5':
+    resolution: {integrity: sha512-faK2Owokboz53g8ooq2dw3iDJ6/HMTCIa2RvMte5WMTiABy+wA558K+iuyRtlR67Un5q9gEKysSDtqZYbSa0Pg==}
+    deprecated: This is a stub types definition. node-cache provides its own type definitions, so you do not need this installed.
+
   '@types/node@14.18.63':
     resolution: {integrity: sha512-fAtCfv4jJg+ExtXhvCkCqUKZ+4ok/JQk01qDKhL5BDDoS3AxKXhV5/MAVUZyQnSEd2GT92fkgZl0pz0Q0AzcIQ==}
 
@@ -3926,6 +3936,10 @@ packages:
     peerDependencies:
       react: ^16.8 || ^17 || ^18 || ^19 || ^19.0.0-rc
       react-dom: ^16.8 || ^17 || ^18 || ^19 || ^19.0.0-rc
+
+  node-cache@5.1.2:
+    resolution: {integrity: sha512-t1QzWwnk4sjLWaQAS8CHgOJ+RAfmHpxFWmc36IWTiWHQfs0w5JDMBS1b1ZxQteo0vVVuWJvIUKHDkkeK7vIGCg==}
+    engines: {node: '>= 8.0.0'}
 
   node-releases@2.0.23:
     resolution: {integrity: sha512-cCmFDMSm26S6tQSDpBCg/NR8NENrVPhAJSf+XbxBG4rPFaaonlEoE9wHQmun+cls499TQGSb7ZyPBRlzgKfpeg==}
@@ -7099,6 +7113,10 @@ snapshots:
     dependencies:
       '@types/express': 4.17.21
 
+  '@types/node-cache@4.2.5':
+    dependencies:
+      node-cache: 5.1.2
+
   '@types/node@14.18.63': {}
 
   '@types/node@24.7.0':
@@ -8970,6 +8988,10 @@ snapshots:
     dependencies:
       react: 19.2.1
       react-dom: 19.2.1(react@19.2.1)
+
+  node-cache@5.1.2:
+    dependencies:
+      clone: 2.1.2
 
   node-releases@2.0.23: {}
 

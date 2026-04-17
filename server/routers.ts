@@ -12,6 +12,7 @@ import { nanoid } from "nanoid";
 import { translationRouter } from "./routers/translation";
 import { translateFields, detectLanguage, type SupportedLanguage } from "./services/translation";
 import bcrypt from "bcryptjs";
+import { cacheManager, cacheKeys, invalidateCache } from "./_core/cache";
 
 // Role-based middleware
 const roleMiddleware = (allowedRoles: string[]) => {
@@ -84,10 +85,18 @@ export const appRouter = router({
   // ============================================================
   users: router({
     list: protectedProcedure.query(async () => {
-      return db.getAllUsers();
+      return cacheManager.getOrCompute(
+        cacheKeys.users(),
+        () => db.getAllUsers(),
+        600 // 10 minutes
+      );
     }),
     byRole: protectedProcedure.input(z.object({ role: z.string() })).query(async ({ input }) => {
-      return db.getUsersByRole(input.role);
+      return cacheManager.getOrCompute(
+        cacheKeys.usersByRole(input.role),
+        () => db.getUsersByRole(input.role),
+        600 // 10 minutes
+      );
     }),
     updateRole: protectedProcedure.input(z.object({ userId: z.number(), role: z.string() })).mutation(async ({ input, ctx }) => {
       if (ctx.user.role !== "owner" && ctx.user.role !== "admin") {
@@ -96,6 +105,8 @@ export const appRouter = router({
       const oldUser = await db.getUserById(input.userId);
       await db.updateUserRole(input.userId, input.role);
       await db.createAuditLog({ userId: ctx.user.id, action: "update_role", entityType: "user", entityId: input.userId, oldValues: { role: oldUser?.role }, newValues: { role: input.role } });
+      // Invalidate user cache
+      invalidateCache.users();
       return { success: true };
     }),
 
@@ -169,11 +180,17 @@ export const appRouter = router({
   // ============================================================
   sites: router({
     list: protectedProcedure.query(async () => {
-      return db.getAllSites();
+      return cacheManager.getOrCompute(
+        cacheKeys.sites(),
+        () => db.getAllSites(),
+        600 // 10 minutes
+      );
     }),
     create: protectedProcedure.input(z.object({ name: z.string().min(1), address: z.string().optional(), description: z.string().optional() })).mutation(async ({ input, ctx }) => {
       const id = await db.createSite(input);
       await db.createAuditLog({ userId: ctx.user.id, action: "create_site", entityType: "site", entityId: id!, newValues: input });
+      // Invalidate sites cache
+      invalidateCache.sites();
       return { id };
     }),
 
@@ -188,6 +205,8 @@ export const appRouter = router({
       const { id, ...updateData } = input;
       await db.updateSite(id, updateData);
       await db.createAuditLog({ userId: ctx.user.id, action: "update_site", entityType: "site", entityId: id, oldValues: { name: oldSite.name, address: oldSite.address, description: oldSite.description }, newValues: updateData });
+      // Invalidate sites cache
+      invalidateCache.sites();
       return { success: true };
     }),
 
@@ -196,6 +215,8 @@ export const appRouter = router({
       if (!site) throw new TRPCError({ code: "NOT_FOUND", message: "الموقع غير موجود" });
       await db.deleteSite(input.id);
       await db.createAuditLog({ userId: ctx.user.id, action: "delete_site", entityType: "site", entityId: input.id, oldValues: { name: site.name, address: site.address } });
+      // Invalidate sites cache
+      invalidateCache.sites();
       return { success: true };
     }),
   }),
