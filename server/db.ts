@@ -5,9 +5,11 @@ import {
   inventory, inventoryTransactions, notifications, auditLogs,
   ticketStatusHistory, attachments, sites, backups,
   assets, preventivePlans, pmWorkOrders, assetSpareParts, pmJobs, assetMetrics,
+  twoFactorSecrets, twoFactorAuditLogs,
   type InsertAsset, type InsertPreventivePlan, type InsertPMWorkOrder
 } from "../drizzle/schema";
 import { ENV } from './_core/env';
+
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
@@ -1295,4 +1297,151 @@ export async function getInventoryAlerts() {
       ? `${item.itemName} is out of stock` 
       : `${item.itemName} is below minimum level (${item.quantity}/${item.minQuantity} ${item.unit})`,
   }));
+}
+
+
+// ============================================================
+// TWO-FACTOR AUTHENTICATION HELPERS
+// ============================================================
+
+/**
+ * Create or update 2FA secret for a user
+ */
+export async function createTwoFactorSecret(data: {
+  userId: number;
+  secret: string;
+  backupCodes: string;
+  isEnabled: boolean;
+  enabledAt?: Date;
+}) {
+  try {
+    const database = await getDb();
+    if (!database) return null;
+    const result = await database
+      .insert(twoFactorSecrets)
+      .values({
+        userId: data.userId,
+        secret: data.secret,
+        backupCodes: data.backupCodes,
+        isEnabled: data.isEnabled,
+        enabledAt: data.enabledAt || new Date(),
+      })
+      .onDuplicateKeyUpdate({
+        set: {
+          secret: data.secret,
+          backupCodes: data.backupCodes,
+          isEnabled: data.isEnabled,
+          enabledAt: data.enabledAt || new Date(),
+          updatedAt: new Date(),
+        },
+      });
+    return result;
+  } catch (error) {
+    console.error('Error creating 2FA secret:', error);
+    throw error;
+  }
+}
+
+/**
+ * Get 2FA secret for a user
+ */
+export async function getTwoFactorSecret(userId: number) {
+  try {
+    const database = await getDb();
+    if (!database) return null;
+    const result = await database
+      .select()
+      .from(twoFactorSecrets)
+      .where(eq(twoFactorSecrets.userId, userId))
+      .limit(1);
+    return result[0] || null;
+  } catch (error) {
+    console.error('Error getting 2FA secret:', error);
+    throw error;
+  }
+}
+
+/**
+ * Disable 2FA for a user
+ */
+export async function disableTwoFactor(userId: number) {
+  try {
+    const database = await getDb();
+    if (!database) return null;
+    const result = await database
+      .update(twoFactorSecrets)
+      .set({
+        isEnabled: false,
+        updatedAt: new Date(),
+      })
+      .where(eq(twoFactorSecrets.userId, userId));
+    return result;
+  } catch (error) {
+    console.error('Error disabling 2FA:', error);
+    throw error;
+  }
+}
+
+/**
+ * Create 2FA audit log entry
+ */
+export async function createTwoFactorAuditLog(data: {
+  userId: number;
+  action: string;
+  ipAddress?: string;
+  userAgent?: string;
+  success: boolean;
+  details?: string;
+}) {
+  try {
+    const database = await getDb();
+    if (!database) return null;
+    const result = await database
+      .insert(twoFactorAuditLogs)
+      .values({
+        userId: data.userId,
+        action: data.action,
+        ipAddress: data.ipAddress,
+        userAgent: data.userAgent,
+        success: data.success,
+        details: data.details,
+      });
+    return result;
+  } catch (error) {
+    console.error('Error creating 2FA audit log:', error);
+    throw error;
+  }
+}
+
+/**
+ * Get 2FA audit logs for a user
+ */
+export async function getTwoFactorAuditLogs(userId: number, limit: number = 50) {
+  try {
+    const database = await getDb();
+    if (!database) return [];
+    const result = await database
+      .select()
+      .from(twoFactorAuditLogs)
+      .where(eq(twoFactorAuditLogs.userId, userId))
+      .orderBy(desc(twoFactorAuditLogs.createdAt))
+      .limit(limit);
+    return result;
+  } catch (error) {
+    console.error('Error getting 2FA audit logs:', error);
+    throw error;
+  }
+}
+
+/**
+ * Check if user has 2FA enabled
+ */
+export async function isTwoFactorEnabled(userId: number): Promise<boolean> {
+  try {
+    const secret = await getTwoFactorSecret(userId);
+    return secret?.isEnabled || false;
+  } catch (error) {
+    console.error('Error checking 2FA status:', error);
+    return false;
+  }
 }

@@ -521,3 +521,38 @@ export const assetMetrics = mysqlTable("asset_metrics", {
 
 export type AssetMetrics = typeof assetMetrics.$inferSelect;
 export type InsertAssetMetrics = typeof assetMetrics.$inferInsert;
+
+
+// ============================================================
+// 14. TWO-FACTOR AUTHENTICATION (2FA)
+// ============================================================
+export const twoFactorSecrets = mysqlTable("two_factor_secrets", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull().unique(),
+  secret: varchar("secret", { length: 255 }).notNull(), // Base32 encoded secret
+  backupCodes: text("backupCodes").notNull(), // JSON array of hashed backup codes
+  isEnabled: boolean("isEnabled").default(false).notNull(),
+  enabledAt: timestamp("enabledAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type TwoFactorSecret = typeof twoFactorSecrets.$inferSelect;
+export type InsertTwoFactorSecret = typeof twoFactorSecrets.$inferInsert;
+
+// ============================================================
+// 15. TWO-FACTOR AUTHENTICATION AUDIT LOG
+// ============================================================
+export const twoFactorAuditLogs = mysqlTable("two_factor_audit_logs", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  action: varchar("action", { length: 50 }).notNull(), // "setup", "verify_success", "verify_failed", "disable", "backup_code_used"
+  ipAddress: varchar("ipAddress", { length: 45 }),
+  userAgent: text("userAgent"),
+  success: boolean("success").notNull(),
+  details: text("details"), // JSON with additional info
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type TwoFactorAuditLog = typeof twoFactorAuditLogs.$inferSelect;
+export type InsertTwoFactorAuditLog = typeof twoFactorAuditLogs.$inferInsert;

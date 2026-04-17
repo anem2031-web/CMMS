@@ -13,6 +13,8 @@ import { translationRouter } from "./routers/translation";
 import { translateFields, detectLanguage, type SupportedLanguage } from "./services/translation";
 import bcrypt from "bcryptjs";
 import { cacheManager, cacheKeys, invalidateCache } from "./_core/cache";
+import { generateTwoFactorSecret, verifyTwoFactorToken, verifyBackupCode, hashBackupCodes, removeUsedBackupCode, getRemainingBackupCodesCount } from "./_core/twoFactor";
+import { rateLimiters } from "./_core/rateLimiter";
 
 // Role-based middleware
 const roleMiddleware = (allowedRoles: string[]) => {
