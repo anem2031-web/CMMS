@@ -54,6 +54,7 @@ export default function ScanAsset() {
   const [manualTag, setManualTag] = useState("");
   const [showManualInput, setShowManualInput] = useState(false);
   const [nfcSupported, setNfcSupported] = useState<boolean | null>(null);
+  const [scannedRawTag, setScannedRawTag] = useState<string>("");
   const nfcReaderRef = useRef<any>(null);
   const scanMutation = trpc.nfc.scanTag.useMutation();
 
@@ -80,9 +81,54 @@ export default function ScanAsset() {
       nfcReaderRef.current = ndef;
       await ndef.scan();
       ndef.onreading = async (event: any) => {
-        const tag = event.serialNumber || event.message?.records?.[0]?.data;
+        // Try to extract text from NDEF records first (NFC Tools app writes text records)
+        let tag: string | null = null;
+
+        if (event.message?.records?.length > 0) {
+          for (const record of event.message.records) {
+            try {
+              if (record.recordType === "text") {
+                // NDEF Text Record format:
+                // Byte 0: status byte (bit 7=UTF16, bits 5-0=lang code length)
+                // Bytes 1..langLen: language code (e.g. "en")
+                // Remaining bytes: the actual text
+                const rawData = new Uint8Array(record.data instanceof ArrayBuffer ? record.data : record.data.buffer);
+                const statusByte = rawData[0];
+                const langLen = statusByte & 0x3f;  // lower 6 bits = language code length
+                const isUtf16 = (statusByte & 0x80) !== 0;
+                const textBytes = rawData.slice(1 + langLen);
+                const encoding = isUtf16 ? "utf-16" : "utf-8";
+                const text = new TextDecoder(encoding).decode(textBytes).trim();
+                if (text) { tag = text; break; }
+              } else if (record.recordType === "url" || record.recordType === "absolute-url") {
+                // URL record: extract rfid param or use full URL
+                const decoder = new TextDecoder();
+                const url = decoder.decode(record.data instanceof ArrayBuffer ? record.data : record.data.buffer);
+                const match = url.match(/[?&]rfid=([^&]+)/);
+                if (match) { tag = decodeURIComponent(match[1]); break; }
+                // If no rfid param, use last path segment
+                const pathMatch = url.match(/\/([^\/\?#]+)(?:[\?#].*)?$/);
+                if (pathMatch) { tag = pathMatch[1]; break; }
+                // Fallback: use full URL
+                tag = url.trim();
+                break;
+              } else if (record.data) {
+                // Unknown record type: try decode as text
+                const buf = record.data instanceof ArrayBuffer ? record.data : record.data.buffer;
+                const text = new TextDecoder().decode(buf).trim();
+                if (text) { tag = text; break; }
+              }
+            } catch {}
+          }
+        }
+
+        // Fallback: use serial number if no text found in records
+        if (!tag && event.serialNumber) {
+          tag = event.serialNumber;
+        }
+
         if (tag) {
-          await processTag(tag.toString());
+          await processTag(tag.toString().trim());
         }
       };
       ndef.onerror = () => {
@@ -104,6 +150,7 @@ export default function ScanAsset() {
   const processTag = async (rfidTag: string) => {
     setScanState("scanning");
     setErrorMessage("");
+    setScannedRawTag(rfidTag.trim());
     try {
       const result = await scanMutation.mutateAsync({ rfidTag: rfidTag.trim() });
       setScannedAsset(result.asset);
@@ -369,6 +416,12 @@ export default function ScanAsset() {
                 {errorMessage.includes("غير موجود") ? t.nfc.assetNotFound : t.nfc.scanFailed}
               </p>
               <p className="text-sm text-muted-foreground max-w-xs text-center">{errorMessage}</p>
+              {scannedRawTag && (
+                <div className="mt-2 px-3 py-2 bg-gray-100 rounded-lg border border-gray-200">
+                  <p className="text-xs text-gray-500">الرمز المقروء من البطاقة:</p>
+                  <p className="font-mono text-sm font-bold text-gray-800 mt-0.5">{scannedRawTag}</p>
+                </div>
+              )}
             </div>
 
             {/* If asset not found, show register hint */}
