@@ -85,59 +85,75 @@ export default function ScanAsset() {
       nfcReaderRef.current = ndef;
       await ndef.scan();
       ndef.onreading = async (event: any) => {
-        // Try to extract text from NDEF records first (NFC Tools app writes text records)
+        // Helper: get Uint8Array from DataView or ArrayBuffer
+        const toUint8 = (data: any): Uint8Array => {
+          if (data instanceof Uint8Array) return data;
+          if (data instanceof ArrayBuffer) return new Uint8Array(data);
+          if (data && data.buffer) return new Uint8Array(data.buffer, data.byteOffset ?? 0, data.byteLength ?? data.buffer.byteLength);
+          return new Uint8Array(0);
+        };
+
         let tag: string | null = null;
+        const debugLines: string[] = [];
 
         if (event.message?.records?.length > 0) {
+          debugLines.push(`records: ${event.message.records.length}`);
           for (const record of event.message.records) {
             try {
+              debugLines.push(`type: ${record.recordType}`);
+              const rawData = toUint8(record.data);
+              debugLines.push(`bytes: ${rawData.length}`);
+
               if (record.recordType === "text") {
-                // NDEF Text Record format:
-                // Byte 0: status byte (bit 7=UTF16, bits 5-0=lang code length)
-                // Bytes 1..langLen: language code (e.g. "en")
-                // Remaining bytes: the actual text
-                const rawData = new Uint8Array(record.data instanceof ArrayBuffer ? record.data : record.data.buffer);
-                const statusByte = rawData[0];
-                const langLen = statusByte & 0x3f;  // lower 6 bits = language code length
-                const isUtf16 = (statusByte & 0x80) !== 0;
-                const textBytes = rawData.slice(1 + langLen);
-                const encoding = isUtf16 ? "utf-16" : "utf-8";
-                const text = new TextDecoder(encoding).decode(textBytes).trim();
-                if (text) { tag = text; break; }
+                // NDEF Text Record:
+                // Byte 0: status (bit7=UTF16, bits5-0=lang length)
+                // Bytes 1..langLen: language code
+                // Remaining: actual text
+                if (rawData.length > 0) {
+                  const statusByte = rawData[0];
+                  const langLen = statusByte & 0x3f;
+                  const isUtf16 = (statusByte & 0x80) !== 0;
+                  const textBytes = rawData.slice(1 + langLen);
+                  const encoding = isUtf16 ? "utf-16" : "utf-8";
+                  const text = new TextDecoder(encoding).decode(textBytes).trim();
+                  debugLines.push(`text decoded: "${text}"`);
+                  if (text) { tag = text; break; }
+                }
               } else if (record.recordType === "url" || record.recordType === "absolute-url") {
-                // URL record: extract rfid param or use full URL
-                const decoder = new TextDecoder();
-                const url = decoder.decode(record.data instanceof ArrayBuffer ? record.data : record.data.buffer);
+                const url = new TextDecoder().decode(rawData).trim();
+                debugLines.push(`url: ${url}`);
                 const match = url.match(/[?&]rfid=([^&]+)/);
                 if (match) { tag = decodeURIComponent(match[1]); break; }
-                // If no rfid param, use last path segment
                 const pathMatch = url.match(/\/([^\/\?#]+)(?:[\?#].*)?$/);
                 if (pathMatch) { tag = pathMatch[1]; break; }
-                // Fallback: use full URL
-                tag = url.trim();
-                break;
-              } else if (record.data) {
-                // Unknown record type: try decode as text
-                const buf = record.data instanceof ArrayBuffer ? record.data : record.data.buffer;
-                const text = new TextDecoder().decode(buf).trim();
+                tag = url; break;
+              } else if (record.recordType === "mime" || record.recordType === "unknown" || record.data) {
+                const text = new TextDecoder().decode(rawData).trim();
+                debugLines.push(`raw text: "${text}"`);
                 if (text) { tag = text; break; }
               }
-            } catch {}
+            } catch (e: any) {
+              debugLines.push(`err: ${e?.message}`);
+            }
           }
+        } else {
+          debugLines.push("no records");
         }
+
+        console.log("[NFC Debug]", debugLines.join(" | "));
 
         // Only use text from records, NOT the serial number
         if (!tag) {
-          console.warn("[NFC] No text found in records");
-          setScannedRawTag(event.serialNumber || "unknown");
+          const debugInfo = debugLines.join(" | ");
+          console.warn("[NFC] No text found in records. Debug:", debugInfo);
+          setScannedRawTag(`${event.serialNumber || "unknown"} | debug: ${debugInfo}`);
           setScanState("error");
           setErrorMessage(t.nfc.assetNotFound + ". " + t.nfc.registerHintSub);
           return;
         }
 
-        if (tag) {
-          await processTag(tag.toString().trim());
-        }
+        setScannedRawTag(tag);
+        await processTag(tag.toString().trim());
       };
       ndef.onerror = () => {
         setScanState("error");
