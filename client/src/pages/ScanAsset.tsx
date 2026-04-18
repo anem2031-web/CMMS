@@ -113,11 +113,21 @@ export default function ScanAsset() {
                   const statusByte = rawData[0];
                   const langLen = statusByte & 0x3f;
                   const isUtf16 = (statusByte & 0x80) !== 0;
-                  const textBytes = rawData.slice(1 + langLen);
-                  const encoding = isUtf16 ? "utf-16" : "utf-8";
-                  const text = new TextDecoder(encoding).decode(textBytes).trim();
-                  debugLines.push(`text decoded: "${text}"`);
-                  if (text) { tag = text; break; }
+                  debugLines.push(`status: 0x${statusByte.toString(16)} langLen: ${langLen} utf16: ${isUtf16}`);
+                  
+                  // Validate langLen doesn't exceed data
+                  if (1 + langLen >= rawData.length) {
+                    // No text after language code, try treating whole thing as text
+                    debugLines.push(`langLen too large, trying raw decode`);
+                    const text = new TextDecoder("utf-8").decode(rawData.slice(1)).trim();
+                    if (text) { tag = text; break; }
+                  } else {
+                    const textBytes = rawData.slice(1 + langLen);
+                    const encoding = isUtf16 ? "utf-16" : "utf-8";
+                    const text = new TextDecoder(encoding).decode(textBytes).trim();
+                    debugLines.push(`text decoded: "${text}"`);
+                    if (text) { tag = text; break; }
+                  }
                 }
               } else if (record.recordType === "url" || record.recordType === "absolute-url") {
                 const url = new TextDecoder().decode(rawData).trim();
