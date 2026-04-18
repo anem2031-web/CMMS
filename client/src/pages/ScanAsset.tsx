@@ -55,8 +55,12 @@ export default function ScanAsset() {
   const [showManualInput, setShowManualInput] = useState(false);
   const [nfcSupported, setNfcSupported] = useState<boolean | null>(null);
   const [scannedRawTag, setScannedRawTag] = useState<string>("");
+  const [showLinkDialog, setShowLinkDialog] = useState(false);
+  const [selectedCategory, setSelectedCategory] = useState<string>("");
   const nfcReaderRef = useRef<any>(null);
   const scanMutation = trpc.nfc.scanTag.useMutation();
+  const linkMutation = trpc.assets.linkRfidTag.useMutation();
+  const assetsQuery = trpc.assets.list.useQuery({});
 
   // Check NFC support on mount
   useEffect(() => {
@@ -122,9 +126,13 @@ export default function ScanAsset() {
           }
         }
 
-        // Fallback: use serial number if no text found in records
-        if (!tag && event.serialNumber) {
-          tag = event.serialNumber;
+        // Only use text from records, NOT the serial number
+        if (!tag) {
+          console.warn("[NFC] No text found in records");
+          setScannedRawTag(event.serialNumber || "unknown");
+          setScanState("error");
+          setErrorMessage(t.nfc.assetNotFound + ". " + t.nfc.registerHintSub);
+          return;
         }
 
         if (tag) {
@@ -188,6 +196,27 @@ export default function ScanAsset() {
     navigate(`/tickets/new?${params.toString()}`);
   };
 
+  // Link RFID tag to asset
+  const handleLinkTag = async (assetId: number) => {
+    try {
+      await linkMutation.mutateAsync({ assetId, rfidTag: scannedRawTag });
+      setShowLinkDialog(false);
+      setScanState("success");
+      const asset = assetsQuery.data?.find((a: any) => a.id === assetId);
+      if (asset) {
+        setScannedAsset({
+          id: asset.id,
+          assetNumber: asset.assetNumber,
+          name: asset.name,
+          category: asset.category,
+          rfidTag: scannedRawTag,
+        });
+      }
+    } catch (err: any) {
+      setErrorMessage(err?.message || "خطأ في ربط البطاقة");
+    }
+  };
+
   // Reset to idle
   const handleReset = () => {
     setScanState("idle");
@@ -195,6 +224,8 @@ export default function ScanAsset() {
     setScannedAsset(null);
     setScannedSite(null);
     setManualTag("");
+    setShowLinkDialog(false);
+    setSelectedCategory("");
     if (nfcReaderRef.current) {
       try { nfcReaderRef.current.abort?.(); } catch {}
       nfcReaderRef.current = null;
@@ -427,17 +458,28 @@ export default function ScanAsset() {
             {/* If asset not found, show register hint */}
             {errorMessage.includes("غير موجود") && (
               <Card className="w-full border-orange-200 bg-orange-50/50">
-                <CardContent className="pt-4 text-center">
-                  <p className="text-sm text-orange-700 font-medium">{t.nfc.registerHint}</p>
-                  <p className="text-xs text-orange-600 mt-1">{t.nfc.registerHintSub}</p>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="mt-3 border-orange-300 text-orange-700 hover:bg-orange-100"
-                    onClick={() => navigate("/assets")}
-                  >
-                    {t.nfc.goToAssets}
-                  </Button>
+                <CardContent className="pt-4 space-y-3">
+                  <div>
+                    <p className="text-sm text-orange-700 font-medium">{t.nfc.registerHint}</p>
+                    <p className="text-xs text-orange-600 mt-1">{t.nfc.registerHintSub}</p>
+                  </div>
+                  <div className="flex gap-2 pt-2">
+                    <Button
+                      size="sm"
+                      className="flex-1 bg-orange-600 hover:bg-orange-700 text-white"
+                      onClick={() => setShowLinkDialog(true)}
+                    >
+                      ربط بأصل
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="flex-1 border-orange-300 text-orange-700 hover:bg-orange-100"
+                      onClick={() => navigate("/assets")}
+                    >
+                      {t.nfc.goToAssets}
+                    </Button>
+                  </div>
                 </CardContent>
               </Card>
             )}
@@ -458,6 +500,67 @@ export default function ScanAsset() {
           </div>
         )}
       </div>
+
+      {/* Link Dialog */}
+      {showLinkDialog && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+          <Card className="w-full max-w-md">
+            <CardContent className="pt-6 space-y-4">
+              <div>
+                <h3 className="text-lg font-bold text-foreground mb-2">ربط بطاقة NFC بأصل</h3>
+                <p className="text-sm text-muted-foreground">الرمز: <span className="font-mono font-bold">{scannedRawTag}</span></p>
+              </div>
+
+              {/* Category Filter */}
+              <div>
+                <label className="text-sm font-medium text-foreground mb-2 block">القسم (اختياري)</label>
+                <select
+                  value={selectedCategory}
+                  onChange={(e) => setSelectedCategory(e.target.value)}
+                  className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground"
+                >
+                  <option value="">جميع الأقسام</option>
+                  <option value="mechanical">ميكانيكي</option>
+                  <option value="electrical">كهربائي</option>
+                  <option value="hydraulic">هيدروليكي</option>
+                  <option value="pneumatic">هوائي</option>
+                </select>
+              </div>
+
+              {/* Assets List */}
+              <div className="border border-border rounded-md max-h-64 overflow-y-auto">
+                {assetsQuery.isLoading && (
+                  <div className="p-4 text-center text-muted-foreground">جاري التحميل...</div>
+                )}
+                {assetsQuery.data?.length === 0 && (
+                  <div className="p-4 text-center text-muted-foreground">لا توجد أصول</div>
+                )}
+                {assetsQuery.data?.map((asset: any) => (
+                  <button
+                    key={asset.id}
+                    onClick={() => handleLinkTag(asset.id)}
+                    disabled={linkMutation.isPending}
+                    className="w-full text-left px-4 py-2 hover:bg-accent border-b border-border last:border-b-0 disabled:opacity-50"
+                  >
+                    <p className="font-medium text-foreground">{asset.name}</p>
+                    <p className="text-xs text-muted-foreground">{asset.assetNumber}</p>
+                    {asset.category && <p className="text-xs text-muted-foreground">القسم: {asset.category}</p>}
+                  </button>
+                ))}
+              </div>
+
+              {/* Close Button */}
+              <Button
+                variant="outline"
+                className="w-full"
+                onClick={() => setShowLinkDialog(false)}
+              >
+                إلغاء
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+      )}
     </div>
   );
 }

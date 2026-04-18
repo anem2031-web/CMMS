@@ -1729,6 +1729,15 @@ ${JSON.stringify(recentAudit.map((a: any) => ({ action: a.action, entity: a.enti
       return db.updateAssetRfidTag(input.id, input.rfidTag);
     }),
 
+    linkRfidTag: protectedProcedure.input(z.object({
+      assetId: z.number(),
+      rfidTag: z.string().min(1),
+    })).mutation(async ({ input }) => {
+      const asset = await db.getAssetById(input.assetId);
+      if (!asset) throw new TRPCError({ code: "NOT_FOUND", message: "الأصل غير موجود" });
+      return db.updateAssetRfidTag(input.assetId, input.rfidTag);
+    }),
+
     getMaintenanceHistory: protectedProcedure.input(z.object({
       id: z.number(),
     })).query(async ({ input }) => {
