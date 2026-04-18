@@ -1641,6 +1641,7 @@ ${JSON.stringify(recentAudit.map((a: any) => ({ action: a.action, entity: a.enti
       warrantyNotes: z.string().optional(),
       photoUrl: z.string().optional(),
       notes: z.string().optional(),
+      rfidTag: z.string().optional(),
     })).mutation(async ({ input, ctx }) => {
       const assetNumber = await db.generateAssetNumber();
       // Auto-translate description and notes
@@ -1696,6 +1697,7 @@ ${JSON.stringify(recentAudit.map((a: any) => ({ action: a.action, entity: a.enti
       warrantyNotes: z.string().optional(),
       photoUrl: z.string().optional(),
       notes: z.string().optional(),
+      rfidTag: z.string().optional(),
     })).mutation(async ({ input }) => {
       const { id, ...data } = input;
       return db.updateAsset(id, {

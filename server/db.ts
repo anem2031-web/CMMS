@@ -798,14 +798,17 @@ export async function createAsset(data: InsertAsset) {
   if (!db) throw new Error("DB unavailable");
   const result = await db.insert(assets).values(data);
   const id = (result as any)[0]?.insertId ?? null;
-  return { id };
+  if (!id) return { id };
+  const rows = await db.select().from(assets).where(eq(assets.id, id)).limit(1);
+  return rows[0] ?? { id };
 }
 
 export async function updateAsset(id: number, data: Partial<InsertAsset>) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
   await db.update(assets).set(data).where(eq(assets.id, id));
-  return { success: true };
+  const rows = await db.select().from(assets).where(eq(assets.id, id)).limit(1);
+  return rows[0] ?? { success: true };
 }
 
 export async function deleteAsset(id: number) {
