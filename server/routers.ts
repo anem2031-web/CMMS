@@ -373,13 +373,233 @@ export const appRouter = router({
       return { success: true };
     }),
 
-    updateStatus: protectedProcedure.input(z.object({ id: z.number(), status: z.string(), notes: z.string().optional() })).mutation(async ({ input, ctx }) => {
+    // ❌ REMOVED: updateStatus (was allowing any status without validation)
+    // ✅ REPLACED WITH: Specific procedures for each valid transition
+
+    // Transition: new → pending_triage (Operator creates ticket)
+    createTicket: protectedProcedure.input(z.object({
+      title: z.string(),
+      description: z.string().optional(),
+      priority: z.enum(["low", "medium", "high", "critical"]),
+      category: z.enum(["electrical", "plumbing", "hvac", "structural", "mechanical", "general", "safety", "cleaning"]),
+      siteId: z.number().optional(),
+      assetId: z.number().optional(),
+      locationDetail: z.string().optional(),
+    })).mutation(async ({ input, ctx }) => {
+      const ticketNumber = `TK-${Date.now()}`;
+      const ticket = await db.createTicket({
+        ticketNumber,
+        title: input.title,
+        description: input.description,
+        priority: input.priority as any,
+        category: input.category as any,
+        siteId: input.siteId,
+        assetId: input.assetId,
+        locationDetail: input.locationDetail,
+        reportedById: ctx.user.id,
+        status: "pending_triage",
+      });
+      if (!ticket) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      await db.addTicketStatusHistory({ ticketId: typeof ticket === 'number' ? ticket : (ticket as any).id, fromStatus: "new", toStatus: "pending_triage", changedById: ctx.user.id });
+      return ticket;
+    }),
+
+    // Transition: pending_triage → under_inspection (Manager assigns for inspection)
+    assignForInspection: managerProcedure.input(z.object({
+      id: z.number(),
+      assignedToId: z.number(),
+      triageNotes: z.string().optional(),
+    })).mutation(async ({ input, ctx }) => {
       const ticket = await db.getTicketById(input.id);
       if (!ticket) throw new TRPCError({ code: "NOT_FOUND" });
-      const updateData: any = { status: input.status };
-      if (input.status === "closed") updateData.closedAt = new Date();
-      await db.updateTicket(input.id, updateData);
-      await db.addTicketStatusHistory({ ticketId: input.id, fromStatus: ticket.status, toStatus: input.status, changedById: ctx.user.id, notes: input.notes });
+      if (ticket.status !== "pending_triage") throw new TRPCError({ code: "BAD_REQUEST", message: "البلاغ يجب أن يكون في مرحلة الفحص الأولي" });
+      await db.updateTicket(input.id, { status: "under_inspection", assignedToId: input.assignedToId, triageNotes: input.triageNotes });
+      await db.addTicketStatusHistory({ ticketId: input.id, fromStatus: "pending_triage", toStatus: "under_inspection", changedById: ctx.user.id });
+      return { success: true };
+    }),
+
+    // Transition: under_inspection → work_approved (Manager approves + chooses path)
+    // Already exists as approveWork - no change needed
+
+    // ========== PATH A TRANSITIONS ==========
+    // Transition: work_approved → ready_for_closure (Technician completes)
+    // Already exists as markReadyForClosure - no change needed
+
+    // Transition: ready_for_closure → closed (Supervisor closes)
+    // Already exists as closeBySupervisor - no change needed
+
+    // ========== PATH B TRANSITIONS ==========
+    // Transition: work_approved → assigned (Manager assigns technician)
+    assignTechnician: managerProcedure.input(z.object({
+      id: z.number(),
+      assignedToId: z.number(),
+    })).mutation(async ({ input, ctx }) => {
+      const ticket = await db.getTicketById(input.id);
+      if (!ticket) throw new TRPCError({ code: "NOT_FOUND" });
+      if (ticket.status !== "work_approved") throw new TRPCError({ code: "BAD_REQUEST", message: "البلاغ يجب أن يكون معتمداً" });
+      if (ticket.maintenancePath !== "B") throw new TRPCError({ code: "BAD_REQUEST", message: "هذا الإجراء للمسار B فقط" });
+      await db.updateTicket(input.id, { status: "assigned", assignedToId: input.assignedToId });
+      await db.addTicketStatusHistory({ ticketId: input.id, fromStatus: "work_approved", toStatus: "assigned", changedById: ctx.user.id });
+      return { success: true };
+    }),
+
+    // Transition: assigned → in_progress (Technician starts work)
+    startWork: protectedProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
+      const ticket = await db.getTicketById(input.id);
+      if (!ticket) throw new TRPCError({ code: "NOT_FOUND" });
+      if (ticket.status !== "assigned") throw new TRPCError({ code: "BAD_REQUEST", message: "البلاغ يجب أن يكون مسنداً" });
+      if (ticket.maintenancePath !== "B") throw new TRPCError({ code: "BAD_REQUEST", message: "هذا الإجراء للمسار B فقط" });
+      await db.updateTicket(input.id, { status: "in_progress" });
+      await db.addTicketStatusHistory({ ticketId: input.id, fromStatus: "assigned", toStatus: "in_progress", changedById: ctx.user.id });
+      return { success: true };
+    }),
+
+    // Transition: in_progress → needs_purchase (Technician identifies need)
+    requestPurchase: protectedProcedure.input(z.object({
+      id: z.number(),
+      materialsNeeded: z.string(),
+    })).mutation(async ({ input, ctx }) => {
+      const ticket = await db.getTicketById(input.id);
+      if (!ticket) throw new TRPCError({ code: "NOT_FOUND" });
+      if (ticket.status !== "in_progress") throw new TRPCError({ code: "BAD_REQUEST", message: "البلاغ يجب أن يكون قيد التنفيذ" });
+      if (ticket.maintenancePath !== "B") throw new TRPCError({ code: "BAD_REQUEST", message: "هذا الإجراء للمسار B فقط" });
+      await db.updateTicket(input.id, { status: "needs_purchase", materialsUsed: input.materialsNeeded });
+      await db.addTicketStatusHistory({ ticketId: input.id, fromStatus: "in_progress", toStatus: "needs_purchase", changedById: ctx.user.id });
+      return { success: true };
+    }),
+
+    // Transition: needs_purchase → purchase_pending_estimate (Purchase manager gets estimate)
+    submitEstimate: managerProcedure.input(z.object({
+      id: z.number(),
+      estimatedCost: z.number(),
+      estimateNotes: z.string().optional(),
+    })).mutation(async ({ input, ctx }) => {
+      const ticket = await db.getTicketById(input.id);
+      if (!ticket) throw new TRPCError({ code: "NOT_FOUND" });
+      if (ticket.status !== "needs_purchase") throw new TRPCError({ code: "BAD_REQUEST", message: "البلاغ يجب أن يكون بانتظار الشراء" });
+      if (ticket.maintenancePath !== "B") throw new TRPCError({ code: "BAD_REQUEST", message: "هذا الإجراء للمسار B فقط" });
+      await db.updateTicket(input.id, { status: "purchase_pending_estimate" });
+      await db.addTicketStatusHistory({ ticketId: input.id, fromStatus: "needs_purchase", toStatus: "purchase_pending_estimate", changedById: ctx.user.id, notes: `التكلفة المقدرة: ${input.estimatedCost}` });
+      return { success: true };
+    }),
+
+    // Transition: purchase_pending_estimate → purchase_pending_accounting (Accountant reviews)
+    submitToAccounting: accountantProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }: any) => {
+      const ticket = await db.getTicketById(input.id);
+      if (!ticket) throw new TRPCError({ code: "NOT_FOUND" });
+      if (ticket.status !== "purchase_pending_estimate") throw new TRPCError({ code: "BAD_REQUEST", message: "البلاغ يجب أن يكون بانتظار التقدير" });
+      if (ticket.maintenancePath !== "B") throw new TRPCError({ code: "BAD_REQUEST", message: "هذا الإجراء للمسار B فقط" });
+      await db.updateTicket(input.id, { status: "purchase_pending_accounting" });
+      await db.addTicketStatusHistory({ ticketId: input.id, fromStatus: "purchase_pending_estimate", toStatus: "purchase_pending_accounting", changedById: ctx.user.id });
+      return { success: true };
+    }),
+
+    // Transition: purchase_pending_accounting → purchase_pending_management (Senior management approval)
+    submitToManagement: managementProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }: any) => {
+      const ticket = await db.getTicketById(input.id);
+      if (!ticket) throw new TRPCError({ code: "NOT_FOUND" });
+      if (ticket.status !== "purchase_pending_accounting") throw new TRPCError({ code: "BAD_REQUEST", message: "البلاغ يجب أن يكون بانتظار المحاسبة" });
+      if (ticket.maintenancePath !== "B") throw new TRPCError({ code: "BAD_REQUEST", message: "هذا الإجراء للمسار B فقط" });
+      await db.updateTicket(input.id, { status: "purchase_pending_management" });
+      await db.addTicketStatusHistory({ ticketId: input.id, fromStatus: "purchase_pending_accounting", toStatus: "purchase_pending_management", changedById: ctx.user.id });
+      return { success: true };
+    }),
+
+    // Transition: purchase_pending_management → purchase_approved (Management approves)
+    approvePurchase: managementProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
+      const ticket = await db.getTicketById(input.id);
+      if (!ticket) throw new TRPCError({ code: "NOT_FOUND" });
+      if (ticket.status !== "purchase_pending_management") throw new TRPCError({ code: "BAD_REQUEST", message: "البلاغ يجب أن يكون بانتظار الموافقة الإدارية" });
+      if (ticket.maintenancePath !== "B") throw new TRPCError({ code: "BAD_REQUEST", message: "هذا الإجراء للمسار B فقط" });
+      await db.updateTicket(input.id, { status: "purchase_approved" });
+      await db.addTicketStatusHistory({ ticketId: input.id, fromStatus: "purchase_pending_management", toStatus: "purchase_approved", changedById: ctx.user.id });
+      return { success: true };
+    }),
+
+    // Transition: purchase_approved → partial_purchase or purchased (Purchase manager executes)
+    executePurchase: managerProcedure.input(z.object({
+      id: z.number(),
+      isPartial: z.boolean().default(false),
+    })).mutation(async ({ input, ctx }) => {
+      const ticket = await db.getTicketById(input.id);
+      if (!ticket) throw new TRPCError({ code: "NOT_FOUND" });
+      if (ticket.status !== "purchase_approved") throw new TRPCError({ code: "BAD_REQUEST", message: "البلاغ يجب أن يكون معتمداً للشراء" });
+      if (ticket.maintenancePath !== "B") throw new TRPCError({ code: "BAD_REQUEST", message: "هذا الإجراء للمسار B فقط" });
+      const newStatus = input.isPartial ? "partial_purchase" : "purchased";
+      await db.updateTicket(input.id, { status: newStatus });
+      await db.addTicketStatusHistory({ ticketId: input.id, fromStatus: "purchase_approved", toStatus: newStatus, changedById: ctx.user.id });
+      return { success: true };
+    }),
+
+    // Transition: partial_purchase → purchased (Final purchase)
+    completePurchase: managerProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
+      const ticket = await db.getTicketById(input.id);
+      if (!ticket) throw new TRPCError({ code: "NOT_FOUND" });
+      if (ticket.status !== "partial_purchase") throw new TRPCError({ code: "BAD_REQUEST", message: "البلاغ يجب أن يكون بشراء جزئي" });
+      if (ticket.maintenancePath !== "B") throw new TRPCError({ code: "BAD_REQUEST", message: "هذا الإجراء للمسار B فقط" });
+      await db.updateTicket(input.id, { status: "purchased" });
+      await db.addTicketStatusHistory({ ticketId: input.id, fromStatus: "partial_purchase", toStatus: "purchased", changedById: ctx.user.id });
+      return { success: true };
+    }),
+
+    // Transition: purchased → received_warehouse (Warehouse receives)
+    receiveInWarehouse: warehouseProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
+      const ticket = await db.getTicketById(input.id);
+      if (!ticket) throw new TRPCError({ code: "NOT_FOUND" });
+      if (ticket.status !== "purchased") throw new TRPCError({ code: "BAD_REQUEST", message: "البلاغ يجب أن يكون مشتراً" });
+      if (ticket.maintenancePath !== "B") throw new TRPCError({ code: "BAD_REQUEST", message: "هذا الإجراء للمسار B فقط" });
+      await db.updateTicket(input.id, { status: "received_warehouse" });
+      await db.addTicketStatusHistory({ ticketId: input.id, fromStatus: "purchased", toStatus: "received_warehouse", changedById: ctx.user.id });
+      return { success: true };
+    }),
+
+    // Transition: received_warehouse → ready_for_closure (Technician completes with parts)
+    completeWithParts: protectedProcedure.input(z.object({
+      id: z.number(),
+      afterPhotoUrl: z.string().optional(),
+      repairNotes: z.string().optional(),
+    })).mutation(async ({ input, ctx }) => {
+      const ticket = await db.getTicketById(input.id);
+      if (!ticket) throw new TRPCError({ code: "NOT_FOUND" });
+      if (ticket.status !== "received_warehouse") throw new TRPCError({ code: "BAD_REQUEST", message: "البلاغ يجب أن يكون مستلماً من المستودع" });
+      if (ticket.maintenancePath !== "B") throw new TRPCError({ code: "BAD_REQUEST", message: "هذا الإجراء للمسار B فقط" });
+      await db.updateTicket(input.id, { status: "ready_for_closure", afterPhotoUrl: input.afterPhotoUrl, repairNotes: input.repairNotes });
+      await db.addTicketStatusHistory({ ticketId: input.id, fromStatus: "received_warehouse", toStatus: "ready_for_closure", changedById: ctx.user.id });
+      return { success: true };
+    }),
+
+    // ========== PATH C TRANSITIONS ==========
+    // Transitions already exist: approveGateExit, markExternalRepairDone, approveGateEntry
+
+    // ========== FINAL TRANSITIONS (All Paths) ==========
+    // Transition: ready_for_closure → repaired (Verification)
+    markRepaired: managerProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
+      const ticket = await db.getTicketById(input.id);
+      if (!ticket) throw new TRPCError({ code: "NOT_FOUND" });
+      if (ticket.status !== "ready_for_closure") throw new TRPCError({ code: "BAD_REQUEST", message: "البلاغ يجب أن يكون جاهزاً للإغلاق" });
+      await db.updateTicket(input.id, { status: "repaired" });
+      await db.addTicketStatusHistory({ ticketId: input.id, fromStatus: "ready_for_closure", toStatus: "repaired", changedById: ctx.user.id });
+      return { success: true };
+    }),
+
+    // Transition: repaired → verified (Final verification)
+    markVerified: supervisorProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
+      const ticket = await db.getTicketById(input.id);
+      if (!ticket) throw new TRPCError({ code: "NOT_FOUND" });
+      if (ticket.status !== "repaired") throw new TRPCError({ code: "BAD_REQUEST", message: "البلاغ يجب أن يكون مصلحاً" });
+      await db.updateTicket(input.id, { status: "verified" });
+      await db.addTicketStatusHistory({ ticketId: input.id, fromStatus: "repaired", toStatus: "verified", changedById: ctx.user.id });
+      return { success: true };
+    }),
+
+    // Transition: verified → closed (Final closure)
+    finalClose: supervisorProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
+      const ticket = await db.getTicketById(input.id);
+      if (!ticket) throw new TRPCError({ code: "NOT_FOUND" });
+      if (ticket.status !== "verified") throw new TRPCError({ code: "BAD_REQUEST", message: "البلاغ يجب أن يكون مُتحقق منه" });
+      await db.updateTicket(input.id, { status: "closed", closedAt: new Date() });
+      await db.addTicketStatusHistory({ ticketId: input.id, fromStatus: "verified", toStatus: "closed", changedById: ctx.user.id });
+      await db.createAuditLog({ userId: ctx.user.id, action: "close_ticket", entityType: "ticket", entityId: input.id });
       return { success: true };
     }),
 
