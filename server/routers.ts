@@ -1203,9 +1203,15 @@ export const appRouter = router({
       purchasedPhotoUrl: z.string().min(1, "صورة الصنف المشترى مطلوبة"),
       invoicePhotoUrl: z.string().min(1, "صورة الفاتورة مطلوبة"),
     })).mutation(async ({ input, ctx }) => {
-      // Verify item belongs to this delegate and is in approved/funded status
-      const allItems = await db.getPOItemsByDelegate(ctx.user.id);
-      const item = allItems.find(i => i.id === input.itemId);
+      // Admin/owner can confirm purchase for any item; delegate only for their own
+      const isAdminOrOwner = ctx.user.role === "admin" || ctx.user.role === "owner";
+      let item: any;
+      if (isAdminOrOwner) {
+        item = await db.getPOItemById(input.itemId);
+      } else {
+        const allItems = await db.getPOItemsByDelegate(ctx.user.id);
+        item = allItems.find(i => i.id === input.itemId);
+      }
       if (!item) throw new TRPCError({ code: "NOT_FOUND", message: "الصنف غير موجود أو غير مخصص لك" });
       if (item.status !== "approved" && item.status !== "funded") {
         throw new TRPCError({ code: "BAD_REQUEST", message: "لا يمكن تأكيد شراء هذا الصنف في حالته الحالية" });
