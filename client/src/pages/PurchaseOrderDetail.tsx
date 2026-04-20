@@ -422,10 +422,13 @@ export default function PurchaseOrderDetail() {
                         <Input className="bg-white" value={receiveData[item.id]?.supplier || ""} onChange={e => setReceiveData(p => ({ ...p, [item.id]: { ...p[item.id], cost: p[item.id]?.cost || "", supplier: e.target.value, supplierItemName: p[item.id]?.supplierItemName || "", warehousePhotoUrl: p[item.id]?.warehousePhotoUrl || "" } }))} />
                       </div>
                     </div>
+                    <div className="space-y-1">
+                      <Label className="text-[11px] text-green-700">اسم الصنف كما في الفاتورة (اختياري)</Label>
+                      <Input className="bg-white" placeholder={item.name} value={receiveData[item.id]?.supplierItemName || ""} onChange={e => setReceiveData(p => ({ ...p, [item.id]: { ...p[item.id], cost: p[item.id]?.cost || "", supplier: p[item.id]?.supplier || "", supplierItemName: e.target.value, warehousePhotoUrl: p[item.id]?.warehousePhotoUrl || "" } }))} />
+                    </div>
                     <Button size="sm" className="w-full gap-1.5" onClick={() => {
                       const d = receiveData[item.id];
                       if (!d?.cost || !d?.supplier) { toast.error(t.purchaseOrders.supplier); return; }
-                      if (!d?.supplierItemName) { toast.error("اسم الصنف كما في الفاتورة مطلوب"); return; }
                       if (!d?.warehousePhotoUrl) { toast.error("صورة الصنف مطلوبة"); return; }
                       receiveItemMut.mutate({ itemId: item.id, actualUnitCost: d.cost, supplierName: d.supplier, supplierItemName: d.supplierItemName, warehousePhotoUrl: d.warehousePhotoUrl });
                     }} disabled={receiveItemMut.isPending}>
