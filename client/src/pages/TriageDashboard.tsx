@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { trpc } from "@/lib/trpc";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -12,9 +13,17 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { toast } from "sonner";
 import { SLATimer } from "@/components/SLATimer";
 import {
-  ClipboardList, AlertTriangle, Eye, CheckCircle2, Users,
-  Zap, Search, ArrowRight, Clock, Microscope
+  ClipboardList, AlertTriangle, Eye, CheckCircle2,
+  Zap, Search, ArrowRight, Clock, Microscope, Filter,
+  X, MapPin, Tag, ChevronDown
 } from "lucide-react";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+
+// ─── Constants ───────────────────────────────────────────────────────────────
 
 const PRIORITY_COLORS: Record<string, string> = {
   low: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300",
@@ -24,27 +33,72 @@ const PRIORITY_COLORS: Record<string, string> = {
 };
 
 const PRIORITY_LABELS: Record<string, string> = {
-  low: "منخفض", medium: "متوسط", high: "عالي", critical: "حرج"
+  low: "منخفض", medium: "متوسط", high: "عالي", critical: "حرج",
 };
+
+const CATEGORY_LABELS: Record<string, string> = {
+  electrical: "⚡ كهرباء",
+  plumbing: "🔧 سباكة",
+  hvac: "❄️ تكييف",
+  structural: "🏗️ إنشائي",
+  mechanical: "⚙️ ميكانيكي",
+  general: "📋 عام",
+  safety: "🦺 سلامة",
+  cleaning: "🧹 نظافة",
+};
+
+const CATEGORY_BADGE_COLORS: Record<string, string> = {
+  electrical: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300",
+  plumbing: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
+  hvac: "bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-300",
+  structural: "bg-stone-100 text-stone-800 dark:bg-stone-900/30 dark:text-stone-300",
+  mechanical: "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300",
+  general: "bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-300",
+  safety: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300",
+  cleaning: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300",
+};
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+type ActiveView = "all_pending" | "all_inspection" | "critical_pending";
+
+// ─── Component ────────────────────────────────────────────────────────────────
 
 export default function TriageDashboard() {
   const { t } = useLanguage();
   const { user } = useAuth();
   const utils = trpc.useUtils();
 
-  // Tickets in pending_triage
+  // ── Data queries ──────────────────────────────────────────────────────────
   const { data: pendingTickets = [], isLoading: loadingPending } =
     trpc.tickets.list.useQuery({ status: "pending_triage" });
 
-  // Tickets in under_inspection
   const { data: inspectionTickets = [], isLoading: loadingInspection } =
     trpc.tickets.list.useQuery({ status: "under_inspection" });
 
   const { data: users = [] } = trpc.users.list.useQuery();
+  const { data: sites = [] } = trpc.sites.list.useQuery();
 
-  const [activeTab, setActiveTab] = useState<"pending" | "inspection">("pending");
+  // ── Active view (card click) ──────────────────────────────────────────────
+  const [activeView, setActiveView] = useState<ActiveView>("all_pending");
 
-  // Triage dialog state
+  // ── Filters ───────────────────────────────────────────────────────────────
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [searchText, setSearchText] = useState("");
+  const [filterSiteId, setFilterSiteId] = useState<string>("all");
+  const [filterCategory, setFilterCategory] = useState<string>("all");
+  const [filterPriority, setFilterPriority] = useState<string>("all");
+
+  const hasActiveFilters = searchText || filterSiteId !== "all" || filterCategory !== "all" || filterPriority !== "all";
+
+  const clearFilters = () => {
+    setSearchText("");
+    setFilterSiteId("all");
+    setFilterCategory("all");
+    setFilterPriority("all");
+  };
+
+  // ── Dialogs ───────────────────────────────────────────────────────────────
   const [triageDialog, setTriageDialog] = useState<any>(null);
   const [triageForm, setTriageForm] = useState({
     ticketType: "internal" as "internal" | "external" | "procurement",
@@ -53,11 +107,10 @@ export default function TriageDashboard() {
     assignedToId: "",
   });
 
-  // Inspect dialog state
   const [inspectDialog, setInspectDialog] = useState<any>(null);
   const [inspectionNotes, setInspectionNotes] = useState("");
 
-  // Quick Triage (one-click: just move to under_inspection)
+  // ── Mutations ─────────────────────────────────────────────────────────────
   const quickTriageMut = trpc.tickets.triageTicket.useMutation({
     onSuccess: () => {
       toast.success("تم نقل البلاغ لمرحلة الفحص");
@@ -66,7 +119,6 @@ export default function TriageDashboard() {
     onError: (e: any) => toast.error(e.message),
   });
 
-  // Full Triage (with form)
   const triageMut = trpc.tickets.triage.useMutation({
     onSuccess: () => {
       toast.success("تم الفرز بنجاح");
@@ -76,7 +128,6 @@ export default function TriageDashboard() {
     onError: (e: any) => toast.error(e.message),
   });
 
-  // Inspect Ticket
   const inspectMut = trpc.tickets.inspectTicket.useMutation({
     onSuccess: () => {
       toast.success("تم إكمال الفحص - تم إشعار مدير الصيانة للموافقة");
@@ -87,10 +138,40 @@ export default function TriageDashboard() {
     onError: (e: any) => toast.error(e.message),
   });
 
+  // ── Derived data ──────────────────────────────────────────────────────────
   const technicians = users.filter((u: any) =>
     ["technician", "maintenance_manager", "supervisor"].includes(u.role)
   );
 
+  const criticalPending = useMemo(
+    () => pendingTickets.filter((t: any) => t.priority === "critical"),
+    [pendingTickets]
+  );
+
+  // Determine base list from active view
+  const baseTickets = useMemo(() => {
+    if (activeView === "all_pending") return pendingTickets;
+    if (activeView === "all_inspection") return inspectionTickets;
+    if (activeView === "critical_pending") return criticalPending;
+    return pendingTickets;
+  }, [activeView, pendingTickets, inspectionTickets, criticalPending]);
+
+  // Apply local filters
+  const filteredTickets = useMemo(() => {
+    return baseTickets.filter((ticket: any) => {
+      if (searchText && !ticket.title?.toLowerCase().includes(searchText.toLowerCase()) &&
+          !ticket.ticketNumber?.toLowerCase().includes(searchText.toLowerCase())) return false;
+      if (filterSiteId !== "all" && ticket.siteId !== parseInt(filterSiteId)) return false;
+      if (filterCategory !== "all" && ticket.category !== filterCategory) return false;
+      if (filterPriority !== "all" && ticket.priority !== filterPriority) return false;
+      return true;
+    });
+  }, [baseTickets, searchText, filterSiteId, filterCategory, filterPriority]);
+
+  const isLoading = activeView === "all_inspection" ? loadingInspection : loadingPending;
+  const isInspectionView = activeView === "all_inspection";
+
+  // ── Handlers ──────────────────────────────────────────────────────────────
   const handleFullTriage = () => {
     if (!triageDialog) return;
     triageMut.mutate({
@@ -120,29 +201,54 @@ export default function TriageDashboard() {
     inspectMut.mutate({ id: inspectDialog.id, inspectionNotes });
   };
 
-  const tabs = [
+  // ── Stat cards config ─────────────────────────────────────────────────────
+  const statCards = [
     {
-      id: "pending" as const,
+      id: "all_pending" as ActiveView,
       label: "بانتظار الفرز",
       count: pendingTickets.length,
-      color: "text-purple-600",
-      activeBg: "bg-purple-600 text-white",
+      icon: AlertTriangle,
+      color: "purple",
+      border: "border-purple-200",
+      bg: "bg-purple-50/50 dark:bg-purple-900/10",
+      countColor: "text-purple-700 dark:text-purple-300",
+      iconColor: "text-purple-400",
+      activeBorder: "border-purple-500",
+      activeBg: "bg-purple-50 dark:bg-purple-900/20",
     },
     {
-      id: "inspection" as const,
+      id: "all_inspection" as ActiveView,
       label: "قيد الفحص",
       count: inspectionTickets.length,
-      color: "text-blue-600",
-      activeBg: "bg-blue-600 text-white",
+      icon: Microscope,
+      color: "blue",
+      border: "border-blue-200",
+      bg: "bg-blue-50/50 dark:bg-blue-900/10",
+      countColor: "text-blue-700 dark:text-blue-300",
+      iconColor: "text-blue-400",
+      activeBorder: "border-blue-500",
+      activeBg: "bg-blue-50 dark:bg-blue-900/20",
+    },
+    {
+      id: "critical_pending" as ActiveView,
+      label: "حرجة بانتظار الفرز",
+      count: criticalPending.length,
+      icon: AlertTriangle,
+      color: "orange",
+      border: "border-orange-200",
+      bg: "bg-orange-50/50 dark:bg-orange-900/10",
+      countColor: "text-orange-700 dark:text-orange-300",
+      iconColor: "text-orange-400",
+      activeBorder: "border-orange-500",
+      activeBg: "bg-orange-50 dark:bg-orange-900/20",
     },
   ];
 
-  const currentTickets = activeTab === "pending" ? pendingTickets : inspectionTickets;
-  const isLoading = activeTab === "pending" ? loadingPending : loadingInspection;
-
+  // ─────────────────────────────────────────────────────────────────────────
   return (
-    <div className="p-6 space-y-6">
-      {/* Header */}
+    <div className="p-6 space-y-6 max-w-6xl mx-auto">
+
+      {/* ── Header ── */}
       <div className="flex items-center gap-3">
         <div className="w-10 h-10 rounded-xl bg-purple-100 dark:bg-purple-900/30 flex items-center justify-center">
           <ClipboardList className="w-5 h-5 text-purple-600" />
@@ -153,110 +259,242 @@ export default function TriageDashboard() {
         </div>
       </div>
 
-      {/* Stats Row */}
+      {/* ── Stat Cards (clickable) ── */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <Card className="border-purple-200 bg-purple-50/50 dark:bg-purple-900/10">
-          <CardContent className="pt-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">بانتظار الفرز</p>
-                <p className="text-2xl font-bold text-purple-700">{pendingTickets.length}</p>
+        {statCards.map((card) => {
+          const Icon = card.icon;
+          const isActive = activeView === card.id;
+          return (
+            <button
+              key={card.id}
+              onClick={() => setActiveView(card.id)}
+              className={`text-right w-full rounded-xl border-2 p-4 transition-all duration-200 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-400 ${
+                isActive
+                  ? `${card.activeBorder} ${card.activeBg} shadow-md`
+                  : `${card.border} ${card.bg} hover:${card.activeBg}`
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <div className="text-right">
+                  <p className="text-sm text-muted-foreground font-medium">{card.label}</p>
+                  <p className={`text-3xl font-bold mt-1 ${card.countColor}`}>{card.count}</p>
+                  {isActive && (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {filteredTickets.length !== baseTickets.length
+                        ? `${filteredTickets.length} من ${card.count} بعد الفلترة`
+                        : "انقر للعرض"}
+                    </p>
+                  )}
+                </div>
+                <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${
+                  isActive ? `bg-white/60 dark:bg-black/20` : `bg-white/40 dark:bg-black/10`
+                }`}>
+                  <Icon className={`w-6 h-6 ${card.iconColor}`} />
+                </div>
               </div>
-              <AlertTriangle className="w-8 h-8 text-purple-400" />
-            </div>
-          </CardContent>
-        </Card>
-        <Card className="border-blue-200 bg-blue-50/50 dark:bg-blue-900/10">
-          <CardContent className="pt-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">قيد الفحص</p>
-                <p className="text-2xl font-bold text-blue-700">{inspectionTickets.length}</p>
-              </div>
-              <Microscope className="w-8 h-8 text-blue-400" />
-            </div>
-          </CardContent>
-        </Card>
-        <Card className="border-orange-200 bg-orange-50/50 dark:bg-orange-900/10">
-          <CardContent className="pt-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">حرجة بانتظار الفرز</p>
-                <p className="text-2xl font-bold text-orange-700">
-                  {pendingTickets.filter((t: any) => t.priority === "critical").length}
-                </p>
-              </div>
-              <AlertTriangle className="w-8 h-8 text-orange-400" />
-            </div>
-          </CardContent>
-        </Card>
+              {isActive && (
+                <div className={`mt-3 h-1 rounded-full bg-gradient-to-r ${
+                  card.color === "purple" ? "from-purple-400 to-purple-600" :
+                  card.color === "blue" ? "from-blue-400 to-blue-600" :
+                  "from-orange-400 to-orange-600"
+                }`} />
+              )}
+            </button>
+          );
+        })}
       </div>
 
-      {/* Tabs */}
-      <div className="flex gap-2 border-b pb-2">
-        {tabs.map(tab => (
+      {/* ── Filter Bar ── */}
+      <Collapsible open={filtersOpen} onOpenChange={setFiltersOpen}>
+        <div className="flex items-center gap-3">
+          {/* Search */}
+          <div className="relative flex-1">
+            <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <Input
+              placeholder="بحث برقم البلاغ أو العنوان..."
+              value={searchText}
+              onChange={(e) => setSearchText(e.target.value)}
+              className="pr-9"
+            />
+          </div>
+
+          {/* Toggle filters */}
+          <CollapsibleTrigger asChild>
+            <Button variant="outline" className={`gap-2 shrink-0 ${hasActiveFilters ? "border-purple-400 text-purple-700 bg-purple-50 dark:bg-purple-900/20" : ""}`}>
+              <Filter className="w-4 h-4" />
+              فلترة متقدمة
+              {hasActiveFilters && (
+                <Badge className="bg-purple-600 text-white text-xs px-1.5 py-0 h-4">
+                  {[filterSiteId !== "all", filterCategory !== "all", filterPriority !== "all"].filter(Boolean).length}
+                </Badge>
+              )}
+              <ChevronDown className={`w-4 h-4 transition-transform ${filtersOpen ? "rotate-180" : ""}`} />
+            </Button>
+          </CollapsibleTrigger>
+
+          {/* Clear filters */}
+          {hasActiveFilters && (
+            <Button variant="ghost" size="icon" onClick={clearFilters} title="مسح الفلاتر">
+              <X className="w-4 h-4 text-muted-foreground" />
+            </Button>
+          )}
+        </div>
+
+        <CollapsibleContent>
+          <div className="mt-3 p-4 rounded-xl border bg-muted/30 grid grid-cols-1 sm:grid-cols-3 gap-4">
+            {/* Site filter */}
+            <div className="space-y-1.5">
+              <Label className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                <MapPin className="w-3.5 h-3.5" />
+                الموقع
+              </Label>
+              <Select value={filterSiteId} onValueChange={setFilterSiteId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="جميع المواقع" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">🌐 جميع المواقع</SelectItem>
+                  {(sites as any[]).map((site: any) => (
+                    <SelectItem key={site.id} value={site.id.toString()}>
+                      📍 {site.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Category filter */}
+            <div className="space-y-1.5">
+              <Label className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                <Tag className="w-3.5 h-3.5" />
+                التصنيف
+              </Label>
+              <Select value={filterCategory} onValueChange={setFilterCategory}>
+                <SelectTrigger>
+                  <SelectValue placeholder="جميع التصنيفات" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">📋 جميع التصنيفات</SelectItem>
+                  {Object.entries(CATEGORY_LABELS).map(([key, label]) => (
+                    <SelectItem key={key} value={key}>{label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Priority filter */}
+            <div className="space-y-1.5">
+              <Label className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                <AlertTriangle className="w-3.5 h-3.5" />
+                الأولوية
+              </Label>
+              <Select value={filterPriority} onValueChange={setFilterPriority}>
+                <SelectTrigger>
+                  <SelectValue placeholder="جميع الأولويات" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">🔘 جميع الأولويات</SelectItem>
+                  <SelectItem value="critical">🔴 حرجة</SelectItem>
+                  <SelectItem value="high">🟠 عالية</SelectItem>
+                  <SelectItem value="medium">🟡 متوسطة</SelectItem>
+                  <SelectItem value="low">🟢 منخفضة</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+        </CollapsibleContent>
+      </Collapsible>
+
+      {/* ── Section title ── */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <h2 className="text-base font-semibold">
+            {activeView === "all_pending" && "البلاغات بانتظار الفرز"}
+            {activeView === "all_inspection" && "البلاغات قيد الفحص"}
+            {activeView === "critical_pending" && "البلاغات الحرجة بانتظار الفرز"}
+          </h2>
+          <Badge variant="secondary" className="font-mono">
+            {filteredTickets.length}
+            {filteredTickets.length !== baseTickets.length && ` / ${baseTickets.length}`}
+          </Badge>
+        </div>
+        {hasActiveFilters && (
           <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-              activeTab === tab.id
-                ? tab.activeBg
-                : "text-muted-foreground hover:bg-muted"
-            }`}
+            onClick={clearFilters}
+            className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
           >
-            {tab.label}
-            <span className={`text-xs px-2 py-0.5 rounded-full font-bold ${
-              activeTab === tab.id ? "bg-white/20" : "bg-muted-foreground/20"
-            }`}>
-              {tab.count}
-            </span>
+            <X className="w-3 h-3" />
+            مسح الفلاتر
           </button>
-        ))}
+        )}
       </div>
 
-      {/* Tickets List */}
+      {/* ── Tickets List ── */}
       {isLoading ? (
-        <div className="text-center py-12 text-muted-foreground">جاري التحميل...</div>
-      ) : currentTickets.length === 0 ? (
+        <div className="space-y-3">
+          {[1, 2, 3].map(i => (
+            <div key={i} className="h-24 rounded-xl bg-muted animate-pulse" />
+          ))}
+        </div>
+      ) : filteredTickets.length === 0 ? (
         <Card>
-          <CardContent className="py-12 text-center">
-            <CheckCircle2 className="w-12 h-12 text-green-400 mx-auto mb-3" />
-            <p className="text-muted-foreground">
-              {activeTab === "pending" ? "لا توجد بلاغات بانتظار الفرز" : "لا توجد بلاغات قيد الفحص"}
+          <CardContent className="py-16 text-center">
+            <CheckCircle2 className="w-14 h-14 text-green-400 mx-auto mb-4" />
+            <p className="text-base font-medium text-muted-foreground">
+              {hasActiveFilters ? "لا توجد نتائج تطابق الفلاتر المحددة" :
+               activeView === "all_pending" ? "لا توجد بلاغات بانتظار الفرز" :
+               activeView === "all_inspection" ? "لا توجد بلاغات قيد الفحص" :
+               "لا توجد بلاغات حرجة بانتظار الفرز"}
             </p>
+            {hasActiveFilters && (
+              <Button variant="outline" size="sm" className="mt-3" onClick={clearFilters}>
+                مسح الفلاتر
+              </Button>
+            )}
           </CardContent>
         </Card>
       ) : (
         <div className="space-y-3">
-          {currentTickets.map((ticket: any) => (
+          {filteredTickets.map((ticket: any) => (
             <Card
               key={ticket.id}
-              className={`hover:shadow-md transition-all border-l-4 ${
-                activeTab === "pending" ? "border-l-purple-400" : "border-l-blue-400"
+              className={`hover:shadow-md transition-all duration-200 border-l-4 ${
+                isInspectionView ? "border-l-blue-400" :
+                ticket.priority === "critical" ? "border-l-red-500" :
+                ticket.priority === "high" ? "border-l-orange-400" :
+                "border-l-purple-400"
               }`}
             >
               <CardContent className="py-4">
                 <div className="flex items-start justify-between gap-4 flex-wrap">
-                  {/* Ticket Info */}
+
+                  {/* ── Ticket Info ── */}
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-1 flex-wrap">
-                      <span className="text-sm font-mono text-muted-foreground">{ticket.ticketNumber}</span>
-                      <Badge className={PRIORITY_COLORS[ticket.priority] || "bg-gray-100 text-gray-700"}>
+                    <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+                      <span className="text-xs font-mono text-muted-foreground bg-muted px-2 py-0.5 rounded">
+                        {ticket.ticketNumber}
+                      </span>
+                      <Badge className={`text-xs ${PRIORITY_COLORS[ticket.priority] || "bg-gray-100 text-gray-700"}`}>
                         {PRIORITY_LABELS[ticket.priority] || ticket.priority}
                       </Badge>
                       {ticket.category && (
-                        <Badge variant="outline" className="text-xs">{ticket.category}</Badge>
+                        <Badge className={`text-xs ${CATEGORY_BADGE_COLORS[ticket.category] || "bg-gray-100 text-gray-700"}`}>
+                          {CATEGORY_LABELS[ticket.category] || ticket.category}
+                        </Badge>
                       )}
                     </div>
-                    <h3 className="font-semibold text-base truncate">{ticket.title}</h3>
+
+                    <h3 className="font-semibold text-base leading-snug">{ticket.title}</h3>
+
                     {ticket.description && (
                       <p className="text-sm text-muted-foreground mt-1 line-clamp-1">{ticket.description}</p>
                     )}
-                    <div className="flex items-center gap-3 mt-2 text-xs text-muted-foreground flex-wrap">
+
+                    <div className="flex items-center gap-4 mt-2.5 text-xs text-muted-foreground flex-wrap">
                       <SLATimer
                         createdAt={ticket.createdAt}
                         statusChangedAt={ticket.updatedAt}
-                        statusLabel={activeTab === "pending" ? "في الفرز" : "قيد الفحص"}
+                        statusLabel={isInspectionView ? "قيد الفحص" : "في الفرز"}
                         compact
                       />
                       <span className="flex items-center gap-1">
@@ -264,14 +502,16 @@ export default function TriageDashboard() {
                         {new Date(ticket.createdAt).toLocaleString("ar-SA")}
                       </span>
                       {ticket.siteName && (
-                        <span>{ticket.siteName}</span>
+                        <span className="flex items-center gap-1">
+                          <MapPin className="w-3 h-3" />
+                          {ticket.siteName}
+                        </span>
                       )}
                     </div>
                   </div>
 
-                  {/* Action Buttons */}
+                  {/* ── Actions ── */}
                   <div className="flex gap-2 shrink-0 flex-wrap">
-                    {/* View Details */}
                     <Button
                       size="sm"
                       variant="outline"
@@ -281,13 +521,13 @@ export default function TriageDashboard() {
                       عرض
                     </Button>
 
-                    {/* PENDING_TRIAGE: Quick Triage (one-click) + Full Triage (with form) */}
-                    {activeTab === "pending" && (
+                    {/* PENDING_TRIAGE actions */}
+                    {!isInspectionView && (
                       <>
                         <Button
                           size="sm"
                           variant="outline"
-                          className="border-blue-300 text-blue-700 hover:bg-blue-50"
+                          className="border-blue-300 text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-900/20"
                           onClick={() => quickTriageMut.mutate({ id: ticket.id })}
                           disabled={quickTriageMut.isPending}
                           title="نقل مباشر لمرحلة الفحص بدون إعدادات"
@@ -306,8 +546,8 @@ export default function TriageDashboard() {
                       </>
                     )}
 
-                    {/* UNDER_INSPECTION: Complete Inspection button */}
-                    {activeTab === "inspection" && (
+                    {/* UNDER_INSPECTION action */}
+                    {isInspectionView && (
                       <Button
                         size="sm"
                         onClick={() => {
@@ -328,7 +568,7 @@ export default function TriageDashboard() {
         </div>
       )}
 
-      {/* Full Triage Dialog */}
+      {/* ── Full Triage Dialog ── */}
       <Dialog open={!!triageDialog} onOpenChange={() => setTriageDialog(null)}>
         <DialogContent className="max-w-md">
           <DialogHeader>
@@ -367,10 +607,10 @@ export default function TriageDashboard() {
                 >
                   <SelectTrigger><SelectValue placeholder="اختر الأولوية" /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="low">منخفضة</SelectItem>
-                    <SelectItem value="medium">متوسطة</SelectItem>
-                    <SelectItem value="high">عالية</SelectItem>
-                    <SelectItem value="critical">حرجة</SelectItem>
+                    <SelectItem value="low">🟢 منخفضة</SelectItem>
+                    <SelectItem value="medium">🟡 متوسطة</SelectItem>
+                    <SelectItem value="high">🟠 عالية</SelectItem>
+                    <SelectItem value="critical">🔴 حرجة</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -417,7 +657,7 @@ export default function TriageDashboard() {
         </DialogContent>
       </Dialog>
 
-      {/* Inspect Dialog */}
+      {/* ── Inspect Dialog ── */}
       <Dialog open={!!inspectDialog} onOpenChange={() => setInspectDialog(null)}>
         <DialogContent className="max-w-md">
           <DialogHeader>
@@ -456,7 +696,7 @@ export default function TriageDashboard() {
               className="bg-blue-600 hover:bg-blue-700 text-white"
             >
               <CheckCircle2 className="w-4 h-4 ml-1" />
-              {inspectMut.isPending ? "جاري الحفظ..." : "إكمال الفحص وإشعار المدير"}
+              {inspectMut.isPending ? "جاري الحفظ..." : "إكمال الفحص"}
             </Button>
           </DialogFooter>
         </DialogContent>

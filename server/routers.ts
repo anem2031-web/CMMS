@@ -242,6 +242,7 @@ export const appRouter = router({
       siteId: z.number().optional(),
       assetId: z.number().optional(),
       search: z.string().optional(),
+      category: z.string().optional(),
     }).optional()).query(async ({ input, ctx }) => {
       const role = ctx.user.role;
       let filters: any = input || {};
