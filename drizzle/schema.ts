@@ -228,7 +228,7 @@ export const notifications = mysqlTable("notifications", {
   userId: int("userId").notNull(),
   title: varchar("title", { length: 300 }).notNull(),
   message: text("message").notNull(),
-  type: mysqlEnum("type", ["info", "warning", "error", "success"]).default("info").notNull(),
+  type: mysqlEnum("type", ["info", "warning", "error", "success", "critical"]).default("info").notNull(),
   relatedTicketId: int("relatedTicketId"),
   relatedPOId: int("relatedPOId"),
   isRead: boolean("isRead").default(false).notNull(),

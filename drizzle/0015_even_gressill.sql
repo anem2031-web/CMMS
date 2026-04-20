@@ -1,0 +1,1 @@
+ALTER TABLE `notifications` MODIFY COLUMN `type` enum('info','warning','error','success','critical') NOT NULL DEFAULT 'info';
