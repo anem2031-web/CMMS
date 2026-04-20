@@ -314,6 +314,11 @@ export const appRouter = router({
       if (!ticket) throw new TRPCError({ code: "NOT_FOUND" });
       await db.updateTicket(input.id, { status: "approved", approvedById: ctx.user.id });
       await db.addTicketStatusHistory({ ticketId: input.id, fromStatus: ticket.status, toStatus: "approved", changedById: ctx.user.id });
+      // Notify supervisors that ticket is approved
+      const supervisorsApprove = await db.getUsersByRole("supervisor");
+      for (const sup of supervisorsApprove) {
+        await db.createNotification({ userId: sup.id, title: "✅ تمت الموافقة على بلاغ", message: `تمت الموافقة على البلاغ ${ticket.ticketNumber} من قبل المدير`, type: "success", relatedTicketId: input.id });
+      }
       return { success: true };
     }),
 
@@ -384,6 +389,14 @@ export const appRouter = router({
       if (!ticket) throw new TRPCError({ code: "NOT_FOUND" });
       await db.updateTicket(input.id, { status: "closed", closedAt: new Date() });
       await db.addTicketStatusHistory({ ticketId: input.id, fromStatus: ticket.status, toStatus: "closed", changedById: ctx.user.id });
+      await db.createAuditLog({ userId: ctx.user.id, action: "close_ticket", entityType: "ticket", entityId: input.id });
+      // Notify reporter and assigned technician
+      if (ticket.reportedById) {
+        await db.createNotification({ userId: ticket.reportedById, title: "🔒 تم إغلاق بلاغك", message: `تم إغلاق البلاغ ${ticket.ticketNumber} بنجاح`, type: "success", relatedTicketId: input.id });
+      }
+      if (ticket.assignedToId && ticket.assignedToId !== ticket.reportedById) {
+        await db.createNotification({ userId: ticket.assignedToId, title: "🔒 تم إغلاق البلاغ", message: `تم إغلاق البلاغ ${ticket.ticketNumber} الذي كنت مسؤولاً عنه`, type: "success", relatedTicketId: input.id });
+      }
       return { success: true };
     }),
 
@@ -802,6 +815,11 @@ export const appRouter = router({
         if (ticket.assignedToId) {
           await db.createNotification({ userId: ticket.assignedToId, title: "اعتماد بدء العمل", message: `تم اعتماد البلاغ ${ticket.ticketNumber} للإصلاح المباشر`, type: "success", relatedTicketId: input.id });
         }
+      } else if (input.maintenancePath === "B") {
+        // Notify assigned technician for path B (purchase required)
+        if (ticket.assignedToId) {
+          await db.createNotification({ userId: ticket.assignedToId, title: "اعتماد بلاغ - مسار الشراء", message: `تم اعتماد البلاغ ${ticket.ticketNumber} - سيتم رفع طلب شراء المواد اللازمة`, type: "warning", relatedTicketId: input.id });
+        }
       }
       return { success: true };
     }),
@@ -833,6 +851,17 @@ export const appRouter = router({
       await db.updateTicket(input.id, { status: "closed", closedAt: new Date() });
       await db.addTicketStatusHistory({ ticketId: input.id, fromStatus: ticket.status, toStatus: "closed", changedById: ctx.user.id });
       await db.createAuditLog({ userId: ctx.user.id, action: "close_ticket", entityType: "ticket", entityId: input.id });
+      // Notify managers, reporter, and technician
+      const managersSup = await db.getManagerUsers();
+      for (const mgr of managersSup) {
+        await db.createNotification({ userId: mgr.id, title: "🔒 تم إغلاق بلاغ", message: `أغلق المشرف البلاغ ${ticket.ticketNumber}`, type: "success", relatedTicketId: input.id });
+      }
+      if (ticket.reportedById) {
+        await db.createNotification({ userId: ticket.reportedById, title: "🔒 تم إغلاق بلاغك", message: `تم إغلاق البلاغ ${ticket.ticketNumber} بنجاح`, type: "success", relatedTicketId: input.id });
+      }
+      if (ticket.assignedToId && ticket.assignedToId !== ticket.reportedById) {
+        await db.createNotification({ userId: ticket.assignedToId, title: "🔒 تم إغلاق البلاغ", message: `تم إغلاق البلاغ ${ticket.ticketNumber}`, type: "success", relatedTicketId: input.id });
+      }
       return { success: true };
     }),
 
@@ -1210,7 +1239,18 @@ export const appRouter = router({
       id: z.number(),
       reason: z.string().min(1),
     })).mutation(async ({ input, ctx }) => {
+      const poReject = await db.getPurchaseOrderById(input.id);
       await db.updatePurchaseOrder(input.id, { status: "rejected", rejectedById: ctx.user.id, rejectedAt: new Date(), rejectionReason: input.reason });
+      // Notify PO creator and managers
+      if (poReject?.requestedById && poReject.requestedById !== ctx.user.id) {
+        await db.createNotification({ userId: poReject.requestedById, title: "❌ تم رفض طلب الشراء", message: `تم رفض طلب الشراء رقم ${poReject.poNumber}. السبب: ${input.reason}`, type: "critical", relatedPOId: input.id });
+      }
+      const managersReject = await db.getManagerUsers();
+      for (const mgr of managersReject) {
+        if (mgr.id !== ctx.user.id) {
+          await db.createNotification({ userId: mgr.id, title: "❌ رفض طلب شراء", message: `تم رفض طلب الشراء رقم ${poReject?.poNumber || input.id}. السبب: ${input.reason}`, type: "critical", relatedPOId: input.id });
+        }
+      }
       return { success: true };
     }),
 
@@ -1319,6 +1359,18 @@ export const appRouter = router({
         if (po?.ticketId) {
           await db.updateTicket(po.ticketId, { status: "received_warehouse" });
         }
+      }
+      // Notify assigned technician and managers that item arrived at warehouse
+      const poForNotif = await db.getPurchaseOrderById(item.purchaseOrderId);
+      if (poForNotif?.ticketId) {
+        const ticketForNotif = await db.getTicketById(poForNotif.ticketId);
+        if (ticketForNotif?.assignedToId) {
+          await db.createNotification({ userId: ticketForNotif.assignedToId, title: "📦 وصلت موادك للمستودع", message: `تم استلام الصنف "${item.itemName}" في المستودع. سيتم تسليمه لك قريباً.`, type: "info", relatedTicketId: poForNotif.ticketId });
+        }
+      }
+      const managersWH = await db.getManagerUsers();
+      for (const mgr of managersWH) {
+        await db.createNotification({ userId: mgr.id, title: "📦 وصلت بضاعة للمستودع", message: `استلم المستودع الصنف "${item.itemName}" بتكلفة فعلية ${input.actualUnitCost} ر.س من المورد ${input.supplierName}`, type: "info", relatedPOId: item.purchaseOrderId });
       }
       await db.createAuditLog({ userId: ctx.user.id, action: "deliver_to_warehouse", entityType: "po_item", entityId: input.itemId, newValues: { supplierName: input.supplierName, actualUnitCost: input.actualUnitCost } });
       return { success: true };
