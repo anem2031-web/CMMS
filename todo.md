@@ -515,3 +515,10 @@
 ## Phase 25: إشعار المندوب عند اعتماد الإدارة
 - [x] تحسين إشعار المندوب عند approveManagement ليتضمن رقم طلب الشراء وأسماء الأصناف المطلوبة منه
 - [x] إضافة إشعار للمدير إذا لم يكن هناك مندوب مُعيَّن للأصناف
+
+## Phase 26: مراحل قيد التنفيذ وتم الإصلاح مع صورة
+- [x] Backend: startRepair يقبل من حالات repaired/assigned/purchase_approved/purchased
+- [x] Backend: completeRepair جعل afterPhotoUrl إلزامياً + التحقق من in_progress
+- [x] Frontend TicketDetail: canStartRepair يشمل حالة repaired/purchase_approved/purchased
+- [x] Frontend TicketDetail: زر تم الإصلاح معطّل حتى رفع الصورة
+- [x] إشعار للمدير عند بدء التنفيذ وعند إتمام الإصلاح

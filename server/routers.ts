@@ -329,19 +329,32 @@ export const appRouter = router({
     startRepair: protectedProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
       const ticket = await db.getTicketById(input.id);
       if (!ticket) throw new TRPCError({ code: "NOT_FOUND" });
+      // Accept from assigned, in_progress, or repaired (after materials delivered)
+      const validStatuses = ["assigned", "in_progress", "repaired", "purchase_approved", "purchased", "partial_purchase"];
+      if (!validStatuses.includes(ticket.status)) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: `لا يمكن بدء التنفيذ في الحالة الحالية: ${ticket.status}` });
+      }
       await db.updateTicket(input.id, { status: "in_progress" });
       await db.addTicketStatusHistory({ ticketId: input.id, fromStatus: ticket.status, toStatus: "in_progress", changedById: ctx.user.id });
+      // Notify managers that work has started
+      const managers = await db.getManagerUsers();
+      for (const mgr of managers) {
+        await db.createNotification({ userId: mgr.id, title: "🔧 بدأ تنفيذ بلاغ", message: `بدأ الفني العمل على البلاغ ${ticket.ticketNumber}`, type: "info", relatedTicketId: input.id });
+      }
       return { success: true };
     }),
 
     completeRepair: protectedProcedure.input(z.object({
       id: z.number(),
-      afterPhotoUrl: z.string().optional(),
+      afterPhotoUrl: z.string().min(1, "صورة بعد الإصلاح مطلوبة"),
       repairNotes: z.string().optional(),
       materialsUsed: z.string().optional(),
     })).mutation(async ({ input, ctx }) => {
       const ticket = await db.getTicketById(input.id);
       if (!ticket) throw new TRPCError({ code: "NOT_FOUND" });
+      if (ticket.status !== "in_progress") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "يجب أن يكون البلاغ قيد التنفيذ أولاً" });
+      }
       // Auto-translate repairNotes
       let repairTranslation: Record<string, any> = {};
       if (input.repairNotes) {

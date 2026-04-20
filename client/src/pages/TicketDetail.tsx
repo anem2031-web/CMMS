@@ -101,7 +101,7 @@ export default function TicketDetail() {
   // Legacy actions
   const canApprove = isManager && ticket?.status === "new";
   const canAssign = isManager && ["approved", "received_warehouse", "work_approved"].includes(ticket?.status || "");
-  const canStartRepair = isTechnician && ["assigned", "work_approved"].includes(ticket?.status || "");
+  const canStartRepair = isTechnician && ["assigned", "work_approved", "repaired", "purchase_approved", "purchased", "partial_purchase"].includes(ticket?.status || "");
   const canCompleteRepair = isTechnician && ticket?.status === "in_progress";
   const canClose = isManager && ticket?.status === "repaired";
   const canCreatePO = isManager && ["approved", "assigned", "in_progress", "work_approved", "needs_purchase"].includes(ticket?.status || "");
@@ -396,7 +396,7 @@ export default function TicketDetail() {
                     )}
                   </div>
 
-                  <Button onClick={() => completeMut.mutate({ id: ticket.id, repairNotes, materialsUsed, afterPhotoUrl: afterPhotoUrl || undefined })} disabled={completeMut.isPending} className="w-full gap-2" size="lg">
+                  <Button onClick={() => completeMut.mutate({ id: ticket.id, repairNotes, materialsUsed, afterPhotoUrl })} disabled={completeMut.isPending || !afterPhotoUrl} className="w-full gap-2" size="lg">
                     {completeMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
                     {t.tickets.completeRepair}
                   </Button>
