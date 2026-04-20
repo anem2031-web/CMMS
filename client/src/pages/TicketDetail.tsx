@@ -92,9 +92,10 @@ export default function TicketDetail() {
 
   const linkedPOs = allPOs?.filter(po => po.ticketId === ticketId) || [];
 
+  const isAdminOrOwner = ["admin", "owner"].includes(role);
   const isManager = ["maintenance_manager", "purchase_manager", "owner", "admin"].includes(role);
   const isSupervisor = ["supervisor", "owner", "admin"].includes(role);
-  const isTechnician = role === "technician";
+  const isTechnician = role === "technician" || isAdminOrOwner;
   const isGateSecurity = ["gate_security", "owner", "admin"].includes(role);
 
   // Legacy actions

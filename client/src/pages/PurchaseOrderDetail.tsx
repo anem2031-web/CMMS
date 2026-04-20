@@ -95,19 +95,20 @@ export default function PurchaseOrderDetail() {
   const [editingItem, setEditingItem] = useState<any>(null);
   const [editForm, setEditForm] = useState<{ itemName: string; description: string; quantity: number; estimatedUnitCost: string }>({ itemName: "", description: "", quantity: 1, estimatedUnitCost: "" });
 
-  const isDelegate = role === "delegate";
-  const isAccountant = role === "accountant";
-  const isManagement = role === "senior_management";
-  const isWarehouse = role === "warehouse";
-
-  const myItems = useMemo(() => {
+  const isAdminOrOwner = role === "admin" || role === "owner";
+  const isDelegate = role === "delegate" || isAdminOrOwner;
+  const isAccountant = role === "accountant" || isAdminOrOwner;
+  const isManagement = role === "senior_management" || isAdminOrOwner;
+  const isWarehouse = role === "warehouse" || isAdminOrOwner;
+  const visibleItems = useMemo(() => {
     if (!po?.items) return [];
-    if (isDelegate) return po.items.filter((item: any) => item.delegateId === userId);
+    // Admin/owner see all items; delegate sees only their own
+    if (isAdminOrOwner) return po.items;
+    if (role === "delegate") return po.items.filter((item: any) => item.delegateId === userId);
     return po.items;
-  }, [po?.items, isDelegate, userId]);
-
-  const totalEstimated = useMemo(() => myItems.reduce((sum: number, item: any) => sum + (parseFloat(item.estimatedTotalCost || "0")), 0), [myItems]);
-  const totalActual = useMemo(() => myItems.reduce((sum: number, item: any) => sum + (parseFloat(item.actualTotalCost || "0")), 0), [myItems]);
+  }, [po?.items, isAdminOrOwner, role, userId]);
+  const totalEstimated = useMemo(() => visibleItems.reduce((sum: number, item: any) => sum + (parseFloat(item.estimatedTotalCost || "0")), 0), [visibleItems]);
+  const totalActual = useMemo(() => visibleItems.reduce((sum: number, item: any) => sum + (parseFloat(item.actualTotalCost || "0")), 0), [visibleItems]);
 
   const handleUpload = async (file: File, itemId: number, type: "invoice" | "purchased") => {
     setUploadingItem(`${itemId}-${type}`);
@@ -139,8 +140,8 @@ export default function PurchaseOrderDetail() {
     { key: "received", label: getPOStatusLabel("received"), done: ["received", "closed"].includes(po.status) },
   ];
 
-  const purchasedCount = myItems.filter((i: any) => ["purchased", "received"].includes(i.status)).length;
-  const pendingCount = myItems.filter((i: any) => !["purchased", "received"].includes(i.status)).length;
+  const purchasedCount = visibleItems.filter((i: any) => ["purchased", "received"].includes(i.status)).length;
+  const pendingCount = visibleItems.filter((i: any) => !["purchased", "received"].includes(i.status)).length;
 
   return (
     <div className="space-y-6 max-w-5xl">
@@ -199,11 +200,11 @@ export default function PurchaseOrderDetail() {
         </CardContent></Card>
         <Card><CardContent className="p-3 flex items-center gap-2.5">
           <Package className="w-4 h-4 text-muted-foreground shrink-0" />
-          <div><p className="text-[10px] text-muted-foreground">{t.purchaseOrders.items}</p><p className="text-sm font-medium">{myItems.length}</p></div>
+          <div><p className="text-[10px] text-muted-foreground">{t.purchaseOrders.items}</p><p className="text-sm font-medium">{visibleItems.length}</p></div>
         </CardContent></Card>
         <Card><CardContent className="p-3 flex items-center gap-2.5">
           <ShoppingCart className="w-4 h-4 text-muted-foreground shrink-0" />
-          <div><p className="text-[10px] text-muted-foreground">{t.purchaseOrders.confirmPurchase}</p><p className="text-sm font-medium">{purchasedCount} / {myItems.length}</p></div>
+          <div><p className="text-[10px] text-muted-foreground">{t.purchaseOrders.confirmPurchase}</p><p className="text-sm font-medium">{purchasedCount} / {visibleItems.length}</p></div>
         </CardContent></Card>
       </div>
 
@@ -215,7 +216,7 @@ export default function PurchaseOrderDetail() {
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
-          {myItems.map((item: any) => {
+          {visibleItems.map((item: any) => {
             const delegate = users?.find((u: any) => u.id === item.delegateId);
             const isMyItem = isDelegate && item.delegateId === userId;
 

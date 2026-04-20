@@ -1523,3 +1523,9 @@ export async function getAllPushSubscriptions() {
   if (!db) return [];
   return db.select().from(pushSubscriptions);
 }
+
+export async function getAllPOItems() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(purchaseOrderItems).orderBy(desc(purchaseOrderItems.createdAt));
+}

@@ -22,17 +22,18 @@ export default function PurchaseCycle() {
   const { user } = useAuth();
   const isRTL = language === "ar" || language === "ur";
   const role = user?.role || "";
-  const isDelegate = role === "delegate";
-  const isWarehouse = role === "warehouse" || role === "admin" || role === "owner";
+  const isAdminOrOwner = role === "admin" || role === "owner";
+  const isDelegate = role === "delegate" || isAdminOrOwner;
+  const isWarehouse = role === "warehouse" || isAdminOrOwner;
 
   // Determine active tab based on role
-  const defaultTab = isDelegate ? "purchase" : isWarehouse ? "warehouse" : "purchase";
+  const defaultTab = isAdminOrOwner ? "purchase" : isDelegate ? "purchase" : isWarehouse ? "warehouse" : "purchase";
   const [activeTab, setActiveTab] = useState(defaultTab);
 
-  // Data queries
-  const { data: pendingPurchase = [], refetch: refetchPurchase } = trpc.purchaseOrders.pendingPurchaseItems.useQuery(undefined, { enabled: isDelegate });
-  const { data: pendingWarehouse = [], refetch: refetchWarehouse } = trpc.purchaseOrders.pendingWarehouseItems.useQuery(undefined, { enabled: isWarehouse });
-  const { data: pendingDelivery = [], refetch: refetchDelivery } = trpc.purchaseOrders.pendingDeliveryItems.useQuery(undefined, { enabled: isWarehouse });
+  // Data queries - admin/owner always enabled
+  const { data: pendingPurchase = [], refetch: refetchPurchase } = trpc.purchaseOrders.pendingPurchaseItems.useQuery(undefined, { enabled: isDelegate || isAdminOrOwner });
+  const { data: pendingWarehouse = [], refetch: refetchWarehouse } = trpc.purchaseOrders.pendingWarehouseItems.useQuery(undefined, { enabled: isWarehouse || isAdminOrOwner });
+  const { data: pendingDelivery = [], refetch: refetchDelivery } = trpc.purchaseOrders.pendingDeliveryItems.useQuery(undefined, { enabled: isWarehouse || isAdminOrOwner });
   const { data: allUsers = [] } = trpc.users.list.useQuery();
 
   const refetchAll = () => { refetchPurchase(); refetchWarehouse(); refetchDelivery(); };
@@ -213,17 +214,17 @@ export default function PurchaseCycle() {
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="grid w-full grid-cols-3">
-          <TabsTrigger value="purchase" className="gap-1.5" disabled={!isDelegate && !isWarehouse}>
+          <TabsTrigger value="purchase" className="gap-1.5">
             <ShoppingCart className="w-4 h-4" />
             <span className="hidden sm:inline">{t.purchaseOrders.step1Purchase}</span>
             {pendingPurchase.length > 0 && <Badge variant="destructive" className="text-[10px] px-1.5 py-0">{pendingPurchase.length}</Badge>}
           </TabsTrigger>
-          <TabsTrigger value="warehouse" className="gap-1.5" disabled={!isWarehouse}>
+          <TabsTrigger value="warehouse" className="gap-1.5">
             <Package className="w-4 h-4" />
             <span className="hidden sm:inline">{t.purchaseOrders.step2Warehouse}</span>
             {pendingWarehouse.length > 0 && <Badge variant="destructive" className="text-[10px] px-1.5 py-0">{pendingWarehouse.length}</Badge>}
           </TabsTrigger>
-          <TabsTrigger value="delivery" className="gap-1.5" disabled={!isWarehouse}>
+          <TabsTrigger value="delivery" className="gap-1.5">
             <Truck className="w-4 h-4" />
             <span className="hidden sm:inline">{t.purchaseOrders.step3Delivery}</span>
             {pendingDelivery.length > 0 && <Badge variant="destructive" className="text-[10px] px-1.5 py-0">{pendingDelivery.length}</Badge>}
@@ -233,12 +234,7 @@ export default function PurchaseCycle() {
         {/* ==================== TAB 1: Purchase (Delegate) ==================== */}
         <TabsContent value="purchase" className="mt-4 space-y-4">
           <StepIndicator currentStep={1} />
-          {!isDelegate ? (
-            <Card><CardContent className="p-8 text-center text-muted-foreground">
-              <AlertCircle className="w-10 h-10 mx-auto mb-3 text-muted-foreground/50" />
-              <p>{t.purchaseOrders.noItemsPending}</p>
-            </CardContent></Card>
-          ) : pendingPurchase.length === 0 ? (
+          {pendingPurchase.length === 0 ? (
             <Card><CardContent className="p-8 text-center text-muted-foreground">
               <CheckCircle2 className="w-10 h-10 mx-auto mb-3 text-green-500" />
               <p className="font-medium">{t.purchaseOrders.noItemsPending}</p>

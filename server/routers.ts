@@ -27,12 +27,12 @@ const roleMiddleware = (allowedRoles: string[]) => {
 };
 
 const managerProcedure = roleMiddleware(["maintenance_manager", "purchase_manager", "owner", "admin"]);
-const supervisorProcedure = roleMiddleware(["supervisor", "maintenance_manager"]);
-const gateSecurityProcedure = roleMiddleware(["gate_security"]);
-const accountantProcedure = roleMiddleware(["accountant"]);
-const managementProcedure = roleMiddleware(["senior_management"]);
-const warehouseProcedure = roleMiddleware(["warehouse"]);
-const delegateProcedure = roleMiddleware(["delegate"]);
+const supervisorProcedure = roleMiddleware(["supervisor", "maintenance_manager", "owner", "admin"]);
+const gateSecurityProcedure = roleMiddleware(["gate_security", "owner", "admin"]);
+const accountantProcedure = roleMiddleware(["accountant", "owner", "admin"]);
+const managementProcedure = roleMiddleware(["senior_management", "owner", "admin"]);
+const warehouseProcedure = roleMiddleware(["warehouse", "owner", "admin"]);
+const delegateProcedure = roleMiddleware(["delegate", "owner", "admin"]);
 
 export const appRouter = router({
   system: systemRouter,
@@ -1302,22 +1302,44 @@ export const appRouter = router({
     }),
 
     // Get items pending purchase (for delegate)
-    pendingPurchaseItems: delegateProcedure.query(async ({ ctx }) => {
+    pendingPurchaseItems: protectedProcedure.query(async ({ ctx }) => {
+      const isAdminOrOwner = ctx.user.role === "admin" || ctx.user.role === "owner";
+      if (isAdminOrOwner) {
+        // Admin/owner see all approved/funded items
+        const approved = await db.getPOItemsByStatus("approved");
+        const funded = await db.getPOItemsByStatus("funded");
+        return [...approved, ...funded];
+      }
+      if (ctx.user.role !== "delegate") return [];
       const items = await db.getPOItemsByDelegate(ctx.user.id);
       return items.filter(i => i.status === "approved" || i.status === "funded");
     }),
 
     // Get items pending warehouse receiving
-    pendingWarehouseItems: warehouseProcedure.query(async () => {
-      return db.getPOItemsByStatus("purchased");
+    pendingWarehouseItems: protectedProcedure.query(async ({ ctx }) => {
+      const isAdminOrOwner = ctx.user.role === "admin" || ctx.user.role === "owner";
+      if (isAdminOrOwner || ctx.user.role === "warehouse") {
+        return db.getPOItemsByStatus("purchased");
+      }
+      return [];
     }),
 
     // Get items pending delivery to requester
-    pendingDeliveryItems: warehouseProcedure.query(async () => {
-      return db.getPOItemsByStatus("delivered_to_warehouse");
+    pendingDeliveryItems: protectedProcedure.query(async ({ ctx }) => {
+      const isAdminOrOwner = ctx.user.role === "admin" || ctx.user.role === "owner";
+      if (isAdminOrOwner || ctx.user.role === "warehouse") {
+        return db.getPOItemsByStatus("delivered_to_warehouse");
+      }
+      return [];
     }),
 
-    myItems: delegateProcedure.query(async ({ ctx }) => {
+    myItems: protectedProcedure.query(async ({ ctx }) => {
+      const isAdminOrOwner = ctx.user.role === "admin" || ctx.user.role === "owner";
+      if (isAdminOrOwner) {
+        // Admin/owner see all items
+        return db.getAllPOItems();
+      }
+      if (ctx.user.role !== "delegate") return [];
       return db.getPOItemsByDelegate(ctx.user.id);
     }),
   }),

@@ -501,3 +501,13 @@
 - [x] تصنيف الإشعارات بألوان (أحمر=حرجة، برتقالي=موافقات، أزرق=معلومات) في popup وصفحة الإشعارات
 - [x] صوت تنبيه خفيف (Web Audio API ding) عند ظهور popup الإشعار + زر تحكم بالصوت
 - [x] تفعيل Web Push Notifications (Service Worker + VAPID + push router + إرسال تلقائي عند createNotification)
+
+## Phase 24: صلاحيات الأدمن الشاملة - Full Admin Access
+- [x] Backend: توسيع accountantProcedure و managementProcedure و delegateProcedure و warehouseProcedure و supervisorProcedure و gateSecurityProcedure لتشمل owner+admin
+- [x] Frontend PurchaseOrderDetail: إظهار أزرار موافقة الحسابات والإدارة للأدمن/المالك
+- [x] Frontend MyItems: إظهار الصفحة للأدمن/المالك (تسعير + شراء الأصناف) + backend myItems يُرجع كل الأصناف للأدمن
+- [x] Frontend DashboardLayout: إضافة MyItems لقائمة الأدمن/المالك
+- [x] Frontend TicketDetail: إظهار جميع أزرار دورة البلاغ للأدمن/المالك (isTechnician يشمل admin)
+- [x] Frontend PurchaseCycle: إزالة disabled من التبويبات + تفعيل جميع الاستعلامات للأدمن
+- [x] Backend: getAllPOItems() دالة جديدة لإرجاع كل الأصناف للأدمن
+- [x] اختبار TypeScript - لا أخطاء
