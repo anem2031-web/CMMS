@@ -1271,7 +1271,7 @@ export const appRouter = router({
     confirmDeliveryToWarehouse: warehouseProcedure.input(z.object({
       itemId: z.number(),
       supplierName: z.string().min(1, "اسم المورد مطلوب"),
-      supplierItemName: z.string().min(1, "اسم الصنف كما في الفاتورة مطلوب"),
+      supplierItemName: z.string().optional(),
       actualUnitCost: z.string().min(1, "تكلفة الصنف مطلوبة"),
       warehousePhotoUrl: z.string().min(1, "صورة الصنف مطلوبة"),
     })).mutation(async ({ input, ctx }) => {
@@ -1287,7 +1287,7 @@ export const appRouter = router({
         receivedAt: new Date(),
         receivedById: ctx.user.id,
         supplierName: input.supplierName,
-        supplierItemName: input.supplierItemName,
+        supplierItemName: input.supplierItemName || item.itemName,
         actualUnitCost: input.actualUnitCost,
         actualTotalCost: String(actualTotal),
         warehousePhotoUrl: input.warehousePhotoUrl,

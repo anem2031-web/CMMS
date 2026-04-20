@@ -453,7 +453,7 @@ export default function PurchaseCycle() {
             <Button variant="outline" onClick={() => setWarehouseDialog(null)}>{t.common.cancel}</Button>
             <Button
               className="gap-1.5"
-              disabled={!warehouseForm.supplierName || !warehouseForm.supplierItemName || !warehouseForm.actualUnitCost || !warehouseForm.warehousePhotoUrl || confirmWarehouseMut.isPending}
+              disabled={!warehouseForm.supplierName || !warehouseForm.actualUnitCost || !warehouseForm.warehousePhotoUrl || confirmWarehouseMut.isPending}
               onClick={() => {
                 confirmWarehouseMut.mutate({
                   itemId: warehouseDialog.id,
