@@ -136,6 +136,7 @@ export const purchaseOrders = mysqlTable("purchase_orders", {
   accountingApprovedById: int("accountingApprovedById"),
   accountingApprovedAt: timestamp("accountingApprovedAt"),
   accountingNotes: text("accountingNotes"),
+  custodyAmount: decimal("custodyAmount", { precision: 12, scale: 2 }),
   managementApprovedById: int("managementApprovedById"),
   managementApprovedAt: timestamp("managementApprovedAt"),
   managementNotes: text("managementNotes"),

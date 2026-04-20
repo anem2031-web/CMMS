@@ -1,0 +1,1 @@
+ALTER TABLE `purchase_orders` ADD `custodyAmount` decimal(12,2);

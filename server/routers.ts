@@ -1143,12 +1143,15 @@ export const appRouter = router({
     approveAccounting: accountantProcedure.input(z.object({
       id: z.number(),
       notes: z.string().optional(),
+      custodyAmount: z.string().optional(),
     })).mutation(async ({ input, ctx }) => {
-      await db.updatePurchaseOrder(input.id, { status: "pending_management", accountingApprovedById: ctx.user.id, accountingApprovedAt: new Date(), accountingNotes: input.notes });
+      await db.updatePurchaseOrder(input.id, { status: "pending_management", accountingApprovedById: ctx.user.id, accountingApprovedAt: new Date(), accountingNotes: input.notes, custodyAmount: input.custodyAmount || null });
       // Notify senior management
       const mgmt = await db.getUsersByRole("senior_management");
+      const po = await db.getPurchaseOrderById(input.id);
+      const custodyMsg = input.custodyAmount ? ` مبلغ العهدة: ${Number(input.custodyAmount).toLocaleString("ar-SA")} ر.س.` : "";
       for (const m of mgmt) {
-        await db.createNotification({ userId: m.id, title: "طلب شراء بانتظار اعتمادك", message: `طلب شراء بانتظار اعتماد الإدارة العليا`, type: "warning", relatedPOId: input.id });
+        await db.createNotification({ userId: m.id, title: "طلب شراء بانتظار اعتمادك", message: `طلب شراء رقم ${po?.poNumber || input.id} بانتظار اعتماد الإدارة العليا.${custodyMsg}`, type: "warning", relatedPOId: input.id });
       }
       await db.createAuditLog({ userId: ctx.user.id, action: "approve_accounting", entityType: "purchase_order", entityId: input.id });
       return { success: true };
@@ -1171,10 +1174,11 @@ export const appRouter = router({
       for (const dId of delegateIds) {
         const delegateItems = items.filter(i => i.delegateId === dId);
         const itemNames = delegateItems.map(i => i.itemName).join("، ");
+        const custodyInfo = po?.custodyAmount ? ` مبلغ العهدة المُصرف لك: ${Number(po.custodyAmount).toLocaleString("ar-SA")} ر.س.` : "";
         await db.createNotification({
           userId: dId,
           title: "✅ تم اعتماد طلب الشراء - ابدأ الشراء الآن",
-          message: `تم اعتماد طلب الشراء رقم ${po?.poNumber || input.id} من قِبل الإدارة. الأصناف المطلوبة منك: ${itemNames}. يمكنك البدء بالشراء فوراً.`,
+          message: `تم اعتماد طلب الشراء رقم ${po?.poNumber || input.id} من قِبل الإدارة. الأصناف المطلوبة منك: ${itemNames}.${custodyInfo} يمكنك البدء بالشراء فوراً.`,
           type: "success",
           relatedPOId: input.id
         });

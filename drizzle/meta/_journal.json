@@ -99,6 +99,13 @@
       "when": 1776679603492,
       "tag": "0013_even_thunderbird",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "5",
+      "when": 1776688258673,
+      "tag": "0014_handy_deathbird",
+      "breakpoints": true
     }
   ]
 }

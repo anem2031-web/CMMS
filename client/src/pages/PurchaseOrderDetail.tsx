@@ -88,6 +88,7 @@ export default function PurchaseOrderDetail() {
 
   const [estimates, setEstimates] = useState<Record<number, string>>({});
   const [rejectReason, setRejectReason] = useState("");
+  const [custodyAmount, setCustodyAmount] = useState("");
   const [uploadingItem, setUploadingItem] = useState<string | null>(null);
   const [itemPhotos, setItemPhotos] = useState<Record<number, { invoice?: string; purchased?: string }>>({})
   const [dropZoneFor, setDropZoneFor] = useState<string | null>(null); // e.g. "123-invoice" or "123-purchased";
@@ -484,8 +485,12 @@ export default function PurchaseOrderDetail() {
         <Card className="border-orange-200 bg-orange-50/50">
           <CardHeader className="pb-2"><CardTitle className="text-base text-orange-800">{t.purchaseOrders.accountingApproval}</CardTitle></CardHeader>
           <CardContent className="space-y-3">
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-orange-800">مبلغ العهدة المُصرف للمندوب (ر.س.) - اختياري</label>
+              <Input type="number" placeholder="مثال: 500" value={custodyAmount} onChange={e => setCustodyAmount(e.target.value)} className="bg-white" />
+            </div>
             <div className="flex gap-2">
-              <Button onClick={() => approveAccMut.mutate({ id: po.id })} disabled={approveAccMut.isPending} className="flex-1 gap-1.5">
+              <Button onClick={() => approveAccMut.mutate({ id: po.id, custodyAmount: custodyAmount || undefined })} disabled={approveAccMut.isPending} className="flex-1 gap-1.5">
                 {approveAccMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
                 {t.common.confirm}
               </Button>
@@ -518,6 +523,20 @@ export default function PurchaseOrderDetail() {
               </Button>
             </div>
             <Input placeholder={t.purchaseOrders.justification} value={rejectReason} onChange={e => setRejectReason(e.target.value)} />
+          </CardContent>
+        </Card>
+      )}
+
+      {po.custodyAmount && (
+        <Card className="border-amber-200 bg-amber-50/50">
+          <CardContent className="p-4 flex items-center gap-3">
+            <div className="w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0">
+              <span className="text-amber-700 text-sm font-bold">ع</span>
+            </div>
+            <div>
+              <p className="text-xs text-amber-700 font-medium">مبلغ العهدة المُصرف للمندوب</p>
+              <p className="text-lg font-bold text-amber-800">{Number(po.custodyAmount).toLocaleString("ar-SA")} ر.س.</p>
+            </div>
           </CardContent>
         </Card>
       )}

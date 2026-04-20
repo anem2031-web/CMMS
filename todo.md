@@ -522,3 +522,10 @@
 - [x] Frontend TicketDetail: canStartRepair يشمل حالة repaired/purchase_approved/purchased
 - [x] Frontend TicketDetail: زر تم الإصلاح معطّل حتى رفع الصورة
 - [x] إشعار للمدير عند بدء التنفيذ وعند إتمام الإصلاح
+
+## Phase 27: حقل مبلغ العهدة في طلبات الشراء
+- [x] Schema: إضافة custodyAmount (decimal) لجدول purchaseOrders + migration
+- [x] Backend: approveAccounting يقبل custodyAmount اختيارياً ويحفظه + يتضمنه في إشعار الإدارة
+- [x] Backend: إشعار المندوب عند approveManagement يتضمن مبلغ العهدة المُصرف له
+- [x] Frontend PurchaseOrderDetail: حقل مبلغ العهدة (اختياري) في قسم موافقة الحسابات
+- [x] Frontend PurchaseOrderDetail: بطاقة عرض مبلغ العهدة باللون العنبري في تفاصيل الطلب
