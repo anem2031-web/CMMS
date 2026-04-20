@@ -1239,10 +1239,29 @@ export const appRouter = router({
           await db.updateTicket(po.ticketId, { status: "partial_purchase" });
         }
       }
-      // Notify warehouse
+      // Notify warehouse with detailed message
       const warehouseUsers = await db.getUsersByRole("warehouse");
+      const po = await db.getPurchaseOrderById(item.purchaseOrderId);
+      const buyer = ctx.user;
       for (const w of warehouseUsers) {
-        await db.createNotification({ userId: w.id, title: "صنف تم شراؤه", message: `تم شراء صنف "${item.itemName}" بانتظار التوريد للمستودع`, type: "info", relatedPOId: item.purchaseOrderId });
+        await db.createNotification({
+          userId: w.id,
+          title: "📦 صنف تم شراؤه - بانتظار الاستلام",
+          message: `تم شراء الصنف: "${item.itemName}" (الكمية: ${item.quantity} ${item.unit || ''}). طلب الشراء رقم: ${po?.poNumber || item.purchaseOrderId}. المندوب: ${buyer.name}. يرجى تسجيل استلام البضاعة عند وصولها.`,
+          type: "info",
+          relatedPOId: item.purchaseOrderId
+        });
+      }
+      // Also notify managers/owner
+      const managers = await db.getManagerUsers();
+      for (const mgr of managers) {
+        await db.createNotification({
+          userId: mgr.id,
+          title: "🛒 تم شراء صنف",
+          message: `قام ${buyer.name} بشراء صنف "${item.itemName}" من طلب الشراء رقم ${po?.poNumber || item.purchaseOrderId}.`,
+          type: "info",
+          relatedPOId: item.purchaseOrderId
+        });
       }
       await db.createAuditLog({ userId: ctx.user.id, action: "confirm_purchase", entityType: "po_item", entityId: input.itemId });
       return { success: true };
