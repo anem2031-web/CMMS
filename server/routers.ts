@@ -1153,10 +1153,31 @@ export const appRouter = router({
       for (const item of items) {
         await db.updatePOItem(item.id, { status: "approved" });
       }
-      // Notify delegates
+      // Notify delegates with detailed message
       const delegateIds = Array.from(new Set(items.filter(i => i.delegateId).map(i => i.delegateId!)));
       for (const dId of delegateIds) {
-        await db.createNotification({ userId: dId, title: "تم اعتماد طلب الشراء", message: `تم اعتماد طلب الشراء. يمكنك البدء بالشراء`, type: "success", relatedPOId: input.id });
+        const delegateItems = items.filter(i => i.delegateId === dId);
+        const itemNames = delegateItems.map(i => i.itemName).join("، ");
+        await db.createNotification({
+          userId: dId,
+          title: "✅ تم اعتماد طلب الشراء - ابدأ الشراء الآن",
+          message: `تم اعتماد طلب الشراء رقم ${po?.poNumber || input.id} من قِبل الإدارة. الأصناف المطلوبة منك: ${itemNames}. يمكنك البدء بالشراء فوراً.`,
+          type: "success",
+          relatedPOId: input.id
+        });
+      }
+      // If no delegates assigned, notify managers
+      if (delegateIds.length === 0) {
+        const managers = await db.getManagerUsers();
+        for (const mgr of managers) {
+          await db.createNotification({
+            userId: mgr.id,
+            title: "✅ تم اعتماد طلب الشراء",
+            message: `تم اعتماد طلب الشراء رقم ${po?.poNumber || input.id}. لا يوجد مندوب مُعيَّن للأصناف.`,
+            type: "warning",
+            relatedPOId: input.id
+          });
+        }
       }
       // Update ticket
       if (po?.ticketId) {
