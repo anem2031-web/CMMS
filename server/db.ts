@@ -104,6 +104,19 @@ export async function getUsersByRole(role: string) {
   return db.select().from(users).where(eq(users.role, role as any));
 }
 
+/**
+ * Returns all users who should receive "manager-level" notifications:
+ * maintenance_manager + owner + admin roles.
+ * This ensures admins/owners always receive operational alerts.
+ */
+export async function getManagerUsers() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(users).where(
+    inArray(users.role, ["maintenance_manager", "owner", "admin"] as any[])
+  );
+}
+
 export async function updateUserRole(userId: number, role: string) {
   const db = await getDb();
   if (!db) return;

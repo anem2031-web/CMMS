@@ -496,6 +496,7 @@
 - [x] التحقق من صحة دورة التسعير والاعتماد في PurchaseOrderDetail
 
 ## Phase 23: تحسينات الإشعارات والفرز ✅ COMPLETED
+- [x] إصلاح: إشعارات مدير الصيانة لم تصل للأدمن - استبدال getUsersByRole("maintenance_manager") بـ getManagerUsers() لتشمل owner+admin+maintenance_manager
 - [x] تعيين فني من قائمة منسدلة عند الفرز السريع في TriageDashboard (dialog اختيار الفني + triageTicket يقبل assignedToId)
 - [x] تصنيف الإشعارات بألوان (أحمر=حرجة، برتقالي=موافقات، أزرق=معلومات) في popup وصفحة الإشعارات
 - [x] صوت تنبيه خفيف (Web Audio API ding) عند ظهور popup الإشعار + زر تحكم بالصوت

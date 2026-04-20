@@ -302,7 +302,7 @@ export const appRouter = router({
         await db.createNotification({ userId: sup.id, title: "بلاغ جديد بانتظار الفرز", message: `البلاغ ${ticketNumber} - ${input.title} بانتظار الفرز والتصنيف`, type: "info", relatedTicketId: id! });
       }
       // Also notify maintenance managers
-      const managers = await db.getUsersByRole("maintenance_manager");
+      const managers = await db.getManagerUsers();
       for (const mgr of managers) {
         await db.createNotification({ userId: mgr.id, title: "بلاغ جديد", message: `تم إنشاء بلاغ جديد: ${ticketNumber} - ${input.title}`, type: "info", relatedTicketId: id! });
       }
@@ -359,7 +359,7 @@ export const appRouter = router({
       }
       await db.updateTicket(input.id, { status: "repaired", afterPhotoUrl: input.afterPhotoUrl, repairNotes: input.repairNotes, materialsUsed: input.materialsUsed, ...repairTranslation });
       await db.addTicketStatusHistory({ ticketId: input.id, fromStatus: ticket.status, toStatus: "repaired", changedById: ctx.user.id });
-      const managers = await db.getUsersByRole("maintenance_manager");
+      const managers = await db.getManagerUsers();
       for (const mgr of managers) {
         await db.createNotification({ userId: mgr.id, title: "تم إصلاح بلاغ", message: `تم إصلاح البلاغ ${ticket.ticketNumber}`, type: "success", relatedTicketId: input.id });
       }
@@ -631,7 +631,7 @@ export const appRouter = router({
       await db.createAuditLog({ userId: ctx.user.id, action: "update_ticket", entityType: "ticket", entityId: id, oldValues, newValues });
       // Notify managers about ticket edit
       if (Object.keys(newValues).length > 0) {
-        const managers = await db.getUsersByRole("maintenance_manager");
+        const managers = await db.getManagerUsers();
         const changedFields = Object.keys(newValues).join(", ");
         for (const mgr of managers) {
           if (mgr.id !== ctx.user.id) {
@@ -652,7 +652,7 @@ export const appRouter = router({
       await db.deleteTicket(input.id);
       await db.createAuditLog({ userId: ctx.user.id, action: "delete_ticket", entityType: "ticket", entityId: input.id, oldValues: { ticketNumber: ticket.ticketNumber, title: ticket.title, status: ticket.status } });
       // Notify managers about ticket deletion
-      const managers = await db.getUsersByRole("maintenance_manager");
+      const managers = await db.getManagerUsers();
       for (const mgr of managers) {
         if (mgr.id !== ctx.user.id) {
           await db.createNotification({ userId: mgr.id, title: `حذف بلاغ #${ticket.ticketNumber}`, message: `قام ${ctx.user.name} بحذف البلاغ "${ticket.title}"`, type: "ticket_deleted", relatedTicketId: input.id });
@@ -705,7 +705,7 @@ export const appRouter = router({
       await db.updateTicket(input.id, updateData);
       await db.addTicketStatusHistory({ ticketId: input.id, fromStatus: ticket.status, toStatus: "under_inspection", changedById: ctx.user.id, notes: input.triageNotes });
       // Notify maintenance manager
-      const managers = await db.getUsersByRole("maintenance_manager");
+      const managers = await db.getManagerUsers();
       for (const mgr of managers) {
         await db.createNotification({ userId: mgr.id, title: "بلاغ قيد الفحص", message: `تم فرز البلاغ ${ticket.ticketNumber} وهو الآن قيد الفحص`, type: "info", relatedTicketId: input.id });
       }
@@ -725,7 +725,7 @@ export const appRouter = router({
       await db.updateTicket(input.id, updateData);
       await db.addTicketStatusHistory({ ticketId: input.id, fromStatus: ticket.status, toStatus: "under_inspection", changedById: ctx.user.id, notes: input.assignedToId ? `تم نقل البلاغ لمرحلة الفحص وتعيينه للفني` : "تم نقل البلاغ لمرحلة الفحص" });
       // Notify maintenance manager
-      const managers = await db.getUsersByRole("maintenance_manager");
+      const managers = await db.getManagerUsers();
       for (const mgr of managers) {
         await db.createNotification({ userId: mgr.id, title: "بلاغ قيد الفحص", message: `البلاغ ${ticket.ticketNumber} الآن قيد الفحص من قبل المشرف`, type: "info", relatedTicketId: input.id });
       }
@@ -748,7 +748,7 @@ export const appRouter = router({
       await db.updateTicket(input.id, { inspectionNotes: input.inspectionNotes });
       await db.addTicketStatusHistory({ ticketId: input.id, fromStatus: ticket.status, toStatus: "under_inspection", changedById: ctx.user.id, notes: `ملاحظات الفحص: ${input.inspectionNotes}` });
       // Notify maintenance manager to approve work
-      const managers = await db.getUsersByRole("maintenance_manager");
+      const managers = await db.getManagerUsers();
       for (const mgr of managers) {
         await db.createNotification({ userId: mgr.id, title: "بلاغ جاهز للموافقة", message: `البلاغ ${ticket.ticketNumber} انتهى من الفحص وجاهز للموافقة على العمل`, type: "warning", relatedTicketId: input.id });
       }
@@ -862,7 +862,7 @@ export const appRouter = router({
       await db.addTicketStatusHistory({ ticketId: input.id, fromStatus: ticket.status, toStatus: "ready_for_closure", changedById: ctx.user.id, notes: "تمت الموافقة على دخول الأصل - جاهز للإغلاق" });
       await db.createAuditLog({ userId: ctx.user.id, action: "gate_entry_approved", entityType: "ticket", entityId: input.id });
       // Notify maintenance manager to close
-      const managers = await db.getUsersByRole("maintenance_manager");
+      const managers = await db.getManagerUsers();
       for (const mgr of managers) {
         await db.createNotification({ userId: mgr.id, title: "أصل عاد بعد الإصلاح", message: `البلاغ ${ticket.ticketNumber} - الأصل عاد بعد الإصلاح الخارجي وجاهز للإغلاق`, type: "success", relatedTicketId: input.id });
       }
@@ -1019,7 +1019,7 @@ export const appRouter = router({
       await db.updatePurchaseOrder(input.id, { notes: input.notes });
       await db.createAuditLog({ userId: ctx.user.id, action: "update_po", entityType: "purchase_order", entityId: input.id, oldValues, newValues: { notes: input.notes } });
       // Notify managers about PO edit
-      const poManagers = await db.getUsersByRole("maintenance_manager");
+      const poManagers = await db.getManagerUsers();
       for (const mgr of poManagers) {
         if (mgr.id !== ctx.user.id) {
           await db.createNotification({ userId: mgr.id, title: `تعديل طلب شراء #${po.poNumber}`, message: `قام ${ctx.user.name} بتعديل طلب الشراء`, type: "po_updated", relatedPOId: input.id });
@@ -1040,7 +1040,7 @@ export const appRouter = router({
       await db.deletePurchaseOrder(input.id);
       await db.createAuditLog({ userId: ctx.user.id, action: "delete_po", entityType: "purchase_order", entityId: input.id, oldValues: { poNumber: po.poNumber, status: po.status, notes: po.notes } });
       // Notify managers about PO deletion
-      const poDelManagers = await db.getUsersByRole("maintenance_manager");
+      const poDelManagers = await db.getManagerUsers();
       for (const mgr of poDelManagers) {
         if (mgr.id !== ctx.user.id) {
           await db.createNotification({ userId: mgr.id, title: `حذف طلب شراء #${po.poNumber}`, message: `قام ${ctx.user.name} بحذف طلب الشراء`, type: "po_deleted", relatedPOId: input.id });
@@ -1290,7 +1290,7 @@ export const appRouter = router({
             await db.updateTicket(po.ticketId, { status: "repaired" });
             await db.addTicketStatusHistory({ ticketId: po.ticketId, fromStatus: ticket.status, toStatus: "repaired", changedById: ctx.user.id, notes: "تم تسليم جميع المواد - جاهز للإغلاق" });
             // Notify maintenance manager to close the ticket
-            const managers = await db.getUsersByRole("maintenance_manager");
+            const managers = await db.getManagerUsers();
             for (const mgr of managers) {
               await db.createNotification({ userId: mgr.id, title: "بلاغ جاهز للإغلاق", message: `تم تسليم جميع مواد البلاغ ${ticket.ticketNumber}. يمكن إغلاقه الآن.`, type: "success", relatedTicketId: po.ticketId });
             }
