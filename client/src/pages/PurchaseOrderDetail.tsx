@@ -218,7 +218,8 @@ export default function PurchaseOrderDetail() {
         <CardContent className="space-y-3">
           {visibleItems.map((item: any) => {
             const delegate = users?.find((u: any) => u.id === item.delegateId);
-            const isMyItem = isDelegate && item.delegateId === userId;
+            // Admin/owner can act on all items; delegate only sees their own
+            const isMyItem = isAdminOrOwner || (isDelegate && item.delegateId === userId);
 
             return (
               <div key={item.id} className="border rounded-xl p-4 space-y-3 hover:border-primary/20 transition-colors">
