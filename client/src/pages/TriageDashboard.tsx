@@ -110,6 +110,10 @@ export default function TriageDashboard() {
   const [inspectDialog, setInspectDialog] = useState<any>(null);
   const [inspectionNotes, setInspectionNotes] = useState("");
 
+  // ── Quick Triage Dialog ───────────────────────────────────────────────────
+  const [quickTriageDialog, setQuickTriageDialog] = useState<any>(null);
+  const [quickTriageAssignedTo, setQuickTriageAssignedTo] = useState<string>("");
+
   // ── Mutations ─────────────────────────────────────────────────────────────
   const quickTriageMut = trpc.tickets.triageTicket.useMutation({
     onSuccess: () => {
@@ -528,9 +532,9 @@ export default function TriageDashboard() {
                           size="sm"
                           variant="outline"
                           className="border-blue-300 text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-900/20"
-                          onClick={() => quickTriageMut.mutate({ id: ticket.id })}
+                          onClick={() => { setQuickTriageDialog(ticket); setQuickTriageAssignedTo(""); }}
                           disabled={quickTriageMut.isPending}
-                          title="نقل مباشر لمرحلة الفحص بدون إعدادات"
+                          title="نقل سريع لمرحلة الفحص مع تعيين فني"
                         >
                           <Zap className="w-4 h-4 ml-1" />
                           فرز سريع
@@ -567,6 +571,72 @@ export default function TriageDashboard() {
           ))}
         </div>
       )}
+
+      {/* ── Quick Triage Dialog ── */}
+      <Dialog open={!!quickTriageDialog} onOpenChange={() => setQuickTriageDialog(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Zap className="w-5 h-5 text-blue-600" />
+              فرز سريع
+            </DialogTitle>
+          </DialogHeader>
+          {quickTriageDialog && (
+            <div className="space-y-4">
+              <div className="p-3 bg-muted rounded-lg">
+                <p className="font-medium text-sm">{quickTriageDialog.ticketNumber}</p>
+                <p className="text-sm text-muted-foreground">{quickTriageDialog.title}</p>
+              </div>
+              <div className="space-y-2">
+                <Label>تعيين فني <span className="text-muted-foreground text-xs">(اختياري)</span></Label>
+                <Select
+                  value={quickTriageAssignedTo}
+                  onValueChange={setQuickTriageAssignedTo}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="اختر فنيًا للفحص..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">— بدون تعيين</SelectItem>
+                    {technicians.map((tech: any) => (
+                      <SelectItem key={tech.id} value={tech.id.toString()}>
+                        <span className="flex items-center gap-2">
+                          <span className="w-2 h-2 rounded-full bg-green-400 inline-block" />
+                          {tech.name}
+                          <span className="text-xs text-muted-foreground">
+                            ({tech.role === "technician" ? "فني" : tech.role === "supervisor" ? "مشرف" : "مدير صيانة"})
+                          </span>
+                        </span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                سيتم نقل البلاغ مباشرة إلى مرحلة الفحص الميداني.
+              </p>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setQuickTriageDialog(null)}>إلغاء</Button>
+            <Button
+              onClick={() => {
+                if (!quickTriageDialog) return;
+                const assignedToId = quickTriageAssignedTo && quickTriageAssignedTo !== "none"
+                  ? parseInt(quickTriageAssignedTo)
+                  : undefined;
+                quickTriageMut.mutate({ id: quickTriageDialog.id, assignedToId });
+                setQuickTriageDialog(null);
+              }}
+              disabled={quickTriageMut.isPending}
+              className="bg-blue-600 hover:bg-blue-700 text-white"
+            >
+              <Zap className="w-4 h-4 ml-1" />
+              {quickTriageMut.isPending ? "جاري..." : "تأكيد الفرز"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* ── Full Triage Dialog ── */}
       <Dialog open={!!triageDialog} onOpenChange={() => setTriageDialog(null)}>

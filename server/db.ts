@@ -6,6 +6,7 @@ import {
   ticketStatusHistory, attachments, sites, backups,
   assets, preventivePlans, pmWorkOrders, assetSpareParts, pmJobs, assetMetrics,
   twoFactorSecrets, twoFactorAuditLogs,
+  pushSubscriptions,
   type InsertAsset, type InsertPreventivePlan, type InsertPMWorkOrder
 } from "../drizzle/schema";
 import { ENV } from './_core/env';
@@ -313,10 +314,30 @@ export async function addInventoryTransaction(data: any) {
 // ============================================================
 // NOTIFICATIONS
 // ============================================================
+// Lazy import to avoid circular deps
+let _webPush: typeof import('./webPush') | null = null;
+async function getWebPush() {
+  if (!_webPush) _webPush = await import('./webPush');
+  return _webPush;
+}
+
 export async function createNotification(data: { userId: number; title: string; message: string; type?: string; relatedTicketId?: number; relatedPOId?: number }) {
   const db = await getDb();
   if (!db) return;
   await db.insert(notifications).values(data as any);
+
+  // Send Web Push notification asynchronously (fire-and-forget)
+  getWebPush().then(wp => {
+    const url = data.relatedTicketId ? `/tickets/${data.relatedTicketId}` :
+                data.relatedPOId ? `/purchase-orders/${data.relatedPOId}` : "/notifications";
+    wp.sendPushToUser(data.userId, {
+      title: data.title,
+      body: data.message,
+      type: data.type || "info",
+      tag: `notif-${data.userId}-${Date.now()}`,
+      url,
+    }).catch(() => {}); // Ignore push errors
+  }).catch(() => {});
 }
 
 export async function getUserNotifications(userId: number) {
@@ -1448,4 +1469,44 @@ export async function isTwoFactorEnabled(userId: number): Promise<boolean> {
     console.error('Error checking 2FA status:', error);
     return false;
   }
+}
+
+// ============================================================
+// PUSH SUBSCRIPTIONS
+// ============================================================
+export async function savePushSubscription(data: {
+  userId: number;
+  endpoint: string;
+  p256dh: string;
+  auth: string;
+  userAgent?: string;
+}) {
+  const db = await getDb();
+  if (!db) return null;
+  // Upsert by endpoint
+  const existing = await db.select().from(pushSubscriptions).where(eq(pushSubscriptions.endpoint, data.endpoint)).limit(1);
+  if (existing.length > 0) {
+    await db.update(pushSubscriptions).set({ userId: data.userId, p256dh: data.p256dh, auth: data.auth }).where(eq(pushSubscriptions.endpoint, data.endpoint));
+    return existing[0].id;
+  }
+  const result = await db.insert(pushSubscriptions).values(data);
+  return result[0].insertId;
+}
+
+export async function deletePushSubscription(endpoint: string) {
+  const db = await getDb();
+  if (!db) return;
+  await db.delete(pushSubscriptions).where(eq(pushSubscriptions.endpoint, endpoint));
+}
+
+export async function getPushSubscriptionsByUser(userId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(pushSubscriptions).where(eq(pushSubscriptions.userId, userId));
+}
+
+export async function getAllPushSubscriptions() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(pushSubscriptions);
 }

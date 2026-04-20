@@ -494,3 +494,9 @@
 - [x] إضافة زر تغيير كلمة المرور لكل مستخدم
 - [x] إضافة حقل بحث في صفحة المستخدمين
 - [x] التحقق من صحة دورة التسعير والاعتماد في PurchaseOrderDetail
+
+## Phase 23: تحسينات الإشعارات والفرز ✅ COMPLETED
+- [x] تعيين فني من قائمة منسدلة عند الفرز السريع في TriageDashboard (dialog اختيار الفني + triageTicket يقبل assignedToId)
+- [x] تصنيف الإشعارات بألوان (أحمر=حرجة، برتقالي=موافقات، أزرق=معلومات) في popup وصفحة الإشعارات
+- [x] صوت تنبيه خفيف (Web Audio API ding) عند ظهور popup الإشعار + زر تحكم بالصوت
+- [x] تفعيل Web Push Notifications (Service Worker + VAPID + push router + إرسال تلقائي عند createNotification)

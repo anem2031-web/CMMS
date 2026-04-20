@@ -715,16 +715,23 @@ export const appRouter = router({
     // 2b. Triage Ticket (Supervisor moves ticket from pending_triage to under_inspection)
     triageTicket: supervisorProcedure.input(z.object({
       id: z.number(),
+      assignedToId: z.number().optional(),
     })).mutation(async ({ input, ctx }) => {
       const ticket = await db.getTicketById(input.id);
       if (!ticket) throw new TRPCError({ code: "NOT_FOUND" });
       if (ticket.status !== "pending_triage") throw new TRPCError({ code: "BAD_REQUEST", message: "البلاغ ليس في مرحلة الفرز" });
-      await db.updateTicket(input.id, { status: "under_inspection", supervisorId: ctx.user.id });
-      await db.addTicketStatusHistory({ ticketId: input.id, fromStatus: ticket.status, toStatus: "under_inspection", changedById: ctx.user.id, notes: "تم نقل البلاغ لمرحلة الفحص" });
+      const updateData: any = { status: "under_inspection", supervisorId: ctx.user.id };
+      if (input.assignedToId) updateData.assignedToId = input.assignedToId;
+      await db.updateTicket(input.id, updateData);
+      await db.addTicketStatusHistory({ ticketId: input.id, fromStatus: ticket.status, toStatus: "under_inspection", changedById: ctx.user.id, notes: input.assignedToId ? `تم نقل البلاغ لمرحلة الفحص وتعيينه للفني` : "تم نقل البلاغ لمرحلة الفحص" });
       // Notify maintenance manager
       const managers = await db.getUsersByRole("maintenance_manager");
       for (const mgr of managers) {
         await db.createNotification({ userId: mgr.id, title: "بلاغ قيد الفحص", message: `البلاغ ${ticket.ticketNumber} الآن قيد الفحص من قبل المشرف`, type: "info", relatedTicketId: input.id });
+      }
+      // Notify assigned technician if provided
+      if (input.assignedToId) {
+        await db.createNotification({ userId: input.assignedToId, title: "تم تعيينك لفحص بلاغ", message: `تم تعيينك للفحص الميداني للبلاغ ${ticket.ticketNumber}`, type: "warning", relatedTicketId: input.id });
       }
       return { success: true };
     }),
@@ -2265,6 +2272,43 @@ ${JSON.stringify(recentAudit.map((a: any) => ({ action: a.action, entity: a.enti
       const content = result.choices?.[0]?.message?.content;
       if (!content) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "فشل التحليل" });
       return JSON.parse(content as string);
+    }),
+  }),
+
+  // ============================================================
+  // WEB PUSH SUBSCRIPTIONS
+  // ============================================================
+  push: router({
+    getVapidPublicKey: publicProcedure.query(() => {
+      return { publicKey: process.env.VAPID_PUBLIC_KEY || "" };
+    }),
+
+    subscribe: protectedProcedure.input(z.object({
+      endpoint: z.string().url(),
+      p256dh: z.string(),
+      auth: z.string(),
+      userAgent: z.string().optional(),
+    })).mutation(async ({ input, ctx }) => {
+      await db.savePushSubscription({
+        userId: ctx.user.id,
+        endpoint: input.endpoint,
+        p256dh: input.p256dh,
+        auth: input.auth,
+        userAgent: input.userAgent,
+      });
+      return { success: true };
+    }),
+
+    unsubscribe: protectedProcedure.input(z.object({
+      endpoint: z.string(),
+    })).mutation(async ({ input }) => {
+      await db.deletePushSubscription(input.endpoint);
+      return { success: true };
+    }),
+
+    getStatus: protectedProcedure.query(async ({ ctx }) => {
+      const subs = await db.getPushSubscriptionsByUser(ctx.user.id);
+      return { subscribed: subs.length > 0, count: subs.length };
     }),
   }),
 });

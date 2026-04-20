@@ -556,3 +556,19 @@ export const twoFactorAuditLogs = mysqlTable("two_factor_audit_logs", {
 
 export type TwoFactorAuditLog = typeof twoFactorAuditLogs.$inferSelect;
 export type InsertTwoFactorAuditLog = typeof twoFactorAuditLogs.$inferInsert;
+
+// ============================================================
+// 18. WEB PUSH SUBSCRIPTIONS
+// ============================================================
+export const pushSubscriptions = mysqlTable("push_subscriptions", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  endpoint: text("endpoint").notNull(),
+  p256dh: text("p256dh").notNull(),
+  auth: text("auth").notNull(),
+  userAgent: text("userAgent"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type PushSubscription = typeof pushSubscriptions.$inferSelect;
+export type InsertPushSubscription = typeof pushSubscriptions.$inferInsert;

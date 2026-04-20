@@ -186,8 +186,30 @@ function DashboardLayoutContent({ children, setSidebarWidth }: { children: React
   const { data: latestNotifications } = trpc.notifications.list.useQuery(undefined, { refetchInterval: 5000 });
 
   // ── Live notification popup ──
-  const [popupNotifs, setPopupNotifs] = useState<Array<{ id: number; title: string; message: string; relatedTicketId?: number | null }>>([]);
+  const [popupNotifs, setPopupNotifs] = useState<Array<{ id: number; title: string; message: string; type: string; relatedTicketId?: number | null }>>([])
   const prevNotifIdsRef = useRef<Set<number>>(new Set());
+  const [soundEnabled, setSoundEnabled] = useState<boolean>(() => {
+    const saved = localStorage.getItem("notif-sound-enabled");
+    return saved === null ? true : saved === "true";
+  });
+
+  // ── Play notification sound ──
+  const playNotifSound = useCallback(() => {
+    try {
+      const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(880, ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(660, ctx.currentTime + 0.12);
+      gain.gain.setValueAtTime(0.35, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4);
+      osc.start(ctx.currentTime);
+      osc.stop(ctx.currentTime + 0.4);
+    } catch {}
+  }, []);
 
   useEffect(() => {
     if (!latestNotifications) return;
@@ -197,20 +219,53 @@ function DashboardLayoutContent({ children, setSidebarWidth }: { children: React
     if (newNotifs.length > 0) {
       setPopupNotifs(prev => [
         ...prev,
-        ...newNotifs.map(n => ({ id: n.id, title: n.title, message: n.message, relatedTicketId: n.relatedTicketId }))
+        ...newNotifs.map(n => ({ id: n.id, title: n.title, message: n.message, type: n.type || "info", relatedTicketId: n.relatedTicketId }))
       ]);
       newNotifs.forEach(n => {
         setTimeout(() => {
           setPopupNotifs(prev => prev.filter(p => p.id !== n.id));
         }, 8000);
       });
+      if (soundEnabled) playNotifSound();
     }
     prevNotifIdsRef.current = currentIds;
-  }, [latestNotifications]);
+  }, [latestNotifications, soundEnabled, playNotifSound]);
 
   const dismissPopup = useCallback((id: number) => {
     setPopupNotifs(prev => prev.filter(p => p.id !== id));
   }, []);
+
+  // ── Notification color helpers ──
+  const getNotifStyle = (type: string) => {
+    switch (type) {
+      case "critical":
+      case "urgent":
+        return {
+          bg: "bg-red-50 dark:bg-red-950/40",
+          border: "border-red-300 dark:border-red-700",
+          iconBg: "bg-red-100 dark:bg-red-900/50",
+          iconColor: "text-red-600 dark:text-red-400",
+          dot: "bg-red-500",
+        };
+      case "warning":
+      case "approval":
+        return {
+          bg: "bg-orange-50 dark:bg-orange-950/40",
+          border: "border-orange-300 dark:border-orange-700",
+          iconBg: "bg-orange-100 dark:bg-orange-900/50",
+          iconColor: "text-orange-600 dark:text-orange-400",
+          dot: "bg-orange-500",
+        };
+      default: // info, success
+        return {
+          bg: "bg-blue-50 dark:bg-blue-950/40",
+          border: "border-blue-300 dark:border-blue-700",
+          iconBg: "bg-blue-100 dark:bg-blue-900/50",
+          iconColor: "text-blue-600 dark:text-blue-400",
+          dot: "bg-blue-500",
+        };
+    }
+  };
 
   const role = user?.role || "user";
 
@@ -506,37 +561,54 @@ function DashboardLayoutContent({ children, setSidebarWidth }: { children: React
 
       {/* ── Live Notification Popups ── */}
       <div className="fixed bottom-4 left-4 z-[9999] flex flex-col gap-2 max-w-sm" dir="rtl">
-        {popupNotifs.map((notif) => (
-          <div
-            key={notif.id}
-            className="bg-background border border-border rounded-xl shadow-2xl p-4 flex items-start gap-3 animate-in slide-in-from-bottom-4 duration-300"
-            style={{ minWidth: 280 }}
+        {/* Sound toggle button */}
+        {popupNotifs.length === 0 && (
+          <button
+            onClick={() => {
+              const next = !soundEnabled;
+              setSoundEnabled(next);
+              localStorage.setItem("notif-sound-enabled", String(next));
+            }}
+            className="self-end text-[10px] text-muted-foreground hover:text-foreground bg-background/80 border border-border rounded-full px-2 py-0.5 backdrop-blur transition-colors"
+            title={soundEnabled ? "إيقاف صوت التنبيه" : "تفعيل صوت التنبيه"}
           >
-            <div className="flex-shrink-0 w-9 h-9 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center">
-              <Bell className="w-4 h-4 text-amber-600 dark:text-amber-400" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="font-semibold text-sm text-foreground leading-tight">{notif.title}</p>
-              <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{notif.message}</p>
-              <div className="flex gap-2 mt-2">
-                {notif.relatedTicketId && (
-                  <button
-                    onClick={() => { setLocation(`/tickets/${notif.relatedTicketId}`); dismissPopup(notif.id); }}
-                    className="text-xs font-medium text-primary hover:underline"
-                  >
-                    عرض البلاغ
-                  </button>
-                )}
-              </div>
-            </div>
-            <button
-              onClick={() => dismissPopup(notif.id)}
-              className="flex-shrink-0 text-muted-foreground hover:text-foreground transition-colors"
+            {soundEnabled ? "🔔" : "🔕"}
+          </button>
+        )}
+        {popupNotifs.map((notif) => {
+          const style = getNotifStyle(notif.type);
+          return (
+            <div
+              key={notif.id}
+              className={`${style.bg} border ${style.border} rounded-xl shadow-2xl p-4 flex items-start gap-3 animate-in slide-in-from-bottom-4 duration-300`}
+              style={{ minWidth: 280 }}
             >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-        ))}
+              <div className={`flex-shrink-0 w-9 h-9 rounded-full ${style.iconBg} flex items-center justify-center`}>
+                <Bell className={`w-4 h-4 ${style.iconColor}`} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="font-semibold text-sm text-foreground leading-tight">{notif.title}</p>
+                <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{notif.message}</p>
+                <div className="flex gap-2 mt-2">
+                  {notif.relatedTicketId && (
+                    <button
+                      onClick={() => { setLocation(`/tickets/${notif.relatedTicketId}`); dismissPopup(notif.id); }}
+                      className={`text-xs font-medium hover:underline ${style.iconColor}`}
+                    >
+                      عرض البلاغ
+                    </button>
+                  )}
+                </div>
+              </div>
+              <button
+                onClick={() => dismissPopup(notif.id)}
+                className="flex-shrink-0 text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          );
+        })}
       </div>
     </>
   );
