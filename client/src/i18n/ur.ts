@@ -15,6 +15,8 @@ const ur: TranslationKeys = {
     inventory: "گودام",
     reports: "رپورٹس",
     technicianReport: "ٹیکنیشن کی کارکردگی",
+    purchaseCycleReport: "خریداری سائیکل رپورٹ",
+    maintenanceCycleReport: "مرمت سائکل رپورٹ",
     users: "صارفین",
     sites: "مقامات",
     aiAssistant: "AI معاون",

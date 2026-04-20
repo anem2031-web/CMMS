@@ -543,3 +543,12 @@
 - [ ] Frontend: إعادة بناء صفحة الإشعارات بواجهة بطاقات فلتر تفاعلية (الكل / حرجة / تنبيهات / إنجازات / معلومات / غير مقروءة)
 - [ ] Frontend: كل بطاقة تعرض أيقونة + اسم + عداد + تأثير نشاط عند الضغط
 - [ ] Frontend: الفلترة فورية بدون تحميل جديد
+
+## Phase 30: تقرير دورة الشراء ودورة الصيانة
+- [x] Backend: procedure purchaseCycleReport - وقت كل مرحلة على مستوى كل صنف (تسعير → اعتماد → شراء → مستودع → تسليم)
+- [x] Backend: procedure maintenanceCycleReport - وقت كل مرحلة لكل بلاغ من المهد للحد
+- [x] Frontend: صفحة PurchaseCycleReport مع ملخص المراحل + جدول الطلبات + تفاصيل الأصناف
+- [x] Frontend: صفحة MaintenanceCycleReport مع ملخص المراحل + جدول البلاغات + تفاصيل المراحل
+- [x] Navigation: ربط التقريرين بالـ sidebar + routes في App.tsx
+- [x] i18n: إضافة مفاتيح الترجمة للتقريرين (ar, en, ur)
+- [x] Tests: اختبارات vitest لكلا الـ procedures (4 اختبارات تمر بنجاح)

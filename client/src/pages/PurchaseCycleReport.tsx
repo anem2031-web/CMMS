@@ -1,0 +1,486 @@
+import { useState, useMemo } from "react";
+import { trpc } from "@/lib/trpc";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Badge } from "@/components/ui/badge";
+import { useLocation } from "wouter";
+import { cn } from "@/lib/utils";
+import {
+  ShoppingCart, Clock, TrendingUp, AlertTriangle, CheckCircle2,
+  ChevronDown, ChevronUp, ExternalLink, BarChart3, Package,
+  Timer, Hourglass, RefreshCw, Filter
+} from "lucide-react";
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+function formatHours(h: number | null): string {
+  if (h === null) return "—";
+  if (h < 1) return `${Math.round(h * 60)} دقيقة`;
+  if (h < 24) return `${h} ساعة`;
+  const days = Math.floor(h / 24);
+  const rem = Math.round(h % 24);
+  return rem > 0 ? `${days} يوم ${rem} ساعة` : `${days} يوم`;
+}
+
+function getStatusLabel(s: string): string {
+  const map: Record<string, string> = {
+    pending: "بانتظار التسعير", estimated: "مُسعَّر", approved: "معتمد",
+    funded: "ممول", purchased: "تم الشراء", delivered_to_warehouse: "في المستودع",
+    delivered_to_requester: "تم التسليم",
+  };
+  return map[s] || s;
+}
+
+function getStatusColor(s: string): string {
+  const map: Record<string, string> = {
+    pending: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-300",
+    estimated: "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300",
+    approved: "bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300",
+    funded: "bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300",
+    purchased: "bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300",
+    delivered_to_warehouse: "bg-teal-100 text-teal-700 dark:bg-teal-900/40 dark:text-teal-300",
+    delivered_to_requester: "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300",
+  };
+  return map[s] || "bg-gray-100 text-gray-700";
+}
+
+function getPOStatusColor(s: string): string {
+  const map: Record<string, string> = {
+    draft: "bg-gray-100 text-gray-600",
+    pending_estimate: "bg-yellow-100 text-yellow-700",
+    pending_accounting: "bg-blue-100 text-blue-700",
+    pending_management: "bg-indigo-100 text-indigo-700",
+    approved: "bg-purple-100 text-purple-700",
+    partial_purchase: "bg-orange-100 text-orange-700",
+    purchased: "bg-teal-100 text-teal-700",
+    received: "bg-green-100 text-green-700",
+    closed: "bg-green-200 text-green-800",
+    rejected: "bg-red-100 text-red-700",
+  };
+  return map[s] || "bg-gray-100 text-gray-600";
+}
+
+function getPOStatusLabel(s: string): string {
+  const map: Record<string, string> = {
+    draft: "مسودة", pending_estimate: "بانتظار التسعير", pending_accounting: "بانتظار الحسابات",
+    pending_management: "بانتظار الإدارة", approved: "معتمد", partial_purchase: "شراء جزئي",
+    purchased: "تم الشراء", received: "مستلم", closed: "مغلق", rejected: "مرفوض",
+  };
+  return map[s] || s;
+}
+
+// ─── Phase Bar ────────────────────────────────────────────────────────────────
+const PHASE_COLORS = [
+  "bg-blue-500", "bg-indigo-500", "bg-orange-500", "bg-teal-500", "bg-green-500",
+];
+
+function PhaseTimeline({ phases }: { phases: Array<{ phase: string; durationHours: number | null; status: string; actor?: string | null }> }) {
+  const total = phases.reduce((s, p) => s + (p.durationHours || 0), 0);
+  return (
+    <div className="space-y-2">
+      {/* Bar chart */}
+      {total > 0 && (
+        <div className="flex h-3 rounded-full overflow-hidden gap-0.5">
+          {phases.map((p, i) => {
+            const pct = total > 0 ? ((p.durationHours || 0) / total) * 100 : 0;
+            return pct > 0 ? (
+              <div
+                key={i}
+                className={cn("transition-all", PHASE_COLORS[i % PHASE_COLORS.length])}
+                style={{ width: `${pct}%` }}
+                title={`${p.phase}: ${formatHours(p.durationHours)}`}
+              />
+            ) : null;
+          })}
+        </div>
+      )}
+      {/* Legend */}
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-1.5">
+        {phases.map((p, i) => (
+          <div key={i} className="flex items-center gap-1.5 text-xs">
+            <span className={cn("w-2.5 h-2.5 rounded-sm flex-shrink-0", PHASE_COLORS[i % PHASE_COLORS.length])} />
+            <span className="text-muted-foreground truncate">{p.phase}</span>
+            <span className={cn("font-semibold ml-auto", p.durationHours === null ? "text-muted-foreground" : "text-foreground")}>
+              {formatHours(p.durationHours)}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── Item Row ─────────────────────────────────────────────────────────────────
+function ItemRow({ item }: { item: any }) {
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <div className="border border-border rounded-lg overflow-hidden">
+      <div
+        className="flex items-center gap-3 p-3 cursor-pointer hover:bg-muted/50 transition-colors"
+        onClick={() => setExpanded(e => !e)}
+      >
+        <Package className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="font-medium text-sm">{item.itemName}</span>
+            <span className="text-xs text-muted-foreground">({item.quantity} {item.unit || "وحدة"})</span>
+            <span className={cn("text-xs px-2 py-0.5 rounded-full font-medium", getStatusColor(item.currentStatus))}>
+              {getStatusLabel(item.currentStatus)}
+            </span>
+          </div>
+          <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground flex-wrap">
+            <span>المندوب: {item.delegate}</span>
+            {item.estimatedCost && <span>مقدر: {item.estimatedCost.toFixed(2)} ر.س</span>}
+            {item.actualCost && <span>فعلي: {item.actualCost.toFixed(2)} ر.س</span>}
+          </div>
+        </div>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          {item.totalHours !== null && (
+            <div className="flex items-center gap-1 text-xs bg-muted px-2 py-1 rounded-full">
+              <Timer className="w-3 h-3" />
+              <span className="font-semibold">{formatHours(item.totalHours)}</span>
+            </div>
+          )}
+          {expanded ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
+        </div>
+      </div>
+
+      {expanded && (
+        <div className="px-3 pb-3 border-t border-border bg-muted/20">
+          <div className="pt-3 space-y-3">
+            <PhaseTimeline phases={item.phases} />
+            {/* Detailed phase table */}
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b border-border">
+                    <th className="text-right py-1.5 pr-2 font-semibold text-muted-foreground">المرحلة</th>
+                    <th className="text-right py-1.5 font-semibold text-muted-foreground">بداية</th>
+                    <th className="text-right py-1.5 font-semibold text-muted-foreground">نهاية</th>
+                    <th className="text-right py-1.5 font-semibold text-muted-foreground">المدة</th>
+                    <th className="text-right py-1.5 font-semibold text-muted-foreground">الحالة</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {item.phases.map((p: any, i: number) => (
+                    <tr key={i} className="border-b border-border/50 last:border-0">
+                      <td className="py-1.5 pr-2">
+                        <div className="flex items-center gap-1.5">
+                          <span className={cn("w-2 h-2 rounded-full", PHASE_COLORS[i % PHASE_COLORS.length])} />
+                          {p.phase}
+                        </div>
+                      </td>
+                      <td className="py-1.5 text-muted-foreground">
+                        {p.startAt ? new Date(p.startAt).toLocaleDateString("ar-SA") : "—"}
+                      </td>
+                      <td className="py-1.5 text-muted-foreground">
+                        {p.endAt ? new Date(p.endAt).toLocaleDateString("ar-SA") : "—"}
+                      </td>
+                      <td className="py-1.5 font-semibold">
+                        {formatHours(p.durationHours)}
+                      </td>
+                      <td className="py-1.5">
+                        {p.status === "done"
+                          ? <span className="text-green-600 dark:text-green-400 flex items-center gap-1"><CheckCircle2 className="w-3 h-3" />منجز</span>
+                          : p.status === "in_progress"
+                            ? <span className="text-blue-600 dark:text-blue-400 flex items-center gap-1"><Hourglass className="w-3 h-3" />جارٍ</span>
+                            : <span className="text-muted-foreground flex items-center gap-1"><Clock className="w-3 h-3" />انتظار</span>
+                        }
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── PO Card ──────────────────────────────────────────────────────────────────
+function POCard({ po }: { po: any }) {
+  const [expanded, setExpanded] = useState(false);
+  const [, setLocation] = useLocation();
+
+  return (
+    <Card className="overflow-hidden">
+      <div
+        className="flex items-start gap-3 p-4 cursor-pointer hover:bg-muted/30 transition-colors"
+        onClick={() => setExpanded(e => !e)}
+      >
+        <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center flex-shrink-0">
+          <ShoppingCart className="w-5 h-5 text-primary" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="font-bold text-base">{po.poNumber}</span>
+            <span className={cn("text-xs px-2 py-0.5 rounded-full font-medium", getPOStatusColor(po.status))}>
+              {getPOStatusLabel(po.status)}
+            </span>
+            {po.ticketId && (
+              <button
+                onClick={(e) => { e.stopPropagation(); setLocation(`/tickets/${po.ticketId}`); }}
+                className="text-xs text-primary hover:underline flex items-center gap-1"
+              >
+                <ExternalLink className="w-3 h-3" />
+                بلاغ #{po.ticketId}
+              </button>
+            )}
+          </div>
+          <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground flex-wrap">
+            <span>طالب: {po.requestedBy}</span>
+            <span>{new Date(po.createdAt).toLocaleDateString("ar-SA")}</span>
+            <span>{po.itemCount} صنف</span>
+            {po.custodyAmount && <span className="text-amber-600 dark:text-amber-400 font-medium">عهدة: {po.custodyAmount.toFixed(2)} ر.س</span>}
+          </div>
+        </div>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          {po.totalPOHours !== null && (
+            <div className="flex items-center gap-1 text-sm bg-primary/10 text-primary px-3 py-1.5 rounded-full font-semibold">
+              <Timer className="w-4 h-4" />
+              {formatHours(po.totalPOHours)}
+            </div>
+          )}
+          {expanded ? <ChevronUp className="w-5 h-5 text-muted-foreground" /> : <ChevronDown className="w-5 h-5 text-muted-foreground" />}
+        </div>
+      </div>
+
+      {expanded && (
+        <div className="border-t border-border">
+          {/* PO-level phases */}
+          <div className="p-4 bg-muted/20 border-b border-border">
+            <h4 className="text-sm font-semibold mb-3 flex items-center gap-2">
+              <BarChart3 className="w-4 h-4 text-primary" />
+              مراحل الطلب
+            </h4>
+            <div className="grid grid-cols-3 gap-3">
+              {po.poPhases.map((p: any, i: number) => (
+                <div key={i} className={cn(
+                  "p-3 rounded-lg border text-center",
+                  p.status === "done" ? "bg-green-50 border-green-200 dark:bg-green-950/30 dark:border-green-800"
+                    : "bg-muted border-border"
+                )}>
+                  <div className="text-xs text-muted-foreground mb-1">{p.phase}</div>
+                  <div className="font-bold text-sm">{formatHours(p.durationHours)}</div>
+                  {p.actor && <div className="text-xs text-muted-foreground mt-1 truncate">{p.actor}</div>}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Items */}
+          <div className="p-4 space-y-2">
+            <h4 className="text-sm font-semibold mb-3 flex items-center gap-2">
+              <Package className="w-4 h-4 text-primary" />
+              الأصناف ({po.items.length})
+            </h4>
+            {po.items.map((item: any) => (
+              <ItemRow key={item.itemId} item={item} />
+            ))}
+          </div>
+        </div>
+      )}
+    </Card>
+  );
+}
+
+// ─── Main Page ────────────────────────────────────────────────────────────────
+export default function PurchaseCycleReport() {
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [filterInput, setFilterInput] = useState({ dateFrom: "", dateTo: "" });
+  const [showFilters, setShowFilters] = useState(false);
+
+  const { data, isLoading, refetch } = trpc.reports.purchaseCycleReport.useQuery(
+    filterInput.dateFrom || filterInput.dateTo
+      ? { dateFrom: filterInput.dateFrom || undefined, dateTo: filterInput.dateTo || undefined }
+      : undefined,
+    { refetchInterval: 60000 }
+  );
+
+  const handleApplyFilter = () => {
+    setFilterInput({ dateFrom, dateTo });
+  };
+
+  const handleClearFilter = () => {
+    setDateFrom("");
+    setDateTo("");
+    setFilterInput({ dateFrom: "", dateTo: "" });
+  };
+
+  // Sort POs by totalPOHours desc (bottlenecks first)
+  const sortedPOs = useMemo(() => {
+    if (!data?.pos) return [];
+    return [...data.pos].sort((a, b) => (b.totalPOHours || 0) - (a.totalPOHours || 0));
+  }, [data]);
+
+  return (
+    <div className="space-y-6" dir="rtl">
+      {/* Header */}
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
+            <ShoppingCart className="w-5 h-5 text-primary" />
+          </div>
+          <div>
+            <h1 className="text-xl font-bold tracking-tight">تقرير دورة الشراء</h1>
+            <p className="text-sm text-muted-foreground">وقت كل مرحلة على مستوى كل صنف</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={() => setShowFilters(f => !f)} className="gap-2">
+            <Filter className="w-4 h-4" />
+            فلترة
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => refetch()} className="gap-2">
+            <RefreshCw className="w-4 h-4" />
+            تحديث
+          </Button>
+        </div>
+      </div>
+
+      {/* Filters */}
+      {showFilters && (
+        <Card>
+          <CardContent className="p-4">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 items-end">
+              <div className="space-y-1.5">
+                <Label className="text-xs">من تاريخ</Label>
+                <Input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className="text-sm" />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">إلى تاريخ</Label>
+                <Input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className="text-sm" />
+              </div>
+              <Button size="sm" onClick={handleApplyFilter}>تطبيق</Button>
+              <Button size="sm" variant="outline" onClick={handleClearFilter}>مسح</Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Summary Cards */}
+      {isLoading ? (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-24 rounded-xl" />)}
+        </div>
+      ) : data && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <Card className="bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-950/40 dark:to-blue-900/20 border-blue-200 dark:border-blue-800">
+            <CardContent className="p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <ShoppingCart className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                <span className="text-xs text-blue-600 dark:text-blue-400 font-medium">إجمالي الطلبات</span>
+              </div>
+              <p className="text-3xl font-bold text-blue-700 dark:text-blue-300">{data.total}</p>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-gradient-to-br from-green-50 to-green-100 dark:from-green-950/40 dark:to-green-900/20 border-green-200 dark:border-green-800">
+            <CardContent className="p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <Timer className="w-4 h-4 text-green-600 dark:text-green-400" />
+                <span className="text-xs text-green-600 dark:text-green-400 font-medium">متوسط وقت الدورة</span>
+              </div>
+              <p className="text-2xl font-bold text-green-700 dark:text-green-300">
+                {formatHours(data.avgTotalHours)}
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-gradient-to-br from-orange-50 to-orange-100 dark:from-orange-950/40 dark:to-orange-900/20 border-orange-200 dark:border-orange-800">
+            <CardContent className="p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <AlertTriangle className="w-4 h-4 text-orange-600 dark:text-orange-400" />
+                <span className="text-xs text-orange-600 dark:text-orange-400 font-medium">أطول مرحلة</span>
+              </div>
+              <p className="text-sm font-bold text-orange-700 dark:text-orange-300">
+                {data.phaseAvgs.sort((a, b) => (b.avgHours || 0) - (a.avgHours || 0))[0]?.phase || "—"}
+              </p>
+              <p className="text-xs text-orange-600 dark:text-orange-400 mt-1">
+                {formatHours(data.phaseAvgs.sort((a, b) => (b.avgHours || 0) - (a.avgHours || 0))[0]?.avgHours || null)}
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-gradient-to-br from-purple-50 to-purple-100 dark:from-purple-950/40 dark:to-purple-900/20 border-purple-200 dark:border-purple-800">
+            <CardContent className="p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <TrendingUp className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+                <span className="text-xs text-purple-600 dark:text-purple-400 font-medium">أصناف محللة</span>
+              </div>
+              <p className="text-3xl font-bold text-purple-700 dark:text-purple-300">
+                {data.pos.reduce((s, p) => s + p.itemCount, 0)}
+              </p>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* Phase Averages */}
+      {data && data.phaseAvgs.length > 0 && (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <BarChart3 className="w-4 h-4 text-primary" />
+              متوسط وقت كل مرحلة
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              {data.phaseAvgs.map((p, i) => {
+                const maxHours = Math.max(...data.phaseAvgs.map(x => x.avgHours || 0));
+                const pct = maxHours > 0 ? ((p.avgHours || 0) / maxHours) * 100 : 0;
+                return (
+                  <div key={i} className="space-y-1">
+                    <div className="flex items-center justify-between text-sm">
+                      <div className="flex items-center gap-2">
+                        <span className={cn("w-2.5 h-2.5 rounded-sm", PHASE_COLORS[i % PHASE_COLORS.length])} />
+                        <span className="font-medium">{p.phase}</span>
+                        <span className="text-xs text-muted-foreground">({p.count} صنف)</span>
+                      </div>
+                      <span className="font-bold">{formatHours(p.avgHours)}</span>
+                    </div>
+                    <div className="h-2 bg-muted rounded-full overflow-hidden">
+                      <div
+                        className={cn("h-full rounded-full transition-all", PHASE_COLORS[i % PHASE_COLORS.length])}
+                        style={{ width: `${pct}%` }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* PO List */}
+      <div className="space-y-3">
+        <h2 className="text-base font-semibold flex items-center gap-2">
+          <ShoppingCart className="w-4 h-4 text-primary" />
+          طلبات الشراء ({sortedPOs.length})
+        </h2>
+
+        {isLoading ? (
+          <div className="space-y-3">
+            {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-20 rounded-xl" />)}
+          </div>
+        ) : sortedPOs.length === 0 ? (
+          <Card>
+            <CardContent className="p-12 text-center">
+              <ShoppingCart className="w-12 h-12 text-muted-foreground/30 mx-auto mb-3" />
+              <p className="text-muted-foreground">لا توجد طلبات شراء في هذه الفترة</p>
+            </CardContent>
+          </Card>
+        ) : (
+          sortedPOs.map(po => <POCard key={po.poId} po={po} />)
+        )}
+      </div>
+    </div>
+  );
+}

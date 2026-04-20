@@ -15,6 +15,8 @@ const en: TranslationKeys = {
     inventory: "Warehouse",
     reports: "Reports",
     technicianReport: "Technician Performance",
+    purchaseCycleReport: "Purchase Cycle Report",
+    maintenanceCycleReport: "Maintenance Cycle Report",
     users: "Users",
     sites: "Sites",
     aiAssistant: "AI Assistant",
