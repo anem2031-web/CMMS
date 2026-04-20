@@ -29,7 +29,7 @@ import {
   HardDrive, CalendarClock, ScanSearch, DoorOpen, Nfc,
   ChevronDown, Search, X
 } from "lucide-react";
-import { CSSProperties, useEffect, useRef, useState, useMemo } from "react";
+import { CSSProperties, useEffect, useRef, useState, useMemo, useCallback } from "react";
 import { useLocation } from "wouter";
 import { DashboardLayoutSkeleton } from './DashboardLayoutSkeleton';
 import { trpc } from "@/lib/trpc";
@@ -182,7 +182,35 @@ function DashboardLayoutContent({ children, setSidebarWidth }: { children: React
   const isMobile = useIsMobile();
   const { t } = useTranslation();
 
-  const { data: unreadCount } = trpc.notifications.unreadCount.useQuery(undefined, { refetchInterval: 30000 });
+  const { data: unreadCount } = trpc.notifications.unreadCount.useQuery(undefined, { refetchInterval: 5000 });
+  const { data: latestNotifications } = trpc.notifications.list.useQuery(undefined, { refetchInterval: 5000 });
+
+  // ── Live notification popup ──
+  const [popupNotifs, setPopupNotifs] = useState<Array<{ id: number; title: string; message: string; relatedTicketId?: number | null }>>([]);
+  const prevNotifIdsRef = useRef<Set<number>>(new Set());
+
+  useEffect(() => {
+    if (!latestNotifications) return;
+    const unread = latestNotifications.filter(n => !n.isRead);
+    const currentIds = new Set(unread.map(n => n.id));
+    const newNotifs = unread.filter(n => !prevNotifIdsRef.current.has(n.id) && prevNotifIdsRef.current.size > 0);
+    if (newNotifs.length > 0) {
+      setPopupNotifs(prev => [
+        ...prev,
+        ...newNotifs.map(n => ({ id: n.id, title: n.title, message: n.message, relatedTicketId: n.relatedTicketId }))
+      ]);
+      newNotifs.forEach(n => {
+        setTimeout(() => {
+          setPopupNotifs(prev => prev.filter(p => p.id !== n.id));
+        }, 8000);
+      });
+    }
+    prevNotifIdsRef.current = currentIds;
+  }, [latestNotifications]);
+
+  const dismissPopup = useCallback((id: number) => {
+    setPopupNotifs(prev => prev.filter(p => p.id !== id));
+  }, []);
 
   const role = user?.role || "user";
 
@@ -399,7 +427,7 @@ function DashboardLayoutContent({ children, setSidebarWidth }: { children: React
                     <div className="relative shrink-0">
                       <Bell className={`h-3.5 w-3.5 ${location === "/notifications" ? "text-sidebar-primary" : "text-sidebar-foreground/55"}`} />
                       {(unreadCount || 0) > 0 && (
-                        <span className="absolute -top-1.5 -right-1.5 w-3.5 h-3.5 bg-destructive text-destructive-foreground text-[9px] rounded-full flex items-center justify-center font-bold leading-none">
+                        <span className="absolute -top-1.5 -right-1.5 min-w-[14px] h-3.5 px-0.5 bg-destructive text-destructive-foreground text-[9px] rounded-full flex items-center justify-center font-bold leading-none animate-pulse">
                           {(unreadCount || 0) > 9 ? "9+" : unreadCount}
                         </span>
                       )}
@@ -466,8 +494,8 @@ function DashboardLayoutContent({ children, setSidebarWidth }: { children: React
             <div className="relative cursor-pointer" onClick={() => setLocation("/notifications")}>
               <Bell className="h-5 w-5 text-muted-foreground" />
               {(unreadCount || 0) > 0 && (
-                <span className="absolute -top-1 -right-1 w-4 h-4 bg-destructive text-destructive-foreground text-[10px] rounded-full flex items-center justify-center font-bold">
-                  {unreadCount}
+                <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] px-1 bg-destructive text-destructive-foreground text-[10px] rounded-full flex items-center justify-center font-bold animate-pulse">
+                  {(unreadCount || 0) > 9 ? "9+" : unreadCount}
                 </span>
               )}
             </div>
@@ -475,6 +503,41 @@ function DashboardLayoutContent({ children, setSidebarWidth }: { children: React
         )}
         <main className="flex-1 p-4 md:p-6">{children}</main>
       </SidebarInset>
+
+      {/* ── Live Notification Popups ── */}
+      <div className="fixed bottom-4 left-4 z-[9999] flex flex-col gap-2 max-w-sm" dir="rtl">
+        {popupNotifs.map((notif) => (
+          <div
+            key={notif.id}
+            className="bg-background border border-border rounded-xl shadow-2xl p-4 flex items-start gap-3 animate-in slide-in-from-bottom-4 duration-300"
+            style={{ minWidth: 280 }}
+          >
+            <div className="flex-shrink-0 w-9 h-9 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center">
+              <Bell className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="font-semibold text-sm text-foreground leading-tight">{notif.title}</p>
+              <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{notif.message}</p>
+              <div className="flex gap-2 mt-2">
+                {notif.relatedTicketId && (
+                  <button
+                    onClick={() => { setLocation(`/tickets/${notif.relatedTicketId}`); dismissPopup(notif.id); }}
+                    className="text-xs font-medium text-primary hover:underline"
+                  >
+                    عرض البلاغ
+                  </button>
+                )}
+              </div>
+            </div>
+            <button
+              onClick={() => dismissPopup(notif.id)}
+              className="flex-shrink-0 text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        ))}
+      </div>
     </>
   );
 }
