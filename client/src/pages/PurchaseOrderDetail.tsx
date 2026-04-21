@@ -90,7 +90,7 @@ export default function PurchaseOrderDetail() {
   const [rejectReason, setRejectReason] = useState("");
   const [custodyAmount, setCustodyAmount] = useState("");
   const [uploadingItem, setUploadingItem] = useState<string | null>(null);
-  const [itemPhotos, setItemPhotos] = useState<Record<number, { invoice?: string; purchased?: string }>>({})
+  const [itemPhotos, setItemPhotos] = useState<Record<number, { invoice?: string; purchased?: string; warehouse?: string }>>({})
   const [dropZoneFor, setDropZoneFor] = useState<string | null>(null); // e.g. "123-invoice" or "123-purchased";
   const [receiveData, setReceiveData] = useState<Record<number, { cost: string; supplier: string; supplierItemName: string; warehousePhotoUrl: string }>>({});
   const [editingItem, setEditingItem] = useState<any>(null);
@@ -111,7 +111,7 @@ export default function PurchaseOrderDetail() {
   const totalEstimated = useMemo(() => visibleItems.reduce((sum: number, item: any) => sum + (parseFloat(item.estimatedTotalCost || "0")), 0), [visibleItems]);
   const totalActual = useMemo(() => visibleItems.reduce((sum: number, item: any) => sum + (parseFloat(item.actualTotalCost || "0")), 0), [visibleItems]);
 
-  const handleUpload = async (file: File, itemId: number, type: "invoice" | "purchased") => {
+  const handleUpload = async (file: File, itemId: number, type: "invoice" | "purchased" | "warehouse"): Promise<string | null> => {
     setUploadingItem(`${itemId}-${type}`);
     try {
       const formData = new FormData();
@@ -121,9 +121,12 @@ export default function PurchaseOrderDetail() {
       if (data.url) {
         setItemPhotos(prev => ({ ...prev, [itemId]: { ...prev[itemId], [type]: data.url } }));
         toast.success(t.common.save);
+        setUploadingItem(null);
+        return data.url;
       }
     } catch { toast.error(t.common.close); }
     setUploadingItem(null);
+    return null;
   };
 
   if (isLoading) return <div className="space-y-4"><Skeleton className="h-8 w-48" /><Skeleton className="h-64 w-full" /></div>;
@@ -426,6 +429,55 @@ export default function PurchaseOrderDetail() {
                     <div className="space-y-1">
                       <Label className="text-[11px] text-green-700">اسم الصنف كما في الفاتورة (اختياري)</Label>
                       <Input className="bg-white" placeholder={item.name} value={receiveData[item.id]?.supplierItemName || ""} onChange={e => setReceiveData(p => ({ ...p, [item.id]: { ...p[item.id], cost: p[item.id]?.cost || "", supplier: p[item.id]?.supplier || "", supplierItemName: e.target.value, warehousePhotoUrl: p[item.id]?.warehousePhotoUrl || "" } }))} />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-[11px] text-green-700">صورة تأكيد الاستلام *</Label>
+                      {itemPhotos[item.id]?.warehouse ? (
+                        <div className="relative mt-1">
+                          <img src={itemPhotos[item.id]!.warehouse} alt="" className="w-full h-20 rounded-lg object-cover border border-green-300" />
+                          <Button variant="destructive" size="icon" className="absolute top-1 left-1 h-5 w-5 rounded-full" onClick={() => {
+                            setItemPhotos(p => ({ ...p, [item.id]: { ...p[item.id], warehouse: undefined } }));
+                            setReceiveData(p => ({ ...p, [item.id]: { ...p[item.id], warehousePhotoUrl: "" } }));
+                            setDropZoneFor(null);
+                          }}>
+                            <XCircle className="w-3 h-3" />
+                          </Button>
+                        </div>
+                      ) : dropZoneFor === `${item.id}-warehouse` ? (
+                        <DropZone
+                          maxFiles={1}
+                          accept="image/*"
+                          label="اسحب صورة الاستلام"
+                          sublabel="صورة واحدة"
+                          onFilesUploaded={(files: UploadedFile[]) => {
+                            const done = files.find(f => f.status === "done" && f.url);
+                            if (done?.url) {
+                              setItemPhotos(p => ({ ...p, [item.id]: { ...p[item.id], warehouse: done.url } }));
+                              setReceiveData(p => ({ ...p, [item.id]: { ...p[item.id], warehousePhotoUrl: done.url! } }));
+                              setDropZoneFor(null);
+                            }
+                          }}
+                        />
+                      ) : (
+                        <div className="flex gap-1 mt-1">
+                          <Button variant="outline" size="sm" className="flex-1 h-20 border-dashed gap-1 border-green-300 text-green-700" onClick={() => {
+                            const input = document.createElement("input");
+                            input.type = "file"; input.accept = "image/*";
+                            input.onchange = async (e: any) => {
+                              if (e.target.files[0]) {
+                                const url = await handleUpload(e.target.files[0], item.id, "warehouse");
+                                if (url) setReceiveData(p => ({ ...p, [item.id]: { ...p[item.id], warehousePhotoUrl: url } }));
+                              }
+                            };
+                            input.click();
+                          }} disabled={uploadingItem === `${item.id}-warehouse`}>
+                            {uploadingItem === `${item.id}-warehouse` ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Camera className="w-4 h-4" /><span className="text-[10px]">التقط صورة</span></>}
+                          </Button>
+                          <Button variant="outline" size="sm" className="h-20 px-2 border-dashed border-green-300" onClick={() => setDropZoneFor(`${item.id}-warehouse`)} title="سحب وإفلات">
+                            <Upload className="w-3.5 h-3.5" />
+                          </Button>
+                        </div>
+                      )}
                     </div>
                     <Button size="sm" className="w-full gap-1.5" onClick={() => {
                       const d = receiveData[item.id];
