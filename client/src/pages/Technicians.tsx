@@ -17,6 +17,7 @@ export default function Technicians() {
   const [deleteConfirm, setDeleteConfirm] = useState<number | null>(null);
 
   const { data: technicians = [], refetch } = trpc.technicians.list.useQuery({ activeOnly: false });
+  const { data: openCounts = {} } = trpc.technicians.getOpenTicketCounts.useQuery();
 
   const createMutation = trpc.technicians.create.useMutation({
     onSuccess: () => { toast.success("تم إضافة الفني بنجاح"); refetch(); closeDialog(); },
@@ -110,13 +111,14 @@ export default function Technicians() {
               <TableHead className="text-right">الاسم</TableHead>
               <TableHead className="text-right">التخصص</TableHead>
               <TableHead className="text-right">الحالة</TableHead>
+              <TableHead className="text-right">البلاغات المفتوحة</TableHead>
               <TableHead className="text-right">الإجراءات</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {technicians.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={5} className="text-center py-12 text-muted-foreground">
+                <TableCell colSpan={6} className="text-center py-12 text-muted-foreground">
                   لا يوجد فنيون مسجلون. أضف أول فني الآن.
                 </TableCell>
               </TableRow>
@@ -135,6 +137,15 @@ export default function Technicians() {
                         {tech.status === "active" ? "نشط" : "غير نشط"}
                       </Badge>
                     </button>
+                  </TableCell>
+                  <TableCell>
+                    {(openCounts as Record<number, number>)[tech.id] ? (
+                      <Badge variant="destructive" className="font-bold">
+                        {(openCounts as Record<number, number>)[tech.id]} بلاغ
+                      </Badge>
+                    ) : (
+                      <span className="text-muted-foreground text-sm">لا يوجد</span>
+                    )}
                   </TableCell>
                   <TableCell>
                     <div className="flex gap-2">

@@ -198,6 +198,21 @@ export async function deleteTechnician(id: number) {
   await db.delete(technicians).where(eq(technicians.id, id));
 }
 
+export async function getTechnicianOpenTicketCounts(): Promise<Record<number, number>> {
+  const db = await getDb();
+  if (!db) return {};
+  const rows = await db
+    .select({ technicianId: tickets.assignedTechnicianId, cnt: count() })
+    .from(tickets)
+    .where(and(isNotNull(tickets.assignedTechnicianId), isNull(tickets.closedAt)))
+    .groupBy(tickets.assignedTechnicianId);
+  const result: Record<number, number> = {};
+  for (const row of rows) {
+    if (row.technicianId != null) result[row.technicianId] = row.cnt;
+  }
+  return result;
+}
+
 // ============================================================
 // TICKETS
 // ============================================================

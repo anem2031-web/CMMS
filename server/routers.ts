@@ -296,6 +296,9 @@ export const appRouter = router({
       await db.createAuditLog({ userId: ctx.user.id, action: "delete_technician", entityType: "technician", entityId: input.id });
       return { success: true };
     }),
+    getOpenTicketCounts: protectedProcedure.query(async () => {
+      return db.getTechnicianOpenTicketCounts();
+    }),
   }),
   // ============================================================
   // TICKETS
