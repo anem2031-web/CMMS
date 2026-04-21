@@ -21,6 +21,7 @@ const ur: TranslationKeys = {
     users: "صارفین",
     sites: "مقامات",
     sectionsPage: "حصے",
+    technicians: "ٹیکنیشینز",
     aiAssistant: "AI معاون",
     assets: "اثاثہ مینیجمنٹ",
     preventiveMaintenance: "احتیاطی دیکھ بھال",

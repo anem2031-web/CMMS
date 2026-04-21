@@ -33,6 +33,7 @@ export default function TicketDetail() {
   const { data: ticket, isLoading, refetch } = trpc.tickets.getById.useQuery({ id: ticketId }, { enabled: !!ticketId });
   const { data: history } = trpc.tickets.history.useQuery({ ticketId }, { enabled: !!ticketId });
   const { data: users } = trpc.users.list.useQuery();
+  const { data: externalTechs } = trpc.technicians.list.useQuery({ activeOnly: true });
   const { data: allSections } = trpc.sections.list.useQuery(undefined);
   const { data: allSites } = trpc.sites.list.useQuery();
   const { data: allPOs } = trpc.purchaseOrders.list.useQuery();
@@ -61,6 +62,7 @@ export default function TicketDetail() {
   const [showApproveWorkForm, setShowApproveWorkForm] = useState(false);
 
   const [selectedTech, setSelectedTech] = useState("");
+  const [selectedExternalTech, setSelectedExternalTech] = useState("");
   const [repairNotes, setRepairNotes] = useState("");
   const [materialsUsed, setMaterialsUsed] = useState("");
   const [afterPhotoUrl, setAfterPhotoUrl] = useState("");
@@ -356,13 +358,39 @@ export default function TicketDetail() {
                 <div className="space-y-2">
                   <p className="text-sm font-medium">{t.tickets.assignTechnician}:</p>
                   <div className="flex gap-2">
-                    <Select value={selectedTech} onValueChange={setSelectedTech}>
+                    <Select value={selectedExternalTech || selectedTech} onValueChange={(val) => {
+                      // Check if it's an external tech (prefixed with "ext_")
+                      if (val.startsWith("ext_")) {
+                        setSelectedExternalTech(val.replace("ext_", ""));
+                        setSelectedTech("");
+                      } else {
+                        setSelectedTech(val);
+                        setSelectedExternalTech("");
+                      }
+                    }}>
                       <SelectTrigger className="flex-1"><SelectValue placeholder={t.tickets.assignTechnician} /></SelectTrigger>
                       <SelectContent>
-                        {technicians.map(tech => <SelectItem key={tech.id} value={String(tech.id)}>{tech.name || tech.email}</SelectItem>)}
+                        {(externalTechs && externalTechs.length > 0) && (
+                          <>
+                            <div className="px-2 py-1 text-xs font-semibold text-muted-foreground">الفنيون الميدانيون</div>
+                            {externalTechs.map(tech => <SelectItem key={"ext_" + tech.id} value={"ext_" + String(tech.id)}>{tech.name}{tech.specialty ? ` (${tech.specialty})` : ""}</SelectItem>)}
+                          </>
+                        )}
+                        {technicians.length > 0 && (
+                          <>
+                            <div className="px-2 py-1 text-xs font-semibold text-muted-foreground">مستخدمو النظام</div>
+                            {technicians.map(tech => <SelectItem key={tech.id} value={String(tech.id)}>{tech.name || tech.email}</SelectItem>)}
+                          </>
+                        )}
                       </SelectContent>
                     </Select>
-                    <Button onClick={() => { if (selectedTech) assignMut.mutate({ id: ticket.id, technicianId: parseInt(selectedTech) }); }} disabled={!selectedTech || assignMut.isPending}>
+                    <Button onClick={() => {
+                      if (selectedExternalTech) {
+                        assignMut.mutate({ id: ticket.id, externalTechnicianId: parseInt(selectedExternalTech) });
+                      } else if (selectedTech) {
+                        assignMut.mutate({ id: ticket.id, technicianId: parseInt(selectedTech) });
+                      }
+                    }} disabled={(!selectedTech && !selectedExternalTech) || assignMut.isPending}>
                       {t.tickets.assignTechnician}
                     </Button>
                   </div>

@@ -21,6 +21,7 @@ const ar = {
     users: "المستخدمين",
     sites: "المواقع",
     sectionsPage: "الأقسام",
+    technicians: "الفنيون",
     aiAssistant: "المساعد الذكي",
     assets: "إدارة الأصول",
     preventiveMaintenance: "الصيانة الوقائية",

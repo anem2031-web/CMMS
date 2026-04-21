@@ -266,6 +266,38 @@ export const appRouter = router({
     }),
   }),
   // ============================================================
+  // TECHNICIANS
+  // ============================================================
+  technicians: router({
+    list: protectedProcedure.input(z.object({ activeOnly: z.boolean().optional() }).optional()).query(async ({ input }) => {
+      return db.getAllTechnicians(input?.activeOnly ?? false);
+    }),
+    create: protectedProcedure.input(z.object({
+      name: z.string().min(1),
+      specialty: z.string().optional(),
+    })).mutation(async ({ input, ctx }) => {
+      const id = await db.createTechnician(input);
+      await db.createAuditLog({ userId: ctx.user.id, action: "create_technician", entityType: "technician", entityId: id!, newValues: input });
+      return { id };
+    }),
+    update: protectedProcedure.input(z.object({
+      id: z.number(),
+      name: z.string().min(1).optional(),
+      specialty: z.string().optional(),
+      status: z.enum(["active", "inactive"]).optional(),
+    })).mutation(async ({ input, ctx }) => {
+      const { id, ...updateData } = input;
+      await db.updateTechnician(id, updateData);
+      await db.createAuditLog({ userId: ctx.user.id, action: "update_technician", entityType: "technician", entityId: id, newValues: updateData });
+      return { success: true };
+    }),
+    delete: protectedProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
+      await db.deleteTechnician(input.id);
+      await db.createAuditLog({ userId: ctx.user.id, action: "delete_technician", entityType: "technician", entityId: input.id });
+      return { success: true };
+    }),
+  }),
+  // ============================================================
   // TICKETS
   // ============================================================
   tickets: router({
@@ -357,12 +389,27 @@ export const appRouter = router({
       return { success: true };
     }),
 
-    assign: managerProcedure.input(z.object({ id: z.number(), technicianId: z.number() })).mutation(async ({ input, ctx }) => {
+    assign: managerProcedure.input(z.object({
+      id: z.number(),
+      technicianId: z.number().optional(),           // System user technician
+      externalTechnicianId: z.number().optional(),   // External technician (no account)
+    })).mutation(async ({ input, ctx }) => {
       const ticket = await db.getTicketById(input.id);
       if (!ticket) throw new TRPCError({ code: "NOT_FOUND" });
-      await db.updateTicket(input.id, { status: "assigned", assignedToId: input.technicianId });
+      if (!input.technicianId && !input.externalTechnicianId) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "يجب تحديد فني للإسناد" });
+      }
+      const updateData: Record<string, any> = {
+        status: "assigned",
+        assignedAt: new Date(),
+      };
+      if (input.technicianId) updateData.assignedToId = input.technicianId;
+      if (input.externalTechnicianId) updateData.assignedTechnicianId = input.externalTechnicianId;
+      await db.updateTicket(input.id, updateData);
       await db.addTicketStatusHistory({ ticketId: input.id, fromStatus: ticket.status, toStatus: "assigned", changedById: ctx.user.id });
-      await db.createNotification({ userId: input.technicianId, title: "بلاغ مُسند إليك", message: `تم إسناد البلاغ ${ticket.ticketNumber} إليك`, type: "info", relatedTicketId: input.id });
+      if (input.technicianId) {
+        await db.createNotification({ userId: input.technicianId, title: "بلاغ مُسند إليك", message: `تم إسناد البلاغ ${ticket.ticketNumber} إليك`, type: "info", relatedTicketId: input.id });
+      }
       return { success: true };
     }),
 
@@ -1728,6 +1775,31 @@ export const appRouter = router({
       }
 
       return db.getTechnicianPerformance(period === "all" ? undefined : { dateFrom, dateTo });
+    }),
+
+    externalTechnicianPerformance: protectedProcedure.input(z.object({
+      period: z.enum(["week", "month", "quarter", "year", "all", "custom"]).default("all"),
+      dateFrom: z.string().optional(),
+      dateTo: z.string().optional(),
+    }).optional()).query(async ({ input }) => {
+      const period = input?.period || "all";
+      let dateFrom: Date | undefined;
+      let dateTo: Date | undefined;
+      if (period === "custom" && input?.dateFrom && input?.dateTo) {
+        dateFrom = new Date(input.dateFrom);
+        dateTo = new Date(input.dateTo);
+        dateTo.setHours(23, 59, 59, 999);
+      } else if (period !== "all") {
+        dateTo = new Date();
+        dateFrom = new Date();
+        switch (period) {
+          case "week": dateFrom.setDate(dateFrom.getDate() - 7); break;
+          case "month": dateFrom.setMonth(dateFrom.getMonth() - 1); break;
+          case "quarter": dateFrom.setMonth(dateFrom.getMonth() - 3); break;
+          case "year": dateFrom.setFullYear(dateFrom.getFullYear() - 1); break;
+        }
+      }
+      return db.getExternalTechnicianPerformance(period === "all" ? undefined : { dateFrom, dateTo });
     }),
 
     // ── تقرير دورة الشراء ─────────────────────────────────────────────────────

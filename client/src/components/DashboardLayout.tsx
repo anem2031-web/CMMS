@@ -27,7 +27,7 @@ import {
   Package, BarChart3, Users, Bell, MapPin, Wrench, Shield,
   Brain, ShoppingBag, Truck, Languages, Database,
   HardDrive, CalendarClock, ScanSearch, DoorOpen, Nfc,
-  ChevronDown, Search, X, Building2
+  ChevronDown, Search, X, Building2, UserCog
 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState, useMemo, useCallback } from "react";
 import { useLocation } from "wouter";
@@ -109,6 +109,8 @@ const NAV_SECTIONS: NavSection[] = [
         roles: ["owner","admin","maintenance_manager"] },
       { icon: Building2,     labelKey: "nav.sectionsPage",      path: "/sections",
         roles: ["owner","admin","maintenance_manager"] },
+      { icon: UserCog,        labelKey: "nav.technicians",       path: "/technicians",
+        roles: ["owner","admin","maintenance_manager","supervisor"] },
       { icon: Brain,         labelKey: "nav.aiAssistant",       path: "/ai-assistant",
         roles: ["owner","admin","senior_management","maintenance_manager"] },
     ],

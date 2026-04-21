@@ -6,7 +6,7 @@ import {
   ticketStatusHistory, attachments, sites, backups,
   assets, preventivePlans, pmWorkOrders, assetSpareParts, pmJobs, assetMetrics,
   twoFactorSecrets, twoFactorAuditLogs,
-  pushSubscriptions, sections,
+  pushSubscriptions, sections, technicians,
   type InsertAsset, type InsertPreventivePlan, type InsertPMWorkOrder,
   type InsertSection
 } from "../drizzle/schema";
@@ -164,6 +164,38 @@ export async function deleteSection(id: number) {
   const db = await getDb();
   if (!db) return;
   await db.delete(sections).where(eq(sections.id, id));
+}
+
+// ============================================================
+// TECHNICIANS
+// ============================================================
+export async function getAllTechnicians(activeOnly = false) {
+  const db = await getDb();
+  if (!db) return [];
+  if (activeOnly) return db.select().from(technicians).where(eq(technicians.status, "active")).orderBy(asc(technicians.name));
+  return db.select().from(technicians).orderBy(asc(technicians.name));
+}
+export async function getTechnicianById(id: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const result = await db.select().from(technicians).where(eq(technicians.id, id)).limit(1);
+  return result[0] || null;
+}
+export async function createTechnician(data: { name: string; specialty?: string }) {
+  const db = await getDb();
+  if (!db) return null;
+  const result = await db.insert(technicians).values({ ...data, status: "active" });
+  return result[0].insertId;
+}
+export async function updateTechnician(id: number, data: { name?: string; specialty?: string; status?: "active" | "inactive" }) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(technicians).set(data).where(eq(technicians.id, id));
+}
+export async function deleteTechnician(id: number) {
+  const db = await getDb();
+  if (!db) return;
+  await db.delete(technicians).where(eq(technicians.id, id));
 }
 
 // ============================================================
@@ -553,6 +585,86 @@ export async function getTechnicianPerformance(filters?: { dateFrom?: Date; date
   return results.sort((a, b) => b.performanceScore - a.performanceScore);
 }
 
+// ============================================================
+// EXTERNAL TECHNICIAN PERFORMANCE
+// ============================================================
+export async function getExternalTechnicianPerformance(filters?: { dateFrom?: Date; dateTo?: Date }) {
+  const db = await getDb();
+  if (!db) return [];
+  const dateFrom = filters?.dateFrom;
+  const dateTo = filters?.dateTo;
+  const withDateFilter = (baseConditions: any[], dateField: any) => {
+    const conds = [...baseConditions];
+    if (dateFrom) conds.push(gte(dateField, dateFrom));
+    if (dateTo) conds.push(lte(dateField, dateTo));
+    return conds;
+  };
+  const techs = await db.select().from(technicians);
+  const results = [];
+  for (const tech of techs) {
+    const baseCond = [eq(tickets.assignedTechnicianId, tech.id)];
+    const dateFilteredCond = withDateFilter(baseCond, tickets.createdAt);
+    const [totalAssigned] = await db.select({ cnt: count() }).from(tickets).where(and(...dateFilteredCond));
+    const [completed] = await db.select({ cnt: count() }).from(tickets).where(
+      and(...dateFilteredCond, or(eq(tickets.status, "repaired"), eq(tickets.status, "verified"), eq(tickets.status, "closed")))
+    );
+    const [inProgress] = await db.select({ cnt: count() }).from(tickets).where(
+      and(...dateFilteredCond, eq(tickets.status, "in_progress"))
+    );
+    const closedCond = withDateFilter([eq(tickets.assignedTechnicianId, tech.id), eq(tickets.status, "closed")], tickets.closedAt);
+    const closedTickets = await db.select({
+      id: tickets.id,
+      assignedAt: tickets.assignedAt,
+      closedAt: tickets.closedAt,
+      priority: tickets.priority,
+      category: tickets.category,
+    }).from(tickets).where(and(...closedCond));
+    let totalHours = 0;
+    let resolvedCount = 0;
+    const resolutionTimes: number[] = [];
+    for (const t of closedTickets) {
+      if (t.closedAt && t.assignedAt) {
+        const hours = (new Date(t.closedAt).getTime() - new Date(t.assignedAt).getTime()) / (1000 * 60 * 60);
+        totalHours += hours;
+        resolvedCount++;
+        resolutionTimes.push(hours);
+      }
+    }
+    const avgResolutionHours = resolvedCount > 0 ? totalHours / resolvedCount : 0;
+    const minResolutionHours = resolutionTimes.length > 0 ? Math.min(...resolutionTimes) : 0;
+    const maxResolutionHours = resolutionTimes.length > 0 ? Math.max(...resolutionTimes) : 0;
+    const allTechTickets = await db.select({ priority: tickets.priority, category: tickets.category }).from(tickets).where(and(...dateFilteredCond));
+    const priorityBreakdown: Record<string, number> = {};
+    allTechTickets.forEach(t => { priorityBreakdown[t.priority] = (priorityBreakdown[t.priority] || 0) + 1; });
+    const catBreak: Record<string, number> = {};
+    allTechTickets.forEach(t => { catBreak[t.category] = (catBreak[t.category] || 0) + 1; });
+    const totalAssignedCount = totalAssigned?.cnt || 0;
+    const completedCount = completed?.cnt || 0;
+    const completionRate = totalAssignedCount > 0 ? Math.round((completedCount / totalAssignedCount) * 100) : 0;
+    let score = 0;
+    if (totalAssignedCount > 0) {
+      const rateScore = completionRate * 0.4;
+      const speedScore = avgResolutionHours > 0 ? Math.max(0, (1 - avgResolutionHours / (30 * 24)) * 100) * 0.3 : 0;
+      const volumeScore = Math.min(100, totalAssignedCount * 5) * 0.3;
+      score = Math.round(rateScore + speedScore + volumeScore);
+    }
+    results.push({
+      technician: { id: tech.id, name: tech.name, email: null, specialty: tech.specialty, status: tech.status, isExternal: true },
+      totalAssigned: totalAssignedCount,
+      completed: completedCount,
+      inProgress: inProgress?.cnt || 0,
+      pending: totalAssignedCount - completedCount - (inProgress?.cnt || 0),
+      completionRate,
+      avgResolutionHours: Math.round(avgResolutionHours * 10) / 10,
+      minResolutionHours: Math.round(minResolutionHours * 10) / 10,
+      maxResolutionHours: Math.round(maxResolutionHours * 10) / 10,
+      priorityBreakdown,
+      categoryBreakdown: catBreak,
+      performanceScore: score,
+    });
+  }
+  return results.sort((a, b) => b.performanceScore - a.performanceScore);
+}
 // ============================================================
 // ATTACHMENTS
 // ============================================================

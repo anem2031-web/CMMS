@@ -120,6 +120,20 @@
       "when": 1776765054279,
       "tag": "0016_clever_stephen_strange",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "5",
+      "when": 1776775858253,
+      "tag": "0017_curved_johnny_blaze",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "5",
+      "when": 1776775981888,
+      "tag": "0018_faithful_prism",
+      "breakpoints": true
     }
   ]
 }

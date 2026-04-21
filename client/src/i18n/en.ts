@@ -21,6 +21,7 @@ const en: TranslationKeys = {
     users: "Users",
     sites: "Sites",
     sectionsPage: "Sections",
+    technicians: "Technicians",
     aiAssistant: "AI Assistant",
     assets: "Asset Management",
     preventiveMaintenance: "Preventive Maintenance",

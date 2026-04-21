@@ -19,6 +19,7 @@ import Reports from "./pages/Reports";
 import UsersPage from "./pages/Users";
 import Sites from "./pages/Sites";
 import Sections from "./pages/Sections";
+import Technicians from "./pages/Technicians";
 import Notifications from "./pages/Notifications";
 import AuditLog from "./pages/AuditLog";
 import AIAssistant from "./pages/AIAssistant";
@@ -66,6 +67,7 @@ function Router() {
             <Route path="/users" component={UsersPage} />
             <Route path="/sites" component={Sites} />
             <Route path="/sections" component={Sections} />
+            <Route path="/technicians" component={Technicians} />
             <Route path="/notifications" component={Notifications} />
             <Route path="/audit-log" component={AuditLog} />
             <Route path="/ai-assistant" component={AIAssistant} />

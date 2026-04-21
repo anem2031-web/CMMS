@@ -116,6 +116,7 @@ export default function TechnicianReport() {
   }, [selectedPeriod, customDateFrom, customDateTo]);
 
   const { data: techData, isLoading, error } = trpc.reports.technicianPerformance.useQuery(queryInput);
+  const { data: extTechData, isLoading: extLoading } = trpc.reports.externalTechnicianPerformance.useQuery(queryInput);
 
   const handlePeriodChange = (period: PeriodType) => {
     if (period === "custom") {
@@ -375,11 +376,12 @@ export default function TechnicianReport() {
       </div>
 
       <Tabs defaultValue="overview" className="space-y-4">
-        <TabsList className="grid w-full grid-cols-4 lg:w-auto lg:inline-grid">
+        <TabsList className="grid w-full grid-cols-5 lg:w-auto lg:inline-grid">
           <TabsTrigger value="overview">{t.reports.overview}</TabsTrigger>
           <TabsTrigger value="comparison">{t.reports.comparison}</TabsTrigger>
           <TabsTrigger value="details">{t.common.details}</TabsTrigger>
           <TabsTrigger value="trends">{t.reports.monthlyTrend}</TabsTrigger>
+          <TabsTrigger value="external">الفنيون الخارجيون</TabsTrigger>
         </TabsList>
 
         {/* Overview Tab */}
@@ -735,6 +737,117 @@ export default function TechnicianReport() {
               </CardContent>
             </Card>
           ))}
+        </TabsContent>
+        {/* External Technicians Tab */}
+        <TabsContent value="external" className="space-y-4">
+          {extLoading ? (
+            <div className="flex justify-center py-12"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /></div>
+          ) : !extTechData || extTechData.length === 0 ? (
+            <Card><CardContent className="flex flex-col items-center justify-center py-12 text-center">
+              <Users className="h-12 w-12 text-muted-foreground mb-4" />
+              <p className="text-lg font-semibold">لا يوجد فنيون خارجيون مسجلون</p>
+              <p className="text-sm text-muted-foreground mt-1">أضف فنيين من صفحة إدارة الفنيين</p>
+            </CardContent></Card>
+          ) : (
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <Card><CardContent className="pt-6">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 rounded-lg bg-blue-100 dark:bg-blue-900/30">
+                      <Users className="h-5 w-5 text-blue-600" />
+                    </div>
+                    <div>
+                      <p className="text-sm text-muted-foreground">إجمالي الفنيين</p>
+                      <p className="text-2xl font-bold">{extTechData.length}</p>
+                    </div>
+                  </div>
+                </CardContent></Card>
+                <Card><CardContent className="pt-6">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 rounded-lg bg-green-100 dark:bg-green-900/30">
+                      <CheckCircle2 className="h-5 w-5 text-green-600" />
+                    </div>
+                    <div>
+                      <p className="text-sm text-muted-foreground">إجمالي البلاغات المُسندة</p>
+                      <p className="text-2xl font-bold">{extTechData.reduce((s, t) => s + t.totalAssigned, 0)}</p>
+                    </div>
+                  </div>
+                </CardContent></Card>
+                <Card><CardContent className="pt-6">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 rounded-lg bg-purple-100 dark:bg-purple-900/30">
+                      <Clock className="h-5 w-5 text-purple-600" />
+                    </div>
+                    <div>
+                      <p className="text-sm text-muted-foreground">متوسط وقت الإنجاز</p>
+                      <p className="text-2xl font-bold">
+                        {extTechData.filter(t => t.avgResolutionHours > 0).length > 0
+                          ? Math.round(extTechData.filter(t => t.avgResolutionHours > 0).reduce((s, t) => s + t.avgResolutionHours, 0) / extTechData.filter(t => t.avgResolutionHours > 0).length)
+                          : 0} ساعة
+                      </p>
+                    </div>
+                  </div>
+                </CardContent></Card>
+              </div>
+              <Card>
+                <CardHeader><CardTitle>أداء الفنيين الخارجيين</CardTitle></CardHeader>
+                <CardContent>
+                  <div className="space-y-4">
+                    {extTechData.map((tech, idx) => (
+                      <div key={tech.technician.id} className="border rounded-lg p-4 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white text-sm font-bold">
+                              {idx + 1}
+                            </div>
+                            <div>
+                              <p className="font-semibold">{tech.technician.name}</p>
+                              {tech.technician.specialty && (
+                                <p className="text-sm text-muted-foreground">{tech.technician.specialty}</p>
+                              )}
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Badge variant={tech.technician.status === 'active' ? 'default' : 'secondary'}>
+                              {tech.technician.status === 'active' ? 'نشط' : 'غير نشط'}
+                            </Badge>
+                            <div className={`px-3 py-1 rounded-lg border text-sm font-bold ${getScoreBg(tech.performanceScore)} ${getScoreColor(tech.performanceScore)}`}>
+                              {tech.performanceScore} نقطة
+                            </div>
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+                          <div className="text-center p-2 bg-muted rounded">
+                            <p className="text-muted-foreground">مُسند</p>
+                            <p className="font-bold text-lg">{tech.totalAssigned}</p>
+                          </div>
+                          <div className="text-center p-2 bg-green-50 dark:bg-green-900/20 rounded">
+                            <p className="text-muted-foreground">مُنجز</p>
+                            <p className="font-bold text-lg text-green-600">{tech.completed}</p>
+                          </div>
+                          <div className="text-center p-2 bg-blue-50 dark:bg-blue-900/20 rounded">
+                            <p className="text-muted-foreground">جارٍ</p>
+                            <p className="font-bold text-lg text-blue-600">{tech.inProgress}</p>
+                          </div>
+                          <div className="text-center p-2 bg-muted rounded">
+                            <p className="text-muted-foreground">متوسط الوقت</p>
+                            <p className="font-bold text-lg">{tech.avgResolutionHours > 0 ? formatHours(tech.avgResolutionHours) : '—'}</p>
+                          </div>
+                        </div>
+                        <div className="space-y-1">
+                          <div className="flex justify-between text-sm">
+                            <span className="text-muted-foreground">نسبة الإنجاز</span>
+                            <span className="font-medium">{tech.completionRate}%</span>
+                          </div>
+                          <Progress value={tech.completionRate} className="h-2" />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          )}
         </TabsContent>
       </Tabs>
     </div>

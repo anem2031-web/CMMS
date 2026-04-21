@@ -58,6 +58,21 @@ export type Section = typeof sections.$inferSelect;
 export type InsertSection = typeof sections.$inferInsert;
 
 // ============================================================
+// 2c. TECHNICIANS (External technicians without system accounts)
+// ============================================================
+export const technicianStatuses = ["active", "inactive"] as const;
+export const technicians = mysqlTable("technicians", {
+  id: int("id").autoincrement().primaryKey(),
+  name: varchar("name", { length: 200 }).notNull(),
+  specialty: varchar("specialty", { length: 200 }),
+  status: mysqlEnum("status", [...technicianStatuses]).default("active").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type Technician = typeof technicians.$inferSelect;
+export type InsertTechnician = typeof technicians.$inferInsert;
+
+// ============================================================
 // 3. MAINTENANCE TICKETS
 // ============================================================
 export const ticketStatuses = [
@@ -95,6 +110,8 @@ export const tickets = mysqlTable("tickets", {
   locationDetail: varchar("locationDetail", { length: 300 }),
   reportedById: int("reportedById").notNull(),
   assignedToId: int("assignedToId"),
+  assignedTechnicianId: int("assignedTechnicianId"),  // External technician (no system account)
+  assignedAt: timestamp("assignedAt"),  // When technician was assigned
   approvedById: int("approvedById"),
   // Workflow fields
   maintenancePath: mysqlEnum("maintenancePath", ["A", "B", "C"]),  // A=Internal Direct, B=Internal+Procurement, C=External
