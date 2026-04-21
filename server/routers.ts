@@ -233,6 +233,39 @@ export const appRouter = router({
   }),
 
   // ============================================================
+  // SECTIONS
+  // ============================================================
+  sections: router({
+    list: protectedProcedure.input(z.object({ siteId: z.number().optional() }).optional()).query(async ({ input }) => {
+      return db.getSections(input?.siteId);
+    }),
+    create: protectedProcedure.input(z.object({
+      name: z.string().min(1),
+      siteId: z.number(),
+      description: z.string().optional(),
+    })).mutation(async ({ input, ctx }) => {
+      const id = await db.createSection({ ...input, isActive: true });
+      await db.createAuditLog({ userId: ctx.user.id, action: "create_section", entityType: "section", entityId: id!, newValues: input });
+      return { id };
+    }),
+    update: protectedProcedure.input(z.object({
+      id: z.number(),
+      name: z.string().min(1).optional(),
+      description: z.string().optional(),
+      isActive: z.boolean().optional(),
+    })).mutation(async ({ input, ctx }) => {
+      const { id, ...updateData } = input;
+      await db.updateSection(id, updateData);
+      await db.createAuditLog({ userId: ctx.user.id, action: "update_section", entityType: "section", entityId: id, newValues: updateData });
+      return { success: true };
+    }),
+    delete: protectedProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
+      await db.deleteSection(input.id);
+      await db.createAuditLog({ userId: ctx.user.id, action: "delete_section", entityType: "section", entityId: input.id });
+      return { success: true };
+    }),
+  }),
+  // ============================================================
   // TICKETS
   // ============================================================
   tickets: router({
@@ -263,6 +296,7 @@ export const appRouter = router({
       priority: z.string().default("medium"),
       category: z.string().default("general"),
       siteId: z.number().optional(),
+      sectionId: z.number().optional(),
       assetId: z.number().optional(),
       locationDetail: z.string().optional(),
       beforePhotoUrl: z.string().optional(),
@@ -2193,6 +2227,7 @@ ${JSON.stringify(recentAudit.map((a: any) => ({ action: a.action, entity: a.enti
       model: z.string().optional(),
       serialNumber: z.string().optional(),
       siteId: z.number().optional(),
+      sectionId: z.number().optional(),
       locationDetail: z.string().optional(),
       status: z.enum(["active", "inactive", "under_maintenance", "disposed"]).optional(),
       purchaseDate: z.string().optional(),
@@ -2249,6 +2284,7 @@ ${JSON.stringify(recentAudit.map((a: any) => ({ action: a.action, entity: a.enti
       model: z.string().optional(),
       serialNumber: z.string().optional(),
       siteId: z.number().optional(),
+      sectionId: z.number().optional(),
       locationDetail: z.string().optional(),
       status: z.enum(["active", "inactive", "under_maintenance", "disposed"]).optional(),
       purchaseDate: z.string().optional(),

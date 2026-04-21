@@ -34,8 +34,12 @@ export default function CreateTicket() {
 
   const [form, setForm] = useState({
     title: "", description: "", priority: "medium",
-    category: "general", siteId: "", assetId: "", locationDetail: "", beforePhotoUrl: "",
+    category: "general", siteId: "", sectionId: "", assetId: "", locationDetail: "", beforePhotoUrl: "",
   });
+  const { data: sections } = trpc.sections.list.useQuery(
+    form.siteId ? { siteId: Number(form.siteId) } : undefined,
+    { enabled: !!form.siteId }
+  );
   const [fileEntries, setFileEntries] = useState<FileEntry[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -216,7 +220,7 @@ export default function CreateTicket() {
     if (!form.title.trim()) { toast.error(t.tickets.ticketTitle); return; }
     const uploading = fileEntries.some(e => e.status === "uploading" || e.status === "pending");
     if (uploading) { toast.error(at.uploading || "الرجاء انتظار اكتمال رفع الملفات"); return; }
-    createMut.mutate({ ...form, siteId: form.siteId ? parseInt(form.siteId) : undefined, assetId: form.assetId ? parseInt(form.assetId) : undefined });
+    createMut.mutate({ ...form, siteId: form.siteId ? parseInt(form.siteId) : undefined, sectionId: form.sectionId ? parseInt(form.sectionId) : undefined, assetId: form.assetId ? parseInt(form.assetId) : undefined });
   };
 
   const isImage = (type: string) => type.startsWith("image/");
@@ -278,7 +282,7 @@ export default function CreateTicket() {
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label>{t.tickets.site}</Label>
-              <Select value={form.siteId} onValueChange={v => setForm(f => ({ ...f, siteId: v }))}>
+              <Select value={form.siteId} onValueChange={v => setForm(f => ({ ...f, siteId: v, sectionId: "" }))}>
                 <SelectTrigger><SelectValue placeholder={t.tickets.site} /></SelectTrigger>
                 <SelectContent>
                   {sites?.map(s => <SelectItem key={s.id} value={String(s.id)}>{s.name}</SelectItem>)}
@@ -296,6 +300,19 @@ export default function CreateTicket() {
             </div>
           </div>
 
+          {/* Section */}
+          {form.siteId && (
+            <div className="space-y-2">
+              <Label>القسم</Label>
+              <Select value={form.sectionId || "none"} onValueChange={v => setForm(f => ({ ...f, sectionId: v === "none" ? "" : v }))}>
+                <SelectTrigger><SelectValue placeholder="اختر القسم (اختياري)" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">بدون قسم</SelectItem>
+                  {(sections || []).map(s => <SelectItem key={s.id} value={String(s.id)}>{s.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
           {/* Location Detail */}
           <div className="space-y-2">
             <Label>{"تفاصيل الموقع"}</Label>

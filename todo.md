@@ -552,3 +552,17 @@
 - [x] Navigation: ربط التقريرين بالـ sidebar + routes في App.tsx
 - [x] i18n: إضافة مفاتيح الترجمة للتقريرين (ar, en, ur)
 - [x] Tests: اختبارات vitest لكلا الـ procedures (4 اختبارات تمر بنجاح)
+
+## Phase 31: نظام الأقسام (Sections)
+- [x] إضافة جدول sections في schema مرتبط بـ sites
+- [x] إضافة sectionId في جداول assets وtickets وpurchaseOrders
+- [x] تشغيل db:push لتطبيق التغييرات
+- [x] إضافة db helpers: getSections, createSection, updateSection, deleteSection
+- [x] إضافة sections router في routers.ts (list, create, update, delete)
+- [x] بناء صفحة Sections.tsx لإدارة الأقسام
+- [x] تحديث Assets.tsx لدعم اختيار القسم
+- [x] تحديث CreateTicket.tsx لدعم اختيار القسم
+- [x] إضافة route /sections في App.tsx
+- [x] إضافة Sections في DashboardLayout sidebar
+- [x] إضافة مفاتيح الترجمة في ar/en/ur
+- [x] 5 اختبارات vitest ناجحة

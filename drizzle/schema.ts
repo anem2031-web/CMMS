@@ -43,6 +43,21 @@ export const sites = mysqlTable("sites", {
 });
 
 // ============================================================
+// 2b. SECTIONS (sub-divisions of sites)
+// ============================================================
+export const sections = mysqlTable("sections", {
+  id: int("id").autoincrement().primaryKey(),
+  name: varchar("name", { length: 200 }).notNull(),
+  description: text("description"),
+  siteId: int("siteId").notNull(),
+  isActive: boolean("isActive").default(true).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type Section = typeof sections.$inferSelect;
+export type InsertSection = typeof sections.$inferInsert;
+
+// ============================================================
 // 3. MAINTENANCE TICKETS
 // ============================================================
 export const ticketStatuses = [
@@ -75,6 +90,7 @@ export const tickets = mysqlTable("tickets", {
   priority: mysqlEnum("priority", [...ticketPriorities]).default("medium").notNull(),
   category: mysqlEnum("category", [...ticketCategories]).default("general").notNull(),
   siteId: int("siteId"),
+  sectionId: int("sectionId"),
   assetId: int("assetId"),
   locationDetail: varchar("locationDetail", { length: 300 }),
   reportedById: int("reportedById").notNull(),
@@ -128,6 +144,8 @@ export const purchaseOrders = mysqlTable("purchase_orders", {
   id: int("id").autoincrement().primaryKey(),
   poNumber: varchar("poNumber", { length: 20 }).notNull().unique(),
   ticketId: int("ticketId"),
+  siteId: int("siteId"),
+  sectionId: int("sectionId"),
   requestedById: int("requestedById").notNull(),
   status: mysqlEnum("status", [...poStatuses]).default("draft").notNull(),
   totalEstimatedCost: decimal("totalEstimatedCost", { precision: 12, scale: 2 }),
@@ -374,6 +392,7 @@ export const assets = mysqlTable("assets", {
   model: varchar("model", { length: 100 }),
   serialNumber: varchar("serialNumber", { length: 100 }),
   siteId: int("siteId"),
+  sectionId: int("sectionId"),
   locationDetail: varchar("locationDetail", { length: 200 }),
   status: mysqlEnum("status", ["active", "inactive", "under_maintenance", "disposed"]).default("active").notNull(),
   purchaseDate: timestamp("purchaseDate"),

@@ -19,6 +19,7 @@ const ar = {
     maintenanceCycleReport: "تقرير دورة الصيانة",
     users: "المستخدمين",
     sites: "المواقع",
+    sectionsPage: "الأقسام",
     aiAssistant: "المساعد الذكي",
     assets: "إدارة الأصول",
     preventiveMaintenance: "الصيانة الوقائية",

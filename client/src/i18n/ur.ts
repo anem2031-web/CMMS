@@ -19,6 +19,7 @@ const ur: TranslationKeys = {
     maintenanceCycleReport: "مرمت سائکل رپورٹ",
     users: "صارفین",
     sites: "مقامات",
+    sectionsPage: "حصے",
     aiAssistant: "AI معاون",
     assets: "اثاثہ مینیجمنٹ",
     preventiveMaintenance: "احتیاطی دیکھ بھال",

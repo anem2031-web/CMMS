@@ -19,6 +19,7 @@ const en: TranslationKeys = {
     maintenanceCycleReport: "Maintenance Cycle Report",
     users: "Users",
     sites: "Sites",
+    sectionsPage: "Sections",
     aiAssistant: "AI Assistant",
     assets: "Asset Management",
     preventiveMaintenance: "Preventive Maintenance",

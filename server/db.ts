@@ -6,8 +6,9 @@ import {
   ticketStatusHistory, attachments, sites, backups,
   assets, preventivePlans, pmWorkOrders, assetSpareParts, pmJobs, assetMetrics,
   twoFactorSecrets, twoFactorAuditLogs,
-  pushSubscriptions,
-  type InsertAsset, type InsertPreventivePlan, type InsertPMWorkOrder
+  pushSubscriptions, sections,
+  type InsertAsset, type InsertPreventivePlan, type InsertPMWorkOrder,
+  type InsertSection
 } from "../drizzle/schema";
 import { ENV } from './_core/env';
 
@@ -137,6 +138,32 @@ export async function createSite(data: { name: string; address?: string; descrip
   if (!db) return null;
   const result = await db.insert(sites).values(data);
   return result[0].insertId;
+}
+
+// ============================================================
+// SECTIONS
+// ============================================================
+export async function getSections(siteId?: number) {
+  const db = await getDb();
+  if (!db) return [];
+  if (siteId) return db.select().from(sections).where(eq(sections.siteId, siteId)).orderBy(asc(sections.name));
+  return db.select().from(sections).orderBy(asc(sections.siteId), asc(sections.name));
+}
+export async function createSection(data: InsertSection) {
+  const db = await getDb();
+  if (!db) return null;
+  const result = await db.insert(sections).values(data);
+  return result[0].insertId;
+}
+export async function updateSection(id: number, data: { name?: string; description?: string; isActive?: boolean }) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(sections).set(data).where(eq(sections.id, id));
+}
+export async function deleteSection(id: number) {
+  const db = await getDb();
+  if (!db) return;
+  await db.delete(sections).where(eq(sections.id, id));
 }
 
 // ============================================================

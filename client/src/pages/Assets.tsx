@@ -31,6 +31,7 @@ interface AssetFormData {
   serialNumber: string;
   rfidTag: string;
   siteId: string;
+  sectionId: string;
   locationDetail: string;
   status: AssetStatus;
   purchaseDate: string;
@@ -43,7 +44,7 @@ interface AssetFormData {
 
 const defaultForm: AssetFormData = {
   name: "", description: "", category: "", brand: "", model: "",
-  serialNumber: "", rfidTag: "", siteId: "", locationDetail: "", status: "active",
+  serialNumber: "", rfidTag: "", siteId: "", sectionId: "", locationDetail: "", status: "active",
   purchaseDate: "", purchaseCost: "", warrantyExpiry: "", warrantyNotes: "",
   photoUrl: "", notes: "",
 };
@@ -70,6 +71,7 @@ export default function Assets() {
   });
 
   const { data: sites = [] } = trpc.sites.list.useQuery();
+  const { data: sections } = trpc.sections.list.useQuery(undefined);
 
   const createMut = trpc.assets.create.useMutation({
     onSuccess: () => {
@@ -111,6 +113,7 @@ export default function Assets() {
       serialNumber: form.serialNumber || undefined,
       rfidTag: form.rfidTag || undefined,
       siteId: form.siteId ? Number(form.siteId) : undefined,
+      sectionId: form.sectionId ? Number(form.sectionId) : undefined,
       locationDetail: form.locationDetail || undefined,
       status: form.status,
       purchaseDate: form.purchaseDate || undefined,
@@ -138,6 +141,7 @@ export default function Assets() {
       serialNumber: asset.serialNumber ?? "",
       rfidTag: asset.rfidTag ?? "",
       siteId: asset.siteId ? String(asset.siteId) : "",
+      sectionId: asset.sectionId ? String(asset.sectionId) : "",
       locationDetail: asset.locationDetail ?? "",
       status: asset.status ?? "active",
       purchaseDate: asset.purchaseDate ? new Date(asset.purchaseDate).toISOString().split("T")[0] : "",
@@ -372,7 +376,7 @@ export default function Assets() {
             </div>
             <div>
               <Label>{t.assets.location}</Label>
-              <Select value={form.siteId || "none"} onValueChange={v => setForm(f => ({ ...f, siteId: v === "none" ? "" : v }))}>
+              <Select value={form.siteId || "none"} onValueChange={v => setForm(f => ({ ...f, siteId: v === "none" ? "" : v, sectionId: "" }))}>
                 <SelectTrigger><SelectValue placeholder={t.common.none} /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="none">{t.common.none}</SelectItem>
@@ -382,6 +386,20 @@ export default function Assets() {
                 </SelectContent>
               </Select>
             </div>
+            {form.siteId && form.siteId !== "none" && (
+              <div>
+                <Label>القسم</Label>
+                <Select value={form.sectionId || "none"} onValueChange={v => setForm(f => ({ ...f, sectionId: v === "none" ? "" : v }))}>
+                  <SelectTrigger><SelectValue placeholder="اختر القسم (اختياري)" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">بدون قسم</SelectItem>
+                    {sections?.filter((s: any) => s.siteId === Number(form.siteId)).map((s: any) => (
+                      <SelectItem key={s.id} value={String(s.id)}>{s.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             <div>
               <Label>{t.assets.locationDetail}</Label>
               <Input value={form.locationDetail} onChange={e => setForm(f => ({ ...f, locationDetail: e.target.value }))} />
