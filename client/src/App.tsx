@@ -28,6 +28,7 @@ import TranslationMonitor from "./pages/TranslationMonitor";
 import PurchaseCycle from "./pages/PurchaseCycle";
 import PurchaseCycleReport from "./pages/PurchaseCycleReport";
 import MaintenanceCycleReport from "./pages/MaintenanceCycleReport";
+import SectionReport from "./pages/SectionReport";
 import Backup from "./pages/Backup";
 import Assets from "./pages/Assets";
 import AssetHistory from "./pages/AssetHistory";
@@ -61,6 +62,7 @@ function Router() {
             <Route path="/reports/technicians" component={TechnicianReport} />
             <Route path="/reports/purchase-cycle" component={PurchaseCycleReport} />
             <Route path="/reports/maintenance-cycle" component={MaintenanceCycleReport} />
+            <Route path="/reports/section-report" component={SectionReport} />
             <Route path="/users" component={UsersPage} />
             <Route path="/sites" component={Sites} />
             <Route path="/sections" component={Sections} />

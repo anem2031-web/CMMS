@@ -53,6 +53,8 @@ export default function Assets() {
   const { t } = useLanguage();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [siteFilter, setSiteFilter] = useState("all");
+  const [sectionFilter, setSectionFilter] = useState("all");
   const [showForm, setShowForm] = useState(false);
   const [editId, setEditId] = useState<number | null>(null);
   const [form, setForm] = useState<AssetFormData>(defaultForm);
@@ -67,6 +69,8 @@ export default function Assets() {
 
   const { data: assets = [], isLoading } = trpc.assets.list.useQuery({
     status: statusFilter !== "all" ? statusFilter : undefined,
+    siteId: siteFilter !== "all" ? Number(siteFilter) : undefined,
+    sectionId: sectionFilter !== "all" ? Number(sectionFilter) : undefined,
     search: search || undefined,
   });
 
@@ -256,6 +260,30 @@ export default function Assets() {
             <SelectItem value="disposed">{t.assets.disposed}</SelectItem>
           </SelectContent>
         </Select>
+        <Select value={siteFilter} onValueChange={v => { setSiteFilter(v); setSectionFilter("all"); }}>
+          <SelectTrigger className="w-[150px]">
+            <SelectValue placeholder="الموقع" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">كل المواقع</SelectItem>
+            {sites.map((s: any) => (
+              <SelectItem key={s.id} value={String(s.id)}>{s.name}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {siteFilter !== "all" && (
+          <Select value={sectionFilter} onValueChange={setSectionFilter}>
+            <SelectTrigger className="w-[150px]">
+              <SelectValue placeholder="القسم" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">كل الأقسام</SelectItem>
+              {sections?.filter((s: any) => s.siteId === Number(siteFilter)).map((s: any) => (
+                <SelectItem key={s.id} value={String(s.id)}>{s.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
         <Button variant="outline" onClick={() => setShowRfidScanner(true)}>
           {t.assets.scanRfid || "مسح RFID"}
         </Button>

@@ -273,6 +273,7 @@ export const appRouter = router({
       status: z.string().optional(),
       priority: z.string().optional(),
       siteId: z.number().optional(),
+      sectionId: z.number().optional(),
       assetId: z.number().optional(),
       search: z.string().optional(),
       category: z.string().optional(),
@@ -1923,6 +1924,53 @@ export const appRouter = router({
 
       return { tickets: result, avgTotalHours, avgTotalDays: avgTotalHours ? Math.round(avgTotalHours / 24 * 10) / 10 : null, phaseAvgs, total: result.length, closedCount: closedTickets.length };
     }),
+
+    sectionReport: protectedProcedure.input(z.object({
+      siteId: z.number().optional(),
+      dateFrom: z.string().optional(),
+      dateTo: z.string().optional(),
+    }).optional()).query(async ({ input }) => {
+      const allSections = await db.getSections();
+      const allTickets = await db.getTickets({});
+      const allAssets = await db.listAssets({});
+      const dateFrom = input?.dateFrom ? new Date(input.dateFrom) : null;
+      const dateTo = input?.dateTo ? new Date(input.dateTo) : null;
+      const filteredTickets = allTickets.filter((t: any) => {
+        if (input?.siteId && t.siteId !== input.siteId) return false;
+        if (dateFrom && new Date(t.createdAt) < dateFrom) return false;
+        if (dateTo && new Date(t.createdAt) > dateTo) return false;
+        return true;
+      });
+      const sectionStats = allSections
+        .filter((s: any) => !input?.siteId || s.siteId === input.siteId)
+        .map((section: any) => {
+          const sectionTickets = filteredTickets.filter((t: any) => t.sectionId === section.id);
+          const sectionAssets = allAssets.filter((a: any) => a.sectionId === section.id);
+          const openTickets = sectionTickets.filter((t: any) => t.status !== "closed").length;
+          const closedTickets = sectionTickets.filter((t: any) => t.status === "closed").length;
+          const urgentTickets = sectionTickets.filter((t: any) => t.priority === "critical" || t.priority === "high").length;
+          const maintenanceCost = sectionTickets.reduce((sum: number, t: any) => {
+            return sum + (parseFloat(t.estimatedCost || "0") || 0);
+          }, 0);
+          const avgCloseTime = (() => {
+            const closed = sectionTickets.filter((t: any) => t.status === "closed" && t.closedAt && t.createdAt);
+            if (!closed.length) return null;
+            const totalHours = closed.reduce((sum: number, t: any) => {
+              return sum + (new Date(t.closedAt).getTime() - new Date(t.createdAt).getTime()) / (1000 * 60 * 60);
+            }, 0);
+            return Math.round(totalHours / closed.length * 10) / 10;
+          })();
+          return {
+            sectionId: section.id, sectionName: section.name, siteId: section.siteId,
+            totalTickets: sectionTickets.length, openTickets, closedTickets, urgentTickets,
+            totalAssets: sectionAssets.length, maintenanceCost: Math.round(maintenanceCost * 100) / 100,
+            avgCloseTimeHours: avgCloseTime,
+          };
+        })
+        .sort((a: any, b: any) => b.totalTickets - a.totalTickets);
+      const unassigned = filteredTickets.filter((t: any) => !t.sectionId);
+      return { sections: sectionStats, unassignedTickets: unassigned.length, totalTickets: filteredTickets.length };
+    }),
   }),
 
   // ============================================================
@@ -2207,6 +2255,7 @@ ${JSON.stringify(recentAudit.map((a: any) => ({ action: a.action, entity: a.enti
   assets: router({
     list: protectedProcedure.input(z.object({
       siteId: z.number().optional(),
+      sectionId: z.number().optional(),
       status: z.string().optional(),
       search: z.string().optional(),
     }).optional()).query(async ({ input }) => {

@@ -17,6 +17,7 @@ const ar = {
     technicianReport: "أداء الفنيين",
     purchaseCycleReport: "تقرير دورة الشراء",
     maintenanceCycleReport: "تقرير دورة الصيانة",
+    sectionReport: "تقرير الأقسام",
     users: "المستخدمين",
     sites: "المواقع",
     sectionsPage: "الأقسام",

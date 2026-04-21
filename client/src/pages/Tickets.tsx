@@ -24,6 +24,8 @@ export default function Tickets() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [priorityFilter, setPriorityFilter] = useState("all");
+  const [siteFilter, setSiteFilter] = useState("all");
+  const [sectionFilter, setSectionFilter] = useState("all");
   const { t, language } = useTranslation();
   const { getStatusLabel, getPriorityLabel, getCategoryLabel } = useStaticLabels();
   const { getField } = useTranslatedField();
@@ -37,9 +39,13 @@ export default function Tickets() {
   const [selectedTicket, setSelectedTicket] = useState<any>(null);
   const [editData, setEditData] = useState({ title: "", description: "", priority: "", category: "" });
 
+  const { data: sites = [] } = trpc.sites.list.useQuery();
+  const { data: allSections } = trpc.sections.list.useQuery(undefined);
   const { data: tickets, isLoading } = trpc.tickets.list.useQuery({
     status: statusFilter !== "all" ? statusFilter : undefined,
     priority: priorityFilter !== "all" ? priorityFilter : undefined,
+    siteId: siteFilter !== "all" ? Number(siteFilter) : undefined,
+    sectionId: sectionFilter !== "all" ? Number(sectionFilter) : undefined,
     search: search || undefined,
   });
 
@@ -124,6 +130,30 @@ export default function Tickets() {
             ))}
           </SelectContent>
         </Select>
+        <Select value={siteFilter} onValueChange={v => { setSiteFilter(v); setSectionFilter("all"); }}>
+          <SelectTrigger className="w-[160px]">
+            <SelectValue placeholder="الموقع" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">{t.common.all}</SelectItem>
+            {sites.map((s: any) => (
+              <SelectItem key={s.id} value={String(s.id)}>{s.name}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {siteFilter !== "all" && (
+          <Select value={sectionFilter} onValueChange={setSectionFilter}>
+            <SelectTrigger className="w-[160px]">
+              <SelectValue placeholder="القسم" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">{t.common.all}</SelectItem>
+              {allSections?.filter((s: any) => s.siteId === Number(siteFilter)).map((s: any) => (
+                <SelectItem key={s.id} value={String(s.id)}>{s.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
       </div>
 
       {isLoading ? (

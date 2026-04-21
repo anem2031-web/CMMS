@@ -33,6 +33,8 @@ export default function TicketDetail() {
   const { data: ticket, isLoading, refetch } = trpc.tickets.getById.useQuery({ id: ticketId }, { enabled: !!ticketId });
   const { data: history } = trpc.tickets.history.useQuery({ ticketId }, { enabled: !!ticketId });
   const { data: users } = trpc.users.list.useQuery();
+  const { data: allSections } = trpc.sections.list.useQuery(undefined);
+  const { data: allSites } = trpc.sites.list.useQuery();
   const { data: allPOs } = trpc.purchaseOrders.list.useQuery();
   const attachmentsInput = useMemo(() => ({ entityType: "ticket", entityId: ticketId }), [ticketId]);
   const { data: ticketAttachments } = trpc.attachments.list.useQuery(attachmentsInput, { enabled: !!ticketId });
@@ -218,7 +220,12 @@ export default function TicketDetail() {
                 <div className="flex items-center gap-2">
                   <MapPin className="w-3.5 h-3.5 text-muted-foreground" />
                   <span className="text-muted-foreground">{t.tickets.site}:</span>
-                  <span className="font-medium">{ticket.locationDetail || "-"}</span>
+                  <span className="font-medium">
+                    {ticket.siteId ? (allSites?.find((s: any) => s.id === ticket.siteId)?.name || "-") : (ticket.locationDetail || "-")}
+                    {ticket.sectionId && allSections?.find((s: any) => s.id === ticket.sectionId) && (
+                      <span className="text-muted-foreground"> / {allSections.find((s: any) => s.id === ticket.sectionId)?.name}</span>
+                    )}
+                  </span>
                 </div>
               </div>
 

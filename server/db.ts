@@ -185,13 +185,14 @@ export async function createTicket(data: any) {
   return result[0].insertId;
 }
 
-export async function getTickets(filters?: { status?: string; priority?: string; siteId?: number; assetId?: number; assignedToId?: number; reportedById?: number; search?: string; category?: string }) {
+export async function getTickets(filters?: { status?: string; priority?: string; siteId?: number; sectionId?: number; assetId?: number; assignedToId?: number; reportedById?: number; search?: string; category?: string }) {
   const db = await getDb();
   if (!db) return [];
   const conditions: any[] = [];
   if (filters?.status) conditions.push(eq(tickets.status, filters.status as any));
   if (filters?.priority) conditions.push(eq(tickets.priority, filters.priority as any));
   if (filters?.siteId) conditions.push(eq(tickets.siteId, filters.siteId));
+  if (filters?.sectionId) conditions.push(eq(tickets.sectionId, filters.sectionId));
   if (filters?.assetId) conditions.push(eq(tickets.assetId, filters.assetId));
   if (filters?.assignedToId) conditions.push(eq(tickets.assignedToId, filters.assignedToId));
   if (filters?.reportedById) conditions.push(eq(tickets.reportedById, filters.reportedById));
@@ -832,12 +833,13 @@ export async function restoreFromBackup(backupData: Record<string, any[]>) {
 // ============================================================
 // ASSETS - إدارة الأصول
 // ============================================================
-export async function listAssets(filters?: { siteId?: number; status?: string; search?: string }) {
+export async function listAssets(filters?: { siteId?: number; sectionId?: number; status?: string; search?: string }) {
   const db = await getDb();
   if (!db) return [];
   let query = db.select().from(assets);
   const conditions = [];
   if (filters?.siteId) conditions.push(eq(assets.siteId, filters.siteId));
+  if (filters?.sectionId) conditions.push(eq(assets.sectionId, filters.sectionId));
   if (filters?.status) conditions.push(eq(assets.status, filters.status as any));
   if (filters?.search) conditions.push(or(
     like(assets.name, `%${filters.search}%`),

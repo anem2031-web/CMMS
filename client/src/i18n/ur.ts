@@ -17,6 +17,7 @@ const ur: TranslationKeys = {
     technicianReport: "ٹیکنیشن کی کارکردگی",
     purchaseCycleReport: "خریداری سائیکل رپورٹ",
     maintenanceCycleReport: "مرمت سائکل رپورٹ",
+    sectionReport: "سیکشن رپورٹ",
     users: "صارفین",
     sites: "مقامات",
     sectionsPage: "حصے",
