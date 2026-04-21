@@ -14,6 +14,7 @@ import { storagePut } from "../storage";
 import { nanoid } from "nanoid";
 import { exportTicketsToExcel, exportPurchaseOrdersToExcel, exportTechnicianPerformanceToExcel, exportAuditLogToExcel, exportInventoryToExcel } from "../exportService";
 import { generateWorkflowGuidePDF } from "../workflowPdfService";
+import { runTechnicianOverdueJob } from "../jobs/technician-overdue";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -158,6 +159,13 @@ async function startServer() {
   server.listen(port, () => {
     console.log(`Server running on http://localhost:${port}/`);
   });
+
+  // تشغيل job التحقق من تأخر الفنيين كل ساعة
+  const ONE_HOUR = 60 * 60 * 1000;
+  setTimeout(() => {
+    runTechnicianOverdueJob();
+    setInterval(runTechnicianOverdueJob, ONE_HOUR);
+  }, 5000);
 }
 
 startServer().catch(console.error);

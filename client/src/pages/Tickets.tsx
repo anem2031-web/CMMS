@@ -26,6 +26,7 @@ export default function Tickets() {
   const [priorityFilter, setPriorityFilter] = useState("all");
   const [siteFilter, setSiteFilter] = useState("all");
   const [sectionFilter, setSectionFilter] = useState("all");
+  const [technicianFilter, setTechnicianFilter] = useState("all");
   const { t, language } = useTranslation();
   const { getStatusLabel, getPriorityLabel, getCategoryLabel } = useStaticLabels();
   const { getField } = useTranslatedField();
@@ -41,12 +42,14 @@ export default function Tickets() {
 
   const { data: sites = [] } = trpc.sites.list.useQuery();
   const { data: allSections } = trpc.sections.list.useQuery(undefined);
+  const { data: allTechnicians = [] } = trpc.technicians.list.useQuery({ activeOnly: false });
   const { data: tickets, isLoading } = trpc.tickets.list.useQuery({
     status: statusFilter !== "all" ? statusFilter : undefined,
     priority: priorityFilter !== "all" ? priorityFilter : undefined,
     siteId: siteFilter !== "all" ? Number(siteFilter) : undefined,
     sectionId: sectionFilter !== "all" ? Number(sectionFilter) : undefined,
     search: search || undefined,
+    assignedTechnicianId: technicianFilter !== "all" ? Number(technicianFilter) : undefined,
   });
 
   const updateMutation = trpc.tickets.update.useMutation({
@@ -154,6 +157,19 @@ export default function Tickets() {
             </SelectContent>
           </Select>
         )}
+        {allTechnicians.length > 0 && (
+          <Select value={technicianFilter} onValueChange={setTechnicianFilter}>
+            <SelectTrigger className="w-[170px]">
+              <SelectValue placeholder="الفني المُسند" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">{t.common.all}</SelectItem>
+              {allTechnicians.map((tech: any) => (
+                <SelectItem key={tech.id} value={String(tech.id)}>{tech.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
       </div>
 
       {isLoading ? (
@@ -188,9 +204,15 @@ export default function Tickets() {
                       </Badge>
                     </div>
                     <h3 className="font-medium text-sm truncate">{getField(ticket, "title")}</h3>
-                    <div className="flex items-center gap-3 mt-1.5 text-xs text-muted-foreground">
+                    <div className="flex items-center gap-3 mt-1.5 text-xs text-muted-foreground flex-wrap">
                       <span>{getCategoryLabel(ticket.category)}</span>
                       <span>{new Date(ticket.createdAt).toLocaleDateString(locale)}</span>
+                      {(ticket as any).assignedTechnicianName && (
+                        <span className="flex items-center gap-1 text-blue-600 dark:text-blue-400 font-medium">
+                          <span className="inline-block w-1.5 h-1.5 rounded-full bg-blue-400" />
+                          {(ticket as any).assignedTechnicianName}
+                        </span>
+                      )}
                     </div>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">

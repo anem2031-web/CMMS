@@ -217,7 +217,7 @@ export async function createTicket(data: any) {
   return result[0].insertId;
 }
 
-export async function getTickets(filters?: { status?: string; priority?: string; siteId?: number; sectionId?: number; assetId?: number; assignedToId?: number; reportedById?: number; search?: string; category?: string }) {
+export async function getTickets(filters?: { status?: string; priority?: string; siteId?: number; sectionId?: number; assetId?: number; assignedToId?: number; assignedTechnicianId?: number; reportedById?: number; search?: string; category?: string }) {
   const db = await getDb();
   if (!db) return [];
   const conditions: any[] = [];
@@ -227,11 +227,18 @@ export async function getTickets(filters?: { status?: string; priority?: string;
   if (filters?.sectionId) conditions.push(eq(tickets.sectionId, filters.sectionId));
   if (filters?.assetId) conditions.push(eq(tickets.assetId, filters.assetId));
   if (filters?.assignedToId) conditions.push(eq(tickets.assignedToId, filters.assignedToId));
+  if (filters?.assignedTechnicianId) conditions.push(eq(tickets.assignedTechnicianId, filters.assignedTechnicianId));
   if (filters?.reportedById) conditions.push(eq(tickets.reportedById, filters.reportedById));
   if (filters?.search) conditions.push(or(like(tickets.title, `%${filters.search}%`), like(tickets.ticketNumber, `%${filters.search}%`)));
   if (filters?.category) conditions.push(eq(tickets.category, filters.category as any));
   const where = conditions.length > 0 ? and(...conditions) : undefined;
-  return db.select().from(tickets).where(where).orderBy(desc(tickets.createdAt));
+  const rows = await db
+    .select({ ticket: tickets, technicianName: technicians.name })
+    .from(tickets)
+    .leftJoin(technicians, eq(tickets.assignedTechnicianId, technicians.id))
+    .where(where)
+    .orderBy(desc(tickets.createdAt));
+  return rows.map(r => ({ ...r.ticket, assignedTechnicianName: r.technicianName ?? null }));
 }
 
 export async function getTicketById(id: number) {
