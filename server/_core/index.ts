@@ -12,6 +12,7 @@ import rateLimit from "express-rate-limit";
 import multer from "multer";
 import { storagePut } from "../storage";
 import { nanoid } from "nanoid";
+import sharp from "sharp";
 import { exportTicketsToExcel, exportPurchaseOrdersToExcel, exportTechnicianPerformanceToExcel, exportAuditLogToExcel, exportInventoryToExcel } from "../exportService";
 import { generateWorkflowGuidePDF } from "../workflowPdfService";
 import { runTechnicianOverdueJob } from "../jobs/technician-overdue";
@@ -56,9 +57,20 @@ async function startServer() {
   app.post("/api/upload", upload.single("file"), async (req: any, res: any) => {
     try {
       if (!req.file) return res.status(400).json({ error: "No file provided" });
-      const ext = req.file.originalname.split(".").pop() || "bin";
+      const isImage = req.file.mimetype.startsWith("image/");
+      let fileBuffer = req.file.buffer;
+      let mimeType = req.file.mimetype;
+      let ext = req.file.originalname.split(".").pop() || "bin";
+      // تحويل الصور تلقائياً إلى WebP لتوفير المساحة وتسريع التحميل
+      if (isImage && req.file.mimetype !== "image/webp") {
+        fileBuffer = await sharp(req.file.buffer)
+          .webp({ quality: 85 })
+          .toBuffer();
+        mimeType = "image/webp";
+        ext = "webp";
+      }
       const fileKey = `cmms/uploads/${Date.now()}-${nanoid(8)}.${ext}`;
-      const { url } = await storagePut(fileKey, req.file.buffer, req.file.mimetype);
+      const { url } = await storagePut(fileKey, fileBuffer, mimeType);
       res.json({ url, fileKey });
     } catch (error: any) {
       console.error("Upload error:", error);
