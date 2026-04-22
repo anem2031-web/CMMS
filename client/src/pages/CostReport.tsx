@@ -29,9 +29,7 @@ const PERIOD_LABELS: Record<Period, string> = {
 };
 
 function formatCurrency(val: number) {
-  if (val >= 1_000_000) return `${(val / 1_000_000).toFixed(1)}م ر.س`;
-  if (val >= 1_000) return `${(val / 1_000).toFixed(1)}ك ر.س`;
-  return `${val.toLocaleString("ar-SA")} ر.س`;
+  return `${val.toLocaleString("ar-SA", { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ر.س`;
 }
 
 function formatFull(val: number) {
