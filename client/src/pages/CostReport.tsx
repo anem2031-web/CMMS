@@ -1,0 +1,414 @@
+import { useState, useMemo } from "react";
+import { trpc } from "@/lib/trpc";
+import { useLocation } from "wouter";
+import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+  PieChart, Pie, Cell, Legend, LineChart, Line, Area, AreaChart,
+} from "recharts";
+import { ArrowRight, TrendingUp, Building2, Layers, Calendar, DollarSign, Wrench, ShoppingCart, ChevronDown } from "lucide-react";
+
+type Period = "month" | "quarter" | "year" | "all" | "custom";
+type GroupBy = "site" | "section";
+
+// ألوان متناسقة وجميلة
+const COLORS = [
+  "#6366f1", "#f59e0b", "#10b981", "#ef4444", "#3b82f6",
+  "#8b5cf6", "#ec4899", "#14b8a6", "#f97316", "#84cc16",
+  "#06b6d4", "#a855f7",
+];
+
+const PERIOD_LABELS: Record<Period, string> = {
+  month: "آخر شهر",
+  quarter: "آخر 3 أشهر",
+  year: "آخر سنة",
+  all: "كل الوقت",
+  custom: "مخصص",
+};
+
+function formatCurrency(val: number) {
+  if (val >= 1_000_000) return `${(val / 1_000_000).toFixed(1)}م ر.س`;
+  if (val >= 1_000) return `${(val / 1_000).toFixed(1)}ك ر.س`;
+  return `${val.toLocaleString("ar-SA")} ر.س`;
+}
+
+function formatFull(val: number) {
+  return `${val.toLocaleString("ar-SA", { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ر.س`;
+}
+
+// Tooltip مخصص للرسوم البيانية
+const CustomTooltip = ({ active, payload, label }: any) => {
+  if (!active || !payload?.length) return null;
+  return (
+    <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl p-3 text-sm min-w-[160px]">
+      <p className="font-semibold text-gray-800 dark:text-gray-100 mb-2 text-right">{label}</p>
+      {payload.map((p: any, i: number) => (
+        <div key={i} className="flex items-center justify-between gap-4 mb-1">
+          <span className="font-medium text-gray-700 dark:text-gray-300">{formatFull(p.value)}</span>
+          <span className="flex items-center gap-1 text-gray-500 dark:text-gray-400">
+            <span className="w-2.5 h-2.5 rounded-full inline-block" style={{ background: p.color }} />
+            {p.name}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+};
+
+const PieTooltip = ({ active, payload }: any) => {
+  if (!active || !payload?.length) return null;
+  const d = payload[0];
+  return (
+    <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl p-3 text-sm">
+      <p className="font-semibold text-gray-800 dark:text-gray-100 mb-1 text-right">{d.name}</p>
+      <p className="text-gray-600 dark:text-gray-400 text-right">{formatFull(d.value)}</p>
+      <p className="text-indigo-500 font-medium text-right">{d.payload.percentage}%</p>
+    </div>
+  );
+};
+
+export default function CostReport() {
+  const [, setLocation] = useLocation();
+  const [groupBy, setGroupBy] = useState<GroupBy>("site");
+  const [period, setPeriod] = useState<Period>("all");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [chartType, setChartType] = useState<"bar" | "pie">("bar");
+
+  const { data, isLoading } = trpc.reports.costReport.useQuery({
+    groupBy,
+    period,
+    dateFrom: period === "custom" ? dateFrom : undefined,
+    dateTo: period === "custom" ? dateTo : undefined,
+  });
+
+  const groups = data?.groups ?? [];
+  const grandTotal = data?.grandTotal ?? 0;
+  const monthlyTrend = data?.monthlyTrend ?? [];
+
+  // أعلى 5 للرسم الدائري
+  const top5 = useMemo(() => {
+    if (groups.length <= 5) return groups;
+    const top = groups.slice(0, 5);
+    const otherCost = groups.slice(5).reduce((s, g) => s + g.totalCost, 0);
+    const otherPct = groups.slice(5).reduce((s, g) => s + g.percentage, 0);
+    return [...top, { id: -1, name: "أخرى", totalCost: otherCost, percentage: Math.round(otherPct * 10) / 10, ticketCost: 0, purchaseCost: 0, ticketCount: 0 }];
+  }, [groups]);
+
+  // إجمالي تكاليف الصيانة والشراء
+  const totalTicketCost = groups.reduce((s, g) => s + g.ticketCost, 0);
+  const totalPurchaseCost = groups.reduce((s, g) => s + g.purchaseCost, 0);
+
+  return (
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-950 p-4 md:p-6" dir="rtl">
+      {/* Header */}
+      <div className="mb-6">
+        <button
+          onClick={() => setLocation("/")}
+          className="flex items-center gap-2 text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 mb-4 transition-colors"
+        >
+          <ArrowRight className="w-4 h-4" />
+          العودة للوحة التحكم
+        </button>
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
+              <DollarSign className="w-7 h-7 text-violet-500" />
+              تقرير التكاليف
+            </h1>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">تحليل بصري لتكاليف الصيانة والشراء</p>
+          </div>
+          {/* إجمالي كبير */}
+          <div className="bg-gradient-to-br from-violet-500 to-indigo-600 text-white rounded-2xl px-6 py-3 shadow-lg shadow-violet-200 dark:shadow-violet-900/30">
+            <p className="text-xs opacity-80 mb-0.5">الإجمالي الكلي</p>
+            <p className="text-2xl font-bold">{formatFull(grandTotal)}</p>
+          </div>
+        </div>
+      </div>
+
+      {/* فلاتر */}
+      <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 p-4 mb-6 shadow-sm">
+        <div className="flex flex-wrap gap-3 items-center">
+          {/* تجميع حسب */}
+          <div className="flex items-center gap-1 bg-gray-100 dark:bg-gray-800 rounded-xl p-1">
+            <button
+              onClick={() => setGroupBy("site")}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${groupBy === "site" ? "bg-white dark:bg-gray-700 text-indigo-600 dark:text-indigo-400 shadow-sm" : "text-gray-500 dark:text-gray-400 hover:text-gray-700"}`}
+            >
+              <Building2 className="w-3.5 h-3.5" />
+              حسب الموقع
+            </button>
+            <button
+              onClick={() => setGroupBy("section")}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${groupBy === "section" ? "bg-white dark:bg-gray-700 text-indigo-600 dark:text-indigo-400 shadow-sm" : "text-gray-500 dark:text-gray-400 hover:text-gray-700"}`}
+            >
+              <Layers className="w-3.5 h-3.5" />
+              حسب القسم
+            </button>
+          </div>
+
+          {/* الفترة الزمنية */}
+          <div className="flex flex-wrap gap-1.5">
+            {(["month", "quarter", "year", "all", "custom"] as Period[]).map(p => (
+              <button
+                key={p}
+                onClick={() => setPeriod(p)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all border ${period === p ? "bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 border-indigo-200 dark:border-indigo-700" : "bg-white dark:bg-gray-800 text-gray-500 dark:text-gray-400 border-gray-200 dark:border-gray-700 hover:border-gray-300"}`}
+              >
+                {PERIOD_LABELS[p]}
+              </button>
+            ))}
+          </div>
+
+          {/* تواريخ مخصصة */}
+          {period === "custom" && (
+            <div className="flex items-center gap-2">
+              <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
+                className="border border-gray-200 dark:border-gray-700 rounded-lg px-2 py-1.5 text-xs bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300" />
+              <span className="text-gray-400 text-xs">إلى</span>
+              <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)}
+                className="border border-gray-200 dark:border-gray-700 rounded-lg px-2 py-1.5 text-xs bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300" />
+            </div>
+          )}
+
+          {/* نوع الرسم */}
+          <div className="flex items-center gap-1 bg-gray-100 dark:bg-gray-800 rounded-xl p-1 mr-auto">
+            <button onClick={() => setChartType("bar")}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${chartType === "bar" ? "bg-white dark:bg-gray-700 text-indigo-600 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}>
+              أعمدة
+            </button>
+            <button onClick={() => setChartType("pie")}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${chartType === "pie" ? "bg-white dark:bg-gray-700 text-indigo-600 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}>
+              دائري
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {isLoading ? (
+        <div className="flex items-center justify-center h-64">
+          <div className="w-8 h-8 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+        </div>
+      ) : (
+        <>
+          {/* بطاقات الملخص */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+            <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 p-4 shadow-sm">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-violet-50 dark:bg-violet-900/30 flex items-center justify-center">
+                  <DollarSign className="w-5 h-5 text-violet-500" />
+                </div>
+                <div>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">إجمالي التكاليف</p>
+                  <p className="text-lg font-bold text-gray-900 dark:text-white">{formatCurrency(grandTotal)}</p>
+                </div>
+              </div>
+            </div>
+            <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 p-4 shadow-sm">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-blue-50 dark:bg-blue-900/30 flex items-center justify-center">
+                  <Wrench className="w-5 h-5 text-blue-500" />
+                </div>
+                <div>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">تكاليف الصيانة</p>
+                  <p className="text-lg font-bold text-gray-900 dark:text-white">{formatCurrency(totalTicketCost)}</p>
+                </div>
+              </div>
+            </div>
+            <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 p-4 shadow-sm">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-amber-50 dark:bg-amber-900/30 flex items-center justify-center">
+                  <ShoppingCart className="w-5 h-5 text-amber-500" />
+                </div>
+                <div>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">تكاليف الشراء</p>
+                  <p className="text-lg font-bold text-gray-900 dark:text-white">{formatCurrency(totalPurchaseCost)}</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* الرسم البياني الرئيسي */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+            {/* رسم التوزيع */}
+            <div className="lg:col-span-2 bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 p-5 shadow-sm">
+              <h2 className="text-base font-semibold text-gray-800 dark:text-gray-100 mb-4">
+                توزيع التكاليف {groupBy === "site" ? "حسب الموقع" : "حسب القسم"}
+              </h2>
+              {groups.length === 0 ? (
+                <div className="flex flex-col items-center justify-center h-48 text-gray-400">
+                  <DollarSign className="w-10 h-10 mb-2 opacity-30" />
+                  <p className="text-sm">لا توجد بيانات للفترة المحددة</p>
+                </div>
+              ) : chartType === "bar" ? (
+                <ResponsiveContainer width="100%" height={280}>
+                  <BarChart data={groups} margin={{ top: 5, right: 5, left: 5, bottom: 60 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
+                    <XAxis dataKey="name" tick={{ fontSize: 11, fill: "#6b7280" }} angle={-35} textAnchor="end" interval={0} />
+                    <YAxis tickFormatter={formatCurrency} tick={{ fontSize: 10, fill: "#6b7280" }} width={70} />
+                    <Tooltip content={<CustomTooltip />} />
+                    <Bar dataKey="ticketCost" name="صيانة" stackId="a" fill="#6366f1" radius={[0, 0, 0, 0]} />
+                    <Bar dataKey="purchaseCost" name="شراء" stackId="a" fill="#f59e0b" radius={[6, 6, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              ) : (
+                <ResponsiveContainer width="100%" height={280}>
+                  <PieChart>
+                    <Pie data={top5} dataKey="totalCost" nameKey="name" cx="50%" cy="50%" outerRadius={100} innerRadius={50} paddingAngle={3}>
+                      {top5.map((_, i) => (
+                        <Cell key={i} fill={COLORS[i % COLORS.length]} />
+                      ))}
+                    </Pie>
+                    <Tooltip content={<PieTooltip />} />
+                    <Legend formatter={(v) => <span className="text-xs text-gray-600 dark:text-gray-400">{v}</span>} />
+                  </PieChart>
+                </ResponsiveContainer>
+              )}
+            </div>
+
+            {/* أعلى المواقع/الأقسام */}
+            <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 p-5 shadow-sm">
+              <h2 className="text-base font-semibold text-gray-800 dark:text-gray-100 mb-4">
+                الأعلى تكلفةً
+              </h2>
+              {groups.length === 0 ? (
+                <div className="flex items-center justify-center h-48 text-gray-400 text-sm">لا توجد بيانات</div>
+              ) : (
+                <div className="space-y-3">
+                  {groups.slice(0, 6).map((g, i) => (
+                    <div key={g.id}>
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-xs font-medium text-gray-500 dark:text-gray-400">{g.percentage}%</span>
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <span className="text-xs font-medium text-gray-700 dark:text-gray-300 truncate max-w-[120px]">{g.name}</span>
+                          <span className="w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0"
+                            style={{ background: COLORS[i % COLORS.length] }}>
+                            {i + 1}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="w-full bg-gray-100 dark:bg-gray-800 rounded-full h-1.5">
+                        <div className="h-1.5 rounded-full transition-all duration-500"
+                          style={{ width: `${g.percentage}%`, background: COLORS[i % COLORS.length] }} />
+                      </div>
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 text-left">{formatCurrency(g.totalCost)}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* الاتجاه الشهري */}
+          <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 p-5 shadow-sm mb-6">
+            <div className="flex items-center gap-2 mb-4">
+              <TrendingUp className="w-4 h-4 text-indigo-500" />
+              <h2 className="text-base font-semibold text-gray-800 dark:text-gray-100">الاتجاه الشهري (آخر 12 شهر)</h2>
+            </div>
+            <ResponsiveContainer width="100%" height={200}>
+              <AreaChart data={monthlyTrend} margin={{ top: 5, right: 5, left: 5, bottom: 5 }}>
+                <defs>
+                  <linearGradient id="gradTicket" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#6366f1" stopOpacity={0.2} />
+                    <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
+                  </linearGradient>
+                  <linearGradient id="gradPurchase" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.2} />
+                    <stop offset="95%" stopColor="#f59e0b" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
+                <XAxis dataKey="label" tick={{ fontSize: 10, fill: "#9ca3af" }} />
+                <YAxis tickFormatter={formatCurrency} tick={{ fontSize: 10, fill: "#9ca3af" }} width={65} />
+                <Tooltip content={<CustomTooltip />} />
+                <Area type="monotone" dataKey="ticketCost" name="صيانة" stroke="#6366f1" fill="url(#gradTicket)" strokeWidth={2} dot={false} />
+                <Area type="monotone" dataKey="purchaseCost" name="شراء" stroke="#f59e0b" fill="url(#gradPurchase)" strokeWidth={2} dot={false} />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+
+          {/* جدول تفصيلي */}
+          <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm overflow-hidden">
+            <div className="p-5 border-b border-gray-100 dark:border-gray-800">
+              <h2 className="text-base font-semibold text-gray-800 dark:text-gray-100">
+                التفاصيل {groupBy === "site" ? "حسب الموقع" : "حسب القسم"}
+              </h2>
+            </div>
+            {groups.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-12 text-gray-400">
+                <DollarSign className="w-10 h-10 mb-2 opacity-30" />
+                <p className="text-sm">لا توجد بيانات للفترة المحددة</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-gray-50 dark:bg-gray-800/50">
+                      <th className="text-right px-5 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400">#</th>
+                      <th className="text-right px-5 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400">
+                        {groupBy === "site" ? "الموقع" : "القسم"}
+                      </th>
+                      {groupBy === "section" && (
+                        <th className="text-right px-5 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400">الموقع</th>
+                      )}
+                      <th className="text-right px-5 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400">تكلفة الصيانة</th>
+                      <th className="text-right px-5 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400">تكلفة الشراء</th>
+                      <th className="text-right px-5 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400">الإجمالي</th>
+                      <th className="text-right px-5 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400">النسبة</th>
+                      <th className="text-right px-5 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400">البلاغات</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-50 dark:divide-gray-800">
+                    {groups.map((g, i) => (
+                      <tr key={g.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/30 transition-colors">
+                        <td className="px-5 py-3.5">
+                          <span className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold text-white"
+                            style={{ background: COLORS[i % COLORS.length] }}>
+                            {i + 1}
+                          </span>
+                        </td>
+                        <td className="px-5 py-3.5 font-medium text-gray-800 dark:text-gray-200">{g.name}</td>
+                        {groupBy === "section" && (
+                          <td className="px-5 py-3.5 text-gray-500 dark:text-gray-400 text-xs">{(g as any).siteName || "—"}</td>
+                        )}
+                        <td className="px-5 py-3.5 text-blue-600 dark:text-blue-400 font-medium">{formatFull(g.ticketCost)}</td>
+                        <td className="px-5 py-3.5 text-amber-600 dark:text-amber-400 font-medium">{formatFull(g.purchaseCost)}</td>
+                        <td className="px-5 py-3.5 font-bold text-gray-900 dark:text-white">{formatFull(g.totalCost)}</td>
+                        <td className="px-5 py-3.5">
+                          <div className="flex items-center gap-2">
+                            <div className="w-16 bg-gray-100 dark:bg-gray-800 rounded-full h-1.5">
+                              <div className="h-1.5 rounded-full" style={{ width: `${g.percentage}%`, background: COLORS[i % COLORS.length] }} />
+                            </div>
+                            <span className="text-xs text-gray-500 dark:text-gray-400">{g.percentage}%</span>
+                          </div>
+                        </td>
+                        <td className="px-5 py-3.5 text-center">
+                          <span className="bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 text-xs font-medium px-2 py-0.5 rounded-full">
+                            {g.ticketCount}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr className="bg-gray-50 dark:bg-gray-800/50 border-t-2 border-gray-200 dark:border-gray-700">
+                      <td colSpan={groupBy === "section" ? 3 : 2} className="px-5 py-3.5 font-bold text-gray-700 dark:text-gray-300 text-sm">الإجمالي</td>
+                      <td className="px-5 py-3.5 font-bold text-blue-600 dark:text-blue-400">{formatFull(totalTicketCost)}</td>
+                      <td className="px-5 py-3.5 font-bold text-amber-600 dark:text-amber-400">{formatFull(totalPurchaseCost)}</td>
+                      <td className="px-5 py-3.5 font-bold text-gray-900 dark:text-white text-base">{formatFull(grandTotal)}</td>
+                      <td className="px-5 py-3.5 font-bold text-gray-500">100%</td>
+                      <td className="px-5 py-3.5 text-center font-bold text-gray-600 dark:text-gray-400">
+                        <span className="bg-gray-200 dark:bg-gray-700 text-xs font-medium px-2 py-0.5 rounded-full">
+                          {groups.reduce((s, g) => s + g.ticketCount, 0)}
+                        </span>
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}

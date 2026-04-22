@@ -339,7 +339,7 @@ export default function Home() {
             : "0 ر.س",
           icon: DollarSign,
           color: "text-violet-600 bg-violet-50 dark:bg-violet-950/30",
-          onClick: () => setLocation("/reports"),
+          onClick: () => setLocation("/reports/cost"),
           isLarge: true,
         },
         {
@@ -365,7 +365,7 @@ export default function Home() {
           color: "text-violet-600 bg-violet-50 dark:bg-violet-950/30",
           sparkColor: "#8b5cf6",
           trend,
-          onClick: () => setLocation("/reports"),
+          onClick: () => setLocation("/reports/cost"),
           isLarge: true,
         },
         {
@@ -450,7 +450,7 @@ export default function Home() {
         icon: DollarSign,
         color: "text-violet-600 bg-violet-50 dark:bg-violet-950/30",
         sparkColor: "#8b5cf6",
-        onClick: () => setLocation("/reports"),
+        onClick: () => setLocation("/reports/cost"),
         isLarge: true,
       },
       {

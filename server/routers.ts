@@ -2047,6 +2047,89 @@ export const appRouter = router({
       const unassigned = filteredTickets.filter((t: any) => !t.sectionId);
       return { sections: sectionStats, unassignedTickets: unassigned.length, totalTickets: filteredTickets.length };
     }),
+
+    // تقرير التكاليف البصري: حسب القسم والموقع مع فلاتر زمنية
+    costReport: protectedProcedure.input(z.object({
+      groupBy: z.enum(["section", "site"]).default("site"),
+      period: z.enum(["month", "quarter", "year", "all", "custom"]).default("all"),
+      dateFrom: z.string().optional(),
+      dateTo: z.string().optional(),
+    }).optional()).query(async ({ input }) => {
+      const groupBy = input?.groupBy ?? "site";
+      const period = input?.period ?? "all";
+      let dateFrom: Date | undefined;
+      let dateTo: Date | undefined;
+      if (period === "custom" && input?.dateFrom && input?.dateTo) {
+        dateFrom = new Date(input.dateFrom);
+        dateTo = new Date(input.dateTo);
+        dateTo.setHours(23, 59, 59, 999);
+      } else if (period !== "all") {
+        dateTo = new Date();
+        dateFrom = new Date();
+        if (period === "month") dateFrom.setMonth(dateFrom.getMonth() - 1);
+        else if (period === "quarter") dateFrom.setMonth(dateFrom.getMonth() - 3);
+        else if (period === "year") dateFrom.setFullYear(dateFrom.getFullYear() - 1);
+      }
+      const [allTickets, allSites, allSections, allPOs] = await Promise.all([
+        db.getTickets({}),
+        db.getAllSites(),
+        db.getSections(),
+        db.getPurchaseOrders(),
+      ]);
+      const filteredTickets = allTickets.filter((t: any) => {
+        if (dateFrom && new Date(t.createdAt) < dateFrom) return false;
+        if (dateTo && new Date(t.createdAt) > dateTo) return false;
+        return true;
+      });
+      const filteredPOs = allPOs.filter((po: any) => {
+        if (dateFrom && new Date(po.createdAt) < dateFrom) return false;
+        if (dateTo && new Date(po.createdAt) > dateTo) return false;
+        return true;
+      });
+      // الاتجاه الشهري (آخر 12 شهر)
+      const monthlyTrend: { month: string; label: string; ticketCost: number; purchaseCost: number; total: number }[] = [];
+      for (let i = 11; i >= 0; i--) {
+        const d = new Date();
+        d.setDate(1);
+        d.setMonth(d.getMonth() - i);
+        const monthKey = d.toISOString().slice(0, 7);
+        const monthStart = new Date(d.getFullYear(), d.getMonth(), 1);
+        const monthEnd = new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59);
+        const monthNames = ["يناير","فبراير","مارس","أبريل","مايو","يونيو","يوليو","أغسطس","سبتمبر","أكتوبر","نوفمبر","ديسمبر"];
+        const label = `${monthNames[d.getMonth()]} ${d.getFullYear()}`;
+        const ticketCost = allTickets
+          .filter((t: any) => { const c = new Date(t.createdAt); return c >= monthStart && c <= monthEnd; })
+          .reduce((sum: number, t: any) => sum + parseFloat(t.actualCost || t.estimatedCost || "0"), 0);
+        const purchaseCost = allPOs
+          .filter((po: any) => { const c = new Date(po.createdAt); return c >= monthStart && c <= monthEnd; })
+          .reduce((sum: number, po: any) => sum + parseFloat(po.totalActualCost || po.totalEstimatedCost || "0"), 0);
+        monthlyTrend.push({ month: monthKey, label, ticketCost: Math.round(ticketCost * 100) / 100, purchaseCost: Math.round(purchaseCost * 100) / 100, total: Math.round((ticketCost + purchaseCost) * 100) / 100 });
+      }
+      type GroupItem = { id: number; name: string; siteName?: string; ticketCost: number; purchaseCost: number; totalCost: number; ticketCount: number; percentage: number };
+      let groups: GroupItem[] = [];
+      if (groupBy === "site") {
+        groups = allSites.map((site: any) => {
+          const siteTickets = filteredTickets.filter((t: any) => t.siteId === site.id);
+          const sitePOs = filteredPOs.filter((po: any) => po.siteId === site.id);
+          const ticketCost = siteTickets.reduce((sum: number, t: any) => sum + parseFloat(t.actualCost || t.estimatedCost || "0"), 0);
+          const purchaseCost = sitePOs.reduce((sum: number, po: any) => sum + parseFloat(po.totalActualCost || po.totalEstimatedCost || "0"), 0);
+          return { id: site.id, name: site.name, ticketCost: Math.round(ticketCost * 100) / 100, purchaseCost: Math.round(purchaseCost * 100) / 100, totalCost: Math.round((ticketCost + purchaseCost) * 100) / 100, ticketCount: siteTickets.length, percentage: 0 };
+        });
+      } else {
+        groups = allSections.map((section: any) => {
+          const secTickets = filteredTickets.filter((t: any) => t.sectionId === section.id);
+          const secPOs = filteredPOs.filter((po: any) => po.sectionId === section.id);
+          const ticketCost = secTickets.reduce((sum: number, t: any) => sum + parseFloat(t.actualCost || t.estimatedCost || "0"), 0);
+          const purchaseCost = secPOs.reduce((sum: number, po: any) => sum + parseFloat(po.totalActualCost || po.totalEstimatedCost || "0"), 0);
+          const siteName = allSites.find((s: any) => s.id === section.siteId)?.name ?? "";
+          return { id: section.id, name: section.name, siteName, ticketCost: Math.round(ticketCost * 100) / 100, purchaseCost: Math.round(purchaseCost * 100) / 100, totalCost: Math.round((ticketCost + purchaseCost) * 100) / 100, ticketCount: secTickets.length, percentage: 0 };
+        });
+      }
+      groups = groups.sort((a, b) => b.totalCost - a.totalCost);
+      const grandTotal = groups.reduce((sum, g) => sum + g.totalCost, 0);
+      groups = groups.map(g => ({ ...g, percentage: grandTotal > 0 ? Math.round((g.totalCost / grandTotal) * 1000) / 10 : 0 }));
+      return { groups, grandTotal: Math.round(grandTotal * 100) / 100, monthlyTrend, groupBy };
+    }),
   }),
 
   // ============================================================
