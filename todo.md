@@ -600,3 +600,11 @@
 ## Phase 36: فلاتر أداء الفنيين
 - [x] Backend: إضافة فلاتر siteId, sectionId, technicianName في procedure أداء الفنيين
 - [x] Frontend: إضافة شريط فلاتر (اسم الفني، الموقع، القسم) في صفحة أداء الفنيين
+
+## Phase 37: تفعيل PWA
+- [x] إنشاء Web App Manifest (manifest.json) مع shortcuts للبلاغات ولوحة التحكم
+- [x] توليد أيقونات التطبيق بجميع الأحجام (72، 96، 128، 144، 152، 192، 384، 512)
+- [x] تحديث Service Worker ليشمل التخزين المؤقت + العمل بدون إنترنت جزئياً
+- [x] ربط manifest ومعلومات PWA بـ index.html
+- [x] إضافة Install Banner في DashboardLayout مع زر تثبيت وزر إغلاق
+- [x] تسجيل Service Worker في main.tsx

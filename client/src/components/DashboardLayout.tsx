@@ -181,6 +181,31 @@ function DashboardLayoutContent({ children, setSidebarWidth }: { children: React
   const isCollapsed = state === "collapsed";
   const [isResizing, setIsResizing] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+
+  // ── PWA Install Prompt ──
+  const [installPrompt, setInstallPrompt] = useState<any>(null);
+  const [showInstallBanner, setShowInstallBanner] = useState(false);
+  useEffect(() => {
+    const handler = (e: Event) => {
+      e.preventDefault();
+      setInstallPrompt(e);
+      const dismissed = localStorage.getItem('pwa-install-dismissed');
+      if (!dismissed) setShowInstallBanner(true);
+    };
+    window.addEventListener('beforeinstallprompt', handler);
+    return () => window.removeEventListener('beforeinstallprompt', handler);
+  }, []);
+  const handleInstallPWA = async () => {
+    if (!installPrompt) return;
+    installPrompt.prompt();
+    const { outcome } = await installPrompt.userChoice;
+    if (outcome === 'accepted') setShowInstallBanner(false);
+    setInstallPrompt(null);
+  };
+  const dismissInstallBanner = () => {
+    setShowInstallBanner(false);
+    localStorage.setItem('pwa-install-dismissed', '1');
+  };
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(() => {
     try {
       const saved = localStorage.getItem(COLLAPSED_SECTIONS_KEY);
@@ -563,6 +588,29 @@ function DashboardLayoutContent({ children, setSidebarWidth }: { children: React
                   {(unreadCount || 0) > 9 ? "9+" : unreadCount}
                 </span>
               )}
+            </div>
+          </div>
+        )}
+        {/* PWA Install Banner */}
+        {showInstallBanner && (
+          <div className="sticky top-0 z-50 flex items-center justify-between gap-3 bg-indigo-600 text-white px-4 py-2.5 text-sm shadow-md" dir="rtl">
+            <div className="flex items-center gap-2">
+              <span className="text-lg">📲</span>
+              <span className="font-medium">ثبّت التطبيق على جهازك للوصول السريع</span>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                onClick={handleInstallPWA}
+                className="bg-white text-indigo-600 font-semibold text-xs px-3 py-1.5 rounded-lg hover:bg-indigo-50 transition-colors"
+              >
+                تثبيت
+              </button>
+              <button
+                onClick={dismissInstallBanner}
+                className="text-white/70 hover:text-white transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
             </div>
           </div>
         )}
