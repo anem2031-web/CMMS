@@ -2070,23 +2070,33 @@ export const appRouter = router({
         else if (period === "quarter") dateFrom.setMonth(dateFrom.getMonth() - 3);
         else if (period === "year") dateFrom.setFullYear(dateFrom.getFullYear() - 1);
       }
-      const [allTickets, allSites, allSections, allPOs] = await Promise.all([
+      // جلب البيانات: البلاغات + أصناف الشراء المستلمة (المصدر الموحد) + المواقع + الأقسام
+      const [allTickets, allSites, allSections, allPOs, allPOItems] = await Promise.all([
         db.getTickets({}),
         db.getAllSites(),
         db.getSections(),
         db.getPurchaseOrders(),
+        db.getAllPOItems(),
       ]);
+      // فلترة البلاغات حسب التاريخ
       const filteredTickets = allTickets.filter((t: any) => {
         if (dateFrom && new Date(t.createdAt) < dateFrom) return false;
         if (dateTo && new Date(t.createdAt) > dateTo) return false;
         return true;
       });
-      const filteredPOs = allPOs.filter((po: any) => {
-        if (dateFrom && new Date(po.createdAt) < dateFrom) return false;
-        if (dateTo && new Date(po.createdAt) > dateTo) return false;
+      // أصناف الشراء المستلمة فعلياً (delivered_to_warehouse أو delivered_to_requester)
+      // هذا المصدر يطابق بطاقة لوحة التحكم تماماً
+      const deliveredItems = allPOItems.filter((item: any) => {
+        if (item.status !== "delivered_to_warehouse" && item.status !== "delivered_to_requester") return false;
+        const dateRef = item.deliveredAt || item.receivedAt || item.createdAt;
+        if (dateFrom && new Date(dateRef) < dateFrom) return false;
+        if (dateTo && new Date(dateRef) > dateTo) return false;
         return true;
       });
-      // الاتجاه الشهري (آخر 12 شهر)
+      // بناء خريطة purchaseOrderId → siteId/sectionId من جدول purchaseOrders
+      const poMap = new Map<number, { siteId: number | null; sectionId: number | null }>();
+      allPOs.forEach((po: any) => poMap.set(po.id, { siteId: po.siteId ?? null, sectionId: po.sectionId ?? null }));
+      // الاتجاه الشهري (آخر 12 شهر) - يستخدم المصدر الموحد
       const monthlyTrend: { month: string; label: string; ticketCost: number; purchaseCost: number; total: number }[] = [];
       for (let i = 11; i >= 0; i--) {
         const d = new Date();
@@ -2100,35 +2110,61 @@ export const appRouter = router({
         const ticketCost = allTickets
           .filter((t: any) => { const c = new Date(t.createdAt); return c >= monthStart && c <= monthEnd; })
           .reduce((sum: number, t: any) => sum + parseFloat(t.actualCost || t.estimatedCost || "0"), 0);
-        const purchaseCost = allPOs
-          .filter((po: any) => { const c = new Date(po.createdAt); return c >= monthStart && c <= monthEnd; })
-          .reduce((sum: number, po: any) => sum + parseFloat(po.totalActualCost || po.totalEstimatedCost || "0"), 0);
+        const purchaseCost = allPOItems
+          .filter((item: any) => {
+            if (item.status !== "delivered_to_warehouse" && item.status !== "delivered_to_requester") return false;
+            const dateRef = item.deliveredAt || item.receivedAt || item.createdAt;
+            const c = new Date(dateRef);
+            return c >= monthStart && c <= monthEnd;
+          })
+          .reduce((sum: number, item: any) => sum + parseFloat(item.actualTotalCost || item.estimatedTotalCost || "0"), 0);
         monthlyTrend.push({ month: monthKey, label, ticketCost: Math.round(ticketCost * 100) / 100, purchaseCost: Math.round(purchaseCost * 100) / 100, total: Math.round((ticketCost + purchaseCost) * 100) / 100 });
       }
-      type GroupItem = { id: number; name: string; siteName?: string; ticketCost: number; purchaseCost: number; totalCost: number; ticketCount: number; percentage: number };
+      type GroupItem = { id: number; name: string; siteName?: string; ticketCost: number; purchaseCost: number; totalCost: number; ticketCount: number; ticketsNoCost: number; percentage: number; isUnclassified?: boolean };
       let groups: GroupItem[] = [];
       if (groupBy === "site") {
         groups = allSites.map((site: any) => {
           const siteTickets = filteredTickets.filter((t: any) => t.siteId === site.id);
-          const sitePOs = filteredPOs.filter((po: any) => po.siteId === site.id);
+          const siteItems = deliveredItems.filter((item: any) => poMap.get(item.purchaseOrderId)?.siteId === site.id);
           const ticketCost = siteTickets.reduce((sum: number, t: any) => sum + parseFloat(t.actualCost || t.estimatedCost || "0"), 0);
-          const purchaseCost = sitePOs.reduce((sum: number, po: any) => sum + parseFloat(po.totalActualCost || po.totalEstimatedCost || "0"), 0);
-          return { id: site.id, name: site.name, ticketCost: Math.round(ticketCost * 100) / 100, purchaseCost: Math.round(purchaseCost * 100) / 100, totalCost: Math.round((ticketCost + purchaseCost) * 100) / 100, ticketCount: siteTickets.length, percentage: 0 };
+          const purchaseCost = siteItems.reduce((sum: number, item: any) => sum + parseFloat(item.actualTotalCost || item.estimatedTotalCost || "0"), 0);
+          const ticketsNoCost = siteTickets.filter((t: any) => !t.actualCost && !t.estimatedCost).length;
+          return { id: site.id, name: site.name, ticketCost: Math.round(ticketCost * 100) / 100, purchaseCost: Math.round(purchaseCost * 100) / 100, totalCost: Math.round((ticketCost + purchaseCost) * 100) / 100, ticketCount: siteTickets.length, ticketsNoCost, percentage: 0 };
         });
+        // التكاليف غير المرتبطة بأي موقع
+        const unclassifiedTickets = filteredTickets.filter((t: any) => !t.siteId);
+        const unclassifiedItems = deliveredItems.filter((item: any) => !poMap.get(item.purchaseOrderId)?.siteId);
+        const unclassifiedTicketCost = unclassifiedTickets.reduce((sum: number, t: any) => sum + parseFloat(t.actualCost || t.estimatedCost || "0"), 0);
+        const unclassifiedPurchaseCost = unclassifiedItems.reduce((sum: number, item: any) => sum + parseFloat(item.actualTotalCost || item.estimatedTotalCost || "0"), 0);
+        const unclassifiedTotal = unclassifiedTicketCost + unclassifiedPurchaseCost;
+        if (unclassifiedTotal > 0 || unclassifiedTickets.length > 0) {
+          groups.push({ id: -1, name: "غير محدد", ticketCost: Math.round(unclassifiedTicketCost * 100) / 100, purchaseCost: Math.round(unclassifiedPurchaseCost * 100) / 100, totalCost: Math.round(unclassifiedTotal * 100) / 100, ticketCount: unclassifiedTickets.length, ticketsNoCost: unclassifiedTickets.filter((t: any) => !t.actualCost && !t.estimatedCost).length, percentage: 0, isUnclassified: true });
+        }
       } else {
         groups = allSections.map((section: any) => {
           const secTickets = filteredTickets.filter((t: any) => t.sectionId === section.id);
-          const secPOs = filteredPOs.filter((po: any) => po.sectionId === section.id);
+          const secItems = deliveredItems.filter((item: any) => poMap.get(item.purchaseOrderId)?.sectionId === section.id);
           const ticketCost = secTickets.reduce((sum: number, t: any) => sum + parseFloat(t.actualCost || t.estimatedCost || "0"), 0);
-          const purchaseCost = secPOs.reduce((sum: number, po: any) => sum + parseFloat(po.totalActualCost || po.totalEstimatedCost || "0"), 0);
+          const purchaseCost = secItems.reduce((sum: number, item: any) => sum + parseFloat(item.actualTotalCost || item.estimatedTotalCost || "0"), 0);
           const siteName = allSites.find((s: any) => s.id === section.siteId)?.name ?? "";
-          return { id: section.id, name: section.name, siteName, ticketCost: Math.round(ticketCost * 100) / 100, purchaseCost: Math.round(purchaseCost * 100) / 100, totalCost: Math.round((ticketCost + purchaseCost) * 100) / 100, ticketCount: secTickets.length, percentage: 0 };
+          const ticketsNoCost = secTickets.filter((t: any) => !t.actualCost && !t.estimatedCost).length;
+          return { id: section.id, name: section.name, siteName, ticketCost: Math.round(ticketCost * 100) / 100, purchaseCost: Math.round(purchaseCost * 100) / 100, totalCost: Math.round((ticketCost + purchaseCost) * 100) / 100, ticketCount: secTickets.length, ticketsNoCost, percentage: 0 };
         });
+        // التكاليف غير المرتبطة بأي قسم
+        const unclassifiedTickets = filteredTickets.filter((t: any) => !t.sectionId);
+        const unclassifiedItems = deliveredItems.filter((item: any) => !poMap.get(item.purchaseOrderId)?.sectionId);
+        const unclassifiedTicketCost = unclassifiedTickets.reduce((sum: number, t: any) => sum + parseFloat(t.actualCost || t.estimatedCost || "0"), 0);
+        const unclassifiedPurchaseCost = unclassifiedItems.reduce((sum: number, item: any) => sum + parseFloat(item.actualTotalCost || item.estimatedTotalCost || "0"), 0);
+        const unclassifiedTotal = unclassifiedTicketCost + unclassifiedPurchaseCost;
+        if (unclassifiedTotal > 0 || unclassifiedTickets.length > 0) {
+          groups.push({ id: -1, name: "غير محدد", ticketCost: Math.round(unclassifiedTicketCost * 100) / 100, purchaseCost: Math.round(unclassifiedPurchaseCost * 100) / 100, totalCost: Math.round(unclassifiedTotal * 100) / 100, ticketCount: unclassifiedTickets.length, ticketsNoCost: unclassifiedTickets.filter((t: any) => !t.actualCost && !t.estimatedCost).length, percentage: 0, isUnclassified: true });
+        }
       }
       groups = groups.sort((a, b) => b.totalCost - a.totalCost);
       const grandTotal = groups.reduce((sum, g) => sum + g.totalCost, 0);
       groups = groups.map(g => ({ ...g, percentage: grandTotal > 0 ? Math.round((g.totalCost / grandTotal) * 1000) / 10 : 0 }));
-      return { groups, grandTotal: Math.round(grandTotal * 100) / 100, monthlyTrend, groupBy };
+      const totalTicketsNoCost = filteredTickets.filter((t: any) => !t.actualCost && !t.estimatedCost).length;
+      return { groups, grandTotal: Math.round(grandTotal * 100) / 100, monthlyTrend, groupBy, totalTicketsNoCost };
     }),
   }),
 

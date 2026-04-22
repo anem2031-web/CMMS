@@ -3,14 +3,17 @@ import { trpc } from "@/lib/trpc";
 import { useLocation } from "wouter";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  PieChart, Pie, Cell, Legend, LineChart, Line, Area, AreaChart,
+  PieChart, Pie, Cell, Legend,
+  AreaChart, Area,
 } from "recharts";
-import { ArrowRight, TrendingUp, Building2, Layers, Calendar, DollarSign, Wrench, ShoppingCart, ChevronDown } from "lucide-react";
+import {
+  ArrowRight, TrendingUp, Building2, Layers, DollarSign,
+  Wrench, ShoppingCart, AlertCircle, Info,
+} from "lucide-react";
 
 type Period = "month" | "quarter" | "year" | "all" | "custom";
 type GroupBy = "site" | "section";
 
-// ألوان متناسقة وجميلة
 const COLORS = [
   "#6366f1", "#f59e0b", "#10b981", "#ef4444", "#3b82f6",
   "#8b5cf6", "#ec4899", "#14b8a6", "#f97316", "#84cc16",
@@ -35,11 +38,10 @@ function formatFull(val: number) {
   return `${val.toLocaleString("ar-SA", { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ر.س`;
 }
 
-// Tooltip مخصص للرسوم البيانية
 const CustomTooltip = ({ active, payload, label }: any) => {
   if (!active || !payload?.length) return null;
   return (
-    <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl p-3 text-sm min-w-[160px]">
+    <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl p-3 text-sm min-w-[170px]">
       <p className="font-semibold text-gray-800 dark:text-gray-100 mb-2 text-right">{label}</p>
       {payload.map((p: any, i: number) => (
         <div key={i} className="flex items-center justify-between gap-4 mb-1">
@@ -84,19 +86,25 @@ export default function CostReport() {
   const groups = data?.groups ?? [];
   const grandTotal = data?.grandTotal ?? 0;
   const monthlyTrend = data?.monthlyTrend ?? [];
+  const totalTicketsNoCost = data?.totalTicketsNoCost ?? 0;
 
-  // أعلى 5 للرسم الدائري
+  // أعلى 5 للرسم الدائري (مع تجميع الباقي في "أخرى")
   const top5 = useMemo(() => {
-    if (groups.length <= 5) return groups;
-    const top = groups.slice(0, 5);
-    const otherCost = groups.slice(5).reduce((s, g) => s + g.totalCost, 0);
-    const otherPct = groups.slice(5).reduce((s, g) => s + g.percentage, 0);
-    return [...top, { id: -1, name: "أخرى", totalCost: otherCost, percentage: Math.round(otherPct * 10) / 10, ticketCost: 0, purchaseCost: 0, ticketCount: 0 }];
+    const classified = groups.filter(g => !g.isUnclassified);
+    if (classified.length <= 5) return classified;
+    const top = classified.slice(0, 5);
+    const otherCost = classified.slice(5).reduce((s, g) => s + g.totalCost, 0);
+    const otherPct = classified.slice(5).reduce((s, g) => s + g.percentage, 0);
+    return [...top, { id: -2, name: "أخرى", totalCost: otherCost, percentage: Math.round(otherPct * 10) / 10, ticketCost: 0, purchaseCost: 0, ticketCount: 0, ticketsNoCost: 0, isUnclassified: false }];
   }, [groups]);
 
-  // إجمالي تكاليف الصيانة والشراء
   const totalTicketCost = groups.reduce((s, g) => s + g.ticketCost, 0);
   const totalPurchaseCost = groups.reduce((s, g) => s + g.purchaseCost, 0);
+  const classifiedGroups = groups.filter(g => !g.isUnclassified);
+  const unclassifiedGroup = groups.find(g => g.isUnclassified);
+
+  const hasData = groups.length > 0 && grandTotal > 0;
+  const hasAnyTickets = groups.reduce((s, g) => s + g.ticketCount, 0) > 0;
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950 p-4 md:p-6" dir="rtl">
@@ -115,9 +123,10 @@ export default function CostReport() {
               <DollarSign className="w-7 h-7 text-violet-500" />
               تقرير التكاليف
             </h1>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">تحليل بصري لتكاليف الصيانة والشراء</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+              تحليل بصري لتكاليف الصيانة والمشتريات المستلمة
+            </p>
           </div>
-          {/* إجمالي كبير */}
           <div className="bg-gradient-to-br from-violet-500 to-indigo-600 text-white rounded-2xl px-6 py-3 shadow-lg shadow-violet-200 dark:shadow-violet-900/30">
             <p className="text-xs opacity-80 mb-0.5">الإجمالي الكلي</p>
             <p className="text-2xl font-bold">{formatFull(grandTotal)}</p>
@@ -190,6 +199,31 @@ export default function CostReport() {
         </div>
       ) : (
         <>
+          {/* تنبيه: بلاغات بدون تكلفة */}
+          {totalTicketsNoCost > 0 && (
+            <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-xl p-3 mb-4 flex items-start gap-2.5">
+              <AlertCircle className="w-4 h-4 text-amber-500 mt-0.5 flex-shrink-0" />
+              <p className="text-sm text-amber-700 dark:text-amber-300">
+                يوجد <strong>{totalTicketsNoCost}</strong> بلاغ لم تُدخل لها تكلفة (لا تقديرية ولا فعلية) — هذه البلاغات لا تُحسب في الإجمالي.
+              </p>
+            </div>
+          )}
+
+          {/* تنبيه: لا توجد بيانات */}
+          {!hasData && !isLoading && (
+            <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-xl p-4 mb-4 flex items-start gap-2.5">
+              <Info className="w-4 h-4 text-blue-500 mt-0.5 flex-shrink-0" />
+              <div>
+                <p className="text-sm font-medium text-blue-700 dark:text-blue-300">لا توجد تكاليف مسجلة للفترة المحددة</p>
+                <p className="text-xs text-blue-600 dark:text-blue-400 mt-0.5">
+                  {hasAnyTickets
+                    ? "يوجد بلاغات لكن لم تُدخل لها تكاليف. يمكن إدخال التكلفة من صفحة تفاصيل البلاغ."
+                    : "لا توجد بلاغات أو مشتريات مستلمة في هذه الفترة."}
+                </p>
+              </div>
+            </div>
+          )}
+
           {/* بطاقات الملخص */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
             <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 p-4 shadow-sm">
@@ -220,34 +254,33 @@ export default function CostReport() {
                   <ShoppingCart className="w-5 h-5 text-amber-500" />
                 </div>
                 <div>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">تكاليف الشراء</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">تكاليف المشتريات المستلمة</p>
                   <p className="text-lg font-bold text-gray-900 dark:text-white">{formatCurrency(totalPurchaseCost)}</p>
                 </div>
               </div>
             </div>
           </div>
 
-          {/* الرسم البياني الرئيسي */}
+          {/* الرسم البياني الرئيسي + الأعلى تكلفةً */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
-            {/* رسم التوزيع */}
             <div className="lg:col-span-2 bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 p-5 shadow-sm">
               <h2 className="text-base font-semibold text-gray-800 dark:text-gray-100 mb-4">
                 توزيع التكاليف {groupBy === "site" ? "حسب الموقع" : "حسب القسم"}
               </h2>
-              {groups.length === 0 ? (
+              {!hasData ? (
                 <div className="flex flex-col items-center justify-center h-48 text-gray-400">
                   <DollarSign className="w-10 h-10 mb-2 opacity-30" />
-                  <p className="text-sm">لا توجد بيانات للفترة المحددة</p>
+                  <p className="text-sm">لا توجد تكاليف للعرض</p>
                 </div>
               ) : chartType === "bar" ? (
                 <ResponsiveContainer width="100%" height={280}>
-                  <BarChart data={groups} margin={{ top: 5, right: 5, left: 5, bottom: 60 }}>
+                  <BarChart data={classifiedGroups} margin={{ top: 5, right: 5, left: 5, bottom: 60 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
                     <XAxis dataKey="name" tick={{ fontSize: 11, fill: "#6b7280" }} angle={-35} textAnchor="end" interval={0} />
-                    <YAxis tickFormatter={formatCurrency} tick={{ fontSize: 10, fill: "#6b7280" }} width={70} />
+                    <YAxis tickFormatter={formatCurrency} tick={{ fontSize: 10, fill: "#6b7280" }} width={72} />
                     <Tooltip content={<CustomTooltip />} />
-                    <Bar dataKey="ticketCost" name="صيانة" stackId="a" fill="#6366f1" radius={[0, 0, 0, 0]} />
-                    <Bar dataKey="purchaseCost" name="شراء" stackId="a" fill="#f59e0b" radius={[6, 6, 0, 0]} />
+                    <Bar dataKey="ticketCost" name="صيانة" stackId="a" fill="#6366f1" />
+                    <Bar dataKey="purchaseCost" name="مشتريات" stackId="a" fill="#f59e0b" radius={[6, 6, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               ) : (
@@ -265,16 +298,14 @@ export default function CostReport() {
               )}
             </div>
 
-            {/* أعلى المواقع/الأقسام */}
+            {/* الأعلى تكلفةً */}
             <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 p-5 shadow-sm">
-              <h2 className="text-base font-semibold text-gray-800 dark:text-gray-100 mb-4">
-                الأعلى تكلفةً
-              </h2>
-              {groups.length === 0 ? (
+              <h2 className="text-base font-semibold text-gray-800 dark:text-gray-100 mb-4">الأعلى تكلفةً</h2>
+              {!hasData ? (
                 <div className="flex items-center justify-center h-48 text-gray-400 text-sm">لا توجد بيانات</div>
               ) : (
                 <div className="space-y-3">
-                  {groups.slice(0, 6).map((g, i) => (
+                  {classifiedGroups.slice(0, 6).map((g, i) => (
                     <div key={g.id}>
                       <div className="flex items-center justify-between mb-1">
                         <span className="text-xs font-medium text-gray-500 dark:text-gray-400">{g.percentage}%</span>
@@ -293,6 +324,15 @@ export default function CostReport() {
                       <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 text-left">{formatCurrency(g.totalCost)}</p>
                     </div>
                   ))}
+                  {/* غير محدد */}
+                  {unclassifiedGroup && unclassifiedGroup.totalCost > 0 && (
+                    <div className="pt-2 border-t border-dashed border-gray-200 dark:border-gray-700">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-gray-400">غير محدد</span>
+                        <span className="text-xs font-medium text-gray-500">{formatCurrency(unclassifiedGroup.totalCost)}</span>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -318,20 +358,24 @@ export default function CostReport() {
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
                 <XAxis dataKey="label" tick={{ fontSize: 10, fill: "#9ca3af" }} />
-                <YAxis tickFormatter={formatCurrency} tick={{ fontSize: 10, fill: "#9ca3af" }} width={65} />
+                <YAxis tickFormatter={formatCurrency} tick={{ fontSize: 10, fill: "#9ca3af" }} width={68} />
                 <Tooltip content={<CustomTooltip />} />
                 <Area type="monotone" dataKey="ticketCost" name="صيانة" stroke="#6366f1" fill="url(#gradTicket)" strokeWidth={2} dot={false} />
-                <Area type="monotone" dataKey="purchaseCost" name="شراء" stroke="#f59e0b" fill="url(#gradPurchase)" strokeWidth={2} dot={false} />
+                <Area type="monotone" dataKey="purchaseCost" name="مشتريات" stroke="#f59e0b" fill="url(#gradPurchase)" strokeWidth={2} dot={false} />
               </AreaChart>
             </ResponsiveContainer>
           </div>
 
           {/* جدول تفصيلي */}
           <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm overflow-hidden">
-            <div className="p-5 border-b border-gray-100 dark:border-gray-800">
+            <div className="p-5 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between">
               <h2 className="text-base font-semibold text-gray-800 dark:text-gray-100">
                 التفاصيل {groupBy === "site" ? "حسب الموقع" : "حسب القسم"}
               </h2>
+              <div className="flex items-center gap-3 text-xs text-gray-400">
+                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-indigo-400 inline-block" />صيانة</span>
+                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-400 inline-block" />مشتريات مستلمة</span>
+              </div>
             </div>
             {groups.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-12 text-gray-400">
@@ -343,69 +387,112 @@ export default function CostReport() {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="bg-gray-50 dark:bg-gray-800/50">
-                      <th className="text-right px-5 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400">#</th>
-                      <th className="text-right px-5 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400">
+                      <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400">#</th>
+                      <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400">
                         {groupBy === "site" ? "الموقع" : "القسم"}
                       </th>
                       {groupBy === "section" && (
-                        <th className="text-right px-5 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400">الموقع</th>
+                        <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400">الموقع</th>
                       )}
-                      <th className="text-right px-5 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400">تكلفة الصيانة</th>
-                      <th className="text-right px-5 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400">تكلفة الشراء</th>
-                      <th className="text-right px-5 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400">الإجمالي</th>
-                      <th className="text-right px-5 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400">النسبة</th>
-                      <th className="text-right px-5 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400">البلاغات</th>
+                      <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400">تكلفة الصيانة</th>
+                      <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400">تكلفة المشتريات</th>
+                      <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400">الإجمالي</th>
+                      <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400">النسبة</th>
+                      <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400">البلاغات</th>
+                      <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400">
+                        <span title="بلاغات لم تُدخل لها تكلفة">بدون تكلفة</span>
+                      </th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-50 dark:divide-gray-800">
-                    {groups.map((g, i) => (
-                      <tr key={g.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/30 transition-colors">
-                        <td className="px-5 py-3.5">
-                          <span className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold text-white"
-                            style={{ background: COLORS[i % COLORS.length] }}>
-                            {i + 1}
-                          </span>
-                        </td>
-                        <td className="px-5 py-3.5 font-medium text-gray-800 dark:text-gray-200">{g.name}</td>
-                        {groupBy === "section" && (
-                          <td className="px-5 py-3.5 text-gray-500 dark:text-gray-400 text-xs">{(g as any).siteName || "—"}</td>
-                        )}
-                        <td className="px-5 py-3.5 text-blue-600 dark:text-blue-400 font-medium">{formatFull(g.ticketCost)}</td>
-                        <td className="px-5 py-3.5 text-amber-600 dark:text-amber-400 font-medium">{formatFull(g.purchaseCost)}</td>
-                        <td className="px-5 py-3.5 font-bold text-gray-900 dark:text-white">{formatFull(g.totalCost)}</td>
-                        <td className="px-5 py-3.5">
-                          <div className="flex items-center gap-2">
-                            <div className="w-16 bg-gray-100 dark:bg-gray-800 rounded-full h-1.5">
-                              <div className="h-1.5 rounded-full" style={{ width: `${g.percentage}%`, background: COLORS[i % COLORS.length] }} />
+                    {groups.map((g, i) => {
+                      const isUnclassified = g.isUnclassified;
+                      const color = isUnclassified ? "#9ca3af" : COLORS[i % COLORS.length];
+                      return (
+                        <tr key={g.id}
+                          className={`hover:bg-gray-50 dark:hover:bg-gray-800/30 transition-colors ${isUnclassified ? "bg-gray-50/50 dark:bg-gray-800/20" : ""}`}>
+                          <td className="px-4 py-3.5">
+                            {isUnclassified ? (
+                              <span className="text-xs text-gray-400">—</span>
+                            ) : (
+                              <span className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold text-white"
+                                style={{ background: color }}>
+                                {i + 1}
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-4 py-3.5">
+                            <span className={`font-medium ${isUnclassified ? "text-gray-400 dark:text-gray-500 italic" : "text-gray-800 dark:text-gray-200"}`}>
+                              {g.name}
+                            </span>
+                          </td>
+                          {groupBy === "section" && (
+                            <td className="px-4 py-3.5 text-gray-500 dark:text-gray-400 text-xs">{(g as any).siteName || "—"}</td>
+                          )}
+                          <td className="px-4 py-3.5 text-blue-600 dark:text-blue-400 font-medium">{formatFull(g.ticketCost)}</td>
+                          <td className="px-4 py-3.5 text-amber-600 dark:text-amber-400 font-medium">{formatFull(g.purchaseCost)}</td>
+                          <td className="px-4 py-3.5 font-bold text-gray-900 dark:text-white">{formatFull(g.totalCost)}</td>
+                          <td className="px-4 py-3.5">
+                            <div className="flex items-center gap-2">
+                              <div className="w-14 bg-gray-100 dark:bg-gray-800 rounded-full h-1.5">
+                                <div className="h-1.5 rounded-full" style={{ width: `${g.percentage}%`, background: color }} />
+                              </div>
+                              <span className="text-xs text-gray-500 dark:text-gray-400">{g.percentage}%</span>
                             </div>
-                            <span className="text-xs text-gray-500 dark:text-gray-400">{g.percentage}%</span>
-                          </div>
-                        </td>
-                        <td className="px-5 py-3.5 text-center">
-                          <span className="bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 text-xs font-medium px-2 py-0.5 rounded-full">
-                            {g.ticketCount}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
+                          </td>
+                          <td className="px-4 py-3.5 text-center">
+                            <span className="bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 text-xs font-medium px-2 py-0.5 rounded-full">
+                              {g.ticketCount}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3.5 text-center">
+                            {g.ticketsNoCost > 0 ? (
+                              <span className="bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400 text-xs font-medium px-2 py-0.5 rounded-full">
+                                {g.ticketsNoCost}
+                              </span>
+                            ) : (
+                              <span className="text-gray-300 dark:text-gray-600 text-xs">—</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                   <tfoot>
                     <tr className="bg-gray-50 dark:bg-gray-800/50 border-t-2 border-gray-200 dark:border-gray-700">
-                      <td colSpan={groupBy === "section" ? 3 : 2} className="px-5 py-3.5 font-bold text-gray-700 dark:text-gray-300 text-sm">الإجمالي</td>
-                      <td className="px-5 py-3.5 font-bold text-blue-600 dark:text-blue-400">{formatFull(totalTicketCost)}</td>
-                      <td className="px-5 py-3.5 font-bold text-amber-600 dark:text-amber-400">{formatFull(totalPurchaseCost)}</td>
-                      <td className="px-5 py-3.5 font-bold text-gray-900 dark:text-white text-base">{formatFull(grandTotal)}</td>
-                      <td className="px-5 py-3.5 font-bold text-gray-500">100%</td>
-                      <td className="px-5 py-3.5 text-center font-bold text-gray-600 dark:text-gray-400">
-                        <span className="bg-gray-200 dark:bg-gray-700 text-xs font-medium px-2 py-0.5 rounded-full">
+                      <td colSpan={groupBy === "section" ? 3 : 2} className="px-4 py-3.5 font-bold text-gray-700 dark:text-gray-300 text-sm">الإجمالي</td>
+                      <td className="px-4 py-3.5 font-bold text-blue-600 dark:text-blue-400">{formatFull(totalTicketCost)}</td>
+                      <td className="px-4 py-3.5 font-bold text-amber-600 dark:text-amber-400">{formatFull(totalPurchaseCost)}</td>
+                      <td className="px-4 py-3.5 font-bold text-gray-900 dark:text-white text-base">{formatFull(grandTotal)}</td>
+                      <td className="px-4 py-3.5 font-bold text-gray-500">100%</td>
+                      <td className="px-4 py-3.5 text-center font-bold">
+                        <span className="bg-gray-200 dark:bg-gray-700 text-xs font-medium px-2 py-0.5 rounded-full text-gray-600 dark:text-gray-400">
                           {groups.reduce((s, g) => s + g.ticketCount, 0)}
                         </span>
+                      </td>
+                      <td className="px-4 py-3.5 text-center">
+                        {totalTicketsNoCost > 0 ? (
+                          <span className="bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400 text-xs font-medium px-2 py-0.5 rounded-full">
+                            {totalTicketsNoCost}
+                          </span>
+                        ) : (
+                          <span className="text-gray-300 text-xs">—</span>
+                        )}
                       </td>
                     </tr>
                   </tfoot>
                 </table>
               </div>
             )}
+          </div>
+
+          {/* ملاحظة مصدر البيانات */}
+          <div className="mt-4 flex items-start gap-2 text-xs text-gray-400 dark:text-gray-500">
+            <Info className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
+            <p>
+              تكاليف الصيانة: من حقل التكلفة الفعلية أو التقديرية في البلاغات.
+              تكاليف المشتريات: من أصناف الشراء المستلمة فعلياً (تطابق بطاقة لوحة التحكم).
+            </p>
           </div>
         </>
       )}
