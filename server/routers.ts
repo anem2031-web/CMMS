@@ -1750,6 +1750,9 @@ export const appRouter = router({
       period: z.enum(["week", "month", "quarter", "year", "all", "custom"]).default("all"),
       dateFrom: z.string().optional(),
       dateTo: z.string().optional(),
+      siteId: z.number().optional(),
+      sectionId: z.number().optional(),
+      technicianName: z.string().optional(),
     }).optional()).query(async ({ input }) => {
       const period = input?.period || "all";
       let dateFrom: Date | undefined;
@@ -1778,7 +1781,12 @@ export const appRouter = router({
         }
       }
 
-      return db.getTechnicianPerformance(period === "all" ? undefined : { dateFrom, dateTo });
+      return db.getTechnicianPerformance({
+        ...(period !== "all" ? { dateFrom, dateTo } : {}),
+        siteId: input?.siteId,
+        sectionId: input?.sectionId,
+        technicianName: input?.technicianName,
+      });
     }),
 
     externalTechnicianPerformance: protectedProcedure.input(z.object({

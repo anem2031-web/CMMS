@@ -483,12 +483,15 @@ export async function getAuditLogs(filters?: { entityType?: string; entityId?: n
 // ============================================================
 // TECHNICIAN PERFORMANCE REPORT
 // ============================================================
-export async function getTechnicianPerformance(filters?: { dateFrom?: Date; dateTo?: Date }) {
+export async function getTechnicianPerformance(filters?: { dateFrom?: Date; dateTo?: Date; siteId?: number; sectionId?: number; technicianName?: string }) {
   const db = await getDb();
   if (!db) return [];
 
   const dateFrom = filters?.dateFrom;
   const dateTo = filters?.dateTo;
+  const siteId = filters?.siteId;
+  const sectionId = filters?.sectionId;
+  const technicianName = filters?.technicianName?.trim().toLowerCase();
 
   // Build date condition helper
   const withDateFilter = (baseConditions: any[], dateField: any) => {
@@ -498,12 +501,23 @@ export async function getTechnicianPerformance(filters?: { dateFrom?: Date; date
     return conds;
   };
 
-  // Get all technicians
-  const techs = await db.select().from(users).where(eq(users.role, "technician" as any));
+  // Build site/section condition for tickets
+  const siteSecCond = () => {
+    const c: any[] = [];
+    if (siteId) c.push(eq(tickets.siteId, siteId));
+    if (sectionId) c.push(eq(tickets.sectionId, sectionId));
+    return c;
+  };
+
+  // Get all technicians (filtered by name if provided)
+  let techs = await db.select().from(users).where(eq(users.role, "technician" as any));
+  if (technicianName) {
+    techs = techs.filter(t => (t.name || "").toLowerCase().includes(technicianName));
+  }
 
   const results = [];
   for (const tech of techs) {
-    const baseCond = [eq(tickets.assignedToId, tech.id)];
+    const baseCond = [eq(tickets.assignedToId, tech.id), ...siteSecCond()];
     const dateFilteredCond = withDateFilter(baseCond, tickets.createdAt);
 
     // Total assigned tickets (within date range)
@@ -520,7 +534,7 @@ export async function getTechnicianPerformance(filters?: { dateFrom?: Date; date
     );
 
     // Closed tickets with resolution time within date range
-    const closedCond = withDateFilter([eq(tickets.assignedToId, tech.id), eq(tickets.status, "closed")], tickets.closedAt);
+    const closedCond = withDateFilter([eq(tickets.assignedToId, tech.id), eq(tickets.status, "closed"), ...siteSecCond()], tickets.closedAt);
     const closedTickets = await db.select({
       id: tickets.id,
       createdAt: tickets.createdAt,
@@ -565,10 +579,10 @@ export async function getTechnicianPerformance(filters?: { dateFrom?: Date; date
       const monthEnd = new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59);
 
       const [assigned] = await db.select({ cnt: count() }).from(tickets).where(
-        and(eq(tickets.assignedToId, tech.id), gte(tickets.createdAt, monthStart), lte(tickets.createdAt, monthEnd))
+        and(eq(tickets.assignedToId, tech.id), gte(tickets.createdAt, monthStart), lte(tickets.createdAt, monthEnd), ...siteSecCond())
       );
       const [comp] = await db.select({ cnt: count() }).from(tickets).where(
-        and(eq(tickets.assignedToId, tech.id), eq(tickets.status, "closed"), gte(tickets.closedAt, monthStart), lte(tickets.closedAt, monthEnd))
+        and(eq(tickets.assignedToId, tech.id), eq(tickets.status, "closed"), gte(tickets.closedAt, monthStart), lte(tickets.closedAt, monthEnd), ...siteSecCond())
       );
       monthlyTrend.push({ month: monthStr, assigned: assigned?.cnt || 0, completed: comp?.cnt || 0 });
     }

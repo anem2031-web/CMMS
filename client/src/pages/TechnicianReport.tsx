@@ -18,7 +18,9 @@ import {
 import { useState, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Calendar, CalendarDays, Filter } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
+import { CalendarDays, Filter, Search, MapPin, Building2, X } from "lucide-react";
 import { useTranslation } from "@/contexts/LanguageContext";
 import { useStaticLabels } from "@/hooks/useContentTranslation";
 
@@ -107,13 +109,36 @@ export default function TechnicianReport() {
   const [customDateTo, setCustomDateTo] = useState<string>("");
   const [showCustomPicker, setShowCustomPicker] = useState(false);
   const [selectedTech, setSelectedTech] = useState<number | null>(null);
+  // New filters
+  const [filterSiteId, setFilterSiteId] = useState<number | undefined>(undefined);
+  const [filterSectionId, setFilterSectionId] = useState<number | undefined>(undefined);
+  const [filterTechName, setFilterTechName] = useState<string>("");
+
+  // Fetch sites and sections for filter dropdowns
+  const { data: sitesData } = trpc.sites.list.useQuery();
+  const { data: sectionsData } = trpc.sections.list.useQuery(
+    filterSiteId ? { siteId: filterSiteId } : undefined
+  );
 
   const queryInput = useMemo(() => {
+    const base: Record<string, any> = { period: selectedPeriod as PeriodType };
     if (selectedPeriod === "custom" && customDateFrom && customDateTo) {
-      return { period: selectedPeriod as PeriodType, dateFrom: customDateFrom, dateTo: customDateTo };
+      base.dateFrom = customDateFrom;
+      base.dateTo = customDateTo;
     }
-    return { period: selectedPeriod as PeriodType };
-  }, [selectedPeriod, customDateFrom, customDateTo]);
+    if (filterSiteId) base.siteId = filterSiteId;
+    if (filterSectionId) base.sectionId = filterSectionId;
+    if (filterTechName.trim()) base.technicianName = filterTechName.trim();
+    return base;
+  }, [selectedPeriod, customDateFrom, customDateTo, filterSiteId, filterSectionId, filterTechName]);
+
+  const hasActiveFilters = !!filterSiteId || !!filterSectionId || !!filterTechName.trim();
+
+  const clearFilters = () => {
+    setFilterSiteId(undefined);
+    setFilterSectionId(undefined);
+    setFilterTechName("");
+  };
 
   const { data: techData, isLoading, error } = trpc.reports.technicianPerformance.useQuery(queryInput);
   const { data: extTechData, isLoading: extLoading } = trpc.reports.externalTechnicianPerformance.useQuery(queryInput);
@@ -311,6 +336,104 @@ export default function TechnicianReport() {
                   </PopoverContent>
                 </Popover>
               </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Advanced Filters: Technician Name, Site, Section */}
+        <Card className="border-dashed">
+          <CardContent className="py-3 px-4">
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="flex items-center gap-2 text-sm text-muted-foreground shrink-0">
+                <Search className="h-4 w-4" />
+                <span className="font-medium">فلترة الفنيين:</span>
+              </div>
+              {/* Technician Name Search */}
+              <div className="relative min-w-[180px]">
+                <Search className="absolute right-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                <Input
+                  placeholder="اسم الفني..."
+                  value={filterTechName}
+                  onChange={(e) => setFilterTechName(e.target.value)}
+                  className="h-8 text-xs pr-8 w-full"
+                />
+              </div>
+              {/* Site Filter */}
+              <div className="flex items-center gap-1.5 min-w-[160px]">
+                <MapPin className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                <Select
+                  value={filterSiteId ? String(filterSiteId) : "all"}
+                  onValueChange={(v) => {
+                    const id = v === "all" ? undefined : Number(v);
+                    setFilterSiteId(id);
+                    setFilterSectionId(undefined); // reset section when site changes
+                  }}
+                >
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue placeholder="كل المواقع" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">كل المواقع</SelectItem>
+                    {(sitesData || []).map((s: any) => (
+                      <SelectItem key={s.id} value={String(s.id)}>{s.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              {/* Section Filter */}
+              <div className="flex items-center gap-1.5 min-w-[160px]">
+                <Building2 className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                <Select
+                  value={filterSectionId ? String(filterSectionId) : "all"}
+                  onValueChange={(v) => setFilterSectionId(v === "all" ? undefined : Number(v))}
+                  disabled={!filterSiteId}
+                >
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue placeholder={filterSiteId ? "كل الأقسام" : "اختر موقعاً أولاً"} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">كل الأقسام</SelectItem>
+                    {(sectionsData || []).map((s: any) => (
+                      <SelectItem key={s.id} value={String(s.id)}>{s.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              {/* Clear Filters */}
+              {hasActiveFilters && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={clearFilters}
+                  className="h-8 text-xs text-destructive hover:text-destructive gap-1"
+                >
+                  <X className="h-3.5 w-3.5" />
+                  مسح الفلاتر
+                </Button>
+              )}
+              {/* Active filter badges */}
+              {hasActiveFilters && (
+                <div className="flex flex-wrap gap-1.5 mr-auto">
+                  {filterSiteId && sitesData && (
+                    <Badge variant="secondary" className="text-xs gap-1">
+                      <MapPin className="h-3 w-3" />
+                      {sitesData.find((s: any) => s.id === filterSiteId)?.name}
+                    </Badge>
+                  )}
+                  {filterSectionId && sectionsData && (
+                    <Badge variant="secondary" className="text-xs gap-1">
+                      <Building2 className="h-3 w-3" />
+                      {sectionsData.find((s: any) => s.id === filterSectionId)?.name}
+                    </Badge>
+                  )}
+                  {filterTechName.trim() && (
+                    <Badge variant="secondary" className="text-xs gap-1">
+                      <Search className="h-3 w-3" />
+                      {filterTechName.trim()}
+                    </Badge>
+                  )}
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>
