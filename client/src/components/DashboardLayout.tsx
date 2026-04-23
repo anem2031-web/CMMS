@@ -185,6 +185,18 @@ function DashboardLayoutContent({ children, setSidebarWidth }: { children: React
   // ── PWA Install Prompt ──
   const [installPrompt, setInstallPrompt] = useState<any>(null);
   const [showInstallBanner, setShowInstallBanner] = useState(false);
+
+  // ── iOS Install Guide ──
+  const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+  const isInStandaloneMode = (window.navigator as any).standalone === true;
+  const [showIOSGuide, setShowIOSGuide] = useState(() => {
+    if (!isIOS || isInStandaloneMode) return false;
+    return !localStorage.getItem('ios-install-dismissed');
+  });
+  const dismissIOSGuide = () => {
+    setShowIOSGuide(false);
+    localStorage.setItem('ios-install-dismissed', '1');
+  };
   useEffect(() => {
     const handler = (e: Event) => {
       e.preventDefault();
@@ -616,6 +628,53 @@ function DashboardLayoutContent({ children, setSidebarWidth }: { children: React
         )}
         <main className="flex-1 p-4 md:p-6">{children}</main>
       </SidebarInset>
+
+      {/* ── iOS Install Guide ── */}
+      {showIOSGuide && (
+        <div className="fixed inset-0 z-[9998] flex items-end justify-center pb-6 px-4 bg-black/40 backdrop-blur-sm" dir="rtl">
+          <div className="bg-background border border-border rounded-2xl shadow-2xl w-full max-w-sm p-5 animate-in slide-in-from-bottom-4 duration-300">
+            {/* Header */}
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <span className="text-2xl">📱</span>
+                <div>
+                  <p className="font-bold text-sm text-foreground">ثبّت التطبيق على iPhone</p>
+                  <p className="text-xs text-muted-foreground">للوصول السريع بدون فتح المتصفح</p>
+                </div>
+              </div>
+              <button onClick={dismissIOSGuide} className="text-muted-foreground hover:text-foreground transition-colors p-1">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            {/* Steps */}
+            <div className="space-y-3 mb-5">
+              <div className="flex items-center gap-3 bg-muted/50 rounded-xl p-3">
+                <div className="w-7 h-7 rounded-full bg-primary text-primary-foreground text-xs font-bold flex items-center justify-center shrink-0">1</div>
+                <p className="text-sm text-foreground">افتح هذا الرابط من متصفح <span className="font-bold text-primary">Safari</span></p>
+              </div>
+              <div className="flex items-center gap-3 bg-muted/50 rounded-xl p-3">
+                <div className="w-7 h-7 rounded-full bg-primary text-primary-foreground text-xs font-bold flex items-center justify-center shrink-0">2</div>
+                <p className="text-sm text-foreground">اضغط على أيقونة المشاركة <span className="font-bold">⬆️</span> في أسفل الشاشة</p>
+              </div>
+              <div className="flex items-center gap-3 bg-muted/50 rounded-xl p-3">
+                <div className="w-7 h-7 rounded-full bg-primary text-primary-foreground text-xs font-bold flex items-center justify-center shrink-0">3</div>
+                <p className="text-sm text-foreground">اختر <span className="font-bold text-primary">"إضافة إلى الشاشة الرئيسية"</span> من القائمة</p>
+              </div>
+              <div className="flex items-center gap-3 bg-muted/50 rounded-xl p-3">
+                <div className="w-7 h-7 rounded-full bg-primary text-primary-foreground text-xs font-bold flex items-center justify-center shrink-0">4</div>
+                <p className="text-sm text-foreground">اضغط <span className="font-bold text-primary">"إضافة"</span> — يظهر التطبيق فوراً على شاشتك</p>
+              </div>
+            </div>
+            {/* Dismiss */}
+            <button
+              onClick={dismissIOSGuide}
+              className="w-full bg-primary text-primary-foreground font-semibold text-sm py-2.5 rounded-xl hover:opacity-90 transition-opacity"
+            >
+              فهمت، شكراً
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* ── Live Notification Popups ── */}
       <div className="fixed bottom-4 left-4 z-[9999] flex flex-col gap-2 max-w-sm" dir="rtl">

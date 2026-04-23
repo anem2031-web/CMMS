@@ -608,3 +608,8 @@
 - [x] ربط manifest ومعلومات PWA بـ index.html
 - [x] إضافة Install Banner في DashboardLayout مع زر تثبيت وزر إغلاق
 - [x] تسجيل Service Worker في main.tsx
+
+## Phase 38: رسالة توجيهية لمستخدمي iPhone
+- [x] إضافة iOS Install Guide في DashboardLayout يظهر فقط على iPhone/iPad
+- [x] يشرح خطوات التثبيت اليدوي عبر Safari بأربع خطوات واضحة
+- [x] يختفي بعد الضغط على "فهمت، شكراً" ويحفظ الخيار في localStorage
