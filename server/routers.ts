@@ -739,7 +739,31 @@ export const appRouter = router({
       if (input.priority && input.priority !== ticket.priority) { oldValues.priority = ticket.priority; newValues.priority = input.priority; }
       if (input.category && input.category !== ticket.category) { oldValues.category = ticket.category; newValues.category = input.category; }
       if (input.siteId && input.siteId !== ticket.siteId) { oldValues.siteId = ticket.siteId; newValues.siteId = input.siteId; }
-      await db.updateTicket(id, updateData);
+      // Auto-translate updated text fields to all 3 languages
+      let translationUpdate: Record<string, any> = {};
+      const fieldsToTranslate: Record<string, string> = {};
+      if (input.title && input.title !== ticket.title) fieldsToTranslate.title = input.title;
+      if (input.description && input.description !== ticket.description) fieldsToTranslate.description = input.description;
+      if (Object.keys(fieldsToTranslate).length > 0) {
+        try {
+          const textForDetection = Object.values(fieldsToTranslate)[0];
+          const detectedLang = await detectLanguage(textForDetection) as SupportedLanguage;
+          const translations = await translateFields(fieldsToTranslate, detectedLang);
+          if (translations.title) {
+            translationUpdate.title_ar = translations.title.ar;
+            translationUpdate.title_en = translations.title.en;
+            translationUpdate.title_ur = translations.title.ur;
+          }
+          if (translations.description) {
+            translationUpdate.description_ar = translations.description.ar;
+            translationUpdate.description_en = translations.description.en;
+            translationUpdate.description_ur = translations.description.ur;
+          }
+        } catch (e) {
+          console.error("[Ticket] Update translation failed:", e);
+        }
+      }
+      await db.updateTicket(id, { ...updateData, ...translationUpdate });
       await db.createAuditLog({ userId: ctx.user.id, action: "update_ticket", entityType: "ticket", entityId: id, oldValues, newValues });
       // Notify managers about ticket edit
       if (Object.keys(newValues).length > 0) {
@@ -2548,8 +2572,33 @@ ${JSON.stringify(recentAudit.map((a: any) => ({ action: a.action, entity: a.enti
       rfidTag: z.string().optional(),
     })).mutation(async ({ input }) => {
       const { id, ...data } = input;
+      // Auto-translate updated text fields to all 3 languages
+      let assetTranslation: Record<string, any> = {};
+      const assetFieldsToTranslate: Record<string, string> = {};
+      if (data.description) assetFieldsToTranslate.description = data.description;
+      if (data.notes) assetFieldsToTranslate.notes = data.notes;
+      if (Object.keys(assetFieldsToTranslate).length > 0) {
+        try {
+          const textForDetection = Object.values(assetFieldsToTranslate)[0];
+          const detectedLang = await detectLanguage(textForDetection) as SupportedLanguage;
+          const translations = await translateFields(assetFieldsToTranslate, detectedLang);
+          if (translations.description) {
+            assetTranslation.description_ar = translations.description.ar;
+            assetTranslation.description_en = translations.description.en;
+            assetTranslation.description_ur = translations.description.ur;
+          }
+          if (translations.notes) {
+            assetTranslation.notes_ar = translations.notes.ar;
+            assetTranslation.notes_en = translations.notes.en;
+            assetTranslation.notes_ur = translations.notes.ur;
+          }
+        } catch (e) {
+          console.error("[Asset] Update translation failed:", e);
+        }
+      }
       return db.updateAsset(id, {
         ...data,
+        ...assetTranslation,
         purchaseDate: data.purchaseDate ? new Date(data.purchaseDate) : undefined,
         warrantyExpiry: data.warrantyExpiry ? new Date(data.warrantyExpiry) : undefined,
       });
