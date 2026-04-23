@@ -191,11 +191,13 @@ function DashboardLayoutContent({ children, setSidebarWidth }: { children: React
   const isInStandaloneMode = (window.navigator as any).standalone === true;
   const [showIOSGuide, setShowIOSGuide] = useState(() => {
     if (!isIOS || isInStandaloneMode) return false;
-    return !localStorage.getItem('ios-install-dismissed');
+    const count = parseInt(localStorage.getItem('ios-install-dismissed') || '0', 10);
+    return count < 2;
   });
   const dismissIOSGuide = () => {
     setShowIOSGuide(false);
-    localStorage.setItem('ios-install-dismissed', '1');
+    const count = parseInt(localStorage.getItem('ios-install-dismissed') || '0', 10);
+    localStorage.setItem('ios-install-dismissed', String(count + 1));
   };
   useEffect(() => {
     const handler = (e: Event) => {
