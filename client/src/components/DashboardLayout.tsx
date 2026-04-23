@@ -232,8 +232,8 @@ function DashboardLayoutContent({ children, setSidebarWidth }: { children: React
     setShowInstallBanner(false);
     sessionStorage.setItem('pwa-banner-closed-this-session', '1');
   };
-  // زر التثبيت يظهر دائماً ما لم يكن التطبيق مثبتاً
-  const showInstallButton = !isInStandaloneMode && !localStorage.getItem('pwa-installed');
+  // زر التثبيت يظهر دائماً ما لم يكن التطبيق مفتوحاً فعلاً كـ standalone (بعد التثبيت الحقيقي)
+  const showInstallButton = !window.matchMedia('(display-mode: standalone)').matches && (window.navigator as any).standalone !== true;
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(() => {
     try {
       const saved = localStorage.getItem(COLLAPSED_SECTIONS_KEY);
