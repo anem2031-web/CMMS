@@ -18,6 +18,7 @@ const en: TranslationKeys = {
     purchaseCycleReport: "Purchase Cycle Report",
     maintenanceCycleReport: "Maintenance Cycle Report",
     sectionReport: "Section Report",
+      preventiveReport: "Preventive Maintenance Report",
     users: "Users",
     sites: "Sites",
     sectionsPage: "Sections",

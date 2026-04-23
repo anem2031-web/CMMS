@@ -247,3 +247,82 @@ export async function exportInventoryToExcel(): Promise<Buffer> {
   const buffer = await workbook.xlsx.writeBuffer();
   return Buffer.from(buffer);
 }
+
+// ============================================================
+// PREVENTIVE MAINTENANCE EXPORT - تصدير الصيانة الوقائية
+// ============================================================
+export async function exportPreventivePlansToExcel(): Promise<Buffer> {
+  const plans = await db.listPreventivePlans();
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = "CMMS";
+  workbook.created = new Date();
+  const ws = workbook.addWorksheet("خطط الصيانة الوقائية");
+  addRtlSupport(ws);
+  ws.columns = [
+    { header: "رقم الخطة", key: "planNumber", width: 15 },
+    { header: "العنوان", key: "title", width: 35 },
+    { header: "التكرار", key: "frequency", width: 15 },
+    { header: "الحالة", key: "isActive", width: 12 },
+    { header: "موعد التنفيذ القادم", key: "nextDueDate", width: 22 },
+    { header: "المدة التقديرية (دقيقة)", key: "estimatedDuration", width: 22 },
+    { header: "عدد بنود التحقق", key: "checklistCount", width: 18 },
+    { header: "تاريخ الإنشاء", key: "createdAt", width: 22 },
+  ];
+  styleHeader(ws);
+  const freqMap: Record<string, string> = {
+    daily: "يومي", weekly: "أسبوعي", monthly: "شهري",
+    quarterly: "ربع سنوي", biannual: "نصف سنوي", annual: "سنوي",
+  };
+  plans.forEach((p: any) => {
+    ws.addRow({
+      planNumber: p.planNumber,
+      title: p.title,
+      frequency: freqMap[p.frequency] || p.frequency,
+      isActive: p.isActive !== false ? "نشط" : "متوقف",
+      nextDueDate: p.nextDueDate ? new Date(p.nextDueDate).toLocaleDateString("ar-SA") : "-",
+      estimatedDuration: p.estimatedDurationMinutes || "-",
+      checklistCount: Array.isArray(p.checklist) ? p.checklist.length : 0,
+      createdAt: new Date(p.createdAt).toLocaleString("ar-SA"),
+    });
+  });
+  const buffer = await workbook.xlsx.writeBuffer();
+  return Buffer.from(buffer);
+}
+
+export async function exportPMWorkOrdersToExcel(): Promise<Buffer> {
+  const workOrders = await db.listPMWorkOrders();
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = "CMMS";
+  workbook.created = new Date();
+  const ws = workbook.addWorksheet("أوامر العمل الوقائية");
+  addRtlSupport(ws);
+  ws.columns = [
+    { header: "رقم أمر العمل", key: "workOrderNumber", width: 18 },
+    { header: "العنوان", key: "title", width: 35 },
+    { header: "الحالة", key: "status", width: 15 },
+    { header: "تاريخ الجدولة", key: "scheduledDate", width: 20 },
+    { header: "تاريخ الإنجاز", key: "completedDate", width: 20 },
+    { header: "ملاحظات الفني", key: "technicianNotes", width: 40 },
+    { header: "صورة إتمام العمل", key: "completionPhoto", width: 18 },
+    { header: "تاريخ الإنشاء", key: "createdAt", width: 22 },
+  ];
+  styleHeader(ws);
+  const statusMap: Record<string, string> = {
+    scheduled: "مجدول", in_progress: "جاري", completed: "مكتمل",
+    overdue: "متأخر", cancelled: "ملغي",
+  };
+  workOrders.forEach((wo: any) => {
+    ws.addRow({
+      workOrderNumber: wo.workOrderNumber,
+      title: wo.title,
+      status: statusMap[wo.status] || wo.status,
+      scheduledDate: wo.scheduledDate ? new Date(wo.scheduledDate).toLocaleDateString("ar-SA") : "-",
+      completedDate: wo.completedDate ? new Date(wo.completedDate).toLocaleDateString("ar-SA") : "-",
+      technicianNotes: wo.technicianNotes || "-",
+      completionPhoto: wo.completionPhotoUrl ? "مرفوعة" : "-",
+      createdAt: new Date(wo.createdAt).toLocaleString("ar-SA"),
+    });
+  });
+  const buffer = await workbook.xlsx.writeBuffer();
+  return Buffer.from(buffer);
+}

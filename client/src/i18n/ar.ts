@@ -18,6 +18,7 @@ const ar = {
     purchaseCycleReport: "تقرير دورة الشراء",
     maintenanceCycleReport: "تقرير دورة الصيانة",
     sectionReport: "تقرير الأقسام",
+      preventiveReport: "تقرير الصيانة الوقائية",
     users: "المستخدمين",
     sites: "المواقع",
     sectionsPage: "الأقسام",

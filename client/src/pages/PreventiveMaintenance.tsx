@@ -16,9 +16,11 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Switch } from "@/components/ui/switch";
 import {
   Plus, Calendar, Clock, CheckSquare, AlertTriangle,
-  Play, CheckCircle, Trash2, Edit, ClipboardList, RefreshCw,
+  Play, Trash2, Edit, ClipboardList, Camera, Loader2,
+  Search, Filter, X, Power, PowerOff, FileText,
 } from "lucide-react";
 import { nanoid } from "nanoid";
 
@@ -29,6 +31,13 @@ interface ChecklistItem {
   id: string;
   text: string;
   required?: boolean;
+}
+
+interface ChecklistResult {
+  id: string;
+  text: string;
+  done: boolean;
+  notes?: string;
 }
 
 interface PlanForm {
@@ -51,12 +60,12 @@ const defaultPlanForm: PlanForm = {
   checklist: [], nextDueDate: "",
 };
 
-const woStatusConfig: Record<WOStatus, { color: string; label: string }> = {
-  scheduled: { color: "bg-blue-100 text-blue-800", label: "" },
-  in_progress: { color: "bg-yellow-100 text-yellow-800", label: "" },
-  completed: { color: "bg-green-100 text-green-800", label: "" },
-  overdue: { color: "bg-red-100 text-red-800", label: "" },
-  cancelled: { color: "bg-gray-100 text-gray-800", label: "" },
+const woStatusConfig: Record<WOStatus, { color: string }> = {
+  scheduled: { color: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300" },
+  in_progress: { color: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300" },
+  completed: { color: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300" },
+  overdue: { color: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300" },
+  cancelled: { color: "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300" },
 };
 
 export default function PreventiveMaintenance() {
@@ -70,6 +79,22 @@ export default function PreventiveMaintenance() {
   const [generateDate, setGenerateDate] = useState(new Date().toISOString().split("T")[0]);
   const [selectedWO, setSelectedWO] = useState<any | null>(null);
   const [newChecklistText, setNewChecklistText] = useState("");
+
+  // ── فلاتر الخطط ──
+  const [planSearch, setPlanSearch] = useState("");
+  const [planFilterAsset, setPlanFilterAsset] = useState("all");
+  const [planFilterSite, setPlanFilterSite] = useState("all");
+  const [planFilterFreq, setPlanFilterFreq] = useState("all");
+
+  // ── فلاتر أوامر العمل ──
+  const [woFilterStatus, setWoFilterStatus] = useState("all");
+  const [woFilterAssignee, setWoFilterAssignee] = useState("all");
+  const [woDateFrom, setWoDateFrom] = useState("");
+  const [woDateTo, setWoDateTo] = useState("");
+
+  // ── رفع صورة إتمام العمل ──
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [completionPhotoUrl, setCompletionPhotoUrl] = useState("");
 
   const utils = trpc.useUtils();
 
@@ -100,6 +125,14 @@ export default function PreventiveMaintenance() {
     onError: (e) => toast.error(e.message),
   });
 
+  const toggleActiveMut = trpc.preventive.updatePlan.useMutation({
+    onSuccess: () => {
+      toast.success(t.preventive.planUpdated);
+      utils.preventive.listPlans.invalidate();
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
   const deletePlanMut = trpc.preventive.deletePlan.useMutation({
     onSuccess: () => {
       toast.success(t.common.deletedSuccessfully);
@@ -125,6 +158,7 @@ export default function PreventiveMaintenance() {
       toast.success(t.preventive.workOrderUpdated);
       utils.preventive.listWorkOrders.invalidate();
       setSelectedWO(null);
+      setCompletionPhotoUrl("");
     },
     onError: (e) => toast.error(e.message),
   });
@@ -179,15 +213,42 @@ export default function PreventiveMaintenance() {
     setPlanForm(f => ({ ...f, checklist: f.checklist.filter(c => c.id !== id) }));
   };
 
+  // رفع صورة إتمام العمل
+  const handleUploadCompletionPhoto = async () => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "image/*";
+    input.onchange = async (e) => {
+      const file = (e.target as HTMLInputElement).files?.[0];
+      if (!file) return;
+      setUploadingPhoto(true);
+      try {
+        const formData = new FormData();
+        formData.append("file", file);
+        const res = await fetch("/api/upload", { method: "POST", body: formData });
+        const data = await res.json();
+        if (data.url) {
+          setCompletionPhotoUrl(data.url);
+          setSelectedWO((w: any) => ({ ...w, completionPhotoUrl: data.url }));
+          toast.success("تم رفع الصورة بنجاح");
+        }
+      } catch {
+        toast.error("فشل رفع الصورة");
+      }
+      setUploadingPhoto(false);
+    };
+    input.click();
+  };
+
   // Stats
   const stats = useMemo(() => {
     const now = new Date();
     const weekFromNow = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
     return {
       total: plans.length,
-      overdue: plans.filter((p: any) => p.nextDueDate && new Date(p.nextDueDate) < now).length,
+      overdue: plans.filter((p: any) => p.nextDueDate && new Date(p.nextDueDate) < now && p.isActive !== false).length,
       upcoming: plans.filter((p: any) => {
-        if (!p.nextDueDate) return false;
+        if (!p.nextDueDate || p.isActive === false) return false;
         const d = new Date(p.nextDueDate);
         return d >= now && d <= weekFromNow;
       }).length,
@@ -218,6 +279,31 @@ export default function PreventiveMaintenance() {
     return map[s] ?? s;
   };
 
+  // ── الخطط المفلترة ──
+  const filteredPlans = useMemo(() => {
+    return plans.filter((p: any) => {
+      if (planSearch && !p.title?.toLowerCase().includes(planSearch.toLowerCase()) && !p.planNumber?.includes(planSearch)) return false;
+      if (planFilterAsset !== "all" && String(p.assetId) !== planFilterAsset) return false;
+      if (planFilterSite !== "all" && String(p.siteId) !== planFilterSite) return false;
+      if (planFilterFreq !== "all" && p.frequency !== planFilterFreq) return false;
+      return true;
+    });
+  }, [plans, planSearch, planFilterAsset, planFilterSite, planFilterFreq]);
+
+  // ── أوامر العمل المفلترة ──
+  const filteredWorkOrders = useMemo(() => {
+    return workOrders.filter((w: any) => {
+      if (woFilterStatus !== "all" && w.status !== woFilterStatus) return false;
+      if (woFilterAssignee !== "all" && String(w.assignedToId) !== woFilterAssignee) return false;
+      if (woDateFrom && w.scheduledDate && new Date(w.scheduledDate) < new Date(woDateFrom)) return false;
+      if (woDateTo && w.scheduledDate && new Date(w.scheduledDate) > new Date(woDateTo + "T23:59:59")) return false;
+      return true;
+    });
+  }, [workOrders, woFilterStatus, woFilterAssignee, woDateFrom, woDateTo]);
+
+  const hasActivePlanFilters = planSearch || planFilterAsset !== "all" || planFilterSite !== "all" || planFilterFreq !== "all";
+  const hasActiveWOFilters = woFilterStatus !== "all" || woFilterAssignee !== "all" || woDateFrom || woDateTo;
+
   return (
     <div className="p-6 space-y-6">
       {/* Header */}
@@ -238,7 +324,7 @@ export default function PreventiveMaintenance() {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <Card>
           <CardContent className="p-4 flex items-center gap-3">
-            <ClipboardList className="h-8 w-8 text-blue-500" />
+            <ClipboardList className="h-8 w-8 text-blue-500 shrink-0" />
             <div>
               <p className="text-2xl font-bold">{stats.total}</p>
               <p className="text-xs text-muted-foreground">{t.preventive.plans}</p>
@@ -247,7 +333,7 @@ export default function PreventiveMaintenance() {
         </Card>
         <Card>
           <CardContent className="p-4 flex items-center gap-3">
-            <AlertTriangle className="h-8 w-8 text-red-500" />
+            <AlertTriangle className="h-8 w-8 text-red-500 shrink-0" />
             <div>
               <p className="text-2xl font-bold">{stats.overdue}</p>
               <p className="text-xs text-muted-foreground">{t.preventive.overduePlans}</p>
@@ -256,7 +342,7 @@ export default function PreventiveMaintenance() {
         </Card>
         <Card>
           <CardContent className="p-4 flex items-center gap-3">
-            <Calendar className="h-8 w-8 text-orange-500" />
+            <Calendar className="h-8 w-8 text-orange-500 shrink-0" />
             <div>
               <p className="text-2xl font-bold">{stats.upcoming}</p>
               <p className="text-xs text-muted-foreground">{t.preventive.upcomingThisWeek}</p>
@@ -265,7 +351,7 @@ export default function PreventiveMaintenance() {
         </Card>
         <Card>
           <CardContent className="p-4 flex items-center gap-3">
-            <Play className="h-8 w-8 text-yellow-500" />
+            <Play className="h-8 w-8 text-yellow-500 shrink-0" />
             <div>
               <p className="text-2xl font-bold">{stats.pendingWO}</p>
               <p className="text-xs text-muted-foreground">{t.preventive.workOrders}</p>
@@ -277,37 +363,102 @@ export default function PreventiveMaintenance() {
       {/* Tabs */}
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList>
-          <TabsTrigger value="plans">{t.preventive.plans}</TabsTrigger>
-          <TabsTrigger value="workOrders">{t.preventive.workOrders}</TabsTrigger>
+          <TabsTrigger value="plans">{t.preventive.plans} ({plans.length})</TabsTrigger>
+          <TabsTrigger value="workOrders">{t.preventive.workOrders} ({workOrders.length})</TabsTrigger>
         </TabsList>
 
-        {/* Plans Tab */}
-        <TabsContent value="plans" className="mt-4">
+        {/* ── Plans Tab ── */}
+        <TabsContent value="plans" className="mt-4 space-y-4">
+          {/* فلاتر الخطط */}
+          <Card className="border-dashed">
+            <CardContent className="p-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                <div className="relative">
+                  <Search className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="بحث بالعنوان أو الرقم..."
+                    value={planSearch}
+                    onChange={e => setPlanSearch(e.target.value)}
+                    className="pr-9"
+                  />
+                </div>
+                <Select value={planFilterAsset} onValueChange={setPlanFilterAsset}>
+                  <SelectTrigger><SelectValue placeholder="الأصل" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">جميع الأصول</SelectItem>
+                    {assets.map((a: any) => <SelectItem key={a.id} value={String(a.id)}>{a.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+                <Select value={planFilterSite} onValueChange={setPlanFilterSite}>
+                  <SelectTrigger><SelectValue placeholder="الموقع" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">جميع المواقع</SelectItem>
+                    {sites.map((s: any) => <SelectItem key={s.id} value={String(s.id)}>{s.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+                <Select value={planFilterFreq} onValueChange={setPlanFilterFreq}>
+                  <SelectTrigger><SelectValue placeholder="التكرار" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">جميع التكرارات</SelectItem>
+                    {(["daily","weekly","monthly","quarterly","biannual","annual"] as Frequency[]).map(f => (
+                      <SelectItem key={f} value={f}>{freqLabel(f)}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              {hasActivePlanFilters && (
+                <div className="flex items-center gap-2 mt-2">
+                  <span className="text-xs text-muted-foreground">النتائج: {filteredPlans.length} من {plans.length}</span>
+                  <Button variant="ghost" size="sm" className="h-6 text-xs gap-1" onClick={() => { setPlanSearch(""); setPlanFilterAsset("all"); setPlanFilterSite("all"); setPlanFilterFreq("all"); }}>
+                    <X className="h-3 w-3" /> مسح الفلاتر
+                  </Button>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
           {plansLoading ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {[1,2,3].map(i => <Card key={i} className="animate-pulse"><CardContent className="p-4 h-40 bg-muted/30" /></Card>)}
             </div>
-          ) : plans.length === 0 ? (
+          ) : filteredPlans.length === 0 ? (
             <div className="text-center py-16 text-muted-foreground">
               <ClipboardList className="h-12 w-12 mx-auto mb-3 opacity-30" />
-              <p>{t.preventive.noPlans}</p>
+              <p>{hasActivePlanFilters ? "لا توجد نتائج للفلاتر المحددة" : t.preventive.noPlans}</p>
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {plans.map((plan: any) => {
-                const isOverdue = plan.nextDueDate && new Date(plan.nextDueDate) < new Date();
+              {filteredPlans.map((plan: any) => {
+                const isOverdue = plan.nextDueDate && new Date(plan.nextDueDate) < new Date() && plan.isActive !== false;
+                const isInactive = plan.isActive === false;
+                const assetName = assets.find((a: any) => a.id === plan.assetId)?.name;
+                const siteName = sites.find((s: any) => s.id === plan.siteId)?.name;
+                const assigneeName = users.find((u: any) => u.id === plan.assignedToId)?.name;
                 return (
-                  <Card key={plan.id} className={`hover:shadow-md transition-shadow ${isOverdue ? "border-red-200" : ""}`}>
+                  <Card key={plan.id} className={`hover:shadow-md transition-shadow ${isOverdue ? "border-red-200 dark:border-red-800" : ""} ${isInactive ? "opacity-60" : ""}`}>
                     <CardHeader className="pb-2">
                       <div className="flex items-start justify-between gap-2">
                         <div className="flex-1 min-w-0">
                           <p className="text-xs text-muted-foreground">{plan.planNumber}</p>
                           <CardTitle className="text-base truncate">{plan.title}</CardTitle>
                         </div>
-                        <Badge variant="outline" className="shrink-0">{freqLabel(plan.frequency)}</Badge>
+                        <div className="flex items-center gap-1 shrink-0">
+                          <Badge variant="outline">{freqLabel(plan.frequency)}</Badge>
+                          {isInactive && <Badge variant="secondary" className="text-xs">متوقف</Badge>}
+                        </div>
                       </div>
                     </CardHeader>
                     <CardContent className="space-y-2">
+                      {assetName && (
+                        <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                          <FileText className="h-3 w-3" /> {assetName}
+                        </div>
+                      )}
+                      {siteName && (
+                        <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                          <Filter className="h-3 w-3" /> {siteName}
+                        </div>
+                      )}
                       {plan.nextDueDate && (
                         <div className={`flex items-center gap-1 text-xs ${isOverdue ? "text-red-600 font-medium" : "text-muted-foreground"}`}>
                           <Calendar className="h-3 w-3" />
@@ -318,7 +469,7 @@ export default function PreventiveMaintenance() {
                       {plan.estimatedDurationMinutes && (
                         <div className="flex items-center gap-1 text-xs text-muted-foreground">
                           <Clock className="h-3 w-3" />
-                          {plan.estimatedDurationMinutes} {t.common.description.includes("دق") ? "دقيقة" : "min"}
+                          {plan.estimatedDurationMinutes} دقيقة
                         </div>
                       )}
                       {plan.checklist && plan.checklist.length > 0 && (
@@ -327,15 +478,33 @@ export default function PreventiveMaintenance() {
                           {plan.checklist.length} {t.preventive.checklist}
                         </div>
                       )}
-                      <div className="flex gap-2 pt-2">
-                        <Button size="sm" variant="default" className="flex-1" onClick={() => { setGenerateWOPlanId(plan.id); setGenerateDate(new Date().toISOString().split("T")[0]); }}>
+                      {assigneeName && (
+                        <div className="text-xs text-muted-foreground truncate">
+                          👤 {assigneeName}
+                        </div>
+                      )}
+                      <div className="flex gap-2 pt-2 flex-wrap">
+                        <Button
+                          size="sm" variant="default" className="flex-1"
+                          disabled={isInactive}
+                          onClick={() => { setGenerateWOPlanId(plan.id); setGenerateDate(new Date().toISOString().split("T")[0]); }}
+                        >
                           <Play className="h-3 w-3 ml-1" />
                           {t.preventive.generateWorkOrder}
                         </Button>
-                        <Button size="sm" variant="outline" onClick={() => openEditPlan(plan)}>
+                        <Button size="sm" variant="outline" onClick={() => openEditPlan(plan)} title="تعديل">
                           <Edit className="h-3 w-3" />
                         </Button>
-                        <Button size="sm" variant="outline" className="text-destructive hover:text-destructive" onClick={() => setDeletePlanId(plan.id)}>
+                        <Button
+                          size="sm" variant="outline"
+                          className={isInactive ? "text-green-600 hover:text-green-700" : "text-orange-500 hover:text-orange-600"}
+                          title={isInactive ? "تفعيل الخطة" : "تعطيل الخطة"}
+                          onClick={() => toggleActiveMut.mutate({ id: plan.id, isActive: !plan.isActive })}
+                          disabled={toggleActiveMut.isPending}
+                        >
+                          {isInactive ? <Power className="h-3 w-3" /> : <PowerOff className="h-3 w-3" />}
+                        </Button>
+                        <Button size="sm" variant="outline" className="text-destructive hover:text-destructive" onClick={() => setDeletePlanId(plan.id)} title="حذف">
                           <Trash2 className="h-3 w-3" />
                         </Button>
                       </div>
@@ -347,42 +516,90 @@ export default function PreventiveMaintenance() {
           )}
         </TabsContent>
 
-        {/* Work Orders Tab */}
-        <TabsContent value="workOrders" className="mt-4">
+        {/* ── Work Orders Tab ── */}
+        <TabsContent value="workOrders" className="mt-4 space-y-4">
+          {/* فلاتر أوامر العمل */}
+          <Card className="border-dashed">
+            <CardContent className="p-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                <Select value={woFilterStatus} onValueChange={setWoFilterStatus}>
+                  <SelectTrigger><SelectValue placeholder="الحالة" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">جميع الحالات</SelectItem>
+                    {(["scheduled","in_progress","completed","overdue","cancelled"] as WOStatus[]).map(s => (
+                      <SelectItem key={s} value={s}>{woStatusLabel(s)}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select value={woFilterAssignee} onValueChange={setWoFilterAssignee}>
+                  <SelectTrigger><SelectValue placeholder="الفني" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">جميع الفنيين</SelectItem>
+                    {users.map((u: any) => <SelectItem key={u.id} value={String(u.id)}>{u.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+                <div>
+                  <Input type="date" value={woDateFrom} onChange={e => setWoDateFrom(e.target.value)} placeholder="من تاريخ" />
+                </div>
+                <div>
+                  <Input type="date" value={woDateTo} onChange={e => setWoDateTo(e.target.value)} placeholder="إلى تاريخ" />
+                </div>
+              </div>
+              {hasActiveWOFilters && (
+                <div className="flex items-center gap-2 mt-2">
+                  <span className="text-xs text-muted-foreground">النتائج: {filteredWorkOrders.length} من {workOrders.length}</span>
+                  <Button variant="ghost" size="sm" className="h-6 text-xs gap-1" onClick={() => { setWoFilterStatus("all"); setWoFilterAssignee("all"); setWoDateFrom(""); setWoDateTo(""); }}>
+                    <X className="h-3 w-3" /> مسح الفلاتر
+                  </Button>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
           {woLoading ? (
             <div className="space-y-3">
               {[1,2,3].map(i => <Card key={i} className="animate-pulse"><CardContent className="p-4 h-20 bg-muted/30" /></Card>)}
             </div>
-          ) : workOrders.length === 0 ? (
+          ) : filteredWorkOrders.length === 0 ? (
             <div className="text-center py-16 text-muted-foreground">
               <ClipboardList className="h-12 w-12 mx-auto mb-3 opacity-30" />
-              <p>{t.preventive.noWorkOrders}</p>
+              <p>{hasActiveWOFilters ? "لا توجد نتائج للفلاتر المحددة" : t.preventive.noWorkOrders}</p>
             </div>
           ) : (
             <div className="space-y-3">
-              {workOrders.map((wo: any) => {
+              {filteredWorkOrders.map((wo: any) => {
                 const cfg = woStatusConfig[wo.status as WOStatus] ?? woStatusConfig.scheduled;
+                const assigneeName = users.find((u: any) => u.id === wo.assignedToId)?.name;
+                const doneCount = (wo.checklistResults as ChecklistResult[] | null)?.filter(c => c.done).length ?? 0;
+                const totalCount = (wo.checklistResults as ChecklistResult[] | null)?.length ?? 0;
                 return (
-                  <Card key={wo.id} className="hover:shadow-sm transition-shadow cursor-pointer" onClick={() => setSelectedWO(wo)}>
+                  <Card key={wo.id} className="hover:shadow-sm transition-shadow cursor-pointer" onClick={() => { setSelectedWO(wo); setCompletionPhotoUrl(wo.completionPhotoUrl ?? ""); }}>
                     <CardContent className="p-4 flex items-center justify-between gap-4">
                       <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <p className="text-xs text-muted-foreground">{wo.workOrderNumber}</p>
                           <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${cfg.color}`}>
                             {woStatusLabel(wo.status)}
                           </span>
                         </div>
                         <p className="font-medium truncate">{wo.title}</p>
-                        {wo.scheduledDate && (
-                          <p className="text-xs text-muted-foreground">
-                            {t.preventive.scheduledDate}: {new Date(wo.scheduledDate).toLocaleDateString()}
-                          </p>
-                        )}
+                        <div className="flex items-center gap-3 mt-1">
+                          {wo.scheduledDate && (
+                            <p className="text-xs text-muted-foreground">
+                              <Calendar className="h-3 w-3 inline ml-1" />
+                              {new Date(wo.scheduledDate).toLocaleDateString()}
+                            </p>
+                          )}
+                          {assigneeName && (
+                            <p className="text-xs text-muted-foreground">👤 {assigneeName}</p>
+                          )}
+                        </div>
                       </div>
-                      {wo.checklistResults && wo.checklistResults.length > 0 && (
-                        <div className="text-xs text-muted-foreground shrink-0">
-                          {wo.checklistResults.filter((c: any) => c.done).length}/{wo.checklistResults.length}
-                          <CheckSquare className="h-3 w-3 inline mr-1" />
+                      {totalCount > 0 && (
+                        <div className="text-xs text-muted-foreground shrink-0 text-center">
+                          <CheckSquare className="h-4 w-4 inline mb-0.5" />
+                          <br />
+                          {doneCount}/{totalCount}
                         </div>
                       )}
                     </CardContent>
@@ -394,7 +611,7 @@ export default function PreventiveMaintenance() {
         </TabsContent>
       </Tabs>
 
-      {/* Plan Form Dialog */}
+      {/* ── Plan Form Dialog ── */}
       <Dialog open={showPlanForm} onOpenChange={(o) => { if (!o) { setShowPlanForm(false); setEditPlanId(null); setPlanForm(defaultPlanForm); } }}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
@@ -496,7 +713,7 @@ export default function PreventiveMaintenance() {
         </DialogContent>
       </Dialog>
 
-      {/* Generate Work Order Dialog */}
+      {/* ── Generate Work Order Dialog ── */}
       <Dialog open={!!generateWOPlanId} onOpenChange={(o) => { if (!o) setGenerateWOPlanId(null); }}>
         <DialogContent>
           <DialogHeader>
@@ -518,15 +735,17 @@ export default function PreventiveMaintenance() {
         </DialogContent>
       </Dialog>
 
-      {/* Work Order Detail Dialog */}
+      {/* ── Work Order Detail Dialog ── */}
       {selectedWO && (
-        <Dialog open={!!selectedWO} onOpenChange={(o) => { if (!o) setSelectedWO(null); }}>
+        <Dialog open={!!selectedWO} onOpenChange={(o) => { if (!o) { setSelectedWO(null); setCompletionPhotoUrl(""); } }}>
           <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
             <DialogHeader>
-              <DialogTitle>{selectedWO.workOrderNumber} - {selectedWO.title}</DialogTitle>
+              <DialogTitle>{selectedWO.workOrderNumber} — {selectedWO.title}</DialogTitle>
             </DialogHeader>
             <div className="space-y-4">
-              <div className="flex gap-2">
+              {/* الحالة */}
+              <div>
+                <Label className="mb-1 block">الحالة</Label>
                 <Select
                   value={selectedWO.status}
                   onValueChange={v => setSelectedWO((w: any) => ({ ...w, status: v }))}
@@ -539,27 +758,43 @@ export default function PreventiveMaintenance() {
                   </SelectContent>
                 </Select>
               </div>
-              {/* Checklist */}
+
+              {/* قائمة التحقق مع ملاحظات لكل بند */}
               {selectedWO.checklistResults && selectedWO.checklistResults.length > 0 && (
                 <div>
                   <Label className="mb-2 block">{t.preventive.checklist}</Label>
-                  <div className="space-y-2">
-                    {selectedWO.checklistResults.map((item: any, idx: number) => (
-                      <div key={item.id} className="flex items-center gap-2 bg-muted/30 rounded px-3 py-2">
-                        <Checkbox
-                          checked={item.done ?? false}
-                          onCheckedChange={(checked) => {
+                  <div className="space-y-3">
+                    {(selectedWO.checklistResults as ChecklistResult[]).map((item, idx) => (
+                      <div key={item.id} className="bg-muted/30 rounded-lg p-3 space-y-2">
+                        <div className="flex items-center gap-2">
+                          <Checkbox
+                            checked={item.done ?? false}
+                            onCheckedChange={(checked) => {
+                              const updated = [...selectedWO.checklistResults];
+                              updated[idx] = { ...item, done: !!checked };
+                              setSelectedWO((w: any) => ({ ...w, checklistResults: updated }));
+                            }}
+                          />
+                          <span className={`flex-1 text-sm ${item.done ? "line-through text-muted-foreground" : ""}`}>{item.text}</span>
+                        </div>
+                        {/* حقل ملاحظات لكل بند */}
+                        <Input
+                          placeholder="ملاحظة على هذا البند (اختياري)"
+                          value={item.notes ?? ""}
+                          onChange={e => {
                             const updated = [...selectedWO.checklistResults];
-                            updated[idx] = { ...item, done: !!checked };
+                            updated[idx] = { ...item, notes: e.target.value };
                             setSelectedWO((w: any) => ({ ...w, checklistResults: updated }));
                           }}
+                          className="text-xs h-8"
                         />
-                        <span className={`flex-1 text-sm ${item.done ? "line-through text-muted-foreground" : ""}`}>{item.text}</span>
                       </div>
                     ))}
                   </div>
                 </div>
               )}
+
+              {/* ملاحظات الفني */}
               <div>
                 <Label>{t.preventive.technicianNotes}</Label>
                 <Textarea
@@ -569,6 +804,34 @@ export default function PreventiveMaintenance() {
                   className="mt-1"
                 />
               </div>
+
+              {/* صورة إتمام العمل */}
+              <div>
+                <Label className="mb-2 block">صورة إتمام العمل</Label>
+                {(completionPhotoUrl || selectedWO.completionPhotoUrl) ? (
+                  <div className="relative">
+                    <img
+                      src={completionPhotoUrl || selectedWO.completionPhotoUrl}
+                      alt="completion"
+                      className="rounded-lg max-h-48 w-full object-cover border"
+                    />
+                    <Button
+                      variant="destructive" size="sm"
+                      className="absolute top-2 left-2"
+                      onClick={() => { setCompletionPhotoUrl(""); setSelectedWO((w: any) => ({ ...w, completionPhotoUrl: "" })); }}
+                    >
+                      {t.common.delete}
+                    </Button>
+                  </div>
+                ) : (
+                  <Button variant="outline" className="w-full gap-2" onClick={handleUploadCompletionPhoto} disabled={uploadingPhoto}>
+                    {uploadingPhoto ? <Loader2 className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4" />}
+                    {uploadingPhoto ? "جاري الرفع..." : "رفع صورة إتمام العمل"}
+                  </Button>
+                )}
+              </div>
+
+              {/* تاريخ الإنجاز عند الإتمام */}
               {selectedWO.status === "completed" && (
                 <div>
                   <Label>{t.preventive.completedDate}</Label>
@@ -582,13 +845,14 @@ export default function PreventiveMaintenance() {
               )}
             </div>
             <DialogFooter>
-              <Button variant="outline" onClick={() => setSelectedWO(null)}>{t.common.cancel}</Button>
+              <Button variant="outline" onClick={() => { setSelectedWO(null); setCompletionPhotoUrl(""); }}>{t.common.cancel}</Button>
               <Button
                 onClick={() => updateWOMut.mutate({
                   id: selectedWO.id,
                   status: selectedWO.status,
                   checklistResults: selectedWO.checklistResults,
                   technicianNotes: selectedWO.technicianNotes,
+                  completionPhotoUrl: selectedWO.completionPhotoUrl || undefined,
                   completedDate: selectedWO.completedDate,
                 })}
                 disabled={updateWOMut.isPending}
@@ -600,10 +864,10 @@ export default function PreventiveMaintenance() {
         </Dialog>
       )}
 
-      {/* Delete Plan Confirm */}
+      {/* ── Delete Plan Confirm ── */}
       <Dialog open={!!deletePlanId} onOpenChange={(o) => { if (!o) setDeletePlanId(null); }}>
         <DialogContent>
-          <DialogHeader><DialogTitle>{t.preventive.editPlan}</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>تأكيد الحذف</DialogTitle></DialogHeader>
           <p>{t.common.deleteWarning}</p>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeletePlanId(null)}>{t.common.cancel}</Button>

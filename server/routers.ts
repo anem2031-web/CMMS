@@ -2893,6 +2893,65 @@ ${JSON.stringify(recentAudit.map((a: any) => ({ action: a.action, entity: a.enti
       if (!content) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "فشل التحليل" });
       return JSON.parse(content as string);
     }),
+    // ─── PM Report ────────────────────────────────────────────────────────
+    getReport: protectedProcedure.input(z.object({
+      dateFrom: z.string().optional(),
+      dateTo: z.string().optional(),
+    }).optional()).query(async ({ input }) => {
+      const plans = await db.listPreventivePlans();
+      const workOrders = await db.listPMWorkOrders();
+      const now = new Date();
+      const from = input?.dateFrom ? new Date(input.dateFrom) : null;
+      const to = input?.dateTo ? new Date(input.dateTo) : null;
+      const filteredWOs = workOrders.filter((wo: any) => {
+        if (from && new Date(wo.scheduledDate) < from) return false;
+        if (to && new Date(wo.scheduledDate) > to) return false;
+        return true;
+      });
+      const totalPlans = plans.length;
+      const activePlans = plans.filter((p: any) => p.isActive !== false).length;
+      const inactivePlans = totalPlans - activePlans;
+      const overduePlans = plans.filter((p: any) => {
+        if (!p.nextDueDate || p.isActive === false) return false;
+        return new Date(p.nextDueDate) < now;
+      }).length;
+      const totalWOs = filteredWOs.length;
+      const completedWOs = filteredWOs.filter((wo: any) => wo.status === 'completed').length;
+      const inProgressWOs = filteredWOs.filter((wo: any) => wo.status === 'in_progress').length;
+      const scheduledWOs = filteredWOs.filter((wo: any) => wo.status === 'scheduled').length;
+      const overdueWOs = filteredWOs.filter((wo: any) => wo.status === 'overdue').length;
+      const cancelledWOs = filteredWOs.filter((wo: any) => wo.status === 'cancelled').length;
+      const completionRate = totalWOs > 0 ? Math.round((completedWOs / totalWOs) * 100) : 0;
+      let totalChecklistItems = 0;
+      let doneChecklistItems = 0;
+      filteredWOs.forEach((wo: any) => {
+        if (Array.isArray(wo.checklistResults)) {
+          totalChecklistItems += wo.checklistResults.length;
+          doneChecklistItems += wo.checklistResults.filter((c: any) => c.done).length;
+        }
+      });
+      const checklistCompletionRate = totalChecklistItems > 0 ? Math.round((doneChecklistItems / totalChecklistItems) * 100) : 0;
+      const byFrequency: Record<string, number> = {};
+      plans.forEach((p: any) => {
+        byFrequency[p.frequency] = (byFrequency[p.frequency] || 0) + 1;
+      });
+      const recentWorkOrders = filteredWOs.slice(0, 10).map((wo: any) => ({
+        id: wo.id,
+        workOrderNumber: wo.workOrderNumber,
+        title: wo.title,
+        status: wo.status,
+        scheduledDate: wo.scheduledDate,
+        completedDate: wo.completedDate,
+        completionPhotoUrl: wo.completionPhotoUrl,
+      }));
+      return {
+        summary: { totalPlans, activePlans, inactivePlans, overduePlans },
+        workOrders: { total: totalWOs, completed: completedWOs, inProgress: inProgressWOs, scheduled: scheduledWOs, overdue: overdueWOs, cancelled: cancelledWOs, completionRate },
+        checklist: { total: totalChecklistItems, done: doneChecklistItems, completionRate: checklistCompletionRate },
+        byFrequency,
+        recentWorkOrders,
+      };
+    }),
   }),
 
   // ============================================================

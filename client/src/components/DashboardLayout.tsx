@@ -101,6 +101,8 @@ const NAV_SECTIONS: NavSection[] = [
         roles: ["owner","admin","senior_management","maintenance_manager"] },
       { icon: Building2,     labelKey: "nav.sectionReport", path: "/reports/section-report",
         roles: ["owner","admin","senior_management","maintenance_manager"] },
+      { icon: CalendarClock, labelKey: "nav.preventiveReport", path: "/reports/preventive",
+        roles: ["owner","admin","senior_management","maintenance_manager"] },
       { icon: HardDrive,     labelKey: "nav.assets",            path: "/assets",
         roles: ["owner","admin","maintenance_manager"] },
       { icon: CalendarClock, labelKey: "nav.preventive",        path: "/preventive",

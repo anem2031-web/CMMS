@@ -13,9 +13,10 @@ import multer from "multer";
 import { storagePut } from "../storage";
 import { nanoid } from "nanoid";
 import sharp from "sharp";
-import { exportTicketsToExcel, exportPurchaseOrdersToExcel, exportTechnicianPerformanceToExcel, exportAuditLogToExcel, exportInventoryToExcel } from "../exportService";
+import { exportTicketsToExcel, exportPurchaseOrdersToExcel, exportTechnicianPerformanceToExcel, exportAuditLogToExcel, exportInventoryToExcel, exportPreventivePlansToExcel, exportPMWorkOrdersToExcel } from "../exportService";
 import { generateWorkflowGuidePDF } from "../workflowPdfService";
 import { runTechnicianOverdueJob } from "../jobs/technician-overdue";
+import { runPMAutomationJob } from "../jobs/pm-automation";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -134,6 +135,23 @@ async function startServer() {
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
+  // Preventive Maintenance Export
+  app.get("/api/export/preventive-plans", async (_req: any, res: any) => {
+    try {
+      const buffer = await exportPreventivePlansToExcel();
+      res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+      res.setHeader("Content-Disposition", `attachment; filename=preventive-plans-${Date.now()}.xlsx`);
+      res.send(buffer);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+  app.get("/api/export/pm-work-orders", async (_req: any, res: any) => {
+    try {
+      const buffer = await exportPMWorkOrdersToExcel();
+      res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+      res.setHeader("Content-Disposition", `attachment; filename=pm-work-orders-${Date.now()}.xlsx`);
+      res.send(buffer);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
   // Workflow Guide PDF Export
   app.get("/api/export/workflow-guide", async (_req: any, res: any) => {
     try {
@@ -178,6 +196,12 @@ async function startServer() {
     runTechnicianOverdueJob();
     setInterval(runTechnicianOverdueJob, ONE_HOUR);
   }, 5000);
+  // تشغيل job الصيانة الوقائية التلقائية كل 6 ساعات (بدون ربط بالبلاغات)
+  const SIX_HOURS = 6 * 60 * 60 * 1000;
+  setTimeout(() => {
+    runPMAutomationJob();
+    setInterval(runPMAutomationJob, SIX_HOURS);
+  }, 10000);
 }
 
 startServer().catch(console.error);
