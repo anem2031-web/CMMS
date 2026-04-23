@@ -1102,15 +1102,21 @@ export async function listPMWorkOrders(filters?: { planId?: number; assetId?: nu
   if (filters?.status) conditions.push(eq(pmWorkOrders.status, filters.status as any));
   if (filters?.assignedToId) conditions.push(eq(pmWorkOrders.assignedToId, filters.assignedToId));
   let query = db.select().from(pmWorkOrders);
-  if (conditions.length > 0) return await (query as any).where(and(...conditions)).orderBy(desc(pmWorkOrders.scheduledDate));
-  return await query.orderBy(desc(pmWorkOrders.scheduledDate));
+  const rows = conditions.length > 0
+    ? await (query as any).where(and(...conditions)).orderBy(desc(pmWorkOrders.scheduledDate))
+    : await query.orderBy(desc(pmWorkOrders.scheduledDate));
+  // Normalize: ensure checklistResults is always an array (never null)
+  return rows.map((r: any) => ({ ...r, checklistResults: Array.isArray(r.checklistResults) ? r.checklistResults : [] }));
 }
 
 export async function getPMWorkOrderById(id: number) {
   const db = await getDb();
   if (!db) return null;
   const rows = await db.select().from(pmWorkOrders).where(eq(pmWorkOrders.id, id)).limit(1);
-  return rows[0] ?? null;
+  const r = rows[0] ?? null;
+  if (!r) return null;
+  // Normalize: ensure checklistResults is always an array (never null)
+  return { ...r, checklistResults: Array.isArray(r.checklistResults) ? r.checklistResults : [] };
 }
 
 export async function createPMWorkOrder(data: InsertPMWorkOrder) {

@@ -62,10 +62,12 @@ async function startServer() {
       let fileBuffer = req.file.buffer;
       let mimeType = req.file.mimetype;
       let ext = req.file.originalname.split(".").pop() || "bin";
-      // تحويل الصور تلقائياً إلى WebP لتوفير المساحة وتسريع التحميل
-      if (isImage && req.file.mimetype !== "image/webp") {
+      // تحويل الصور إلى WebP مع تقليص الأبعاد لتسريع الرفع
+      // الصور الكبيرة (4K من الجوال) تُقلَّص إلى 1920px قبل الضغط
+      if (isImage) {
         fileBuffer = await sharp(req.file.buffer)
-          .webp({ quality: 85 })
+          .resize(1920, 1920, { fit: "inside", withoutEnlargement: true })
+          .webp({ quality: 75, effort: 2 })
           .toBuffer();
         mimeType = "image/webp";
         ext = "webp";

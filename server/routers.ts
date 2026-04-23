@@ -2761,10 +2761,11 @@ ${JSON.stringify(recentAudit.map((a: any) => ({ action: a.action, entity: a.enti
     updateWorkOrder: protectedProcedure.input(z.object({
       id: z.number(),
       status: z.enum(["scheduled", "in_progress", "completed", "overdue", "cancelled"]).optional(),
-      checklistResults: z.array(z.object({ id: z.string(), text: z.string(), done: z.boolean(), notes: z.string().optional() })).optional(),
-      technicianNotes: z.string().optional(),
-      completionPhotoUrl: z.string().optional(),
-      completedDate: z.string().optional(),
+      // Accept null (from DB) and normalize to [] to prevent validation errors
+      checklistResults: z.array(z.object({ id: z.string(), text: z.string(), done: z.boolean(), notes: z.string().optional() })).nullish().transform(v => v ?? []),
+      technicianNotes: z.string().nullish().transform(v => v ?? undefined),
+      completionPhotoUrl: z.string().nullish().transform(v => v ?? undefined),
+      completedDate: z.string().nullish().transform(v => v ?? undefined),
     })).mutation(async ({ input }) => {
       const { id, ...data } = input;
       return db.updatePMWorkOrder(id, {

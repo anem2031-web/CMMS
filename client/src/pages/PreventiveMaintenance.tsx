@@ -850,7 +850,7 @@ export default function PreventiveMaintenance() {
                 onClick={() => updateWOMut.mutate({
                   id: selectedWO.id,
                   status: selectedWO.status,
-                  checklistResults: selectedWO.checklistResults,
+                  checklistResults: selectedWO.checklistResults ?? [],
                   technicianNotes: selectedWO.technicianNotes,
                   completionPhotoUrl: selectedWO.completionPhotoUrl || undefined,
                   completedDate: selectedWO.completedDate ?? undefined,
