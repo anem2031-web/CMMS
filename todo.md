@@ -613,3 +613,8 @@
 - [x] إضافة iOS Install Guide في DashboardLayout يظهر فقط على iPhone/iPad
 - [x] يشرح خطوات التثبيت اليدوي عبر Safari بأربع خطوات واضحة
 - [x] يختفي بعد الضغط على "فهمت، شكراً" ويحفظ الخيار في localStorage
+
+## Phase 39: بانر التثبيت الدائم
+- [x] تعديل بانر Android/Windows/Mac: يظهر دائماً عند كل دخول (إغلاق مؤقت للجلسة عبر sessionStorage)
+- [x] تعديل iOS Guide: يظهر دائماً عند كل دخول (إغلاق مؤقت للجلسة عبر sessionStorage)
+- [x] كلاهما يختفي نهائياً فقط عند التثبيت الفعلي (localStorage)

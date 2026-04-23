@@ -189,22 +189,23 @@ function DashboardLayoutContent({ children, setSidebarWidth }: { children: React
   // ── iOS Install Guide ──
   const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
   const isInStandaloneMode = (window.navigator as any).standalone === true;
+  // يظهر دائماً طالما لم يثبت — الإغلاق مؤقت للجلسة فقط (sessionStorage)
   const [showIOSGuide, setShowIOSGuide] = useState(() => {
     if (!isIOS || isInStandaloneMode) return false;
-    const count = parseInt(localStorage.getItem('ios-install-dismissed') || '0', 10);
-    return count < 2;
+    return !sessionStorage.getItem('ios-guide-closed-this-session');
   });
   const dismissIOSGuide = () => {
     setShowIOSGuide(false);
-    const count = parseInt(localStorage.getItem('ios-install-dismissed') || '0', 10);
-    localStorage.setItem('ios-install-dismissed', String(count + 1));
+    sessionStorage.setItem('ios-guide-closed-this-session', '1');
   };
   useEffect(() => {
     const handler = (e: Event) => {
       e.preventDefault();
       setInstallPrompt(e);
-      const dismissed = localStorage.getItem('pwa-install-dismissed');
-      if (!dismissed) setShowInstallBanner(true);
+      // يظهر دائماً ما لم يغلقه في هذه الجلسة
+      if (!sessionStorage.getItem('pwa-banner-closed-this-session')) {
+        setShowInstallBanner(true);
+      }
     };
     window.addEventListener('beforeinstallprompt', handler);
     return () => window.removeEventListener('beforeinstallprompt', handler);
@@ -213,12 +214,17 @@ function DashboardLayoutContent({ children, setSidebarWidth }: { children: React
     if (!installPrompt) return;
     installPrompt.prompt();
     const { outcome } = await installPrompt.userChoice;
-    if (outcome === 'accepted') setShowInstallBanner(false);
+    if (outcome === 'accepted') {
+      setShowInstallBanner(false);
+      // عند التثبيت الفعلي يختفي نهائياً
+      localStorage.setItem('pwa-installed', '1');
+    }
     setInstallPrompt(null);
   };
   const dismissInstallBanner = () => {
     setShowInstallBanner(false);
-    localStorage.setItem('pwa-install-dismissed', '1');
+    // إغلاق مؤقت للجلسة فقط — يعود عند الدخول التالي
+    sessionStorage.setItem('pwa-banner-closed-this-session', '1');
   };
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(() => {
     try {
