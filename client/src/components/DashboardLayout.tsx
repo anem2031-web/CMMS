@@ -186,6 +186,7 @@ function DashboardLayoutContent({ children, setSidebarWidth }: { children: React
   const [installPrompt, setInstallPrompt] = useState<any>(null);
   const [showInstallBanner, setShowInstallBanner] = useState(false);
   const [showInstallTooltip, setShowInstallTooltip] = useState(false);
+  const [isInstalled, setIsInstalled] = useState(false);
 
   // ── iOS Install Guide ──
   const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
@@ -201,39 +202,57 @@ function DashboardLayoutContent({ children, setSidebarWidth }: { children: React
     sessionStorage.setItem('ios-guide-closed-this-session', '1');
   };
   useEffect(() => {
-    const handler = (e: Event) => {
+    // استقبال حدث beforeinstallprompt (Android/Chrome/Edge)
+    const handleBeforeInstall = (e: Event) => {
       e.preventDefault();
       setInstallPrompt(e);
       if (!sessionStorage.getItem('pwa-banner-closed-this-session')) {
         setShowInstallBanner(true);
       }
     };
-    window.addEventListener('beforeinstallprompt', handler);
-    return () => window.removeEventListener('beforeinstallprompt', handler);
+    // استقبال حدث appinstalled (بعد التثبيت الناجح)
+    const handleAppInstalled = () => {
+      setIsInstalled(true);
+      setInstallPrompt(null);
+      setShowInstallBanner(false);
+    };
+    window.addEventListener('beforeinstallprompt', handleBeforeInstall);
+    window.addEventListener('appinstalled', handleAppInstalled);
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstall);
+      window.removeEventListener('appinstalled', handleAppInstalled);
+    };
   }, []);
   const handleInstallPWA = async () => {
     if (installPrompt) {
-      installPrompt.prompt();
-      const { outcome } = await installPrompt.userChoice;
-      if (outcome === 'accepted') {
-        setShowInstallBanner(false);
-        localStorage.setItem('pwa-installed', '1');
+      // Android/Chrome/Edge - نافذة التثبيت الأصلية
+      try {
+        await (installPrompt as any).prompt();
+        const choiceResult = await (installPrompt as any).userChoice;
+        if (choiceResult.outcome === 'accepted') {
+          setIsInstalled(true);
+          setShowInstallBanner(false);
+        }
+        setInstallPrompt(null);
+      } catch {
+        setShowInstallTooltip(true);
+        setTimeout(() => setShowInstallTooltip(false), 5000);
       }
-      setInstallPrompt(null);
     } else if (isIOS) {
+      // iPhone/iPad - دليل التثبيت اليدوي
       setShowIOSGuide(true);
     } else {
-      // عرض tooltip توجيهي للمتصفحات التي لا تدعم beforeinstallprompt
+      // متصفحات أخرى - tooltip توجيهي
       setShowInstallTooltip(true);
-      setTimeout(() => setShowInstallTooltip(false), 4000);
+      setTimeout(() => setShowInstallTooltip(false), 5000);
     }
   };
   const dismissInstallBanner = () => {
     setShowInstallBanner(false);
     sessionStorage.setItem('pwa-banner-closed-this-session', '1');
   };
-  // زر التثبيت يظهر دائماً ما لم يكن التطبيق مفتوحاً فعلاً كـ standalone (بعد التثبيت الحقيقي)
-  const showInstallButton = !window.matchMedia('(display-mode: standalone)').matches && (window.navigator as any).standalone !== true;
+  // زر التثبيت يظهر ما لم يكن التطبيق مثبتاً أو مفتوحاً كـ standalone
+  const showInstallButton = !isInstalled && !isInStandaloneMode;
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(() => {
     try {
       const saved = localStorage.getItem(COLLAPSED_SECTIONS_KEY);

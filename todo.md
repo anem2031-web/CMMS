@@ -623,3 +623,12 @@
 - [x] إضافة زر تثبيت صغير ثابت بجانب زر تغيير اللغة في أسفل الشريط الجانبي
 - [x] يظهر فقط إذا لم يكن البرنامج مثبتاً (نفس منطق البانر)
 - [x] على iOS يفتح نافذة التوجيه بدلاً من prompt التثبيت — مع نقطة خضراء متحركة للفت الانتباه
+
+## Phase 41: إصلاح PWA - أيقونات maskable وتحسين منطق التثبيت
+- [x] إعادة توليد جميع أيقونات PWA بخلفية بنفسجية كاملة (بدون شفافية) لضمان maskable
+- [x] فصل أيقونات "any" و"maskable" في manifest.json (كل حجم يظهر مرتين)
+- [x] تحديث manifest.json: اسم "تولان - نظام الصيانة"، إضافة حقل id، تحسين background_color
+- [x] تحديث sw.js إلى v2 مع أيقونات صحيحة في إشعارات Push
+- [x] تحسين منطق handleInstallPWA: await صحيح + try/catch + حدث appinstalled
+- [x] إضافة listener لحدث appinstalled لإخفاء الزر بعد التثبيت الناجح
+- [x] تحسين showInstallButton ليعتمد على isInstalled state بدلاً من window.matchMedia فقط

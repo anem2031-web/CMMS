@@ -1,15 +1,16 @@
 {
-  "name": "نظام إدارة الصيانة المتكامل",
-  "short_name": "CMMS",
+  "name": "تولان - نظام الصيانة",
+  "short_name": "تولان",
   "description": "نظام إدارة الصيانة المتكامل - تولتن الدولية",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#1e2937",
+  "background_color": "#6366f1",
   "theme_color": "#6366f1",
   "orientation": "any",
   "lang": "ar",
   "dir": "rtl",
   "scope": "/",
+  "id": "/",
   "categories": ["business", "productivity", "utilities"],
   "icons": [
     {
@@ -46,7 +47,13 @@
       "src": "/icons/icon-192x192.png",
       "sizes": "192x192",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
     },
     {
       "src": "/icons/icon-384x384.png",
@@ -58,7 +65,13 @@
       "src": "/icons/icon-512x512.png",
       "sizes": "512x512",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
     }
   ],
   "shortcuts": [

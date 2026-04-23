@@ -1,5 +1,5 @@
-// CMMS Service Worker - PWA + Web Push
-const CACHE_NAME = 'cmms-v1';
+// CMMS Service Worker - PWA v2
+const CACHE_NAME = 'cmms-v2';
 const STATIC_ASSETS = ['/', '/manifest.json', '/favicon.ico'];
 
 // ─── Install: cache static assets ───────────────────────────────────────────
@@ -63,19 +63,17 @@ self.addEventListener('fetch', (event) => {
 // ─── Web Push Notifications ──────────────────────────────────────────────────
 self.addEventListener("push", function (event) {
   if (!event.data) return;
-
   let payload;
   try {
     payload = event.data.json();
   } catch {
     payload = { title: "إشعار جديد", body: event.data.text() };
   }
-
   const title = payload.title || "CMMS";
   const options = {
     body: payload.body || "",
-    icon: payload.icon || "/favicon.ico",
-    badge: payload.badge || "/favicon.ico",
+    icon: payload.icon || "/icons/icon-192x192.png",
+    badge: payload.badge || "/icons/icon-96x96.png",
     tag: payload.tag || "cmms-notification",
     data: { url: payload.url || "/" },
     dir: "rtl",
@@ -83,7 +81,6 @@ self.addEventListener("push", function (event) {
     requireInteraction: payload.type === "critical" || payload.type === "urgent",
     vibrate: payload.type === "critical" ? [200, 100, 200, 100, 200] : [200, 100, 200],
   };
-
   event.waitUntil(self.registration.showNotification(title, options));
 });
 
@@ -107,5 +104,3 @@ self.addEventListener("notificationclick", function (event) {
       })
   );
 });
-
-
