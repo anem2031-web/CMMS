@@ -185,10 +185,12 @@ function DashboardLayoutContent({ children, setSidebarWidth }: { children: React
   // ── PWA Install Prompt ──
   const [installPrompt, setInstallPrompt] = useState<any>(null);
   const [showInstallBanner, setShowInstallBanner] = useState(false);
+  const [showInstallTooltip, setShowInstallTooltip] = useState(false);
 
   // ── iOS Install Guide ──
   const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
-  const isInStandaloneMode = (window.navigator as any).standalone === true;
+  const isInStandaloneMode = (window.navigator as any).standalone === true ||
+    window.matchMedia('(display-mode: standalone)').matches;
   // يظهر دائماً طالما لم يثبت — الإغلاق مؤقت للجلسة فقط (sessionStorage)
   const [showIOSGuide, setShowIOSGuide] = useState(() => {
     if (!isIOS || isInStandaloneMode) return false;
@@ -202,7 +204,6 @@ function DashboardLayoutContent({ children, setSidebarWidth }: { children: React
     const handler = (e: Event) => {
       e.preventDefault();
       setInstallPrompt(e);
-      // يظهر دائماً ما لم يغلقه في هذه الجلسة
       if (!sessionStorage.getItem('pwa-banner-closed-this-session')) {
         setShowInstallBanner(true);
       }
@@ -211,21 +212,28 @@ function DashboardLayoutContent({ children, setSidebarWidth }: { children: React
     return () => window.removeEventListener('beforeinstallprompt', handler);
   }, []);
   const handleInstallPWA = async () => {
-    if (!installPrompt) return;
-    installPrompt.prompt();
-    const { outcome } = await installPrompt.userChoice;
-    if (outcome === 'accepted') {
-      setShowInstallBanner(false);
-      // عند التثبيت الفعلي يختفي نهائياً
-      localStorage.setItem('pwa-installed', '1');
+    if (installPrompt) {
+      installPrompt.prompt();
+      const { outcome } = await installPrompt.userChoice;
+      if (outcome === 'accepted') {
+        setShowInstallBanner(false);
+        localStorage.setItem('pwa-installed', '1');
+      }
+      setInstallPrompt(null);
+    } else if (isIOS) {
+      setShowIOSGuide(true);
+    } else {
+      // عرض tooltip توجيهي للمتصفحات التي لا تدعم beforeinstallprompt
+      setShowInstallTooltip(true);
+      setTimeout(() => setShowInstallTooltip(false), 4000);
     }
-    setInstallPrompt(null);
   };
   const dismissInstallBanner = () => {
     setShowInstallBanner(false);
-    // إغلاق مؤقت للجلسة فقط — يعود عند الدخول التالي
     sessionStorage.setItem('pwa-banner-closed-this-session', '1');
   };
+  // زر التثبيت يظهر دائماً ما لم يكن التطبيق مثبتاً
+  const showInstallButton = !isInStandaloneMode && !localStorage.getItem('pwa-installed');
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(() => {
     try {
       const saved = localStorage.getItem(COLLAPSED_SECTIONS_KEY);
@@ -554,15 +562,9 @@ function DashboardLayoutContent({ children, setSidebarWidth }: { children: React
             <div className="flex items-center justify-center gap-2 mb-2">
               <LanguageSwitcher compact={isCollapsed} />
               {/* ── زر التثبيت الثابت ── */}
-              {(installPrompt || (isIOS && !isInStandaloneMode)) && (
+              {showInstallButton && (
                 <button
-                  onClick={() => {
-                    if (isIOS) {
-                      setShowIOSGuide(true);
-                    } else {
-                      handleInstallPWA();
-                    }
-                  }}
+                  onClick={handleInstallPWA}
                   title="تثبيت التطبيق"
                   className="group relative flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-sidebar-primary/10 hover:bg-sidebar-primary/20 border border-sidebar-primary/20 hover:border-sidebar-primary/40 text-sidebar-primary transition-all duration-200 text-xs font-medium shrink-0"
                 >
@@ -572,6 +574,14 @@ function DashboardLayoutContent({ children, setSidebarWidth }: { children: React
                   )}
                   {/* نقطة خضراء تشير للتثبيت */}
                   <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-emerald-500 ring-1 ring-sidebar-background animate-pulse" />
+                  {/* Tooltip توجيهي عند عدم دعم beforeinstallprompt */}
+                  {showInstallTooltip && (
+                    <div className="absolute bottom-full mb-2 right-0 w-56 bg-popover text-popover-foreground text-xs rounded-lg shadow-lg border border-border p-3 z-50 text-right">
+                      <p className="font-semibold mb-1">تثبيت التطبيق</p>
+                      <p className="text-muted-foreground leading-relaxed">افتح القائمة في المتصفح ثم اختر "تثبيت التطبيق" أو "إضافة إلى الشاشة الرئيسية"</p>
+                      <div className="absolute bottom-[-5px] right-3 w-2.5 h-2.5 bg-popover border-b border-r border-border rotate-45" />
+                    </div>
+                  )}
                 </button>
               )}
             </div>
