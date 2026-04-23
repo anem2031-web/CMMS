@@ -2817,8 +2817,24 @@ ${JSON.stringify(recentAudit.map((a: any) => ({ action: a.action, entity: a.enti
       completedDate: z.string().nullish().transform(v => v ?? undefined),
     })).mutation(async ({ input }) => {
       const { id, ...data } = input;
+      // Auto-translate technicianNotes to all 3 languages
+      let woTranslation: Record<string, any> = {};
+      if (data.technicianNotes && data.technicianNotes.trim().length > 0) {
+        try {
+          const detectedLang = await detectLanguage(data.technicianNotes) as SupportedLanguage;
+          const translations = await translateFields({ technicianNotes: data.technicianNotes }, detectedLang);
+          if (translations.technicianNotes) {
+            woTranslation.technicianNotes_ar = translations.technicianNotes.ar;
+            woTranslation.technicianNotes_en = translations.technicianNotes.en;
+            woTranslation.technicianNotes_ur = translations.technicianNotes.ur;
+          }
+        } catch (e) {
+          console.error("[WorkOrder] technicianNotes translation failed:", e);
+        }
+      }
       return db.updatePMWorkOrder(id, {
         ...data,
+        ...woTranslation,
         completedDate: data.completedDate ? new Date(data.completedDate) : undefined,
       });
     }),

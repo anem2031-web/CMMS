@@ -23,6 +23,7 @@ import {
   Search, Filter, X, Power, PowerOff, FileText,
 } from "lucide-react";
 import { nanoid } from "nanoid";
+import { useTranslatedField } from "@/hooks/useTranslatedField";
 
 type Frequency = "daily" | "weekly" | "monthly" | "quarterly" | "biannual" | "annual";
 type WOStatus = "scheduled" | "in_progress" | "completed" | "overdue" | "cancelled";
@@ -70,6 +71,7 @@ const woStatusConfig: Record<WOStatus, { color: string }> = {
 
 export default function PreventiveMaintenance() {
   const { t } = useLanguage();
+  const { getField } = useTranslatedField();
   const [tab, setTab] = useState("plans");
   const [showPlanForm, setShowPlanForm] = useState(false);
   const [editPlanId, setEditPlanId] = useState<number | null>(null);
@@ -798,7 +800,7 @@ export default function PreventiveMaintenance() {
               <div>
                 <Label>{t.preventive.technicianNotes}</Label>
                 <Textarea
-                  value={selectedWO.technicianNotes ?? ""}
+                  value={selectedWO.technicianNotes ?? getField(selectedWO, "technicianNotes") ?? ""}
                   onChange={e => setSelectedWO((w: any) => ({ ...w, technicianNotes: e.target.value }))}
                   rows={3}
                   className="mt-1"

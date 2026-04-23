@@ -662,3 +662,6 @@
 - [x] إضافة translateFields في tickets.update عند تغيير العنوان أو الوصف
 - [x] إضافة translateFields في assets.update عند تغيير الوصف أو الملاحظات
 - [x] فحص باقي procedures التعديل التي تحتوي على حقول نصية قابلة للترجمة
+
+## Phase 46: ترجمة ملاحظات الصيانة الوقائية
+- [x] إضافة translateFields لحقل technicianNotes في updateWorkOrder
