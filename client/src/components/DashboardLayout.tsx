@@ -27,7 +27,7 @@ import {
   Package, BarChart3, Users, Bell, MapPin, Wrench, Shield,
   Brain, ShoppingBag, Truck, Languages, Database,
   HardDrive, CalendarClock, ScanSearch, DoorOpen, Nfc,
-  ChevronDown, Search, X, Building2, UserCog
+  ChevronDown, Search, X, Building2, UserCog, Download, Smartphone
 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState, useMemo, useCallback } from "react";
 import { useLocation } from "wouter";
@@ -551,8 +551,29 @@ function DashboardLayoutContent({ children, setSidebarWidth }: { children: React
 
           {/* ── Footer ── */}
           <SidebarFooter className="p-3 border-t border-sidebar-border/40">
-            <div className="flex justify-center mb-2">
+            <div className="flex items-center justify-center gap-2 mb-2">
               <LanguageSwitcher compact={isCollapsed} />
+              {/* ── زر التثبيت الثابت ── */}
+              {(installPrompt || (isIOS && !isInStandaloneMode)) && (
+                <button
+                  onClick={() => {
+                    if (isIOS) {
+                      setShowIOSGuide(true);
+                    } else {
+                      handleInstallPWA();
+                    }
+                  }}
+                  title="تثبيت التطبيق"
+                  className="group relative flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-sidebar-primary/10 hover:bg-sidebar-primary/20 border border-sidebar-primary/20 hover:border-sidebar-primary/40 text-sidebar-primary transition-all duration-200 text-xs font-medium shrink-0"
+                >
+                  <Smartphone className="h-3.5 w-3.5" />
+                  {!isCollapsed && (
+                    <span className="whitespace-nowrap">تثبيت</span>
+                  )}
+                  {/* نقطة خضراء تشير للتثبيت */}
+                  <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-emerald-500 ring-1 ring-sidebar-background animate-pulse" />
+                </button>
+              )}
             </div>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
