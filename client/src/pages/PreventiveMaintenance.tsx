@@ -853,7 +853,7 @@ export default function PreventiveMaintenance() {
                   checklistResults: selectedWO.checklistResults,
                   technicianNotes: selectedWO.technicianNotes,
                   completionPhotoUrl: selectedWO.completionPhotoUrl || undefined,
-                  completedDate: selectedWO.completedDate,
+                  completedDate: selectedWO.completedDate ?? undefined,
                 })}
                 disabled={updateWOMut.isPending}
               >
