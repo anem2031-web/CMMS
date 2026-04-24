@@ -78,7 +78,7 @@ export const appRouter = router({
     }),
     changePassword: protectedProcedure.input(z.object({
       currentPassword: z.string().optional(),
-      newPassword: z.string().min(4),
+      newPassword: z.string().min(8, "كلمة المرور يجب أن تكون 8 أحرف على الأقل").regex(/(?=.*[A-Z])(?=.*\d)/, "يجب أن تحتوي على حرف كبير ورقم واحد على الأقل"),
     })).mutation(async ({ input, ctx }) => {
       // Admin can change any user's password without current password
       if (ctx.user.passwordHash && input.currentPassword) {
@@ -142,7 +142,7 @@ export const appRouter = router({
 
     create: protectedProcedure.input(z.object({
       username: z.string().min(2),
-      password: z.string().min(4),
+      password: z.string().min(8, "كلمة المرور يجب أن تكون 8 أحرف على الأقل").regex(/(?=.*[A-Z])(?=.*\d)/, "يجب أن تحتوي على حرف كبير ورقم واد على الأقل"),
       name: z.string().min(1),
       role: z.string(),
       email: z.string().optional(),
@@ -162,7 +162,7 @@ export const appRouter = router({
 
     resetPassword: protectedProcedure.input(z.object({
       userId: z.number(),
-      newPassword: z.string().min(4),
+      newPassword: z.string().min(8, "كلمة المرور يجب أن تكون 8 أحرف على الأقل").regex(/(?=.*[A-Z])(?=.*\d)/, "يجب أن تحتوي على حرف كبير ورقم واحد على الأقل"),
     })).mutation(async ({ input, ctx }) => {
       if (ctx.user.role !== "owner" && ctx.user.role !== "admin") {
         throw new TRPCError({ code: "FORBIDDEN", message: "ليس لديك صلاحية" });

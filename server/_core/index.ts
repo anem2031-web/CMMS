@@ -17,6 +17,45 @@ import { exportTicketsToExcel, exportPurchaseOrdersToExcel, exportTechnicianPerf
 import { generateWorkflowGuidePDF } from "../workflowPdfService";
 import { runTechnicianOverdueJob } from "../jobs/technician-overdue";
 import { runPMAutomationJob } from "../jobs/pm-automation";
+import { sdk } from "./sdk";
+
+// ============================================================
+// AUTH MIDDLEWARE — C-01 & C-02 FIX
+// Restricts access to export/upload endpoints to authenticated users only
+// Allowed roles: owner, admin, maintenance_manager, supervisor, senior_management, accounting
+// ============================================================
+const EXPORT_ALLOWED_ROLES = new Set([
+  "owner", "admin", "maintenance_manager", "supervisor", "senior_management", "accounting"
+]);
+
+async function requireAuthMiddleware(req: any, res: any, next: any) {
+  try {
+    const user = await sdk.authenticateRequest(req);
+    if (!user) {
+      return res.status(401).json({ error: "غير مصرح — يجب تسجيل الدخول أولاً" });
+    }
+    req.authenticatedUser = user;
+    next();
+  } catch {
+    return res.status(401).json({ error: "غير مصرح — يجب تسجيل الدخول أولاً" });
+  }
+}
+
+async function requireExportRole(req: any, res: any, next: any) {
+  try {
+    const user = await sdk.authenticateRequest(req);
+    if (!user) {
+      return res.status(401).json({ error: "غير مصرح — يجب تسجيل الدخول أولاً" });
+    }
+    if (!EXPORT_ALLOWED_ROLES.has(user.role)) {
+      return res.status(403).json({ error: "ليس لديك صلاحية تصدير البيانات" });
+    }
+    req.authenticatedUser = user;
+    next();
+  } catch {
+    return res.status(401).json({ error: "غير مصرح — يجب تسجيل الدخول أولاً" });
+  }
+}
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -39,31 +78,97 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
 
 async function startServer() {
   const app = express();
-  app.set('trust proxy', 1); // Trust first proxy for accurate rate-limit IP detection
+  app.set('trust proxy', 1);
   const server = createServer(app);
 
-  // Security: Helmet for HTTP headers
-  app.use(helmet({ contentSecurityPolicy: false, crossOriginEmbedderPolicy: false }));
+  // ============================================================
+  // H-02 FIX: تفعيل Content Security Policy في Helmet
+  // ============================================================
+  app.use(helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https://fonts.googleapis.com"],
+        styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+        fontSrc: ["'self'", "https://fonts.gstatic.com", "data:"],
+        imgSrc: ["'self'", "data:", "blob:", "https:"],
+        connectSrc: ["'self'", "https:", "wss:"],
+        mediaSrc: ["'self'", "blob:", "https:"],
+        workerSrc: ["'self'", "blob:"],
+        frameSrc: ["'none'"],
+        objectSrc: ["'none'"],
+        baseUri: ["'self'"],
+        formAction: ["'self'"],
+        upgradeInsecureRequests: [],
+      },
+    },
+    crossOriginEmbedderPolicy: false,
+  }));
 
-  // Security: Rate limiting
-  const apiLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 500, standardHeaders: true, legacyHeaders: false, message: { error: "تم تجاوز الحد الأقصى للطلبات. يرجى المحاولة لاحقاً" } });
+  // ============================================================
+  // M-01 FIX: Rate Limiting محسّن يشمل /api/trpc
+  // ============================================================
+  const apiLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 500,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: "تم تجاوز الحد الأقصى للطلبات. يرجى المحاولة لاحقاً" },
+  
+  });
+
+  // Rate limiter أكثر صرامة للـ auth endpoints
+  const authLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 20,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: "تم تجاوز الحد الأقصى لمحاولات تسجيل الدخول. يرجى المحاولة بعد 15 دقيقة" },
+  });
+
   app.use("/api/", apiLimiter);
+  app.use("/api/oauth/", authLimiter);
 
-  // Configure body parser
-  app.use(express.json({ limit: "50mb" }));
-  app.use(express.urlencoded({ limit: "50mb", extended: true }));
+  // ============================================================
+  // H-03 FIX: تقليل Body Parser limit إلى 1MB لمنع هجمات DoS
+  // (رفع الملفات يمر عبر multer وليس body parser)
+  // ============================================================
+  app.use(express.json({ limit: "1mb" }));
+  app.use(express.urlencoded({ limit: "1mb", extended: true }));
 
-  // File upload endpoint
-  const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 16 * 1024 * 1024 } });
-  app.post("/api/upload", upload.single("file"), async (req: any, res: any) => {
+  // ============================================================
+  // C-02 FIX: تأمين Upload endpoint بمصادقة إلزامية
+  // ============================================================
+  const upload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 16 * 1024 * 1024 },
+    fileFilter: (_req: any, file: any, cb: any) => {
+      // L-02 FIX: التحقق من نوع الملف بالـ mimetype
+      const ALLOWED_MIME_TYPES = new Set([
+        "image/jpeg", "image/png", "image/webp", "image/gif", "image/heic", "image/heif",
+        "application/pdf",
+        "application/msword",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "application/vnd.ms-excel",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      ]);
+      if (ALLOWED_MIME_TYPES.has(file.mimetype)) {
+        cb(null, true);
+      } else {
+        cb(new Error(`نوع الملف غير مسموح: ${file.mimetype}`));
+      }
+    },
+  });
+
+  app.post("/api/upload", requireAuthMiddleware, upload.single("file"), async (req: any, res: any) => {
     try {
       if (!req.file) return res.status(400).json({ error: "No file provided" });
       const isImage = req.file.mimetype.startsWith("image/");
       let fileBuffer = req.file.buffer;
       let mimeType = req.file.mimetype;
       let ext = req.file.originalname.split(".").pop() || "bin";
+
       // تحويل الصور إلى WebP مع تقليص الأبعاد لتسريع الرفع
-      // الصور الكبيرة (4K من الجوال) تُقلَّص إلى 1920px قبل الضغط
       if (isImage) {
         fileBuffer = await sharp(req.file.buffer)
           .resize(1920, 1920, { fit: "inside", withoutEnlargement: true })
@@ -82,9 +187,9 @@ async function startServer() {
   });
 
   // ============================================================
-  // EXPORT ENDPOINTS
+  // C-01 FIX: تأمين جميع Export endpoints بمصادقة + صلاحية
   // ============================================================
-  app.get("/api/export/tickets", async (_req: any, res: any) => {
+  app.get("/api/export/tickets", requireExportRole, async (_req: any, res: any) => {
     try {
       const buffer = await exportTicketsToExcel();
       res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
@@ -93,7 +198,7 @@ async function startServer() {
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
-  app.get("/api/export/purchase-orders", async (_req: any, res: any) => {
+  app.get("/api/export/purchase-orders", requireExportRole, async (_req: any, res: any) => {
     try {
       const buffer = await exportPurchaseOrdersToExcel();
       res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
@@ -102,7 +207,7 @@ async function startServer() {
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
-  app.get("/api/export/technician-performance", async (req: any, res: any) => {
+  app.get("/api/export/technician-performance", requireExportRole, async (req: any, res: any) => {
     try {
       const filters: any = {};
       if (req.query.dateFrom) filters.dateFrom = new Date(req.query.dateFrom);
@@ -114,7 +219,7 @@ async function startServer() {
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
-  app.get("/api/export/audit-log", async (req: any, res: any) => {
+  app.get("/api/export/audit-log", requireExportRole, async (req: any, res: any) => {
     try {
       const filters: any = {};
       if (req.query.entityType) filters.entityType = req.query.entityType;
@@ -128,7 +233,7 @@ async function startServer() {
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
-  app.get("/api/export/inventory", async (_req: any, res: any) => {
+  app.get("/api/export/inventory", requireExportRole, async (_req: any, res: any) => {
     try {
       const buffer = await exportInventoryToExcel();
       res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
@@ -137,8 +242,7 @@ async function startServer() {
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
-  // Preventive Maintenance Export
-  app.get("/api/export/preventive-plans", async (_req: any, res: any) => {
+  app.get("/api/export/preventive-plans", requireExportRole, async (_req: any, res: any) => {
     try {
       const buffer = await exportPreventivePlansToExcel();
       res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
@@ -146,7 +250,8 @@ async function startServer() {
       res.send(buffer);
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
-  app.get("/api/export/pm-work-orders", async (_req: any, res: any) => {
+
+  app.get("/api/export/pm-work-orders", requireExportRole, async (_req: any, res: any) => {
     try {
       const buffer = await exportPMWorkOrdersToExcel();
       res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
@@ -154,8 +259,8 @@ async function startServer() {
       res.send(buffer);
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
-  // Workflow Guide PDF Export
-  app.get("/api/export/workflow-guide", async (_req: any, res: any) => {
+
+  app.get("/api/export/workflow-guide", requireExportRole, async (_req: any, res: any) => {
     try {
       const buffer = await generateWorkflowGuidePDF();
       res.setHeader("Content-Type", "application/pdf");
@@ -166,6 +271,7 @@ async function startServer() {
 
   // OAuth callback under /api/oauth/callback
   registerOAuthRoutes(app);
+
   // tRPC API
   app.use(
     "/api/trpc",
@@ -174,7 +280,7 @@ async function startServer() {
       createContext,
     })
   );
-  // development mode uses Vite, production mode uses static files
+
   if (process.env.NODE_ENV === "development") {
     await setupVite(app, server);
   } else {
@@ -192,13 +298,12 @@ async function startServer() {
     console.log(`Server running on http://localhost:${port}/`);
   });
 
-  // تشغيل job التحقق من تأخر الفنيين كل ساعة
   const ONE_HOUR = 60 * 60 * 1000;
   setTimeout(() => {
     runTechnicianOverdueJob();
     setInterval(runTechnicianOverdueJob, ONE_HOUR);
   }, 5000);
-  // تشغيل job الصيانة الوقائية التلقائية كل 6 ساعات (بدون ربط بالبلاغات)
+
   const SIX_HOURS = 6 * 60 * 60 * 1000;
   setTimeout(() => {
     runPMAutomationJob();

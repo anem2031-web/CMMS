@@ -665,3 +665,16 @@
 
 ## Phase 46: ترجمة ملاحظات الصيانة الوقائية
 - [x] إضافة translateFields لحقل technicianNotes في updateWorkOrder
+
+## Phase 47: خطة الإصلاح الأمني الشاملة
+- [ ] C-01: تأمين Export endpoints بإضافة requireAuthMiddleware
+- [ ] C-02: تأمين Upload endpoint بإضافة requireAuthMiddleware
+- [ ] H-01: رفع الحد الأدنى لكلمة المرور إلى 8 أحرف مع Regex
+- [ ] H-02: تفعيل CSP في Helmet
+- [ ] H-03: تقليل Body Parser limit إلى 1MB
+- [ ] M-02: ضبط sameSite=strict وdomain في cookies.ts
+- [ ] M-03: تنظيف id في chart.tsx لمنع XSS
+- [ ] M-04: عزل Cache keys بـ userId/role
+- [ ] L-01: إضافة purchase_manager لقائمة 2FA الإلزامية
+- [ ] L-02: إضافة file-type validation للرفع
+- [ ] M-01: تحسين Rate Limiter لتشمل /api/trpc
