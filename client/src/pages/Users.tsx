@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
-import { Users as UsersIcon, Pencil, Trash2, UserPlus, Eye, EyeOff, KeyRound, Search } from "lucide-react";
+import { Users as UsersIcon, Pencil, Trash2, UserPlus, Eye, EyeOff, KeyRound, Search, ShieldOff, ShieldCheck, Lock } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -81,6 +81,15 @@ export default function UsersPage() {
       toast.success(t.common.deletedSuccessfully);
       utils.users.list.invalidate();
       setDeleteOpen(false);
+      setConfirmPassword("");
+    },
+    onError: (err) => toast.error(err.message),
+  });
+
+  const toggleActiveMut = trpc.users.toggleActive.useMutation({
+    onSuccess: (_, vars) => {
+      toast.success(vars.isActive ? "تم تفعيل الحساب" : "تم تعطيل الحساب");
+      utils.users.list.invalidate();
     },
     onError: (err) => toast.error(err.message),
   });
@@ -105,9 +114,12 @@ export default function UsersPage() {
 
   // Delete dialog
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
-  // Search
+  // Search & filter
   const [search, setSearch] = useState("");
+  const [roleFilter, setRoleFilter] = useState("all");
 
   const openEdit = (u: any) => {
     setSelectedUser(u);
@@ -117,6 +129,7 @@ export default function UsersPage() {
 
   const openDelete = (u: any) => {
     setSelectedUser(u);
+    setConfirmPassword("");
     setDeleteOpen(true);
   };
 
@@ -126,7 +139,11 @@ export default function UsersPage() {
     setResetOpen(true);
   };
 
+  // الأدوار الفريدة للفلتر
+  const uniqueRoles = Array.from(new Set((users || []).map((u: any) => u.role as string))).sort();
+
   const filteredUsers = users?.filter((u: any) => {
+    if (roleFilter !== "all" && u.role !== roleFilter) return false;
     if (!search) return true;
     const q = search.toLowerCase();
     return (
@@ -155,16 +172,41 @@ export default function UsersPage() {
         )}
       </div>
 
-      {/* Search */}
-      <div className="relative">
-        <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-        <Input
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          placeholder="بحث بالاسم أو اسم المستخدم أو الدور..."
-          className="pr-9"
-        />
+      {/* Search + Role Filter */}
+      <div className="flex gap-3 flex-wrap">
+        <div className="relative flex-1 min-w-[200px]">
+          <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          <Input
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="بحث بالاسم أو اسم المستخدم..."
+            className="pr-9"
+          />
+        </div>
+        <Select value={roleFilter} onValueChange={setRoleFilter}>
+          <SelectTrigger className="w-[180px]">
+            <SelectValue placeholder="كل الأدوار" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">كل الأدوار</SelectItem>
+            {uniqueRoles.map((role: string) => (
+              <SelectItem key={role} value={role}>{getRoleLabel(role)}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {(search || roleFilter !== "all") && (
+          <Button variant="outline" size="sm" onClick={() => { setSearch(""); setRoleFilter("all"); }}>
+            مسح الفلاتر
+          </Button>
+        )}
       </div>
+
+      {/* Count */}
+      {!isLoading && (
+        <p className="text-sm text-muted-foreground">
+          عرض <strong>{filteredUsers?.length || 0}</strong> من أصل <strong>{users?.length || 0}</strong> مستخدم
+        </p>
+      )}
 
       {/* Users list */}
       {isLoading ? (
@@ -178,18 +220,27 @@ export default function UsersPage() {
           <CardContent className="p-12 text-center">
             <UsersIcon className="w-12 h-12 mx-auto text-muted-foreground/40 mb-4" />
             <p className="text-muted-foreground">
-              {search ? "لا توجد نتائج مطابقة" : t.common.noData}
+              {search || roleFilter !== "all" ? "لا توجد نتائج مطابقة" : t.common.noData}
             </p>
           </CardContent>
         </Card>
       ) : (
         <div className="space-y-3">
           {filteredUsers.map((u: any) => (
-            <Card key={u.id} className="shadow-sm hover:shadow-md hover:border-primary/20 transition-all duration-200">
+            <Card
+              key={u.id}
+              className={`shadow-sm transition-all duration-200 ${
+                !u.isActive
+                  ? "opacity-60 border-dashed border-muted-foreground/30"
+                  : "hover:shadow-md hover:border-primary/20"
+              }`}
+            >
               <CardContent className="p-4">
                 <div className="flex items-center justify-between gap-4 flex-wrap">
                   <div className="flex items-center gap-3 flex-1 min-w-0">
-                    <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-sm shrink-0">
+                    <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm shrink-0 ${
+                      u.isActive ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"
+                    }`}>
                       {(u.name || u.username || "?")[0]}
                     </div>
                     <div className="min-w-0">
@@ -199,6 +250,12 @@ export default function UsersPage() {
                           <span className="text-xs text-muted-foreground bg-muted px-1.5 py-0.5 rounded font-mono">
                             @{u.username}
                           </span>
+                        )}
+                        {!u.isActive && (
+                          <Badge variant="outline" className="text-[10px] text-muted-foreground border-muted-foreground/40 gap-1">
+                            <ShieldOff className="w-3 h-3" />
+                            معطّل
+                          </Badge>
                         )}
                       </div>
                       <div className="flex items-center gap-2 mt-0.5 flex-wrap">
@@ -221,9 +278,23 @@ export default function UsersPage() {
                           <KeyRound className="w-4 h-4" />
                         </Button>
                         {u.role !== "owner" && (
-                          <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" title="حذف المستخدم" onClick={() => openDelete(u)}>
-                            <Trash2 className="w-4 h-4" />
-                          </Button>
+                          <>
+                            {/* زر تعطيل / تفعيل */}
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className={`h-8 w-8 ${u.isActive ? "text-orange-500 hover:text-orange-600" : "text-green-600 hover:text-green-700"}`}
+                              title={u.isActive ? "تعطيل الحساب" : "تفعيل الحساب"}
+                              onClick={() => toggleActiveMut.mutate({ id: u.id, isActive: !u.isActive })}
+                              disabled={toggleActiveMut.isPending}
+                            >
+                              {u.isActive ? <ShieldOff className="w-4 h-4" /> : <ShieldCheck className="w-4 h-4" />}
+                            </Button>
+                            {/* زر الحذف */}
+                            <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" title="حذف المستخدم" onClick={() => openDelete(u)}>
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </>
                         )}
                       </>
                     )}
@@ -271,7 +342,7 @@ export default function UsersPage() {
                   type={showCreatePassword ? "text" : "password"}
                   value={createForm.password}
                   onChange={e => setCreateForm(f => ({ ...f, password: e.target.value }))}
-                  placeholder="4 أحرف على الأقل"
+                  placeholder="8 أحرف على الأقل، حرف كبير ورقم"
                   dir="ltr"
                   className="pl-10"
                 />
@@ -412,7 +483,7 @@ export default function UsersPage() {
                   type={showNewPassword ? "text" : "password"}
                   value={newPassword}
                   onChange={e => setNewPassword(e.target.value)}
-                  placeholder="4 أحرف على الأقل"
+                  placeholder="8 أحرف على الأقل، حرف كبير ورقم"
                   dir="ltr"
                   className="pl-10"
                 />
@@ -432,7 +503,7 @@ export default function UsersPage() {
             <Button variant="outline" onClick={() => setResetOpen(false)}>{t.common.cancel}</Button>
             <Button
               onClick={() => resetPasswordMut.mutate({ userId: resetUser.id, newPassword })}
-              disabled={resetPasswordMut.isPending || newPassword.length < 4}
+              disabled={resetPasswordMut.isPending || newPassword.length < 8}
             >
               {resetPasswordMut.isPending ? "جاري التغيير..." : "تغيير كلمة المرور"}
             </Button>
@@ -440,18 +511,60 @@ export default function UsersPage() {
         </DialogContent>
       </Dialog>
 
-      {/* ====== Delete User Dialog ====== */}
-      <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
-        <DialogContent className="sm:max-w-[400px]" dir="rtl">
+      {/* ====== Delete User Dialog (مع تأكيد كلمة المرور) ====== */}
+      <Dialog open={deleteOpen} onOpenChange={(open) => { setDeleteOpen(open); if (!open) setConfirmPassword(""); }}>
+        <DialogContent className="sm:max-w-[420px]" dir="rtl">
           <DialogHeader>
-            <DialogTitle className="text-destructive">{t.common.confirmDelete}</DialogTitle>
+            <DialogTitle className="text-destructive flex items-center gap-2">
+              <Trash2 className="w-5 h-5" />
+              {t.common.confirmDelete}
+            </DialogTitle>
             <DialogDescription>
-              {t.common.deleteWarning} <strong>{selectedUser?.name || selectedUser?.username}</strong>؟ {t.common.cannotUndo}
+              سيتم حذف <strong>{selectedUser?.name || selectedUser?.username}</strong> نهائياً ولا يمكن التراجع.
             </DialogDescription>
           </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-3 flex items-start gap-2">
+              <Lock className="w-4 h-4 text-destructive mt-0.5 shrink-0" />
+              <p className="text-sm text-destructive">
+                لتأكيد الحذف، أدخل كلمة مرورك الخاصة
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label>كلمة مرورك</Label>
+              <div className="relative">
+                <Input
+                  type={showConfirmPassword ? "text" : "password"}
+                  value={confirmPassword}
+                  onChange={e => setConfirmPassword(e.target.value)}
+                  placeholder="أدخل كلمة مرورك للتأكيد"
+                  dir="ltr"
+                  className="pl-10"
+                  onKeyDown={e => {
+                    if (e.key === "Enter" && confirmPassword.length >= 1) {
+                      deleteMut.mutate({ id: selectedUser.id, confirmPassword });
+                    }
+                  }}
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="absolute left-1 top-1/2 -translate-y-1/2 h-7 w-7"
+                  onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                >
+                  {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </Button>
+              </div>
+            </div>
+          </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteOpen(false)}>{t.common.cancel}</Button>
-            <Button variant="destructive" onClick={() => deleteMut.mutate({ id: selectedUser.id })} disabled={deleteMut.isPending}>
+            <Button
+              variant="destructive"
+              onClick={() => deleteMut.mutate({ id: selectedUser.id, confirmPassword })}
+              disabled={deleteMut.isPending || confirmPassword.length < 1}
+            >
               {deleteMut.isPending ? t.common.deleting : t.common.delete}
             </Button>
           </DialogFooter>

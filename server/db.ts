@@ -835,6 +835,12 @@ export async function updateUser(id: number, data: { name?: string; email?: stri
   await db.update(users).set(data as any).where(eq(users.id, id));
 }
 
+export async function toggleUserActive(id: number, isActive: boolean) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(users).set({ isActive }).where(eq(users.id, id));
+}
+
 export async function getSiteById(id: number) {
   const db = await getDb();
   if (!db) return null;

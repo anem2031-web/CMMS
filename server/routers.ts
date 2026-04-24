@@ -175,15 +175,42 @@ export const appRouter = router({
       return { success: true };
     }),
 
-    delete: protectedProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
+    delete: protectedProcedure.input(z.object({
+      id: z.number(),
+      confirmPassword: z.string().min(1, "كلمة المرور مطلوبة للتأكيد"),
+    })).mutation(async ({ input, ctx }) => {
       if (ctx.user.role !== "owner" && ctx.user.role !== "admin") {
         throw new TRPCError({ code: "FORBIDDEN", message: "فقط المالك يمكنه حذف المستخدمين" });
+      }
+      // التحقق من كلمة مرور المدير
+      if (!ctx.user.passwordHash) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "لا يمكن التحقق من هويتك (حساب OAuth)" });
+      }
+      const validPassword = await bcrypt.compare(input.confirmPassword, ctx.user.passwordHash);
+      if (!validPassword) {
+        throw new TRPCError({ code: "UNAUTHORIZED", message: "كلمة المرور غير صحيحة" });
       }
       const user = await db.getUserById(input.id);
       if (!user) throw new TRPCError({ code: "NOT_FOUND", message: "المستخدم غير موجود" });
       if (user.role === "owner") throw new TRPCError({ code: "FORBIDDEN", message: "لا يمكن حذف المالك" });
       await db.deleteUser(input.id);
       await db.createAuditLog({ userId: ctx.user.id, action: "delete_user", entityType: "user", entityId: input.id, oldValues: { name: user.name, email: user.email, role: user.role } });
+      invalidateCache.users();
+      return { success: true };
+    }),
+
+    toggleActive: protectedProcedure.input(z.object({
+      id: z.number(),
+      isActive: z.boolean(),
+    })).mutation(async ({ input, ctx }) => {
+      if (ctx.user.role !== "owner" && ctx.user.role !== "admin") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "فقط المالك يمكنه تعطيل/تفعيل المستخدمين" });
+      }
+      const user = await db.getUserById(input.id);
+      if (!user) throw new TRPCError({ code: "NOT_FOUND", message: "المستخدم غير موجود" });
+      if (user.role === "owner") throw new TRPCError({ code: "FORBIDDEN", message: "لا يمكن تعطيل المالك" });
+      await db.toggleUserActive(input.id, input.isActive);
+      await db.createAuditLog({ userId: ctx.user.id, action: input.isActive ? "activate_user" : "deactivate_user", entityType: "user", entityId: input.id });
       invalidateCache.users();
       return { success: true };
     }),
