@@ -849,6 +849,13 @@ export default function PreventiveMaintenance() {
             <DialogFooter>
               <Button variant="outline" onClick={() => { setSelectedWO(null); setCompletionPhotoUrl(""); }}>{t.common.cancel}</Button>
               <Button
+                variant="outline"
+                onClick={() => window.open(`/api/export/pm-work-order/${selectedWO.id}`, '_blank')}
+                title="طباعة PDF"
+              >
+                📄 PDF
+              </Button>
+              <Button
                 onClick={() => updateWOMut.mutate({
                   id: selectedWO.id,
                   status: selectedWO.status,

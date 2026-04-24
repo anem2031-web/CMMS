@@ -678,3 +678,9 @@
 - [ ] L-01: إضافة purchase_manager لقائمة 2FA الإلزامية
 - [ ] L-02: إضافة file-type validation للرفع
 - [ ] M-01: تحسين Rate Limiter لتشمل /api/trpc
+
+## Phase 48: الميزات التشغيلية الثلاث
+- [x] توليد PDF لأمر العمل الوقائي (Checklist + حالة الأصل قبل وبعد) + زر PDF في الواجهة
+- [x] إشعار تذكيري تلقائي بعد 24 ساعة بدون تحديث من الفني (pm-reminder.ts)
+- [x] تقرير مقارنة الصيانة الوقائية vs الطارئة لكل قسم (رسوم بيانية مقارنة + نسب مئوية)
+- [x] إصلاح أخطاء TypeScript (ipKeyGenerator + pm-reminder import)

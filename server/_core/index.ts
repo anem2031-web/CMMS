@@ -8,7 +8,7 @@ import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import helmet from "helmet";
-import rateLimit from "express-rate-limit";
+import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import multer from "multer";
 import { storagePut } from "../storage";
 import { nanoid } from "nanoid";
@@ -17,6 +17,8 @@ import { exportTicketsToExcel, exportPurchaseOrdersToExcel, exportTechnicianPerf
 import { generateWorkflowGuidePDF } from "../workflowPdfService";
 import { runTechnicianOverdueJob } from "../jobs/technician-overdue";
 import { runPMAutomationJob } from "../jobs/pm-automation";
+import { runPMWorkOrderReminderJob } from "../jobs/pm-reminder";
+import { generatePMWorkOrderPDF } from "../pmWorkOrderPdfService";
 import { sdk } from "./sdk";
 
 // ============================================================
@@ -113,8 +115,8 @@ async function startServer() {
     max: 500,
     standardHeaders: true,
     legacyHeaders: false,
+    keyGenerator: (req) => ipKeyGenerator(req.ip ?? req.socket.remoteAddress ?? ''),
     message: { error: "تم تجاوز الحد الأقصى للطلبات. يرجى المحاولة لاحقاً" },
-  
   });
 
   // Rate limiter أكثر صرامة للـ auth endpoints
@@ -123,6 +125,7 @@ async function startServer() {
     max: 20,
     standardHeaders: true,
     legacyHeaders: false,
+    keyGenerator: (req) => ipKeyGenerator(req.ip ?? req.socket.remoteAddress ?? ''),
     message: { error: "تم تجاوز الحد الأقصى لمحاولات تسجيل الدخول. يرجى المحاولة بعد 15 دقيقة" },
   });
 
@@ -269,6 +272,18 @@ async function startServer() {
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
+  // PDF لأمر العمل الوقائي
+  app.get("/api/export/pm-work-order/:id", requireAuthMiddleware, async (req: any, res: any) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ error: "رقم غير صحيح" });
+      const buffer = await generatePMWorkOrderPDF(id);
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `inline; filename=work-order-${id}-${Date.now()}.pdf`);
+      res.send(buffer);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
   // OAuth callback under /api/oauth/callback
   registerOAuthRoutes(app);
 
@@ -309,6 +324,13 @@ async function startServer() {
     runPMAutomationJob();
     setInterval(runPMAutomationJob, SIX_HOURS);
   }, 10000);
+
+  // PM Reminder Job: يفحص كل ساعتين أوامر العمل التي تجاوزت 24 ساعة بدون تحديث
+  const TWO_HOURS = 2 * 60 * 60 * 1000;
+  setTimeout(() => {
+    runPMWorkOrderReminderJob();
+    setInterval(runPMWorkOrderReminderJob, TWO_HOURS);
+  }, 15000);
 }
 
 startServer().catch(console.error);

@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Building2, AlertTriangle, CheckCircle2, Clock, Wrench, Package, TrendingUp } from "lucide-react";
+import { Building2, AlertTriangle, CheckCircle2, Clock, Wrench, Package, TrendingUp, ShieldCheck, Zap } from "lucide-react";
 import { useTranslation } from "@/contexts/LanguageContext";
 
 export default function SectionReport() {
@@ -23,11 +23,13 @@ export default function SectionReport() {
   });
 
   const sections = report?.sections || [];
-  const maxTickets = sections.length > 0 ? Math.max(...sections.map(s => s.totalTickets)) : 1;
+  const maxTickets = sections.length > 0 ? Math.max(...sections.map((s: any) => s.totalTickets)) : 1;
+  const maxPM = sections.length > 0 ? Math.max(...sections.map((s: any) => s.preventiveCount ?? 0)) : 1;
+  const maxAll = Math.max(maxTickets, maxPM, 1);
 
   const getBarWidth = (count: number) => {
-    if (maxTickets === 0) return "0%";
-    return `${Math.max(4, (count / maxTickets) * 100)}%`;
+    if (maxAll === 0) return "0%";
+    return `${Math.max(4, (count / maxAll) * 100)}%`;
   };
 
   const formatHours = (hours: number | null) => {
@@ -35,6 +37,10 @@ export default function SectionReport() {
     if (hours < 24) return `${hours} ساعة`;
     return `${Math.round(hours / 24 * 10) / 10} يوم`;
   };
+
+  // إجماليات للمقارنة
+  const totalPreventive = sections.reduce((sum: number, s: any) => sum + (s.preventiveCount ?? 0), 0);
+  const totalEmergency = sections.reduce((sum: number, s: any) => sum + (s.emergencyCount ?? 0), 0);
 
   return (
     <div className="space-y-6 p-6">
@@ -45,7 +51,7 @@ export default function SectionReport() {
           تقرير حسب الأقسام
         </h1>
         <p className="text-muted-foreground text-sm mt-1">
-          عدد البلاغات وتكاليف الصيانة مقسّمة حسب الأقسام
+          مقارنة الصيانة الوقائية والطارئة مقسّمة حسب الأقسام
         </p>
       </div>
 
@@ -81,11 +87,11 @@ export default function SectionReport() {
 
       {/* Summary Cards */}
       {isLoading ? (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {[1,2,3].map(i => <Card key={i}><CardContent className="p-4"><Skeleton className="h-16 w-full" /></CardContent></Card>)}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          {[1,2,3,4].map(i => <Card key={i}><CardContent className="p-4"><Skeleton className="h-16 w-full" /></CardContent></Card>)}
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <Card>
             <CardContent className="pt-4 pb-4 flex items-center gap-3">
               <div className="p-2 rounded-lg bg-blue-100 dark:bg-blue-900/30">
@@ -110,16 +116,98 @@ export default function SectionReport() {
           </Card>
           <Card>
             <CardContent className="pt-4 pb-4 flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-yellow-100 dark:bg-yellow-900/30">
-                <AlertTriangle className="w-5 h-5 text-yellow-600" />
+              <div className="p-2 rounded-lg bg-green-100 dark:bg-green-900/30">
+                <ShieldCheck className="w-5 h-5 text-green-600" />
               </div>
               <div>
-                <p className="text-sm text-muted-foreground">بلاغات بدون قسم</p>
-                <p className="text-2xl font-bold">{report?.unassignedTickets || 0}</p>
+                <p className="text-sm text-muted-foreground">صيانة وقائية</p>
+                <p className="text-2xl font-bold text-green-600">{totalPreventive}</p>
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="pt-4 pb-4 flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-red-100 dark:bg-red-900/30">
+                <Zap className="w-5 h-5 text-red-600" />
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">صيانة طارئة</p>
+                <p className="text-2xl font-bold text-red-600">{totalEmergency}</p>
               </div>
             </CardContent>
           </Card>
         </div>
+      )}
+
+      {/* Comparison Chart */}
+      {!isLoading && sections.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <TrendingUp className="w-4 h-4" />
+              مقارنة الصيانة الوقائية vs الطارئة لكل قسم
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              {/* Legend */}
+              <div className="flex items-center gap-6 text-sm">
+                <div className="flex items-center gap-2">
+                  <div className="w-3 h-3 rounded-full bg-green-500" />
+                  <span>صيانة وقائية</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="w-3 h-3 rounded-full bg-red-500" />
+                  <span>صيانة طارئة (بلاغات)</span>
+                </div>
+              </div>
+              {/* Bars */}
+              <div className="space-y-3">
+                {sections.map((section: any) => (
+                  <div key={section.sectionId} className="space-y-1">
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="font-medium">{section.sectionName}</span>
+                      <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                        <span className="text-green-600 font-medium">وقائي: {section.preventiveCount ?? 0}</span>
+                        <span className="text-red-600 font-medium">طارئ: {section.emergencyCount ?? 0}</span>
+                      </div>
+                    </div>
+                    <div className="space-y-1">
+                      {/* Preventive bar */}
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-muted-foreground w-16 text-left shrink-0">وقائية</span>
+                        <div className="flex-1 bg-muted rounded-full h-4 overflow-hidden">
+                          <div
+                            className="h-full bg-green-500 rounded-full transition-all duration-500 flex items-center justify-end pr-2"
+                            style={{ width: getBarWidth(section.preventiveCount ?? 0) }}
+                          >
+                            {(section.preventiveCount ?? 0) > 0 && (
+                              <span className="text-xs text-white font-medium">{section.preventiveCount}</span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                      {/* Emergency bar */}
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-muted-foreground w-16 text-left shrink-0">طارئة</span>
+                        <div className="flex-1 bg-muted rounded-full h-4 overflow-hidden">
+                          <div
+                            className="h-full bg-red-500 rounded-full transition-all duration-500 flex items-center justify-end pr-2"
+                            style={{ width: getBarWidth(section.emergencyCount ?? 0) }}
+                          >
+                            {(section.emergencyCount ?? 0) > 0 && (
+                              <span className="text-xs text-white font-medium">{section.emergencyCount}</span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
       )}
 
       {/* Sections Table */}
@@ -168,23 +256,8 @@ export default function SectionReport() {
                     </div>
                   </div>
 
-                  {/* Bar Chart */}
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-2 text-sm">
-                      <span className="text-muted-foreground w-24 shrink-0">إجمالي البلاغات</span>
-                      <div className="flex-1 bg-muted rounded-full h-5 overflow-hidden">
-                        <div
-                          className="h-full bg-primary rounded-full transition-all duration-500 flex items-center justify-end pr-2"
-                          style={{ width: getBarWidth(section.totalTickets) }}
-                        >
-                          <span className="text-xs text-primary-foreground font-medium">{section.totalTickets}</span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
                   {/* Stats Row */}
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
                     <div className="bg-muted/40 rounded-lg p-2 text-center">
                       <p className="text-xs text-muted-foreground">مفتوحة</p>
                       <p className="text-lg font-bold text-orange-500">{section.openTickets}</p>
@@ -197,6 +270,15 @@ export default function SectionReport() {
                       <p className="text-xs text-muted-foreground">عاجلة/حرجة</p>
                       <p className="text-lg font-bold text-red-500">{section.urgentTickets}</p>
                     </div>
+                    <div className="bg-green-50 dark:bg-green-900/20 rounded-lg p-2 text-center border border-green-200 dark:border-green-800">
+                      <p className="text-xs text-green-700 dark:text-green-400">وقائية</p>
+                      <p className="text-lg font-bold text-green-600">{section.preventiveCount ?? 0}</p>
+                      {(section.preventiveCount ?? 0) > 0 && (
+                        <p className="text-xs text-muted-foreground">
+                          {section.preventiveCompleted ?? 0} مكتملة
+                        </p>
+                      )}
+                    </div>
                     <div className="bg-muted/40 rounded-lg p-2 text-center">
                       <p className="text-xs text-muted-foreground">تكلفة الصيانة</p>
                       <p className="text-lg font-bold">
@@ -204,6 +286,41 @@ export default function SectionReport() {
                       </p>
                     </div>
                   </div>
+
+                  {/* Preventive vs Emergency ratio */}
+                  {((section.preventiveCount ?? 0) + (section.emergencyCount ?? 0)) > 0 && (
+                    <div className="space-y-1">
+                      <p className="text-xs text-muted-foreground">نسبة الصيانة الوقائية مقابل الطارئة</p>
+                      <div className="flex h-3 rounded-full overflow-hidden">
+                        {(section.preventiveCount ?? 0) > 0 && (
+                          <div
+                            className="bg-green-500 transition-all duration-500"
+                            style={{
+                              width: `${((section.preventiveCount ?? 0) / ((section.preventiveCount ?? 0) + (section.emergencyCount ?? 0))) * 100}%`
+                            }}
+                            title={`وقائية: ${section.preventiveCount}`}
+                          />
+                        )}
+                        {(section.emergencyCount ?? 0) > 0 && (
+                          <div
+                            className="bg-red-500 transition-all duration-500"
+                            style={{
+                              width: `${((section.emergencyCount ?? 0) / ((section.preventiveCount ?? 0) + (section.emergencyCount ?? 0))) * 100}%`
+                            }}
+                            title={`طارئة: ${section.emergencyCount}`}
+                          />
+                        )}
+                      </div>
+                      <div className="flex justify-between text-xs text-muted-foreground">
+                        <span className="text-green-600">
+                          {Math.round(((section.preventiveCount ?? 0) / ((section.preventiveCount ?? 0) + (section.emergencyCount ?? 0))) * 100)}% وقائية
+                        </span>
+                        <span className="text-red-600">
+                          {Math.round(((section.emergencyCount ?? 0) / ((section.preventiveCount ?? 0) + (section.emergencyCount ?? 0))) * 100)}% طارئة
+                        </span>
+                      </div>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>

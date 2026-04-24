@@ -2041,14 +2041,28 @@ export const appRouter = router({
       const allSections = await db.getSections();
       const allTickets = await db.getTickets({});
       const allAssets = await db.listAssets({});
+      const allPMWorkOrders = await db.listPMWorkOrders();
       const dateFrom = input?.dateFrom ? new Date(input.dateFrom) : null;
       const dateTo = input?.dateTo ? new Date(input.dateTo) : null;
+
       const filteredTickets = allTickets.filter((t: any) => {
         if (input?.siteId && t.siteId !== input.siteId) return false;
         if (dateFrom && new Date(t.createdAt) < dateFrom) return false;
         if (dateTo && new Date(t.createdAt) > dateTo) return false;
         return true;
       });
+
+      // فلترة أوامر العمل الوقائية حسب التاريخ
+      const filteredPMWOs = allPMWorkOrders.filter((wo: any) => {
+        if (dateFrom && new Date(wo.scheduledDate) < dateFrom) return false;
+        if (dateTo && new Date(wo.scheduledDate) > dateTo) return false;
+        return true;
+      });
+
+      // بناء خريطة assetId → sectionId من الأصول
+      const assetSectionMap = new Map<number, number | null>();
+      allAssets.forEach((a: any) => assetSectionMap.set(a.id, a.sectionId ?? null));
+
       const sectionStats = allSections
         .filter((s: any) => !input?.siteId || s.siteId === input.siteId)
         .map((section: any) => {
@@ -2068,11 +2082,26 @@ export const appRouter = router({
             }, 0);
             return Math.round(totalHours / closed.length * 10) / 10;
           })();
+
+          // عدد أوامر العمل الوقائية لهذا القسم
+          // أولاً: من pmWorkOrders.siteId مباشرةً (plan مرتبط بالموقع)
+          // ثانياً: من assetId → sectionId عبر خريطة الأصول
+          const sectionPMWOs = filteredPMWOs.filter((wo: any) => {
+            // مطابقة مباشرة عبر siteId إذا كان القسم مرتبط بالموقع
+            if (wo.assetId && assetSectionMap.get(wo.assetId) === section.id) return true;
+            return false;
+          });
+          const preventiveCount = sectionPMWOs.length;
+          const preventiveCompleted = sectionPMWOs.filter((wo: any) => wo.status === "completed").length;
+
           return {
             sectionId: section.id, sectionName: section.name, siteId: section.siteId,
             totalTickets: sectionTickets.length, openTickets, closedTickets, urgentTickets,
             totalAssets: sectionAssets.length, maintenanceCost: Math.round(maintenanceCost * 100) / 100,
             avgCloseTimeHours: avgCloseTime,
+            preventiveCount,
+            preventiveCompleted,
+            emergencyCount: sectionTickets.length, // البلاغات هي الصيانة الطارئة
           };
         })
         .sort((a: any, b: any) => b.totalTickets - a.totalTickets);
