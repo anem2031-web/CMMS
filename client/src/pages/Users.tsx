@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Users as UsersIcon, Pencil, Trash2, UserPlus, Eye, EyeOff, KeyRound, Search, ShieldOff, ShieldCheck, Lock } from "lucide-react";
+import { PasswordStrengthIndicator, isPasswordValid } from "@/components/PasswordStrengthIndicator";
 import { useState } from "react";
 import { toast } from "sonner";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -402,7 +403,8 @@ export default function UsersPage() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setCreateOpen(false)}>{t.common.cancel}</Button>
-            <Button
+                <PasswordStrengthIndicator password={createForm.password} className="mb-2" />
+                <Button
               onClick={() => createMut.mutate({
                 username: createForm.username,
                 password: createForm.password,
@@ -412,7 +414,7 @@ export default function UsersPage() {
                 phone: createForm.phone || undefined,
                 department: createForm.department || undefined,
               })}
-              disabled={createMut.isPending || !createForm.username || !createForm.password || !createForm.name}
+              disabled={createMut.isPending || !createForm.username || !isPasswordValid(createForm.password) || !createForm.name}
             >
               {createMut.isPending ? "جاري الإنشاء..." : "إنشاء المستخدم"}
             </Button>
@@ -501,9 +503,10 @@ export default function UsersPage() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setResetOpen(false)}>{t.common.cancel}</Button>
+            <PasswordStrengthIndicator password={newPassword} className="mb-2" />
             <Button
               onClick={() => resetPasswordMut.mutate({ userId: resetUser.id, newPassword })}
-              disabled={resetPasswordMut.isPending || newPassword.length < 8}
+              disabled={resetPasswordMut.isPending || !isPasswordValid(newPassword)}
             >
               {resetPasswordMut.isPending ? "جاري التغيير..." : "تغيير كلمة المرور"}
             </Button>

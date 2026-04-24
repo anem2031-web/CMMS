@@ -30,6 +30,13 @@ import {
   ChevronDown, Search, X, Building2, UserCog, Download, Smartphone
 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState, useMemo, useCallback } from "react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { toast } from "sonner";
+import { PasswordStrengthIndicator, isPasswordValid } from "@/components/PasswordStrengthIndicator";
+import { KeyRound, Eye, EyeOff } from "lucide-react";
 import { useLocation } from "wouter";
 import { DashboardLayoutSkeleton } from './DashboardLayoutSkeleton';
 import { trpc } from "@/lib/trpc";
@@ -270,7 +277,24 @@ function DashboardLayoutContent({ children, setSidebarWidth }: { children: React
   const { data: latestNotifications } = trpc.notifications.list.useQuery(undefined, { refetchInterval: 5000 });
 
   // ── Live notification popup ──
-  const [popupNotifs, setPopupNotifs] = useState<Array<{ id: number; title: string; message: string; type: string; relatedTicketId?: number | null }>>([])
+  const [popupNotifs, setPopupNotifs] = useState<Array<{ id: number; title: string; message: string; type: string; relatedTicketId?: number | null }>>([]);
+
+  // Change password dialog
+  const [changePwOpen, setChangePwOpen] = useState(false);
+  const [currentPw, setCurrentPw] = useState("");
+  const [newPw, setNewPw] = useState("");
+  const [showCurrentPw, setShowCurrentPw] = useState(false);
+  const [showNewPw, setShowNewPw] = useState(false);
+
+  const changePwMut = trpc.auth.changePassword.useMutation({
+    onSuccess: () => {
+      toast.success("تم تغيير كلمة المرور بنجاح");
+      setChangePwOpen(false);
+      setCurrentPw("");
+      setNewPw("");
+    },
+    onError: (err) => toast.error(err.message),
+  });
   const prevNotifIdsRef = useRef<Set<number>>(new Set());
   const [soundEnabled, setSoundEnabled] = useState<boolean>(() => {
     const saved = localStorage.getItem("notif-sound-enabled");
@@ -625,7 +649,17 @@ function DashboardLayoutContent({ children, setSidebarWidth }: { children: React
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-52">
-                <div className="px-2 py-2 text-xs text-muted-foreground">{user?.email || ""}</div>
+                <div className="px-2 py-2 text-xs text-muted-foreground">{user?.email || user?.username || ""}</div>
+                <DropdownMenuSeparator />
+                {user?.username && (
+                  <DropdownMenuItem
+                    onClick={() => { setChangePwOpen(true); setCurrentPw(""); setNewPw(""); }}
+                    className="cursor-pointer gap-2"
+                  >
+                    <KeyRound className="ml-2 h-4 w-4" />
+                    <span>تغيير كلمة المرور</span>
+                  </DropdownMenuItem>
+                )}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={logout} className="cursor-pointer text-destructive focus:text-destructive">
                   <LogOut className="ml-2 h-4 w-4" />
@@ -735,6 +769,71 @@ function DashboardLayoutContent({ children, setSidebarWidth }: { children: React
           </div>
         </div>
       )}
+
+      {/* ── Change Password Dialog ── */}
+      <Dialog open={changePwOpen} onOpenChange={(open) => { setChangePwOpen(open); if (!open) { setCurrentPw(""); setNewPw(""); } }}>
+        <DialogContent className="sm:max-w-[420px]" dir="rtl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <KeyRound className="w-5 h-5" />
+              تغيير كلمة المرور
+            </DialogTitle>
+            <DialogDescription>أدخل كلمة المرور الحالية ثم الجديدة</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label>كلمة المرور الحالية</Label>
+              <div className="relative">
+                <Input
+                  type={showCurrentPw ? "text" : "password"}
+                  value={currentPw}
+                  onChange={e => setCurrentPw(e.target.value)}
+                  placeholder="كلمة المرور الحالية"
+                  dir="ltr"
+                  className="pl-10"
+                />
+                <button
+                  type="button"
+                  className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  onClick={() => setShowCurrentPw(!showCurrentPw)}
+                >
+                  {showCurrentPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>كلمة المرور الجديدة</Label>
+              <div className="relative">
+                <Input
+                  type={showNewPw ? "text" : "password"}
+                  value={newPw}
+                  onChange={e => setNewPw(e.target.value)}
+                  placeholder="8 أحرف على الأقل، حرف كبير ورقم"
+                  dir="ltr"
+                  className="pl-10"
+                />
+                <button
+                  type="button"
+                  className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  onClick={() => setShowNewPw(!showNewPw)}
+                >
+                  {showNewPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
+              <PasswordStrengthIndicator password={newPw} />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setChangePwOpen(false)}>إلغاء</Button>
+            <Button
+              onClick={() => changePwMut.mutate({ currentPassword: currentPw, newPassword: newPw })}
+              disabled={changePwMut.isPending || !currentPw || !isPasswordValid(newPw)}
+            >
+              {changePwMut.isPending ? "جاري التغيير..." : "تغيير كلمة المرور"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* ── Live Notification Popups ── */}
       <div className="fixed bottom-4 left-4 z-[9999] flex flex-col gap-2 max-w-sm" dir="rtl">
