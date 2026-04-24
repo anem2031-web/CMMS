@@ -137,6 +137,7 @@ export const appRouter = router({
       const { id, ...updateData } = input;
       await db.updateUser(id, updateData);
       await db.createAuditLog({ userId: ctx.user.id, action: "update_user", entityType: "user", entityId: id, oldValues: { name: oldUser.name, email: oldUser.email, role: oldUser.role }, newValues: updateData });
+      invalidateCache.users();
       return { success: true };
     }),
 
@@ -157,6 +158,7 @@ export const appRouter = router({
       const hash = await bcrypt.hash(input.password, 10);
       const id = await db.createLocalUser({ ...input, passwordHash: hash });
       await db.createAuditLog({ userId: ctx.user.id, action: "create_user", entityType: "user", entityId: id!, newValues: { username: input.username, name: input.name, role: input.role } });
+      invalidateCache.users();
       return { success: true, id };
     }),
 
@@ -182,6 +184,7 @@ export const appRouter = router({
       if (user.role === "owner") throw new TRPCError({ code: "FORBIDDEN", message: "لا يمكن حذف المالك" });
       await db.deleteUser(input.id);
       await db.createAuditLog({ userId: ctx.user.id, action: "delete_user", entityType: "user", entityId: input.id, oldValues: { name: user.name, email: user.email, role: user.role } });
+      invalidateCache.users();
       return { success: true };
     }),
   }),
