@@ -62,21 +62,35 @@ type NavSection = {
 
 // ─── Navigation Structure ─────────────────────────────────────────────────────
 const NAV_SECTIONS: NavSection[] = [
+  // 1. العمليات
   {
     id: "core",
     labelKey: "nav.sections.coreOps",
-    icon: LayoutDashboard,
+    icon: ClipboardList,
     items: [
-      { icon: LayoutDashboard, labelKey: "nav.dashboard", path: "/" },
-      { icon: ClipboardList,   labelKey: "nav.tickets",   path: "/tickets" },
-      { icon: Nfc,             labelKey: "nav.scanAsset", path: "/scan-asset",
+      { icon: Nfc,           labelKey: "nav.scanAsset",    path: "/scan-asset",
         roles: ["operator","technician","maintenance_manager","supervisor","gate_security","owner","admin"] },
-      { icon: ScanSearch,      labelKey: "nav.triage",    path: "/triage",
+      { icon: ClipboardList, labelKey: "nav.tickets",      path: "/tickets" },
+      { icon: ScanSearch,    labelKey: "nav.triage",       path: "/triage",
         roles: ["supervisor","maintenance_manager","owner","admin"] },
-      { icon: DoorOpen,        labelKey: "nav.gateSecurity", path: "/gate-security",
+      { icon: DoorOpen,      labelKey: "nav.gateSecurity", path: "/gate-security",
         roles: ["gate_security","owner","admin"] },
     ],
   },
+  // 2. الصيانة الوقائية
+  {
+    id: "preventive",
+    labelKey: "nav.sections.preventiveMaint",
+    icon: CalendarClock,
+    roles: ["technician","supervisor","maintenance_manager","owner","admin"],
+    items: [
+      { icon: CalendarClock, labelKey: "nav.preventive",      path: "/preventive",
+        roles: ["technician","supervisor","maintenance_manager","owner","admin"] },
+      { icon: Brain,         labelKey: "nav.predictiveMaint", path: "/predictive",
+        roles: ["maintenance_manager","owner","admin"] },
+    ],
+  },
+  // 3. اللوجستيات والشراء
   {
     id: "logistics",
     labelKey: "nav.sections.logistics",
@@ -84,46 +98,64 @@ const NAV_SECTIONS: NavSection[] = [
     roles: ["delegate","warehouse","accountant","senior_management","maintenance_manager","owner","admin"],
     items: [
       { icon: ShoppingCart, labelKey: "nav.purchaseOrders", path: "/purchase-orders" },
-      { icon: Truck,        labelKey: "nav.purchaseCycle",  path: "/purchase-cycle",
-        roles: ["delegate","warehouse","owner","admin"] },
       { icon: ShoppingBag,  labelKey: "nav.myItems",        path: "/my-items",
-        roles: ["owner","admin"] },
+        roles: ["delegate","owner","admin"] },
       { icon: Package,      labelKey: "nav.inventory",      path: "/inventory",
         roles: ["warehouse","maintenance_manager","owner","admin"] },
+      { icon: Truck,        labelKey: "nav.purchaseCycle",  path: "/purchase-cycle",
+        roles: ["delegate","warehouse","owner","admin"] },
     ],
   },
+  // 4. الإدارة
   {
     id: "management",
     labelKey: "nav.sections.management",
-    icon: BarChart3,
-    roles: ["supervisor","maintenance_manager","accountant","senior_management","owner","admin"],
+    icon: Building2,
+    roles: ["supervisor","maintenance_manager","owner","admin"],
     items: [
-      { icon: BarChart3,     labelKey: "nav.reports",          path: "/reports",
-        roles: ["owner","admin","senior_management","accountant","maintenance_manager"] },
-      { icon: Wrench,        labelKey: "nav.technicianReport",  path: "/reports/technicians",
-        roles: ["owner","admin","senior_management","maintenance_manager"] },
-      { icon: ShoppingCart,  labelKey: "nav.purchaseCycleReport", path: "/reports/purchase-cycle",
-        roles: ["owner","admin","senior_management","accountant","maintenance_manager"] },
-      { icon: BarChart3,     labelKey: "nav.maintenanceCycleReport", path: "/reports/maintenance-cycle",
-        roles: ["owner","admin","senior_management","maintenance_manager"] },
-      { icon: Building2,     labelKey: "nav.sectionReport", path: "/reports/section-report",
-        roles: ["owner","admin","senior_management","maintenance_manager"] },
-      { icon: CalendarClock, labelKey: "nav.preventiveReport", path: "/reports/preventive",
-        roles: ["owner","admin","senior_management","maintenance_manager"] },
-      { icon: HardDrive,     labelKey: "nav.assets",            path: "/assets",
+      { icon: MapPin,    labelKey: "nav.sites",        path: "/sites",
         roles: ["owner","admin","maintenance_manager"] },
-      { icon: CalendarClock, labelKey: "nav.preventive",        path: "/preventive",
+      { icon: Building2, labelKey: "nav.sectionsPage",  path: "/sections",
         roles: ["owner","admin","maintenance_manager"] },
-      { icon: MapPin,        labelKey: "nav.sites",             path: "/sites",
-        roles: ["owner","admin","maintenance_manager"] },
-      { icon: Building2,     labelKey: "nav.sectionsPage",      path: "/sections",
-        roles: ["owner","admin","maintenance_manager"] },
-      { icon: UserCog,        labelKey: "nav.technicians",       path: "/technicians",
+      { icon: UserCog,   labelKey: "nav.technicians",   path: "/technicians",
         roles: ["owner","admin","maintenance_manager","supervisor"] },
-      { icon: Brain,         labelKey: "nav.aiAssistant",       path: "/ai-assistant",
+      { icon: HardDrive, labelKey: "nav.assets",        path: "/assets",
+        roles: ["owner","admin","maintenance_manager"] },
+    ],
+  },
+  // 5. التقارير
+  {
+    id: "reports",
+    labelKey: "nav.sections.reports",
+    icon: BarChart3,
+    roles: ["accountant","senior_management","maintenance_manager","owner","admin"],
+    items: [
+      { icon: BarChart3,     labelKey: "nav.reports",                path: "/reports",
+        roles: ["owner","admin","senior_management","accountant","maintenance_manager"] },
+      { icon: ShoppingCart,  labelKey: "nav.purchaseCycleReport",    path: "/reports/purchase-cycle",
+        roles: ["owner","admin","senior_management","accountant","maintenance_manager"] },
+      { icon: Wrench,        labelKey: "nav.maintenanceCycleReport", path: "/reports/maintenance-cycle",
+        roles: ["owner","admin","senior_management","maintenance_manager"] },
+      { icon: Building2,     labelKey: "nav.sectionReport",          path: "/reports/section-report",
+        roles: ["owner","admin","senior_management","maintenance_manager"] },
+      { icon: CalendarClock, labelKey: "nav.preventiveReport",       path: "/reports/preventive",
+        roles: ["owner","admin","senior_management","maintenance_manager"] },
+      { icon: UserCog,       labelKey: "nav.technicianReport",       path: "/reports/technicians",
         roles: ["owner","admin","senior_management","maintenance_manager"] },
     ],
   },
+  // 6. وحدة التحليل AI
+  {
+    id: "ai",
+    labelKey: "nav.sections.aiUnit",
+    icon: Brain,
+    roles: ["owner","admin","senior_management","maintenance_manager"],
+    items: [
+      { icon: Brain, labelKey: "nav.aiAssistant", path: "/ai-assistant",
+        roles: ["owner","admin","senior_management","maintenance_manager"] },
+    ],
+  },
+  // 7. أدوات المسؤول
   {
     id: "admin",
     labelKey: "nav.sections.adminTools",
@@ -497,6 +529,26 @@ function DashboardLayoutContent({ children, setSidebarWidth }: { children: React
           {/* ── Content ── */}
           <SidebarContent className="gap-0 overflow-y-auto pt-1 pb-2">
 
+            {/* ── لوحة التحكم مستقلة في الأعلى ── */}
+            {!searchResults && (
+              <div className="px-2 pb-1">
+                <SidebarMenu className="gap-0.5">
+                  <SidebarMenuItem>
+                    <SidebarMenuButton
+                      isActive={isItemActive("/")}
+                      onClick={() => setLocation("/")}
+                      tooltip={t.nav.dashboard}
+                      className="h-9 transition-all font-normal text-[13px] group/item"
+                    >
+                      <LayoutDashboard className={`h-3.5 w-3.5 shrink-0 transition-colors ${isItemActive("/") ? "text-sidebar-primary" : "text-sidebar-foreground/55 group-hover/item:text-sidebar-foreground/80"}`} />
+                      <span className={`truncate ${isItemActive("/") ? "font-medium" : ""}`}>{t.nav.dashboard}</span>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                </SidebarMenu>
+                {!isCollapsed && <div className="mx-1 mt-1 border-b border-sidebar-border/25" />}
+              </div>
+            )}
+
             {/* Search Results */}
             {searchResults !== null ? (
               <div className="px-2 py-1">
@@ -551,16 +603,26 @@ function DashboardLayoutContent({ children, setSidebarWidth }: { children: React
                       <SidebarMenu className={`px-2 gap-0.5 ${!isCollapsed ? "pb-1" : "py-1"}`}>
                         {section.items.map(item => {
                           const isActive = isItemActive(item.path);
+                          const isComingSoon = item.path === "/predictive";
                           return (
                             <SidebarMenuItem key={item.path}>
                               <SidebarMenuButton
                                 isActive={isActive}
-                                onClick={() => setLocation(item.path)}
+                                onClick={() => {
+                                  if (isComingSoon) {
+                                    import("sonner").then(m => m.toast.info("الصيانة التنبؤية قيد التطوير"));
+                                  } else {
+                                    setLocation(item.path);
+                                  }
+                                }}
                                 tooltip={item.label}
-                                className="h-9 transition-all font-normal text-[13px] group/item"
+                                className={`h-9 transition-all font-normal text-[13px] group/item ${isComingSoon ? "opacity-60" : ""}`}
                               >
                                 <item.icon className={`h-3.5 w-3.5 shrink-0 transition-colors ${isActive ? "text-sidebar-primary" : "text-sidebar-foreground/55 group-hover/item:text-sidebar-foreground/80"}`} />
                                 <span className={`truncate ${isActive ? "font-medium" : ""}`}>{item.label}</span>
+                                {isComingSoon && !isCollapsed && (
+                                  <span className="mr-auto text-[9px] bg-amber-500/15 text-amber-600 dark:text-amber-400 px-1.5 py-0.5 rounded-full font-medium shrink-0">قريباً</span>
+                                )}
                               </SidebarMenuButton>
                             </SidebarMenuItem>
                           );
@@ -577,18 +639,26 @@ function DashboardLayoutContent({ children, setSidebarWidth }: { children: React
               })
             )}
 
-            {/* ── Notifications (always visible) ── */}
-            <div className={`px-2 ${!isCollapsed ? "mt-1 pt-1 border-t border-sidebar-border/25 mx-0" : ""}`}>
-              <SidebarMenu>
+            {/* ── الإشعارات كقسم منظم ── */}
+            <div className={`px-2 mt-1 ${!isCollapsed ? "pt-1 border-t border-sidebar-border/25" : ""}`}>
+              {!isCollapsed && (
+                <div className="flex items-center gap-1.5 px-1 py-1.5">
+                  <Bell className="h-3 w-3 text-sidebar-foreground/35" />
+                  <span className="text-[10.5px] font-semibold uppercase tracking-wider text-sidebar-foreground/40">
+                    {t.nav.sections.notificationsSection}
+                  </span>
+                </div>
+              )}
+              <SidebarMenu className="gap-0.5">
                 <SidebarMenuItem>
                   <SidebarMenuButton
                     isActive={location === "/notifications"}
                     onClick={() => setLocation("/notifications")}
                     tooltip={t.nav.notifications}
-                    className="h-9 transition-all font-normal text-[13px]"
+                    className="h-9 transition-all font-normal text-[13px] group/item"
                   >
                     <div className="relative shrink-0">
-                      <Bell className={`h-3.5 w-3.5 ${location === "/notifications" ? "text-sidebar-primary" : "text-sidebar-foreground/55"}`} />
+                      <Bell className={`h-3.5 w-3.5 ${location === "/notifications" ? "text-sidebar-primary" : "text-sidebar-foreground/55 group-hover/item:text-sidebar-foreground/80"}`} />
                       {(unreadCount || 0) > 0 && (
                         <span className="absolute -top-1.5 -right-1.5 min-w-[14px] h-3.5 px-0.5 bg-destructive text-destructive-foreground text-[9px] rounded-full flex items-center justify-center font-bold leading-none animate-pulse">
                           {(unreadCount || 0) > 9 ? "9+" : unreadCount}
