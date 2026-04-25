@@ -23,7 +23,7 @@ import {
   Search, Filter, X, Power, PowerOff, FileText,
 } from "lucide-react";
 import { nanoid } from "nanoid";
-import { useTranslatedField } from "@/hooks/useTranslatedField";
+import { useTranslatedField, getLocalizedName } from "@/hooks/useTranslatedField";
 import PMExecution from "./PMExecution";
 
 type Frequency = "daily" | "weekly" | "monthly" | "quarterly" | "biannual" | "annual";
@@ -71,7 +71,7 @@ const woStatusConfig: Record<WOStatus, { color: string }> = {
 };
 
 export default function PreventiveMaintenance() {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const { getField } = useTranslatedField();
   const [tab, setTab] = useState("plans");
   const [showPlanForm, setShowPlanForm] = useState(false);
@@ -397,7 +397,7 @@ export default function PreventiveMaintenance() {
                   <SelectTrigger><SelectValue placeholder={t.common.location || "الموقع"} /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">{t.common.allSites || "جميع المواقع"}</SelectItem>
-                    {sites.map((s: any) => <SelectItem key={s.id} value={String(s.id)}>{s.name}</SelectItem>)}
+                    {sites.map((s: any) => <SelectItem key={s.id} value={String(s.id)}>{getLocalizedName(s, language)}</SelectItem>)}
                   </SelectContent>
                 </Select>
                 <Select value={planFilterFreq} onValueChange={setPlanFilterFreq}>
@@ -669,7 +669,7 @@ export default function PreventiveMaintenance() {
                 <SelectTrigger><SelectValue placeholder={t.common.none} /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="none">{t.common.none}</SelectItem>
-                  {sites.map((s: any) => <SelectItem key={s.id} value={String(s.id)}>{s.name}</SelectItem>)}
+                  {sites.map((s: any) => <SelectItem key={s.id} value={String(s.id)}>{getLocalizedName(s, language)}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>

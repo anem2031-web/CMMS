@@ -1,4 +1,5 @@
 import { trpc } from "@/lib/trpc";
+import { getLocalizedName } from "@/hooks/useTranslatedField";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,7 +15,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useTranslation } from "@/contexts/LanguageContext";
 
 export default function Sections() {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const utils = trpc.useUtils();
 
   const { data: sites, isLoading: sitesLoading } = trpc.sites.list.useQuery();
@@ -256,7 +257,7 @@ export default function Sections() {
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
-                      <h3 className="font-semibold text-sm">{site.name}</h3>
+                      <h3 className="font-semibold text-sm">{getLocalizedName(site, language)}</h3>
                       <Badge variant="secondary" className="text-xs">{siteSections.length} {t.nav.sectionsPage}</Badge>
                     </div>
                     {site.address && <p className="text-xs text-muted-foreground mt-0.5">{site.address}</p>}
@@ -297,7 +298,7 @@ export default function Sections() {
                           </div>
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2">
-                              <span className="text-sm font-medium">{section.name}</span>
+                              <span className="text-sm font-medium">{getLocalizedName(section, language)}</span>
                               {!section.isActive && (
                                 <Badge variant="outline" className="text-xs text-muted-foreground">{t.common.inactive}</Badge>
                               )}
@@ -328,7 +329,7 @@ export default function Sections() {
       {/* Edit Dialog */}
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
         <DialogContent>
-          <DialogHeader><DialogTitle>{t.common.edit} {t.nav.sectionsPage} - {selectedSection?.name}</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>{t.common.edit} {t.nav.sectionsPage} - {getLocalizedName(selectedSection, language)}</DialogTitle></DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2">
               <Label>{t.sections?.sectionName || "اسم القسم"} *</Label>
@@ -370,7 +371,7 @@ export default function Sections() {
           <DialogHeader>
             <DialogTitle className="text-destructive">{t.common.confirmDelete}</DialogTitle>
             <DialogDescription>
-              {t.common.deleteWarning} <strong>{selectedSection?.name}</strong>؟ {t.common.cannotUndo}
+              {t.common.deleteWarning} <strong>{getLocalizedName(selectedSection, language)}</strong>؟ {t.common.cannotUndo}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>

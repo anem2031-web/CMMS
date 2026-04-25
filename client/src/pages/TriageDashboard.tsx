@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { useTranslatedField } from "@/hooks/useTranslatedField";
+import { useTranslatedField, getLocalizedName } from "@/hooks/useTranslatedField";
 import { trpc } from "@/lib/trpc";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useAuth } from "@/_core/hooks/useAuth";
@@ -67,7 +67,7 @@ type ActiveView = "all_pending" | "all_inspection" | "critical_pending";
 
 export default function TriageDashboard() {
   const { getField } = useTranslatedField();
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const { user } = useAuth();
   const utils = trpc.useUtils();
 
@@ -362,7 +362,7 @@ export default function TriageDashboard() {
                   <SelectItem value="all">🌐 جميع المواقع</SelectItem>
                   {(sites as any[]).map((site: any) => (
                     <SelectItem key={site.id} value={site.id.toString()}>
-                      📍 {site.name}
+                      📍 {getLocalizedName(site, language)}
                     </SelectItem>
                   ))}
                 </SelectContent>

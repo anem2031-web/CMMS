@@ -141,6 +141,13 @@
       "when": 1777105475850,
       "tag": "0019_flat_oracle",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "5",
+      "when": 1777128148014,
+      "tag": "0020_nosy_jane_foster",
+      "breakpoints": true
     }
   ]
 }

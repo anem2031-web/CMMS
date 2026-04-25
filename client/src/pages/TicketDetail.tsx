@@ -16,7 +16,7 @@ import { toast } from "sonner";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useTranslation } from "@/contexts/LanguageContext";
 import { useStaticLabels } from "@/hooks/useContentTranslation";
-import { useTranslatedField } from "@/hooks/useTranslatedField";
+import { useTranslatedField, getLocalizedName } from "@/hooks/useTranslatedField";
 import DropZone, { type UploadedFile } from "@/components/DropZone";
 
 export default function TicketDetail() {
@@ -223,9 +223,9 @@ export default function TicketDetail() {
                   <MapPin className="w-3.5 h-3.5 text-muted-foreground" />
                   <span className="text-muted-foreground">{t.tickets.site}:</span>
                   <span className="font-medium">
-                    {ticket.siteId ? (allSites?.find((s: any) => s.id === ticket.siteId)?.name || "-") : (ticket.locationDetail || "-")}
+                    {ticket.siteId ? (getLocalizedName(allSites?.find((s: any) => s.id === ticket.siteId), language) || ticket.locationDetail || "-") : (ticket.locationDetail || "-")}
                     {ticket.sectionId && allSections?.find((s: any) => s.id === ticket.sectionId) && (
-                      <span className="text-muted-foreground"> / {allSections.find((s: any) => s.id === ticket.sectionId)?.name}</span>
+                      <span className="text-muted-foreground"> / {getLocalizedName(allSections.find((s: any) => s.id === ticket.sectionId), language)}</span>
                     )}
                   </span>
                 </div>

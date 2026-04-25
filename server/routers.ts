@@ -229,7 +229,15 @@ export const appRouter = router({
       );
     }),
     create: protectedProcedure.input(z.object({ name: z.string().min(1), address: z.string().optional(), description: z.string().optional() })).mutation(async ({ input, ctx }) => {
-      const id = await db.createSite(input);
+      // Auto-translate name
+      let nameEn: string | undefined;
+      let nameUr: string | undefined;
+      try {
+        const translations = await translateFields({ name: input.name });
+        nameEn = translations.name?.en;
+        nameUr = translations.name?.ur;
+      } catch (e) { /* fallback */ }
+      const id = await db.createSite({ ...input, nameEn, nameUr });
       await db.createAuditLog({ userId: ctx.user.id, action: "create_site", entityType: "site", entityId: id!, newValues: input });
       // Invalidate sites cache
       invalidateCache.sites();
@@ -245,7 +253,16 @@ export const appRouter = router({
       const oldSite = await db.getSiteById(input.id);
       if (!oldSite) throw new TRPCError({ code: "NOT_FOUND", message: "الموقع غير موجود" });
       const { id, ...updateData } = input;
-      await db.updateSite(id, updateData);
+      // Auto-translate name if changed
+      let siteExtraFields: { nameEn?: string; nameUr?: string } = {};
+      if (updateData.name) {
+        try {
+          const translations = await translateFields({ name: updateData.name });
+          siteExtraFields.nameEn = translations.name?.en;
+          siteExtraFields.nameUr = translations.name?.ur;
+        } catch (e) { /* fallback */ }
+      }
+      await db.updateSite(id, { ...updateData, ...siteExtraFields });
       await db.createAuditLog({ userId: ctx.user.id, action: "update_site", entityType: "site", entityId: id, oldValues: { name: oldSite.name, address: oldSite.address, description: oldSite.description }, newValues: updateData });
       // Invalidate sites cache
       invalidateCache.sites();
@@ -275,7 +292,15 @@ export const appRouter = router({
       siteId: z.number(),
       description: z.string().optional(),
     })).mutation(async ({ input, ctx }) => {
-      const id = await db.createSection({ ...input, isActive: true });
+      // Auto-translate name
+      let sectionNameEn: string | undefined;
+      let sectionNameUr: string | undefined;
+      try {
+        const translations = await translateFields({ name: input.name });
+        sectionNameEn = translations.name?.en;
+        sectionNameUr = translations.name?.ur;
+      } catch (e) { /* fallback */ }
+      const id = await db.createSection({ ...input, nameEn: sectionNameEn, nameUr: sectionNameUr, isActive: true });
       await db.createAuditLog({ userId: ctx.user.id, action: "create_section", entityType: "section", entityId: id!, newValues: input });
       return { id };
     }),
@@ -286,7 +311,15 @@ export const appRouter = router({
       isActive: z.boolean().optional(),
     })).mutation(async ({ input, ctx }) => {
       const { id, ...updateData } = input;
-      await db.updateSection(id, updateData);
+      let sectionExtraFields: { nameEn?: string; nameUr?: string } = {};
+      if (updateData.name) {
+        try {
+          const translations = await translateFields({ name: updateData.name });
+          sectionExtraFields.nameEn = translations.name?.en;
+          sectionExtraFields.nameUr = translations.name?.ur;
+        } catch (e) { /* fallback */ }
+      }
+      await db.updateSection(id, { ...updateData, ...sectionExtraFields });
       await db.createAuditLog({ userId: ctx.user.id, action: "update_section", entityType: "section", entityId: id, newValues: updateData });
       return { success: true };
     }),
@@ -307,7 +340,21 @@ export const appRouter = router({
       name: z.string().min(1),
       specialty: z.string().optional(),
     })).mutation(async ({ input, ctx }) => {
-      const id = await db.createTechnician(input);
+      // Auto-translate name and specialty
+      let techNameEn: string | undefined;
+      let techNameUr: string | undefined;
+      let techSpecialtyEn: string | undefined;
+      let techSpecialtyUr: string | undefined;
+      try {
+        const fieldsToTranslate: Record<string, string> = { name: input.name };
+        if (input.specialty) fieldsToTranslate.specialty = input.specialty;
+        const translations = await translateFields(fieldsToTranslate);
+        techNameEn = translations.name?.en;
+        techNameUr = translations.name?.ur;
+        techSpecialtyEn = translations.specialty?.en;
+        techSpecialtyUr = translations.specialty?.ur;
+      } catch (e) { /* fallback */ }
+      const id = await db.createTechnician({ ...input, nameEn: techNameEn, nameUr: techNameUr, specialtyEn: techSpecialtyEn, specialtyUr: techSpecialtyUr });
       await db.createAuditLog({ userId: ctx.user.id, action: "create_technician", entityType: "technician", entityId: id!, newValues: input });
       return { id };
     }),
@@ -318,7 +365,18 @@ export const appRouter = router({
       status: z.enum(["active", "inactive"]).optional(),
     })).mutation(async ({ input, ctx }) => {
       const { id, ...updateData } = input;
-      await db.updateTechnician(id, updateData);
+      let techExtraFields: { nameEn?: string; nameUr?: string; specialtyEn?: string; specialtyUr?: string } = {};
+      if (updateData.name || updateData.specialty) {
+        try {
+          const fieldsToTranslate: Record<string, string> = {};
+          if (updateData.name) fieldsToTranslate.name = updateData.name;
+          if (updateData.specialty) fieldsToTranslate.specialty = updateData.specialty;
+          const translations = await translateFields(fieldsToTranslate);
+          if (updateData.name) { techExtraFields.nameEn = translations.name?.en; techExtraFields.nameUr = translations.name?.ur; }
+          if (updateData.specialty) { techExtraFields.specialtyEn = translations.specialty?.en; techExtraFields.specialtyUr = translations.specialty?.ur; }
+        } catch (e) { /* fallback */ }
+      }
+      await db.updateTechnician(id, { ...updateData, ...techExtraFields });
       await db.createAuditLog({ userId: ctx.user.id, action: "update_technician", entityType: "technician", entityId: id, newValues: updateData });
       return { success: true };
     }),

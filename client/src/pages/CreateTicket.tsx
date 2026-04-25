@@ -1,4 +1,5 @@
 import { trpc } from "@/lib/trpc";
+import { getLocalizedName } from "@/hooks/useTranslatedField";
 import { useLocation } from "wouter";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -28,7 +29,7 @@ type FileEntry = {
 export default function CreateTicket() {
   const { t: tr } = useLanguage();
   const [, setLocation] = useLocation();
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const { getPriorityLabel, getCategoryLabel } = useStaticLabels();
   const { data: sites } = trpc.sites.list.useQuery();
   const { data: assets } = trpc.assets.list.useQuery();
@@ -286,7 +287,7 @@ export default function CreateTicket() {
               <Select value={form.siteId} onValueChange={v => setForm(f => ({ ...f, siteId: v, sectionId: "" }))}>
                 <SelectTrigger><SelectValue placeholder={t.tickets.site} /></SelectTrigger>
                 <SelectContent>
-                  {sites?.map(s => <SelectItem key={s.id} value={String(s.id)}>{s.name}</SelectItem>)}
+                  {sites?.map(s => <SelectItem key={s.id} value={String(s.id)}>{getLocalizedName(s, language)}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
@@ -309,7 +310,7 @@ export default function CreateTicket() {
                 <SelectTrigger><SelectValue placeholder="اختر القسم (اختياري)" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="none">بدون قسم</SelectItem>
-                  {(sections || []).map(s => <SelectItem key={s.id} value={String(s.id)}>{s.name}</SelectItem>)}
+                  {(sections || []).map(s => <SelectItem key={s.id} value={String(s.id)}>{getLocalizedName(s, language)}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>

@@ -36,6 +36,8 @@ export type InsertUser = typeof users.$inferInsert;
 export const sites = mysqlTable("sites", {
   id: int("id").autoincrement().primaryKey(),
   name: varchar("name", { length: 200 }).notNull(),
+  nameEn: varchar("nameEn", { length: 200 }),
+  nameUr: varchar("nameUr", { length: 200 }),
   address: text("address"),
   description: text("description"),
   isActive: boolean("isActive").default(true).notNull(),
@@ -48,6 +50,8 @@ export const sites = mysqlTable("sites", {
 export const sections = mysqlTable("sections", {
   id: int("id").autoincrement().primaryKey(),
   name: varchar("name", { length: 200 }).notNull(),
+  nameEn: varchar("nameEn", { length: 200 }),
+  nameUr: varchar("nameUr", { length: 200 }),
   description: text("description"),
   siteId: int("siteId").notNull(),
   isActive: boolean("isActive").default(true).notNull(),
@@ -64,7 +68,11 @@ export const technicianStatuses = ["active", "inactive"] as const;
 export const technicians = mysqlTable("technicians", {
   id: int("id").autoincrement().primaryKey(),
   name: varchar("name", { length: 200 }).notNull(),
+  nameEn: varchar("nameEn", { length: 200 }),
+  nameUr: varchar("nameUr", { length: 200 }),
   specialty: varchar("specialty", { length: 200 }),
+  specialtyEn: varchar("specialtyEn", { length: 200 }),
+  specialtyUr: varchar("specialtyUr", { length: 200 }),
   status: mysqlEnum("status", [...technicianStatuses]).default("active").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),

@@ -133,7 +133,7 @@ export async function getAllSites() {
   return db.select().from(sites).orderBy(desc(sites.createdAt));
 }
 
-export async function createSite(data: { name: string; address?: string; description?: string }) {
+export async function createSite(data: { name: string; address?: string; description?: string; nameEn?: string; nameUr?: string }) {
   const db = await getDb();
   if (!db) return null;
   const result = await db.insert(sites).values(data);
@@ -181,7 +181,7 @@ export async function getTechnicianById(id: number) {
   const result = await db.select().from(technicians).where(eq(technicians.id, id)).limit(1);
   return result[0] || null;
 }
-export async function createTechnician(data: { name: string; specialty?: string }) {
+export async function createTechnician(data: { name: string; specialty?: string; nameEn?: string; nameUr?: string; specialtyEn?: string; specialtyUr?: string }) {
   const db = await getDb();
   if (!db) return null;
   const result = await db.insert(technicians).values({ ...data, status: "active" });

@@ -1,4 +1,5 @@
 import { trpc } from "@/lib/trpc";
+import { getLocalizedName } from "@/hooks/useTranslatedField";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,7 +13,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useTranslation } from "@/contexts/LanguageContext";
 
 export default function Sites() {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const utils = trpc.useUtils();
   const { data: sites, isLoading } = trpc.sites.list.useQuery();
 
@@ -88,7 +89,7 @@ export default function Sites() {
                     <MapPin className="w-5 h-5 text-primary" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <h3 className="font-medium text-sm">{site.name}</h3>
+                    <h3 className="font-medium text-sm">{getLocalizedName(site, language)}</h3>
                     {site.address && <p className="text-xs text-muted-foreground mt-0.5">{site.address}</p>}
                     {site.description && <p className="text-xs text-muted-foreground mt-1">{site.description}</p>}
                   </div>

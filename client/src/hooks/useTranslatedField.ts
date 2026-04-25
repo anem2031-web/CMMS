@@ -73,3 +73,17 @@ export function useTranslatedField() {
     getAllTranslations,
   };
 }
+
+/**
+ * Get localized name for records with nameEn/nameUr fields (sites, sections, technicians)
+ * Falls back to name if translation not available
+ */
+export function getLocalizedName(
+  record: { name: string; nameEn?: string | null; nameUr?: string | null } | null | undefined,
+  language: string
+): string {
+  if (!record) return "";
+  if (language === "en" && record.nameEn) return record.nameEn;
+  if (language === "ur" && record.nameUr) return record.nameUr;
+  return record.name;
+}
