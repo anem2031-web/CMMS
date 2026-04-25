@@ -4,14 +4,21 @@ WORKDIR /app
 # Install pnpm
 RUN npm install -g pnpm
 
-# Copy package files
+# Copy all package files including patches
 COPY package.json pnpm-lock.yaml ./
+COPY patches ./patches
 
-# Install production dependencies only
-RUN pnpm install --frozen-lockfile --prod
+# Install all dependencies (including dev for build)
+RUN pnpm install --frozen-lockfile
 
-# Copy pre-built dist files (built locally and committed to repo)
-COPY dist ./dist
+# Copy source code
+COPY . .
+
+# Build the project
+RUN pnpm build
+
+# Remove dev dependencies after build
+RUN pnpm prune --prod
 
 # Expose port
 EXPOSE 8080
