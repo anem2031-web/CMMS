@@ -9,8 +9,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Plus, Pencil, Trash2, UserCog } from "lucide-react";
 import { toast } from "sonner";
+import { useLanguage } from "@/contexts/LanguageContext";
 
 export default function Technicians() {
+  const { t } = useLanguage();
   const [isOpen, setIsOpen] = useState(false);
   const [editId, setEditId] = useState<number | null>(null);
   const [form, setForm] = useState({ name: "", specialty: "" });
@@ -20,22 +22,22 @@ export default function Technicians() {
   const { data: openCounts = {} } = trpc.technicians.getOpenTicketCounts.useQuery();
 
   const createMutation = trpc.technicians.create.useMutation({
-    onSuccess: () => { toast.success("تم إضافة الفني بنجاح"); refetch(); closeDialog(); },
+    onSuccess: () => { toast.success(t.techniciansPage.addedSuccess); refetch(); closeDialog(); },
     onError: (e) => toast.error(e.message),
   });
 
   const updateMutation = trpc.technicians.update.useMutation({
-    onSuccess: () => { toast.success("تم تحديث بيانات الفني"); refetch(); closeDialog(); },
+    onSuccess: () => { toast.success(t.techniciansPage.updatedSuccess); refetch(); closeDialog(); },
     onError: (e) => toast.error(e.message),
   });
 
   const deleteMutation = trpc.technicians.delete.useMutation({
-    onSuccess: () => { toast.success("تم حذف الفني"); refetch(); setDeleteConfirm(null); },
+    onSuccess: () => { toast.success(t.techniciansPage.deletedSuccess); refetch(); setDeleteConfirm(null); },
     onError: (e) => toast.error(e.message),
   });
 
   const toggleStatusMutation = trpc.technicians.update.useMutation({
-    onSuccess: () => { toast.success("تم تحديث الحالة"); refetch(); },
+    onSuccess: () => { toast.success(t.techniciansPage.statusUpdated); refetch(); },
     onError: (e) => toast.error(e.message),
   });
 
@@ -58,7 +60,7 @@ export default function Technicians() {
   }
 
   function handleSubmit() {
-    if (!form.name.trim()) { toast.error("اسم الفني مطلوب"); return; }
+    if (!form.name.trim()) { toast.error(t.techniciansPage.nameRequired); return; }
     if (editId) {
       updateMutation.mutate({ id: editId, name: form.name, specialty: form.specialty || undefined });
     } else {
@@ -76,8 +78,8 @@ export default function Technicians() {
         <div className="flex items-center gap-3">
           <UserCog className="h-7 w-7 text-primary" />
           <div>
-            <h1 className="text-2xl font-bold">إدارة الفنيين</h1>
-            <p className="text-sm text-muted-foreground">إضافة وإدارة الفنيين الميدانيين</p>
+      <h1 className="text-2xl font-bold">{t.techniciansPage.title}</h1>
+      <p className="text-sm text-muted-foreground">{t.techniciansPage.subtitle}</p>
           </div>
         </div>
         <Button onClick={openCreate}>
@@ -90,15 +92,15 @@ export default function Technicians() {
       <div className="grid grid-cols-3 gap-4">
         <div className="bg-card border rounded-lg p-4 text-center">
           <div className="text-3xl font-bold text-primary">{technicians.length}</div>
-          <div className="text-sm text-muted-foreground mt-1">إجمالي الفنيين</div>
+              <div className="text-sm text-muted-foreground mt-1">{t.techniciansPage.totalTechnicians}</div>
         </div>
         <div className="bg-card border rounded-lg p-4 text-center">
           <div className="text-3xl font-bold text-green-600">{activeTechs}</div>
-          <div className="text-sm text-muted-foreground mt-1">فنيون نشطون</div>
+              <div className="text-sm text-muted-foreground mt-1">{t.techniciansPage.activeTechnicians}</div>
         </div>
         <div className="bg-card border rounded-lg p-4 text-center">
           <div className="text-3xl font-bold text-gray-400">{inactiveTechs}</div>
-          <div className="text-sm text-muted-foreground mt-1">فنيون غير نشطين</div>
+              <div className="text-sm text-muted-foreground mt-1">{t.techniciansPage.inactiveTechnicians}</div>
         </div>
       </div>
 
@@ -108,11 +110,11 @@ export default function Technicians() {
           <TableHeader>
             <TableRow>
               <TableHead className="text-right">#</TableHead>
-              <TableHead className="text-right">الاسم</TableHead>
-              <TableHead className="text-right">التخصص</TableHead>
-              <TableHead className="text-right">الحالة</TableHead>
-              <TableHead className="text-right">البلاغات المفتوحة</TableHead>
-              <TableHead className="text-right">الإجراءات</TableHead>
+              <TableHead className="text-right">{t.techniciansPage.nameCol}</TableHead>
+              <TableHead className="text-right">{t.techniciansPage.specialtyCol}</TableHead>
+              <TableHead className="text-right">{t.techniciansPage.statusCol}</TableHead>
+              <TableHead className="text-right">{t.techniciansPage.openTicketsCol}</TableHead>
+              <TableHead className="text-right">{t.techniciansPage.actionsCol}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -134,7 +136,7 @@ export default function Technicians() {
                       className="cursor-pointer"
                     >
                       <Badge variant={tech.status === "active" ? "default" : "secondary"}>
-                        {tech.status === "active" ? "نشط" : "غير نشط"}
+                        {tech.status === "active" ? t.users.active : t.users.inactive}
                       </Badge>
                     </button>
                   </TableCell>

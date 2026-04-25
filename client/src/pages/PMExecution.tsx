@@ -15,6 +15,7 @@ import {
   CheckSquare, Flag,
 } from "lucide-react";
 import { useLocation } from "wouter";
+import { useLanguage } from "@/contexts/LanguageContext";
 
 interface PMExecutionProps {
   workOrderId: number;
@@ -22,6 +23,7 @@ interface PMExecutionProps {
 }
 
 export default function PMExecution({ workOrderId, onClose }: PMExecutionProps) {
+  const { t } = useLanguage();
   const [, setLocation] = useLocation();
   const [currentItemIndex, setCurrentItemIndex] = useState(0);
   const [showIssueDialog, setShowIssueDialog] = useState(false);
@@ -55,7 +57,7 @@ export default function PMExecution({ workOrderId, onClose }: PMExecutionProps) 
         }, 1000);
       },
       onError: (err) => {
-        toast.error("فشل في بدء جلسة الفحص: " + err.message);
+        toast.error(t.pmExecution.startSessionError + err.message);
       }
     });
     return () => {
@@ -105,7 +107,7 @@ export default function PMExecution({ workOrderId, onClose }: PMExecutionProps) 
         refetchProgress();
         setCurrentItemIndex(i => i + 1);
       },
-      onError: (err) => toast.error("خطأ: " + err.message),
+      onError: (err) => toast.error(t.pmExecution.error + err.message),
     });
   };
 
@@ -127,7 +129,7 @@ export default function PMExecution({ workOrderId, onClose }: PMExecutionProps) 
         refetchProgress();
         setCurrentItemIndex(i => i + 1);
       },
-      onError: (err) => toast.error("خطأ: " + err.message),
+      onError: (err) => toast.error(t.pmExecution.error + err.message),
     });
   };
 
@@ -153,16 +155,16 @@ export default function PMExecution({ workOrderId, onClose }: PMExecutionProps) 
           description: issueDescription,
         }, {
           onSuccess: (data) => {
-            toast.success(`تم فتح بلاغ عطل رقم ${data.ticketNumber} تلقائياً`);
+            toast.success(`${t.pmExecution.openTicketError} ${data.ticketNumber}`);
             setShowIssueDialog(false);
             setIssueDescription("");
             refetchProgress();
             setCurrentItemIndex(i => i + 1);
           },
-          onError: (err) => toast.error("خطأ في فتح البلاغ: " + err.message),
+          onError: (err) => toast.error(t.pmExecution.openTicketError + err.message),
         });
       },
-      onError: (err) => toast.error("خطأ: " + err.message),
+      onError: (err) => toast.error(t.pmExecution.error + err.message),
     });
   };
 
@@ -174,13 +176,13 @@ export default function PMExecution({ workOrderId, onClose }: PMExecutionProps) 
     if (timerRef.current) clearInterval(timerRef.current);
     completeMutation.mutate({ workOrderId, generalNotes }, {
       onSuccess: (data) => {
-        toast.success("تم إنهاء الفحص بنجاح!");
+        toast.success(t.pmExecution.finishedSuccess);
         utils.preventive.listWorkOrders.invalidate();
         setShowCompleteDialog(false);
         if (onClose) onClose();
         else setLocation("/preventive-maintenance");
       },
-      onError: (err) => toast.error("خطأ: " + err.message),
+      onError: (err) => toast.error(t.pmExecution.error + err.message),
     });
   };
 
@@ -188,7 +190,7 @@ export default function PMExecution({ workOrderId, onClose }: PMExecutionProps) 
     return (
       <div className="flex flex-col items-center justify-center h-64 gap-4">
         <Loader2 className="w-10 h-10 animate-spin text-primary" />
-        <p className="text-muted-foreground">جاري تحميل بنود الفحص...</p>
+        <p className="text-muted-foreground">{t.pmExecution.loadingItems}</p>
       </div>
     );
   }
@@ -235,7 +237,7 @@ export default function PMExecution({ workOrderId, onClose }: PMExecutionProps) 
       <div className="space-y-2">
         <div className="flex items-center justify-between text-sm">
           <span className="font-medium text-foreground">
-            {isAllDone ? "✅ اكتمل الفحص" : `البند ${Math.min(currentItemIndex + 1, totalItems)} من ${totalItems}`}
+                {isAllDone ? t.pmExecution.inspectionCompleteCheck : `${t.pmExecution.checklistItem} ${Math.min(currentItemIndex + 1, totalItems)} / ${totalItems}`}
           </span>
           <span className="text-muted-foreground">{progressPercent}%</span>
         </div>
@@ -243,15 +245,15 @@ export default function PMExecution({ workOrderId, onClose }: PMExecutionProps) 
         <div className="flex gap-3 text-xs text-muted-foreground">
           <span className="flex items-center gap-1">
             <span className="w-2 h-2 rounded-full bg-green-500 inline-block" />
-            سليم: {results.filter((r: any) => r.status === "ok").length}
+            {t.pmExecution.ok}: {results.filter((r: any) => r.status === "ok").length}
           </span>
           <span className="flex items-center gap-1">
             <span className="w-2 h-2 rounded-full bg-blue-500 inline-block" />
-            تم إصلاحه: {results.filter((r: any) => r.status === "fixed").length}
+            {t.pmExecution.fixed}: {results.filter((r: any) => r.status === "fixed").length}
           </span>
           <span className="flex items-center gap-1">
             <span className="w-2 h-2 rounded-full bg-red-500 inline-block" />
-            خلل: {results.filter((r: any) => r.status === "issue").length}
+            {t.pmExecution.defective}: {results.filter((r: any) => r.status === "issue").length}
           </span>
         </div>
       </div>
@@ -262,9 +264,9 @@ export default function PMExecution({ workOrderId, onClose }: PMExecutionProps) 
           <div className="space-y-2">
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
               <ClipboardList className="w-3.5 h-3.5" />
-              <span>بند الفحص</span>
+                <span>{t.pmExecution.checklistItem}</span>
               {currentItem.isRequired && (
-                <Badge variant="destructive" className="text-xs px-1.5 py-0">إلزامي</Badge>
+                <Badge variant="destructive" className="text-xs px-1.5 py-0">{t.pmExecution.required}</Badge>
               )}
             </div>
             <p className="text-xl font-semibold leading-relaxed">{currentItem.text}</p>
@@ -278,7 +280,7 @@ export default function PMExecution({ workOrderId, onClose }: PMExecutionProps) 
               className="flex flex-col items-center gap-2 p-4 rounded-xl bg-green-50 hover:bg-green-100 border-2 border-green-200 hover:border-green-400 transition-all active:scale-95 disabled:opacity-50"
             >
               <CheckCircle2 className="w-8 h-8 text-green-600" />
-              <span className="text-sm font-semibold text-green-700">سليم ✓</span>
+                <span className="text-sm font-semibold text-green-700">{t.pmExecution.ok}</span>
             </button>
 
             <button
@@ -287,7 +289,7 @@ export default function PMExecution({ workOrderId, onClose }: PMExecutionProps) 
               className="flex flex-col items-center gap-2 p-4 rounded-xl bg-blue-50 hover:bg-blue-100 border-2 border-blue-200 hover:border-blue-400 transition-all active:scale-95 disabled:opacity-50"
             >
               <Wrench className="w-8 h-8 text-blue-600" />
-              <span className="text-sm font-semibold text-blue-700">تم إصلاحه</span>
+                <span className="text-sm font-semibold text-blue-700">{t.pmExecution.fixed}</span>
             </button>
 
             <button
@@ -296,14 +298,14 @@ export default function PMExecution({ workOrderId, onClose }: PMExecutionProps) 
               className="flex flex-col items-center gap-2 p-4 rounded-xl bg-red-50 hover:bg-red-100 border-2 border-red-200 hover:border-red-400 transition-all active:scale-95 disabled:opacity-50"
             >
               <AlertTriangle className="w-8 h-8 text-red-600" />
-              <span className="text-sm font-semibold text-red-700">يوجد خلل</span>
+                <span className="text-sm font-semibold text-red-700">{t.pmExecution.defective}</span>
             </button>
           </div>
         </div>
       ) : isAllDone ? (
         <div className="bg-green-50 border-2 border-green-200 rounded-2xl p-8 text-center space-y-4">
           <CheckSquare className="w-16 h-16 text-green-600 mx-auto" />
-          <h3 className="text-xl font-bold text-green-800">اكتمل الفحص!</h3>
+              <h3 className="text-xl font-bold text-green-800">{t.pmExecution.inspectionComplete}</h3>
           <p className="text-green-700 text-sm">
             تم فحص جميع {totalItems} بند بنجاح
           </p>

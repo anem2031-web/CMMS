@@ -1,4 +1,5 @@
 import { useState, useMemo } from "react";
+import { useTranslatedField } from "@/hooks/useTranslatedField";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -115,6 +116,7 @@ function TimelineBar({ phases, totalHours }: { phases: any[]; totalHours: number
 
 // ─── Ticket Card ──────────────────────────────────────────────────────────────
 function TicketCard({ ticket }: { ticket: any }) {
+  const { getField } = useTranslatedField();
   const [expanded, setExpanded] = useState(false);
   const [, setLocation] = useLocation();
 
@@ -156,7 +158,7 @@ function TicketCard({ ticket }: { ticket: any }) {
             </span>
           </div>
 
-          <p className="text-sm text-muted-foreground mt-0.5 truncate">{ticket.title}</p>
+          <p className="text-sm text-muted-foreground mt-0.5 truncate">{getField(ticket, "title")}</p>
 
           <div className="flex items-center gap-3 mt-1.5 text-xs text-muted-foreground flex-wrap">
             {ticket.site && (

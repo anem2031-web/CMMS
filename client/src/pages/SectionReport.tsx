@@ -7,10 +7,10 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Building2, AlertTriangle, CheckCircle2, Clock, Wrench, Package, TrendingUp, ShieldCheck, Zap, Target } from "lucide-react";
-import { useTranslation } from "@/contexts/LanguageContext";
+import { useLanguage } from "@/contexts/LanguageContext";
 
 export default function SectionReport() {
-  const { t } = useTranslation();
+  const { t } = useLanguage();
   const [siteFilter, setSiteFilter] = useState("all");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
@@ -34,8 +34,8 @@ export default function SectionReport() {
 
   const formatHours = (hours: number | null) => {
     if (hours === null) return "-";
-    if (hours < 24) return `${hours} ساعة`;
-    return `${Math.round(hours / 24 * 10) / 10} يوم`;
+    if (hours < 24) return `${hours} ${t.sectionReport.hours}`;
+    return `${Math.round(hours / 24 * 10) / 10} ${t.sectionReport.days}`;
   };
 
   // إجماليات للمقارنة
@@ -54,10 +54,10 @@ export default function SectionReport() {
       <div>
         <h1 className="text-2xl font-bold flex items-center gap-2">
           <Building2 className="w-6 h-6 text-primary" />
-          تقرير حسب الأقسام
+          {t.sectionReport.title}
         </h1>
         <p className="text-muted-foreground text-sm mt-1">
-          مقارنة الصيانة الوقائية والطارئة مقسّمة حسب الأقسام
+          {t.sectionReport.subtitle}
         </p>
       </div>
 
@@ -66,13 +66,13 @@ export default function SectionReport() {
         <CardContent className="pt-4 pb-4">
           <div className="flex flex-wrap gap-4 items-end">
             <div className="space-y-1">
-              <Label className="text-xs text-muted-foreground">الموقع</Label>
+              <Label className="text-xs text-muted-foreground">{t.common.site}</Label>
               <Select value={siteFilter} onValueChange={setSiteFilter}>
                 <SelectTrigger className="w-[180px]">
-                  <SelectValue placeholder="كل المواقع" />
+                  <SelectValue placeholder={t.sectionReport.allSites} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">كل المواقع</SelectItem>
+                  <SelectItem value="all">{t.sectionReport.allSites}</SelectItem>
                   {sites.map((s: any) => (
                     <SelectItem key={s.id} value={String(s.id)}>{s.name}</SelectItem>
                   ))}
@@ -80,11 +80,11 @@ export default function SectionReport() {
               </Select>
             </div>
             <div className="space-y-1">
-              <Label className="text-xs text-muted-foreground">من تاريخ</Label>
+              <Label className="text-xs text-muted-foreground">{t.common.from}</Label>
               <Input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className="w-[160px]" />
             </div>
             <div className="space-y-1">
-              <Label className="text-xs text-muted-foreground">إلى تاريخ</Label>
+              <Label className="text-xs text-muted-foreground">{t.common.to}</Label>
               <Input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className="w-[160px]" />
             </div>
           </div>
@@ -104,7 +104,7 @@ export default function SectionReport() {
                 <Building2 className="w-5 h-5 text-blue-600" />
               </div>
               <div>
-                <p className="text-sm text-muted-foreground">عدد الأقسام</p>
+                <p className="text-sm text-muted-foreground">{t.sectionReport.sectionCount}</p>
                 <p className="text-2xl font-bold">{sections.length}</p>
               </div>
             </CardContent>
@@ -115,7 +115,7 @@ export default function SectionReport() {
                 <Wrench className="w-5 h-5 text-orange-600" />
               </div>
               <div>
-                <p className="text-sm text-muted-foreground">إجمالي البلاغات</p>
+                <p className="text-sm text-muted-foreground">{t.sectionReport.totalTickets}</p>
                 <p className="text-2xl font-bold">{report?.totalTickets || 0}</p>
               </div>
             </CardContent>
@@ -126,7 +126,7 @@ export default function SectionReport() {
                 <ShieldCheck className="w-5 h-5 text-green-600" />
               </div>
               <div>
-                <p className="text-sm text-muted-foreground">صيانة وقائية</p>
+                <p className="text-sm text-muted-foreground">{t.sectionReport.preventive}</p>
                 <p className="text-2xl font-bold text-green-600">{totalPreventive}</p>
               </div>
             </CardContent>
@@ -137,7 +137,7 @@ export default function SectionReport() {
                 <Zap className="w-5 h-5 text-red-600" />
               </div>
               <div>
-                <p className="text-sm text-muted-foreground">صيانة طارئة</p>
+                <p className="text-sm text-muted-foreground">{t.sectionReport.emergency}</p>
                 <p className="text-2xl font-bold text-red-600">{totalEmergency}</p>
               </div>
             </CardContent>
@@ -151,7 +151,7 @@ export default function SectionReport() {
           <CardHeader>
             <CardTitle className="text-base flex items-center gap-2">
               <TrendingUp className="w-4 h-4" />
-              مقارنة الصيانة الوقائية vs الطارئة لكل قسم
+              {t.sectionReport.comparisonTitle}
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -160,11 +160,11 @@ export default function SectionReport() {
               <div className="flex items-center gap-6 text-sm">
                 <div className="flex items-center gap-2">
                   <div className="w-3 h-3 rounded-full bg-green-500" />
-                  <span>صيانة وقائية</span>
+                  <span>{t.sectionReport.preventive}</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <div className="w-3 h-3 rounded-full bg-red-500" />
-                  <span>صيانة طارئة (بلاغات)</span>
+                  <span>{t.sectionReport.emergency}</span>
                 </div>
               </div>
               {/* Bars */}
@@ -174,14 +174,14 @@ export default function SectionReport() {
                     <div className="flex items-center justify-between text-sm">
                       <span className="font-medium">{section.sectionName}</span>
                       <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                        <span className="text-green-600 font-medium">وقائي: {section.preventiveCount ?? 0}</span>
-                        <span className="text-red-600 font-medium">طارئ: {section.emergencyCount ?? 0}</span>
+                <span className="text-green-600 font-medium">{t.sectionReport.preventiveShort}: {section.preventiveCount ?? 0}</span>
+                <span className="text-red-600 font-medium">{t.sectionReport.emergencyShort}: {section.emergencyCount ?? 0}</span>
                       </div>
                     </div>
                     <div className="space-y-1">
                       {/* Preventive bar */}
                       <div className="flex items-center gap-2">
-                        <span className="text-xs text-muted-foreground w-16 text-left shrink-0">وقائية</span>
+                        <span className="text-xs text-muted-foreground w-16 text-left shrink-0">{t.sectionReport.preventiveShort}</span>
                         <div className="flex-1 bg-muted rounded-full h-4 overflow-hidden">
                           <div
                             className="h-full bg-green-500 rounded-full transition-all duration-500 flex items-center justify-end pr-2"
@@ -195,7 +195,7 @@ export default function SectionReport() {
                       </div>
                       {/* Emergency bar */}
                       <div className="flex items-center gap-2">
-                        <span className="text-xs text-muted-foreground w-16 text-left shrink-0">طارئة</span>
+                        <span className="text-xs text-muted-foreground w-16 text-left shrink-0">{t.sectionReport.emergencyShort}</span>
                         <div className="flex-1 bg-muted rounded-full h-4 overflow-hidden">
                           <div
                             className="h-full bg-red-500 rounded-full transition-all duration-500 flex items-center justify-end pr-2"
@@ -221,7 +221,7 @@ export default function SectionReport() {
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">
             <TrendingUp className="w-4 h-4" />
-            تفاصيل الأقسام
+            {t.sectionReport.sectionDetails}
           </CardTitle>
         </CardHeader>
         <CardContent>

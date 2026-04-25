@@ -51,7 +51,7 @@ export default function UsersPage() {
 
   const createMut = trpc.users.create.useMutation({
     onSuccess: () => {
-      toast.success("تم إنشاء المستخدم بنجاح");
+      toast.success(t.users.createdSuccess);
       utils.users.list.invalidate();
       setCreateOpen(false);
       setCreateForm(EMPTY_CREATE);
@@ -70,7 +70,7 @@ export default function UsersPage() {
 
   const resetPasswordMut = trpc.users.resetPassword.useMutation({
     onSuccess: () => {
-      toast.success("تم تغيير كلمة المرور بنجاح");
+      toast.success(t.users.passwordChanged);
       setResetOpen(false);
       setNewPassword("");
     },
@@ -89,7 +89,7 @@ export default function UsersPage() {
 
   const toggleActiveMut = trpc.users.toggleActive.useMutation({
     onSuccess: (_, vars) => {
-      toast.success(vars.isActive ? "تم تفعيل الحساب" : "تم تعطيل الحساب");
+      toast.success(vars.isActive ? t.users.accountActivated : t.users.accountDeactivated);
       utils.users.list.invalidate();
     },
     onError: (err) => toast.error(err.message),

@@ -1,4 +1,5 @@
 import { useState, useMemo } from "react";
+import { useTranslatedField } from "@/hooks/useTranslatedField";
 import { trpc } from "@/lib/trpc";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useAuth } from "@/_core/hooks/useAuth";
@@ -65,6 +66,7 @@ type ActiveView = "all_pending" | "all_inspection" | "critical_pending";
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function TriageDashboard() {
+  const { getField } = useTranslatedField();
   const { t } = useLanguage();
   const { user } = useAuth();
   const utils = trpc.useUtils();
@@ -117,7 +119,7 @@ export default function TriageDashboard() {
   // ── Mutations ─────────────────────────────────────────────────────────────
   const quickTriageMut = trpc.tickets.triageTicket.useMutation({
     onSuccess: () => {
-      toast.success("تم نقل البلاغ لمرحلة الفحص");
+      toast.success(t.triage.movedToInspection);
       utils.tickets.list.invalidate();
     },
     onError: (e: any) => toast.error(e.message),
@@ -125,7 +127,7 @@ export default function TriageDashboard() {
 
   const triageMut = trpc.tickets.triage.useMutation({
     onSuccess: () => {
-      toast.success("تم الفرز بنجاح");
+      toast.success(t.triage.sortedSuccess);
       utils.tickets.list.invalidate();
       setTriageDialog(null);
     },
@@ -134,7 +136,7 @@ export default function TriageDashboard() {
 
   const inspectMut = trpc.tickets.inspectTicket.useMutation({
     onSuccess: () => {
-      toast.success("تم إكمال الفحص - تم إشعار مدير الصيانة للموافقة");
+      toast.success(t.triage.inspectionComplete);
       utils.tickets.list.invalidate();
       setInspectDialog(null);
       setInspectionNotes("");
@@ -209,7 +211,7 @@ export default function TriageDashboard() {
   const statCards = [
     {
       id: "all_pending" as ActiveView,
-      label: "بانتظار الفرز",
+      label: t.triage.awaitingSort,
       count: pendingTickets.length,
       icon: AlertTriangle,
       color: "purple",
@@ -222,7 +224,7 @@ export default function TriageDashboard() {
     },
     {
       id: "all_inspection" as ActiveView,
-      label: "قيد الفحص",
+      label: t.triage.awaitingInspection,
       count: inspectionTickets.length,
       icon: Microscope,
       color: "blue",
@@ -235,7 +237,7 @@ export default function TriageDashboard() {
     },
     {
       id: "critical_pending" as ActiveView,
-      label: "حرجة بانتظار الفرز",
+      label: t.triage.awaitingApproval,
       count: criticalPending.length,
       icon: AlertTriangle,
       color: "orange",
@@ -258,8 +260,8 @@ export default function TriageDashboard() {
           <ClipboardList className="w-5 h-5 text-purple-600" />
         </div>
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">لوحة الفرز والتصنيف</h1>
-          <p className="text-sm text-muted-foreground">إدارة البلاغات من الفرز حتى الفحص</p>
+          <h1 className="text-2xl font-bold tracking-tight">{t.triage.title}</h1>
+          <p className="text-sm text-muted-foreground">{t.triage.subtitle}</p>
         </div>
       </div>
 
@@ -413,9 +415,9 @@ export default function TriageDashboard() {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <h2 className="text-base font-semibold">
-            {activeView === "all_pending" && "البلاغات بانتظار الفرز"}
-            {activeView === "all_inspection" && "البلاغات قيد الفحص"}
-            {activeView === "critical_pending" && "البلاغات الحرجة بانتظار الفرز"}
+                      {activeView === "all_pending" && t.triage.awaitingSort}
+                      {activeView === "all_inspection" && t.triage.awaitingInspection}
+                      {activeView === "critical_pending" && t.triage.awaitingApproval}
           </h2>
           <Badge variant="secondary" className="font-mono">
             {filteredTickets.length}
@@ -488,17 +490,17 @@ export default function TriageDashboard() {
                       )}
                     </div>
 
-                    <h3 className="font-semibold text-base leading-snug">{ticket.title}</h3>
+                    <h3 className="font-semibold text-base leading-snug">{getField(ticket, "title")}</h3>
 
                     {ticket.description && (
-                      <p className="text-sm text-muted-foreground mt-1 line-clamp-1">{ticket.description}</p>
+                      <p className="text-sm text-muted-foreground mt-1 line-clamp-1">{getField(ticket, "description")}</p>
                     )}
 
                     <div className="flex items-center gap-4 mt-2.5 text-xs text-muted-foreground flex-wrap">
                       <SLATimer
                         createdAt={ticket.createdAt}
                         statusChangedAt={ticket.updatedAt}
-                        statusLabel={isInspectionView ? "قيد الفحص" : "في الفرز"}
+                        statusLabel={isInspectionView ? t.triage.awaitingInspection : t.triage.awaitingSort}
                         compact
                       />
                       <span className="flex items-center gap-1">
@@ -522,7 +524,7 @@ export default function TriageDashboard() {
                       onClick={() => window.location.href = `/tickets/${ticket.id}`}
                     >
                       <Eye className="w-4 h-4 ml-1" />
-                      عرض
+                      {t.triage.viewDetails}
                     </Button>
 
                     {/* PENDING_TRIAGE actions */}
@@ -537,7 +539,7 @@ export default function TriageDashboard() {
                           title="نقل سريع لمرحلة الفحص مع تعيين فني"
                         >
                           <Zap className="w-4 h-4 ml-1" />
-                          فرز سريع
+                          {t.triage.sortTicket}
                         </Button>
                         <Button
                           size="sm"
@@ -545,7 +547,7 @@ export default function TriageDashboard() {
                           className="bg-purple-600 hover:bg-purple-700 text-white"
                         >
                           <ClipboardList className="w-4 h-4 ml-1" />
-                          فرز مفصّل
+                          {t.triage.sortTicket}
                         </Button>
                       </>
                     )}
@@ -561,7 +563,7 @@ export default function TriageDashboard() {
                         className="bg-blue-600 hover:bg-blue-700 text-white"
                       >
                         <Search className="w-4 h-4 ml-1" />
-                        إكمال الفحص
+                        {t.triage.inspectTicket}
                       </Button>
                     )}
                   </div>

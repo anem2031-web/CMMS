@@ -380,30 +380,30 @@ export default function PreventiveMaintenance() {
                 <div className="relative">
                   <Search className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                   <Input
-                    placeholder="بحث بالعنوان أو الرقم..."
+                    placeholder={t.common.searchPlaceholder || "بحث..."}
                     value={planSearch}
                     onChange={e => setPlanSearch(e.target.value)}
                     className="pr-9"
                   />
                 </div>
                 <Select value={planFilterAsset} onValueChange={setPlanFilterAsset}>
-                  <SelectTrigger><SelectValue placeholder="الأصل" /></SelectTrigger>
+                  <SelectTrigger><SelectValue placeholder={t.common.asset || "الأصل"} /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">جميع الأصول</SelectItem>
+                    <SelectItem value="all">{t.common.allAssets || "جميع الأصول"}</SelectItem>
                     {assets.map((a: any) => <SelectItem key={a.id} value={String(a.id)}>{a.name}</SelectItem>)}
                   </SelectContent>
                 </Select>
                 <Select value={planFilterSite} onValueChange={setPlanFilterSite}>
-                  <SelectTrigger><SelectValue placeholder="الموقع" /></SelectTrigger>
+                  <SelectTrigger><SelectValue placeholder={t.common.location || "الموقع"} /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">جميع المواقع</SelectItem>
+                    <SelectItem value="all">{t.common.allSites || "جميع المواقع"}</SelectItem>
                     {sites.map((s: any) => <SelectItem key={s.id} value={String(s.id)}>{s.name}</SelectItem>)}
                   </SelectContent>
                 </Select>
                 <Select value={planFilterFreq} onValueChange={setPlanFilterFreq}>
-                  <SelectTrigger><SelectValue placeholder="التكرار" /></SelectTrigger>
+                  <SelectTrigger><SelectValue placeholder={t.preventive?.frequency || "التكرار"} /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">جميع التكرارات</SelectItem>
+                    <SelectItem value="all">{t.preventive?.allFrequencies || "جميع التكرارات"}</SelectItem>
                     {(["daily","weekly","monthly","quarterly","biannual","annual"] as Frequency[]).map(f => (
                       <SelectItem key={f} value={f}>{freqLabel(f)}</SelectItem>
                     ))}
@@ -412,9 +412,9 @@ export default function PreventiveMaintenance() {
               </div>
               {hasActivePlanFilters && (
                 <div className="flex items-center gap-2 mt-2">
-                  <span className="text-xs text-muted-foreground">النتائج: {filteredPlans.length} من {plans.length}</span>
+                  <span className="text-xs text-muted-foreground">{t.common.results || "النتائج"}: {filteredPlans.length} {t.common.of || "من"} {plans.length}</span>
                   <Button variant="ghost" size="sm" className="h-6 text-xs gap-1" onClick={() => { setPlanSearch(""); setPlanFilterAsset("all"); setPlanFilterSite("all"); setPlanFilterFreq("all"); }}>
-                    <X className="h-3 w-3" /> مسح الفلاتر
+                    <X className="h-3 w-3" /> {t.common.clearFilters || "مسح الفلاتر"}
                   </Button>
                 </div>
               )}
@@ -448,7 +448,7 @@ export default function PreventiveMaintenance() {
                         </div>
                         <div className="flex items-center gap-1 shrink-0">
                           <Badge variant="outline">{freqLabel(plan.frequency)}</Badge>
-                          {isInactive && <Badge variant="secondary" className="text-xs">متوقف</Badge>}
+                          {isInactive && <Badge variant="secondary" className="text-xs">{t.common.inactive || "متوقف"}</Badge>}
                         </div>
                       </div>
                     </CardHeader>
@@ -473,7 +473,7 @@ export default function PreventiveMaintenance() {
                       {plan.estimatedDurationMinutes && (
                         <div className="flex items-center gap-1 text-xs text-muted-foreground">
                           <Clock className="h-3 w-3" />
-                          {plan.estimatedDurationMinutes} دقيقة
+                          {plan.estimatedDurationMinutes} {t.common.minutes || "دقيقة"}
                         </div>
                       )}
                       {plan.checklist && plan.checklist.length > 0 && (
@@ -527,18 +527,18 @@ export default function PreventiveMaintenance() {
             <CardContent className="p-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                 <Select value={woFilterStatus} onValueChange={setWoFilterStatus}>
-                  <SelectTrigger><SelectValue placeholder="الحالة" /></SelectTrigger>
+                  <SelectTrigger><SelectValue placeholder={t.common.status || "الحالة"} /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">جميع الحالات</SelectItem>
+                    <SelectItem value="all">{t.common.allStatuses || "جميع الحالات"}</SelectItem>
                     {(["scheduled","in_progress","completed","overdue","cancelled"] as WOStatus[]).map(s => (
                       <SelectItem key={s} value={s}>{woStatusLabel(s)}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
                 <Select value={woFilterAssignee} onValueChange={setWoFilterAssignee}>
-                  <SelectTrigger><SelectValue placeholder="الفني" /></SelectTrigger>
+                  <SelectTrigger><SelectValue placeholder={t.common.technician || "الفني"} /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">جميع الفنيين</SelectItem>
+                    <SelectItem value="all">{t.common.allTechnicians || "جميع الفنيين"}</SelectItem>
                     {users.map((u: any) => <SelectItem key={u.id} value={String(u.id)}>{u.name}</SelectItem>)}
                   </SelectContent>
                 </Select>
@@ -551,9 +551,9 @@ export default function PreventiveMaintenance() {
               </div>
               {hasActiveWOFilters && (
                 <div className="flex items-center gap-2 mt-2">
-                  <span className="text-xs text-muted-foreground">النتائج: {filteredWorkOrders.length} من {workOrders.length}</span>
+                  <span className="text-xs text-muted-foreground">{t.common.results || "النتائج"}: {filteredWorkOrders.length} {t.common.of || "من"} {workOrders.length}</span>
                   <Button variant="ghost" size="sm" className="h-6 text-xs gap-1" onClick={() => { setWoFilterStatus("all"); setWoFilterAssignee("all"); setWoDateFrom(""); setWoDateTo(""); }}>
-                    <X className="h-3 w-3" /> مسح الفلاتر
+                    <X className="h-3 w-3" /> {t.common.clearFilters || "مسح الفلاتر"}
                   </Button>
                 </div>
               )}
@@ -608,7 +608,7 @@ export default function PreventiveMaintenance() {
                             onClick={(e) => { e.stopPropagation(); setExecutionWOId(wo.id); }}
                           >
                             <Play className="h-3 w-3 ml-1" />
-                            {wo.status === "in_progress" ? "متابعة" : "ابدأ الفحص"}
+                            {wo.status === "in_progress" ? (t.preventive?.continue || "متابعة") : (t.preventive?.startInspection || "ابدأ الفحص")}
                           </Button>
                         )}
                         {totalCount > 0 && (
@@ -771,7 +771,7 @@ export default function PreventiveMaintenance() {
             <div className="space-y-4">
               {/* الحالة */}
               <div>
-                <Label className="mb-1 block">الحالة</Label>
+                <Label className="mb-1 block">{t.common.status}</Label>
                 <Select
                   value={selectedWO.status}
                   onValueChange={v => setSelectedWO((w: any) => ({ ...w, status: v }))}
@@ -805,7 +805,7 @@ export default function PreventiveMaintenance() {
                         </div>
                         {/* حقل ملاحظات لكل بند */}
                         <Input
-                          placeholder="ملاحظة على هذا البند (اختياري)"
+                          placeholder={t.common.optionalNote || "ملاحظة (اختياري)"}
                           value={item.notes ?? ""}
                           onChange={e => {
                             const updated = [...selectedWO.checklistResults];
@@ -852,7 +852,7 @@ export default function PreventiveMaintenance() {
                 ) : (
                   <Button variant="outline" className="w-full gap-2" onClick={handleUploadCompletionPhoto} disabled={uploadingPhoto}>
                     {uploadingPhoto ? <Loader2 className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4" />}
-                    {uploadingPhoto ? "جاري الرفع..." : "رفع صورة إتمام العمل"}
+                    {uploadingPhoto ? (t.common.uploading || "جاري الرفع...") : (t.preventive?.uploadCompletionPhoto || "رفع صورة إتمام العمل")}
                   </Button>
                 )}
               </div>
@@ -900,7 +900,7 @@ export default function PreventiveMaintenance() {
       {/* ── Delete Plan Confirm ── */}
       <Dialog open={!!deletePlanId} onOpenChange={(o) => { if (!o) setDeletePlanId(null); }}>
         <DialogContent>
-          <DialogHeader><DialogTitle>تأكيد الحذف</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>{t.common.confirmDelete}</DialogTitle></DialogHeader>
           <p>{t.common.deleteWarning}</p>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeletePlanId(null)}>{t.common.cancel}</Button>

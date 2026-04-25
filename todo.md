@@ -727,3 +727,7 @@
 - [x] Backend: procedure pmMonthlySummary في dashboard router (خطط نشطة + مكتمل + معلق + متأخر + نسبة إنجاز)
 - [x] Frontend: PMSummaryCard component مع شريط تقدم ملون + 4 إحصائيات + تنقل لصفحة الصيانة الوقائية
 - [x] تظهر للأدوار: admin, owner, senior_management, maintenance_manager, supervisor
+
+## Phase 56-57: إصلاح نظام الترجمة (المرحلة 1 و2)
+- [ ] Phase 56: إضافة مفاتيح ترجمة جديدة واستبدال 490 نصاً مضمّناً في 27 صفحة
+- [ ] Phase 57: تفعيل useTranslatedField في الصفحات التي تعرض بيانات المستخدمين

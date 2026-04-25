@@ -21,28 +21,14 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { CalendarDays, Filter, Search, MapPin, Building2, X } from "lucide-react";
-import { useTranslation } from "@/contexts/LanguageContext";
+import { useLanguage } from "@/contexts/LanguageContext";
 import { useStaticLabels } from "@/hooks/useContentTranslation";
 
 const COLORS = ["#0ea5e9", "#8b5cf6", "#f59e0b", "#10b981", "#ef4444", "#ec4899", "#6366f1", "#14b8a6"];
 
-const priorityLabels: Record<string, string> = {
-  low: "منخفضة",
-  medium: "متوسطة",
-  high: "عالية",
-  critical: "حرجة",
-};
+// priorityLabels will use t.priority from translation
 
-const categoryLabels: Record<string, string> = {
-  electrical: "كهرباء",
-  plumbing: "سباكة",
-  hvac: "تكييف",
-  structural: "إنشائي",
-  mechanical: "ميكانيكي",
-  general: "عام",
-  safety: "سلامة",
-  cleaning: "نظافة",
-};
+// categoryLabels will use t.category from translation
 
 function getScoreColor(score: number) {
   if (score >= 80) return "text-emerald-600";
@@ -58,11 +44,11 @@ function getScoreBg(score: number) {
   return "bg-red-50 border-red-200";
 }
 
-function getScoreLabel(score: number) {
-  if (score >= 80) return "ممتاز";
-  if (score >= 60) return "جيد";
-  if (score >= 40) return "مقبول";
-  return "يحتاج تحسين";
+function getScoreLabel(score: number, t: any) {
+  if (score >= 80) return t.techReport?.scoreExcellent || "ممتاز";
+  if (score >= 60) return t.techReport?.scoreGood || "جيد";
+  if (score >= 40) return t.techReport?.scoreAcceptable || "مقبول";
+  return t.techReport?.scoreNeedsImprovement || "يحتاج تحسين";
 }
 
 function getScoreIcon(score: number) {
@@ -71,39 +57,46 @@ function getScoreIcon(score: number) {
   return <ArrowDown className="h-4 w-4 text-red-600" />;
 }
 
-function formatHours(hours: number) {
+function formatHours(hours: number, t?: any) {
   if (hours === 0) return "—";
-  if (hours < 1) return `${Math.round(hours * 60)} دقيقة`;
-  if (hours < 24) return `${hours.toFixed(1)} ساعة`;
+  const minLabel = t?.techReport?.minutes || "دقيقة";
+  const hrLabel = t?.techReport?.hour || "ساعة";
+  const dayLabel = t?.techReport?.day || "يوم";
+  const andLabel = t?.techReport?.and || "و";
+  if (hours < 1) return `${Math.round(hours * 60)} ${minLabel}`;
+  if (hours < 24) return `${hours.toFixed(1)} ${hrLabel}`;
   const days = Math.floor(hours / 24);
   const remainingHours = Math.round(hours % 24);
-  return `${days} يوم ${remainingHours > 0 ? `و ${remainingHours} ساعة` : ""}`;
+  return `${days} ${dayLabel} ${remainingHours > 0 ? `${andLabel} ${remainingHours} ${hrLabel}` : ""}`;
 }
 
 function formatMonth(monthStr: string) {
-  const [year, month] = monthStr.split("-");
-  const months = ["يناير", "فبراير", "مارس", "أبريل", "مايو", "يونيو", "يوليو", "أغسطس", "سبتمبر", "أكتوبر", "نوفمبر", "ديسمبر"];
-  return months[parseInt(month) - 1] || monthStr;
+  const [, month] = monthStr.split("-");
+  // Use Intl for locale-aware month names
+  const date = new Date(2024, parseInt(month) - 1, 1);
+  return date.toLocaleDateString(undefined, { month: 'long' });
 }
 
 type PeriodType = "all" | "week" | "month" | "quarter" | "year" | "custom";
 
-const periodLabels: Record<PeriodType, string> = {
-  all: "الكل",
-  week: "آخر أسبوع",
-  month: "آخر شهر",
-  quarter: "آخر 3 أشهر",
-  year: "آخر سنة",
-  custom: "فترة مخصصة",
-};
+// periodLabels will be built from t.techReport in the component
 
 function formatDateInput(date: Date): string {
   return date.toISOString().split("T")[0];
 }
 
 export default function TechnicianReport() {
-  const { t, language } = useTranslation();
+  const { t, language } = useLanguage();
   const { getPriorityLabel, getCategoryLabel } = useStaticLabels();
+
+  const periodLabels: Record<PeriodType, string> = {
+    all: t.techReport?.all || "الكل",
+    week: t.techReport?.lastWeek || "آخر أسبوع",
+    month: t.techReport?.lastMonth || "آخر شهر",
+    quarter: t.techReport?.lastQuarter || "آخر 3 أشهر",
+    year: t.techReport?.lastYear || "آخر سنة",
+    custom: t.techReport?.customPeriod || "فترة مخصصة",
+  };
   const [selectedPeriod, setSelectedPeriod] = useState<PeriodType>("all");
   const [customDateFrom, setCustomDateFrom] = useState<string>("");
   const [customDateTo, setCustomDateTo] = useState<string>("");
@@ -162,9 +155,9 @@ export default function TechnicianReport() {
   };
 
   const getPeriodDescription = (): string => {
-    if (selectedPeriod === "all") return "جميع الفترات";
+    if (selectedPeriod === "all") return t.techReport?.allPeriods || "جميع الفترات";
     if (selectedPeriod === "custom" && customDateFrom && customDateTo) {
-      return `من ${customDateFrom} إلى ${customDateTo}`;
+      return `${t.common.from} ${customDateFrom} ${t.common.to} ${customDateTo}`;
     }
     return periodLabels[selectedPeriod];
   };
@@ -174,7 +167,7 @@ export default function TechnicianReport() {
       <div className="flex items-center justify-center min-h-[60vh]">
         <div className="text-center space-y-4">
           <Loader2 className="h-10 w-10 animate-spin text-primary mx-auto" />
-          <p className="text-muted-foreground">جاري تحميل تقرير أداء الفنيين...</p>
+          <p className="text-muted-foreground">{t.techReport?.loading || "جاري تحميل تقرير أداء الفنيين..."}</p>
         </div>
       </div>
     );
@@ -186,7 +179,7 @@ export default function TechnicianReport() {
         <Card className="max-w-md w-full">
           <CardContent className="pt-6 text-center space-y-4">
             <AlertCircle className="h-12 w-12 text-destructive mx-auto" />
-            <p className="text-lg font-semibold">حدث خطأ في تحميل التقرير</p>
+            <p className="text-lg font-semibold">{t.techReport?.loadError || "حدث خطأ في تحميل التقرير"}</p>
             <p className="text-muted-foreground text-sm">{error.message}</p>
           </CardContent>
         </Card>
@@ -202,8 +195,8 @@ export default function TechnicianReport() {
         <Card className="max-w-md w-full">
           <CardContent className="pt-6 text-center space-y-4">
             <Users className="h-12 w-12 text-muted-foreground mx-auto" />
-            <p className="text-lg font-semibold">لا يوجد فنيون مسجلون</p>
-            <p className="text-muted-foreground text-sm">قم بإضافة فنيين من صفحة إدارة المستخدمين</p>
+            <p className="text-lg font-semibold">{t.techReport.noTechs}</p>
+            <p className="text-muted-foreground text-sm">{t.techReport.addTechsHint}</p>
           </CardContent>
         </Card>
       </div>
@@ -218,29 +211,32 @@ export default function TechnicianReport() {
   const overallAvgHours = avgResolution.length > 0 ? avgResolution.reduce((s, t) => s + t.avgResolutionHours, 0) / avgResolution.length : 0;
 
   // Comparison chart data
-  const comparisonData = techs.map(t => ({
-    name: t.technician.name || `فني #${t.technician.id}`,
-    "بلاغات مُسندة": t.totalAssigned,
-    "بلاغات مُنجزة": t.completed,
-    "قيد التنفيذ": t.inProgress,
+  const assignedLabel = t.reports.totalAssigned;
+  const completedLabel = t.reports.completed;
+  const inProgressLabel = t.reports.inProgress;
+  const comparisonData = techs.map(tech => ({
+    name: tech.technician.name || `Tech #${tech.technician.id}`,
+    [assignedLabel]: tech.totalAssigned,
+    [completedLabel]: tech.completed,
+    [inProgressLabel]: tech.inProgress,
   }));
 
   // Radar chart data for selected technician
   const selectedTechData = selectedTech !== null ? techs.find(t => t.technician.id === selectedTech) : techs[0];
   const radarData = selectedTechData ? [
-    { metric: "نسبة الإنجاز", value: selectedTechData.completionRate, fullMark: 100 },
-    { metric: "سرعة الحل", value: selectedTechData.avgResolutionHours > 0 ? Math.max(0, Math.round(100 - (selectedTechData.avgResolutionHours / 720) * 100)) : 0, fullMark: 100 },
-    { metric: "حجم العمل", value: Math.min(100, selectedTechData.totalAssigned * 5), fullMark: 100 },
-    { metric: "البلاغات الحرجة", value: Math.min(100, (selectedTechData.priorityBreakdown?.critical || 0) * 20), fullMark: 100 },
-    { metric: "التنوع", value: Math.min(100, Object.keys(selectedTechData.categoryBreakdown || {}).length * 20), fullMark: 100 },
+    { metric: t.reports.completionRate, value: selectedTechData.completionRate, fullMark: 100 },
+    { metric: t.techReport?.speedLabel || "سرعة الحل", value: selectedTechData.avgResolutionHours > 0 ? Math.max(0, Math.round(100 - (selectedTechData.avgResolutionHours / 720) * 100)) : 0, fullMark: 100 },
+    { metric: t.techReport?.workloadLabel || "حجم العمل", value: Math.min(100, selectedTechData.totalAssigned * 5), fullMark: 100 },
+    { metric: t.techReport?.criticalLabel || "البلاغات الحرجة", value: Math.min(100, (selectedTechData.priorityBreakdown?.critical || 0) * 20), fullMark: 100 },
+    { metric: t.techReport?.diversityLabel || "التنوع", value: Math.min(100, Object.keys(selectedTechData.categoryBreakdown || {}).length * 20), fullMark: 100 },
   ] : [];
 
   // Score distribution for pie chart
   const scoreDistribution = [
-    { name: "ممتاز (80+)", value: techs.filter(t => t.performanceScore >= 80).length, color: "#10b981" },
-    { name: "جيد (60-79)", value: techs.filter(t => t.performanceScore >= 60 && t.performanceScore < 80).length, color: "#f59e0b" },
-    { name: "مقبول (40-59)", value: techs.filter(t => t.performanceScore >= 40 && t.performanceScore < 60).length, color: "#f97316" },
-    { name: "يحتاج تحسين (<40)", value: techs.filter(t => t.performanceScore < 40).length, color: "#ef4444" },
+    { name: `${t.techReport.scoreExcellent} (80+)`, value: techs.filter(t => t.performanceScore >= 80).length, color: "#10b981" },
+    { name: `${t.techReport.scoreGood} (60-79)`, value: techs.filter(t => t.performanceScore >= 60 && t.performanceScore < 80).length, color: "#f59e0b" },
+    { name: `${t.techReport.scoreAcceptable} (40-59)`, value: techs.filter(t => t.performanceScore >= 40 && t.performanceScore < 60).length, color: "#f97316" },
+    { name: `${t.techReport.scoreNeedsImprovement} (<40)`, value: techs.filter(t => t.performanceScore < 40).length, color: "#ef4444" },
   ].filter(d => d.value > 0);
 
   return (
@@ -258,7 +254,7 @@ export default function TechnicianReport() {
             <p className="text-muted-foreground mt-1">{t.reports.overview} — <span className="font-medium text-foreground">{getPeriodDescription()}</span></p>
           </div>
           <Badge variant="outline" className="text-sm px-3 py-1">
-            {techs.length} فني
+            {techs.length} {t.nav.technicians || "فني"}
           </Badge>
         </div>
 
@@ -268,7 +264,7 @@ export default function TechnicianReport() {
             <div className="flex flex-wrap items-center gap-3">
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <Filter className="h-4 w-4" />
-                <span className="font-medium">الفترة الزمنية:</span>
+                <span className="font-medium">{t.techReport.lastWeek?.replace("آخر ", "") || "الفترة"}{t.common.colon || ":"}</span>
               </div>
               <div className="flex flex-wrap gap-2">
                 {(["all", "week", "month", "quarter", "year"] as PeriodType[]).map((period) => (
@@ -293,15 +289,15 @@ export default function TechnicianReport() {
                       <CalendarDays className="h-3.5 w-3.5" />
                       {selectedPeriod === "custom" && customDateFrom && customDateTo
                         ? `${customDateFrom} → ${customDateTo}`
-                        : "فترة مخصصة"}
+                        : t.techReport.customPeriod}
                     </Button>
                   </PopoverTrigger>
                   <PopoverContent className="w-auto p-4" align="start">
                     <div className="space-y-3">
-                      <p className="text-sm font-medium">اختر الفترة الزمنية</p>
+                      <p className="text-sm font-medium">{t.techReport.customPeriod}</p>
                       <div className="grid grid-cols-2 gap-3">
                         <div className="space-y-1">
-                          <label className="text-xs text-muted-foreground">من تاريخ</label>
+                          <label className="text-xs text-muted-foreground">{t.common.from}</label>
                           <input
                             type="date"
                             value={customDateFrom}
@@ -310,7 +306,7 @@ export default function TechnicianReport() {
                           />
                         </div>
                         <div className="space-y-1">
-                          <label className="text-xs text-muted-foreground">إلى تاريخ</label>
+                          <label className="text-xs text-muted-foreground">{t.common.to}</label>
                           <input
                             type="date"
                             value={customDateTo}
@@ -330,7 +326,7 @@ export default function TechnicianReport() {
                         }}
                         disabled={!customDateFrom || !customDateTo}
                       >
-                        تطبيق
+                        {t.common.apply || "تطبيق"}
                       </Button>
                     </div>
                   </PopoverContent>
@@ -346,13 +342,13 @@ export default function TechnicianReport() {
             <div className="flex flex-wrap items-center gap-3">
               <div className="flex items-center gap-2 text-sm text-muted-foreground shrink-0">
                 <Search className="h-4 w-4" />
-                <span className="font-medium">فلترة الفنيين:</span>
+                <span className="font-medium">{t.common.filter || "تصفية"} {t.nav.technicians || "الفنيين"}:</span>
               </div>
               {/* Technician Name Search */}
               <div className="relative min-w-[180px]">
                 <Search className="absolute right-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
                 <Input
-                  placeholder="اسم الفني..."
+                  placeholder={`${t.nav.technicians || "اسم الفني"}...`}
                   value={filterTechName}
                   onChange={(e) => setFilterTechName(e.target.value)}
                   className="h-8 text-xs pr-8 w-full"
@@ -370,10 +366,10 @@ export default function TechnicianReport() {
                   }}
                 >
                   <SelectTrigger className="h-8 text-xs">
-                    <SelectValue placeholder="كل المواقع" />
+                    <SelectValue placeholder={t.common.allSites || "كل المواقع"} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">كل المواقع</SelectItem>
+                    <SelectItem value="all">{t.common.allSites || "كل المواقع"}</SelectItem>
                     {(sitesData || []).map((s: any) => (
                       <SelectItem key={s.id} value={String(s.id)}>{s.name}</SelectItem>
                     ))}
@@ -389,10 +385,10 @@ export default function TechnicianReport() {
                   disabled={!filterSiteId}
                 >
                   <SelectTrigger className="h-8 text-xs">
-                    <SelectValue placeholder={filterSiteId ? "كل الأقسام" : "اختر موقعاً أولاً"} />
+                    <SelectValue placeholder={filterSiteId ? (t.common.allSections || "كل الأقسام") : (t.common.selectSiteFirst || "اختر موقعاً أولاً")} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">كل الأقسام</SelectItem>
+                    <SelectItem value="all">{t.common.allSections || "كل الأقسام"}</SelectItem>
                     {(sectionsData || []).map((s: any) => (
                       <SelectItem key={s.id} value={String(s.id)}>{s.name}</SelectItem>
                     ))}
@@ -408,7 +404,7 @@ export default function TechnicianReport() {
                   className="h-8 text-xs text-destructive hover:text-destructive gap-1"
                 >
                   <X className="h-3.5 w-3.5" />
-                  مسح الفلاتر
+                  {t.common.clearFilters || "مسح الفلاتر"}
                 </Button>
               )}
               {/* Active filter badges */}
@@ -445,7 +441,7 @@ export default function TechnicianReport() {
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">إجمالي البلاغات المُسندة</p>
+                <p className="text-sm text-muted-foreground">{t.reports.totalAssigned}</p>
                 <p className="text-3xl font-bold mt-1">{totalTickets}</p>
               </div>
               <div className="p-3 bg-blue-50 rounded-xl">
@@ -459,7 +455,7 @@ export default function TechnicianReport() {
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">البلاغات المُنجزة</p>
+                <p className="text-sm text-muted-foreground">{t.reports.completed}</p>
                 <p className="text-3xl font-bold mt-1 text-emerald-600">{totalCompleted}</p>
               </div>
               <div className="p-3 bg-emerald-50 rounded-xl">
@@ -473,8 +469,8 @@ export default function TechnicianReport() {
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">متوسط وقت الحل</p>
-                <p className="text-2xl font-bold mt-1">{formatHours(Math.round(overallAvgHours * 10) / 10)}</p>
+                <p className="text-sm text-muted-foreground">{t.techReport.speedLabel}</p>
+                <p className="text-2xl font-bold mt-1">{formatHours(Math.round(overallAvgHours * 10) / 10, t)}</p>
               </div>
               <div className="p-3 bg-amber-50 rounded-xl">
                 <Timer className="h-6 w-6 text-amber-600" />
@@ -487,7 +483,7 @@ export default function TechnicianReport() {
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">متوسط تقييم الأداء</p>
+                <p className="text-sm text-muted-foreground">{t.reports.performanceScore}</p>
                 <p className={`text-3xl font-bold mt-1 ${getScoreColor(avgScore)}`}>{avgScore}%</p>
               </div>
               <div className="p-3 bg-purple-50 rounded-xl">
@@ -504,8 +500,8 @@ export default function TechnicianReport() {
           <TabsTrigger value="comparison">{t.reports.comparison}</TabsTrigger>
           <TabsTrigger value="details">{t.common.details}</TabsTrigger>
           <TabsTrigger value="trends">{t.reports.monthlyTrend}</TabsTrigger>
-          <TabsTrigger value="external">الفنيون الخارجيون</TabsTrigger>
-          <TabsTrigger value="monthly-pm">🔍 أداء الفحوص</TabsTrigger>
+          <TabsTrigger value="external">{t.techReport?.externalTechs || "الفنيون الخارجيون"}</TabsTrigger>
+          <TabsTrigger value="monthly-pm">🔍 {t.techReport?.pmPerformance || "أداء الفحوص"}</TabsTrigger>
         </TabsList>
 
         {/* Overview Tab */}
@@ -516,7 +512,7 @@ export default function TechnicianReport() {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2 text-lg">
                   <Trophy className="h-5 w-5 text-amber-500" />
-                  ترتيب الفنيين حسب الأداء
+                  {t.techReport?.rankByPerformance || "ترتيب الفنيين حسب الأداء"}
                 </CardTitle>
               </CardHeader>
               <CardContent>
@@ -540,11 +536,11 @@ export default function TechnicianReport() {
                         {index + 1}
                       </div>
                       <div className="flex-1 min-w-0">
-                        <p className="font-medium truncate">{tech.technician.name || `فني #${tech.technician.id}`}</p>
+                        <p className="font-medium truncate">{tech.technician.name || `Tech #${tech.technician.id}`}</p>
                         <div className="flex items-center gap-2 mt-1">
-                          <span className="text-xs text-muted-foreground">{tech.completed}/{tech.totalAssigned} بلاغ</span>
+                          <span className="text-xs text-muted-foreground">{tech.completed}/{tech.totalAssigned} {t.nav.tickets || "بلاغ"}</span>
                           <span className="text-xs text-muted-foreground">|</span>
-                          <span className="text-xs text-muted-foreground">{formatHours(tech.avgResolutionHours)}</span>
+                          <span className="text-xs text-muted-foreground">{formatHours(tech.avgResolutionHours, t)}</span>
                         </div>
                       </div>
                       <div className="text-left">
@@ -554,7 +550,7 @@ export default function TechnicianReport() {
                         <div className="flex items-center gap-1 justify-end">
                           {getScoreIcon(tech.performanceScore)}
                           <span className={`text-xs ${getScoreColor(tech.performanceScore)}`}>
-                            {getScoreLabel(tech.performanceScore)}
+                            {getScoreLabel(tech.performanceScore, t)}
                           </span>
                         </div>
                       </div>
@@ -569,7 +565,7 @@ export default function TechnicianReport() {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2 text-lg">
                   <Target className="h-5 w-5 text-primary" />
-                  تحليل الأداء — {selectedTechData?.technician.name || ""}
+                  {t.techReport?.performanceAnalysis || "تحليل الأداء"} — {selectedTechData?.technician.name || ""}
                 </CardTitle>
               </CardHeader>
               <CardContent>
@@ -578,21 +574,21 @@ export default function TechnicianReport() {
                     <PolarGrid stroke="#e5e7eb" />
                     <PolarAngleAxis dataKey="metric" tick={{ fontSize: 12 }} />
                     <PolarRadiusAxis angle={90} domain={[0, 100]} tick={{ fontSize: 10 }} />
-                    <Radar name="الأداء" dataKey="value" stroke="#0ea5e9" fill="#0ea5e9" fillOpacity={0.3} strokeWidth={2} />
+                    <Radar name={t.techReport?.performance || "الأداء"} dataKey="value" stroke="#0ea5e9" fill="#0ea5e9" fillOpacity={0.3} strokeWidth={2} />
                   </RadarChart>
                 </ResponsiveContainer>
                 {selectedTechData && (
                   <div className="grid grid-cols-3 gap-3 mt-4">
                     <div className="text-center p-2 bg-muted/50 rounded-lg">
-                      <p className="text-xs text-muted-foreground">نسبة الإنجاز</p>
+                      <p className="text-xs text-muted-foreground">{t.reports.completionRate}</p>
                       <p className="font-bold text-sm">{selectedTechData.completionRate}%</p>
                     </div>
                     <div className="text-center p-2 bg-muted/50 rounded-lg">
-                      <p className="text-xs text-muted-foreground">متوسط الحل</p>
-                      <p className="font-bold text-sm">{formatHours(selectedTechData.avgResolutionHours)}</p>
+                      <p className="text-xs text-muted-foreground">{t.techReport.speedLabel}</p>
+                      <p className="font-bold text-sm">{formatHours(selectedTechData.avgResolutionHours, t)}</p>
                     </div>
                     <div className="text-center p-2 bg-muted/50 rounded-lg">
-                      <p className="text-xs text-muted-foreground">التقييم</p>
+                      <p className="text-xs text-muted-foreground">{t.reports.performanceScore}</p>
                       <p className={`font-bold text-sm ${getScoreColor(selectedTechData.performanceScore)}`}>
                         {selectedTechData.performanceScore}%
                       </p>
@@ -607,7 +603,7 @@ export default function TechnicianReport() {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2 text-lg">
                   <Zap className="h-5 w-5 text-amber-500" />
-                  توزيع مستويات الأداء
+                  {t.techReport?.scoreDistribution || "توزيع مستويات الأداء"}
                 </CardTitle>
               </CardHeader>
               <CardContent>
@@ -638,14 +634,14 @@ export default function TechnicianReport() {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2 text-lg">
                   <TrendingUp className="h-5 w-5 text-emerald-500" />
-                  ملخص سريع
+                  {t.techReport?.quickSummary || "ملخص سريع"}
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
                 {techs.slice(0, 5).map(tech => (
                   <div key={tech.technician.id} className="space-y-2">
                     <div className="flex items-center justify-between">
-                      <span className="text-sm font-medium">{tech.technician.name || `فني #${tech.technician.id}`}</span>
+                      <span className="text-sm font-medium">{tech.technician.name || `Tech #${tech.technician.id}`}</span>
                       <span className="text-sm text-muted-foreground">{tech.completionRate}%</span>
                     </div>
                     <Progress value={tech.completionRate} className="h-2" />
@@ -662,7 +658,7 @@ export default function TechnicianReport() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-lg">
                 <BarChart3 className="h-5 w-5 text-primary" />
-                مقارنة أداء الفنيين
+                {t.techReport?.comparisonTitle || "مقارنة أداء الفنيين"}
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -673,9 +669,9 @@ export default function TechnicianReport() {
                   <YAxis dataKey="name" type="category" width={120} tick={{ fontSize: 12 }} />
                   <RechartsTooltip />
                   <Legend />
-                  <Bar dataKey="بلاغات مُسندة" fill="#94a3b8" radius={[0, 4, 4, 0]} />
-                  <Bar dataKey="بلاغات مُنجزة" fill="#10b981" radius={[0, 4, 4, 0]} />
-                  <Bar dataKey="قيد التنفيذ" fill="#f59e0b" radius={[0, 4, 4, 0]} />
+                  <Bar dataKey={assignedLabel} fill="#94a3b8" radius={[0, 4, 4, 0]} />
+                  <Bar dataKey={completedLabel} fill="#10b981" radius={[0, 4, 4, 0]} />
+                  <Bar dataKey={inProgressLabel} fill="#f59e0b" radius={[0, 4, 4, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </CardContent>
@@ -686,28 +682,33 @@ export default function TechnicianReport() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-lg">
                 <Clock className="h-5 w-5 text-amber-500" />
-                مقارنة أوقات الحل (بالساعات)
+                {t.techReport?.resolutionTimeComparison || "مقارنة أوقات الحل"}
               </CardTitle>
             </CardHeader>
             <CardContent>
               <ResponsiveContainer width="100%" height={300}>
                 <BarChart
-                  data={techs.map(t => ({
-                    name: t.technician.name || `فني #${t.technician.id}`,
-                    "متوسط": t.avgResolutionHours,
-                    "أقل": t.minResolutionHours,
-                    "أعلى": t.maxResolutionHours,
-                  }))}
+                  data={(() => {
+                    const avgLbl = t.techReport?.avgLabel || "متوسط";
+                    const minLbl = t.techReport?.minLabel || "أقل";
+                    const maxLbl = t.techReport?.maxLabel || "أعلى";
+                    return techs.map(tech => ({
+                      name: tech.technician.name || `Tech #${tech.technician.id}`,
+                      [avgLbl]: tech.avgResolutionHours,
+                      [minLbl]: tech.minResolutionHours,
+                      [maxLbl]: tech.maxResolutionHours,
+                    }));
+                  })()}
                   margin={{ right: 30, left: 20 }}
                 >
                   <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                   <XAxis dataKey="name" tick={{ fontSize: 11 }} />
                   <YAxis tick={{ fontSize: 12 }} />
-                  <RechartsTooltip formatter={(value: number) => `${value} ساعة`} />
+                  <RechartsTooltip formatter={(value: number) => `${value} ${t.techReport.hour}`} />
                   <Legend />
-                  <Bar dataKey="أقل" fill="#10b981" radius={[4, 4, 0, 0]} />
-                  <Bar dataKey="متوسط" fill="#0ea5e9" radius={[4, 4, 0, 0]} />
-                  <Bar dataKey="أعلى" fill="#ef4444" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey={t.techReport?.minLabel || "أقل"} fill="#10b981" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey={t.techReport?.avgLabel || "متوسط"} fill="#0ea5e9" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey={t.techReport?.maxLabel || "أعلى"} fill="#ef4444" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </CardContent>
@@ -731,7 +732,7 @@ export default function TechnicianReport() {
                       {index + 1}
                     </div>
                     <div>
-                      <CardTitle className="text-lg">{tech.technician.name || `فني #${tech.technician.id}`}</CardTitle>
+                      <CardTitle className="text-lg">{tech.technician.name || `Tech #${tech.technician.id}`}</CardTitle>
                       <p className="text-sm text-muted-foreground">
                         {tech.technician.email || ""}
                         {tech.technician.department ? ` — ${tech.technician.department}` : ""}
@@ -740,7 +741,7 @@ export default function TechnicianReport() {
                   </div>
                   <div className={`px-4 py-2 rounded-xl border ${getScoreBg(tech.performanceScore)}`}>
                     <p className={`text-2xl font-bold ${getScoreColor(tech.performanceScore)}`}>{tech.performanceScore}%</p>
-                    <p className={`text-xs text-center ${getScoreColor(tech.performanceScore)}`}>{getScoreLabel(tech.performanceScore)}</p>
+                    <p className={`text-xs text-center ${getScoreColor(tech.performanceScore)}`}>{getScoreLabel(tech.performanceScore, t)}</p>
                   </div>
                 </div>
               </CardHeader>
@@ -764,12 +765,12 @@ export default function TechnicianReport() {
                     <p className="text-xl font-bold text-red-600">{tech.pending}</p>
                   </div>
                   <div className="p-3 bg-blue-50 rounded-lg text-center">
-                    <p className="text-xs text-muted-foreground">نسبة الإنجاز</p>
+                    <p className="text-xs text-muted-foreground">{t.reports.completionRate}</p>
                     <p className="text-xl font-bold text-blue-600">{tech.completionRate}%</p>
                   </div>
                   <div className="p-3 bg-purple-50 rounded-lg text-center">
-                    <p className="text-xs text-muted-foreground">متوسط الحل</p>
-                    <p className="text-lg font-bold text-purple-600">{formatHours(tech.avgResolutionHours)}</p>
+                    <p className="text-xs text-muted-foreground">{t.techReport.speedLabel}</p>
+                    <p className="text-lg font-bold text-purple-600">{formatHours(tech.avgResolutionHours, t)}</p>
                   </div>
                 </div>
 
@@ -836,8 +837,8 @@ export default function TechnicianReport() {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2 text-lg">
                   <TrendingUp className="h-5 w-5 text-primary" />
-                  الاتجاه الشهري — {tech.technician.name || `فني #${tech.technician.id}`}
-                  <Badge variant="outline" className="mr-auto">{getScoreLabel(tech.performanceScore)}</Badge>
+                  الاتجاه الشهري — {tech.technician.name || `Tech #${tech.technician.id}`}
+                  <Badge variant="outline" className="mr-auto">{getScoreLabel(tech.performanceScore, t)}</Badge>
                 </CardTitle>
               </CardHeader>
               <CardContent>
@@ -892,7 +893,7 @@ export default function TechnicianReport() {
                       <CheckCircle2 className="h-5 w-5 text-green-600" />
                     </div>
                     <div>
-                      <p className="text-sm text-muted-foreground">إجمالي البلاغات المُسندة</p>
+                      <p className="text-sm text-muted-foreground">{t.reports.totalAssigned}</p>
                       <p className="text-2xl font-bold">{extTechData.reduce((s, t) => s + t.totalAssigned, 0)}</p>
                     </div>
                   </div>
@@ -955,7 +956,7 @@ export default function TechnicianReport() {
                           </div>
                           <div className="text-center p-2 bg-muted rounded">
                             <p className="text-muted-foreground">متوسط الوقت</p>
-                            <p className="font-bold text-lg">{tech.avgResolutionHours > 0 ? formatHours(tech.avgResolutionHours) : '—'}</p>
+                            <p className="font-bold text-lg">{tech.avgResolutionHours > 0 ? formatHours(tech.avgResolutionHours, t) : '—'}</p>
                           </div>
                         </div>
                         <div className="space-y-1">

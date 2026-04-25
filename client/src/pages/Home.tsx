@@ -1,4 +1,5 @@
 import { useAuth } from "@/_core/hooks/useAuth";
+import { useTranslatedField } from "@/hooks/useTranslatedField";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -67,6 +68,7 @@ function SlideoverPanel({
 
 // ─── Ticket Row in Slideover ──────────────────────────────────────────────────
 function TicketRow({ ticket, onNavigate }: { ticket: any; onNavigate: (id: number) => void }) {
+  const { getField } = useTranslatedField();
   const priorityColors: Record<string, string> = {
     critical: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
     high: "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400",
@@ -94,7 +96,7 @@ function TicketRow({ ticket, onNavigate }: { ticket: any; onNavigate: (id: numbe
           )}
           {isSLABreach && <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400 font-medium">SLA ⚠</span>}
         </div>
-        <p className="text-sm font-medium truncate">{ticket.title}</p>
+        <p className="text-sm font-medium truncate">{getField(ticket, "title")}</p>
         {hoursAgo !== null && (
           <p className={`text-[11px] mt-0.5 ${isSLABreach ? "text-red-500" : isSLAWarning ? "text-amber-500" : "text-muted-foreground"}`}>
             منذ {hoursAgo} ساعة

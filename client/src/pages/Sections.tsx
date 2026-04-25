@@ -103,17 +103,17 @@ export default function Sections() {
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">إدارة الأقسام</h1>
-          <p className="text-sm text-muted-foreground mt-1">تفريع المواقع إلى أقسام لتنظيم الأصول والبلاغات</p>
+          <h1 className="text-2xl font-bold tracking-tight">{t.nav.sectionsPage}</h1>
+          <p className="text-sm text-muted-foreground mt-1">{t.sections?.subtitle || "تفريع المواقع إلى أقسام"}</p>
         </div>
         <div className="flex items-center gap-2">
           {/* Filter by site */}
           <Select value={filterSiteId} onValueChange={setFilterSiteId}>
             <SelectTrigger className="w-44">
-              <SelectValue placeholder="كل المواقع" />
+              <SelectValue placeholder={t.common.allSites} />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">كل المواقع</SelectItem>
+              <SelectItem value="all">{t.common.allSites}</SelectItem>
               {(sites || []).map(s => (
                 <SelectItem key={s.id} value={String(s.id)}>{s.name}</SelectItem>
               ))}
@@ -123,16 +123,16 @@ export default function Sections() {
           {/* Add Section */}
           <Dialog open={open} onOpenChange={setOpen}>
             <DialogTrigger asChild>
-              <Button className="gap-2"><Plus className="w-4 h-4" /> إضافة قسم</Button>
+              <Button className="gap-2"><Plus className="w-4 h-4" /> {t.sections?.addSection || "إضافة قسم"}</Button>
             </DialogTrigger>
             <DialogContent>
-              <DialogHeader><DialogTitle>إضافة قسم جديد</DialogTitle></DialogHeader>
+              <DialogHeader><DialogTitle>{t.sections?.addNewSection || "إضافة قسم جديد"}</DialogTitle></DialogHeader>
               <div className="space-y-4">
                 <div className="space-y-2">
-                  <Label>الموقع *</Label>
+                  <Label>{t.common.location} *</Label>
                   <Select value={form.siteId} onValueChange={v => setForm(f => ({ ...f, siteId: v }))}>
                     <SelectTrigger>
-                      <SelectValue placeholder="اختر الموقع" />
+                      <SelectValue placeholder={t.common.selectSite || "اختر الموقع"} />
                     </SelectTrigger>
                     <SelectContent>
                       {(sites || []).map(s => (
@@ -142,7 +142,7 @@ export default function Sections() {
                   </Select>
                 </div>
                 <div className="space-y-2">
-                  <Label>اسم القسم *</Label>
+                  <Label>{t.sections?.sectionName || "اسم القسم"} *</Label>
                   <Input
                     placeholder="مثال: محل كون زون"
                     value={form.name}
@@ -150,7 +150,7 @@ export default function Sections() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label>الوصف</Label>
+                  <Label>{t.common.description}</Label>
                   <Textarea
                     value={form.description}
                     onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
@@ -182,7 +182,7 @@ export default function Sections() {
               <MapPin className="w-4 h-4 text-blue-500" />
             </div>
             <div>
-              <p className="text-xs text-muted-foreground">المواقع</p>
+              <p className="text-xs text-muted-foreground">{t.nav.sites}</p>
               <p className="text-xl font-bold">{sites?.length || 0}</p>
             </div>
           </CardContent>
@@ -193,7 +193,7 @@ export default function Sections() {
               <Building2 className="w-4 h-4 text-emerald-500" />
             </div>
             <div>
-              <p className="text-xs text-muted-foreground">إجمالي الأقسام</p>
+              <p className="text-xs text-muted-foreground">{t.sections?.totalSections || "إجمالي الأقسام"}</p>
               <p className="text-xl font-bold">{sections?.length || 0}</p>
             </div>
           </CardContent>
@@ -204,7 +204,7 @@ export default function Sections() {
               <Building2 className="w-4 h-4 text-green-500" />
             </div>
             <div>
-              <p className="text-xs text-muted-foreground">أقسام نشطة</p>
+              <p className="text-xs text-muted-foreground">{t.sections?.activeSections || "أقسام نشطة"}</p>
               <p className="text-xl font-bold">{sections?.filter(s => s.isActive).length || 0}</p>
             </div>
           </CardContent>
@@ -215,7 +215,7 @@ export default function Sections() {
               <Building2 className="w-4 h-4 text-amber-500" />
             </div>
             <div>
-              <p className="text-xs text-muted-foreground">متوسط أقسام/موقع</p>
+              <p className="text-xs text-muted-foreground">{t.sections?.avgPerSite || "متوسط أقسام/موقع"}</p>
               <p className="text-xl font-bold">
                 {sites?.length ? Math.round((sections?.length || 0) / sites.length * 10) / 10 : 0}
               </p>
@@ -236,7 +236,7 @@ export default function Sections() {
           <CardContent className="p-12 text-center">
             <MapPin className="w-12 h-12 mx-auto text-muted-foreground/40 mb-4" />
             <h3 className="font-semibold text-lg mb-1">{t.common.noData}</h3>
-            <p className="text-sm text-muted-foreground">لا توجد مواقع. أضف مواقع أولاً من صفحة المواقع.</p>
+            <p className="text-sm text-muted-foreground">{t.sections?.noSites || "لا توجد مواقع. أضف مواقع أولاً."}</p>
           </CardContent>
         </Card>
       ) : (
@@ -257,7 +257,7 @@ export default function Sections() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                       <h3 className="font-semibold text-sm">{site.name}</h3>
-                      <Badge variant="secondary" className="text-xs">{siteSections.length} قسم</Badge>
+                      <Badge variant="secondary" className="text-xs">{siteSections.length} {t.nav.sectionsPage}</Badge>
                     </div>
                     {site.address && <p className="text-xs text-muted-foreground mt-0.5">{site.address}</p>}
                   </div>
@@ -272,7 +272,7 @@ export default function Sections() {
                         setOpen(true);
                       }}
                     >
-                      <Plus className="w-3 h-3" /> قسم
+                      <Plus className="w-3 h-3" /> {t.sections?.addSection || "قسم"}
                     </Button>
                     {isExpanded ? (
                       <ChevronDown className="w-4 h-4 text-muted-foreground" />
@@ -287,7 +287,7 @@ export default function Sections() {
                   <div className="border-t divide-y">
                     {siteSections.length === 0 ? (
                       <div className="px-6 py-4 text-sm text-muted-foreground text-center">
-                        لا توجد أقسام لهذا الموقع بعد
+                        {t.sections?.noSectionsYet || "لا توجد أقسام لهذا الموقع بعد"}
                       </div>
                     ) : (
                       siteSections.map(section => (
@@ -299,7 +299,7 @@ export default function Sections() {
                             <div className="flex items-center gap-2">
                               <span className="text-sm font-medium">{section.name}</span>
                               {!section.isActive && (
-                                <Badge variant="outline" className="text-xs text-muted-foreground">غير نشط</Badge>
+                                <Badge variant="outline" className="text-xs text-muted-foreground">{t.common.inactive}</Badge>
                               )}
                             </div>
                             {section.description && (
@@ -328,14 +328,14 @@ export default function Sections() {
       {/* Edit Dialog */}
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
         <DialogContent>
-          <DialogHeader><DialogTitle>تعديل القسم - {selectedSection?.name}</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>{t.common.edit} {t.nav.sectionsPage} - {selectedSection?.name}</DialogTitle></DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2">
-              <Label>اسم القسم *</Label>
+              <Label>{t.sections?.sectionName || "اسم القسم"} *</Label>
               <Input value={editForm.name} onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))} />
             </div>
             <div className="space-y-2">
-              <Label>الوصف</Label>
+              <Label>{t.common.description}</Label>
               <Textarea value={editForm.description} onChange={e => setEditForm(f => ({ ...f, description: e.target.value }))} rows={2} />
             </div>
             <div className="flex items-center gap-2">
@@ -346,7 +346,7 @@ export default function Sections() {
                 onChange={e => setEditForm(f => ({ ...f, isActive: e.target.checked }))}
                 className="w-4 h-4"
               />
-              <Label htmlFor="isActive">نشط</Label>
+              <Label htmlFor="isActive">{t.common.active || "نشط"}</Label>
             </div>
           </div>
           <DialogFooter>

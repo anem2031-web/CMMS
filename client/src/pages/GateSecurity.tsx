@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslatedField } from "@/hooks/useTranslatedField";
 import { trpc } from "@/lib/trpc";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -32,6 +33,7 @@ function getElapsedColor(dateStr: string | Date): string {
 }
 
 export default function GateSecurity() {
+  const { getField } = useTranslatedField();
   const { t } = useLanguage();
   const utils = trpc.useUtils();
 
@@ -59,7 +61,7 @@ export default function GateSecurity() {
 
   const approveExitMut = trpc.tickets.approveGateExit.useMutation({
     onSuccess: () => {
-      toast.success("✅ تمت الموافقة على خروج الأصل وتسجيله رسمياً");
+      toast.success(t.gate.approvedExit);
       utils.tickets.list.invalidate();
       setConfirmDialog(null);
     },
@@ -68,7 +70,7 @@ export default function GateSecurity() {
 
   const approveEntryMut = trpc.tickets.approveGateEntry.useMutation({
     onSuccess: () => {
-      toast.success("✅ تمت الموافقة على دخول الأصل وتسجيله رسمياً");
+      toast.success(t.gate.approvedEntry);
       utils.tickets.list.invalidate();
       setConfirmDialog(null);
     },
@@ -113,14 +115,14 @@ export default function GateSecurity() {
               )}
               {action === "history" && (
                 <Badge className={`text-xs ${ticket.status === "closed" ? "bg-slate-100 text-slate-600" : "bg-teal-100 text-teal-700"}`}>
-                  {ticket.status === "closed" ? "مغلق" : "جاهز للإغلاق"}
+                  {ticket.status === "closed" ? t.gate.closed : t.gate.readyToClose}
                 </Badge>
               )}
             </div>
-            <h3 className="font-semibold text-base truncate">{ticket.title}</h3>
+            <h3 className="font-semibold text-base truncate">{getField(ticket, "title")}</h3>
             {ticket.justification && (
               <p className="text-sm text-muted-foreground mt-1 line-clamp-1">
-                <span className="font-medium">المبرر: </span>{ticket.justification}
+                <span className="font-medium">{t.triage.justification} </span>{ticket.justification}
               </p>
             )}
             <div className="flex flex-wrap items-center gap-3 mt-2 text-xs text-muted-foreground">
@@ -188,8 +190,8 @@ export default function GateSecurity() {
           <Shield className="w-6 h-6 text-white" />
         </div>
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">لوحة حارس البوابة</h1>
-          <p className="text-sm text-muted-foreground">مراقبة حركة الأصول — الصيانة الخارجية (المسار C)</p>
+          <h1 className="text-2xl font-bold tracking-tight">{t.gate.title}</h1>
+          <p className="text-sm text-muted-foreground">{t.gate.subtitle}</p>
         </div>
       </div>
 
@@ -199,7 +201,7 @@ export default function GateSecurity() {
           <CardContent className="pt-4 pb-3">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-xs text-muted-foreground mb-1">بانتظار الخروج</p>
+                <p className="text-xs text-muted-foreground mb-1">{t.gate.awaitingExit}</p>
                 <p className="text-2xl font-bold text-orange-700">{pendingExitTickets.length}</p>
               </div>
               <div className="w-10 h-10 rounded-xl bg-orange-100 flex items-center justify-center">
@@ -212,7 +214,7 @@ export default function GateSecurity() {
           <CardContent className="pt-4 pb-3">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-xs text-muted-foreground mb-1">خارج للإصلاح</p>
+                <p className="text-xs text-muted-foreground mb-1">{t.gate.outsideForRepair}</p>
                 <p className="text-2xl font-bold text-red-700">{outForRepairTickets.length}</p>
               </div>
               <div className="w-10 h-10 rounded-xl bg-red-100 flex items-center justify-center">
@@ -225,7 +227,7 @@ export default function GateSecurity() {
           <CardContent className="pt-4 pb-3">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-xs text-muted-foreground mb-1">بانتظار الدخول</p>
+                <p className="text-xs text-muted-foreground mb-1">{t.gate.awaitingEntry}</p>
                 <p className="text-2xl font-bold text-green-700">{awaitingEntryTickets.length}</p>
               </div>
               <div className="w-10 h-10 rounded-xl bg-green-100 flex items-center justify-center">
@@ -238,7 +240,7 @@ export default function GateSecurity() {
           <CardContent className="pt-4 pb-3">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-xs text-muted-foreground mb-1">مكتملة</p>
+                <p className="text-xs text-muted-foreground mb-1">{t.gate.completed}</p>
                 <p className="text-2xl font-bold text-slate-700">{completedTickets.length}</p>
               </div>
               <div className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center">
@@ -275,7 +277,7 @@ export default function GateSecurity() {
         {/* Exit Tab */}
         <TabsContent value="exit" className="space-y-3 mt-4">
           {isLoading ? (
-            <div className="text-center py-8 text-muted-foreground">جاري التحميل...</div>
+            <div className="text-center py-8 text-muted-foreground">{t.gate.loading}</div>
           ) : pendingExitTickets.length === 0 ? (
             <Card>
               <CardContent className="py-12 text-center">
@@ -307,7 +309,7 @@ export default function GateSecurity() {
                       <div className="flex items-center justify-between gap-3">
                         <div>
                           <span className="text-sm font-mono text-muted-foreground">{ticket.ticketNumber}</span>
-                          <p className="font-medium text-sm">{ticket.title}</p>
+                          <p className="font-medium text-sm">{getField(ticket, "title")}</p>
                         </div>
                         <div className="flex items-center gap-2">
                           <span className={`text-xs flex items-center gap-1 ${getElapsedColor(ticket.updatedAt)}`}>
@@ -338,7 +340,7 @@ export default function GateSecurity() {
           )}
 
           {isLoading ? (
-            <div className="text-center py-8 text-muted-foreground">جاري التحميل...</div>
+            <div className="text-center py-8 text-muted-foreground">{t.gate.loading}</div>
           ) : awaitingEntryTickets.length === 0 && outForRepairTickets.filter((t: any) => !t.externalRepairCompletedAt).length === 0 ? (
             <Card>
               <CardContent className="py-12 text-center">
@@ -353,7 +355,7 @@ export default function GateSecurity() {
         {/* History Tab */}
         <TabsContent value="history" className="space-y-3 mt-4">
           {isLoading ? (
-            <div className="text-center py-8 text-muted-foreground">جاري التحميل...</div>
+            <div className="text-center py-8 text-muted-foreground">{t.gate.loading}</div>
           ) : completedTickets.length === 0 ? (
             <Card>
               <CardContent className="py-12 text-center">
@@ -386,7 +388,7 @@ export default function GateSecurity() {
             <div className="py-2 space-y-3">
               <div className="p-3 bg-muted rounded-lg">
                 <p className="font-semibold text-sm">{confirmDialog.ticket.ticketNumber}</p>
-                <p className="text-sm text-muted-foreground">{confirmDialog.ticket.title}</p>
+                <p className="text-sm text-muted-foreground">{getField(confirmDialog.ticket, "title")}</p>
                 {confirmDialog.ticket.asset?.rfidTag && (
                   <p className="text-xs font-mono mt-1 text-slate-500">
                     RFID: {confirmDialog.ticket.asset.rfidTag}
