@@ -499,12 +499,13 @@ export default function TechnicianReport() {
       </div>
 
       <Tabs defaultValue="overview" className="space-y-4">
-        <TabsList className="grid w-full grid-cols-5 lg:w-auto lg:inline-grid">
+        <TabsList className="grid w-full grid-cols-6 lg:w-auto lg:inline-grid">
           <TabsTrigger value="overview">{t.reports.overview}</TabsTrigger>
           <TabsTrigger value="comparison">{t.reports.comparison}</TabsTrigger>
           <TabsTrigger value="details">{t.common.details}</TabsTrigger>
           <TabsTrigger value="trends">{t.reports.monthlyTrend}</TabsTrigger>
           <TabsTrigger value="external">الفنيون الخارجيون</TabsTrigger>
+          <TabsTrigger value="monthly-pm">🔍 أداء الفحوص</TabsTrigger>
         </TabsList>
 
         {/* Overview Tab */}
@@ -972,7 +973,168 @@ export default function TechnicianReport() {
             </div>
           )}
         </TabsContent>
+
+        {/* Monthly PM Performance Tab */}
+        <TabsContent value="monthly-pm" className="space-y-4">
+          <TechnicianMonthlyPM />
+        </TabsContent>
       </Tabs>
+    </div>
+  );
+}
+
+// ── Component: تقرير أداء الفني الشهري (فحوصات + معدل اكتشاف الأعطال) ──
+function TechnicianMonthlyPM() {
+  const { data, isLoading } = trpc.reports.technicianMonthlyReport.useQuery();
+
+  if (isLoading) return (
+    <div className="flex items-center justify-center h-48">
+      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
+    </div>
+  );
+
+  if (!data || data.technicians.length === 0) return (
+    <Card>
+      <CardContent className="flex flex-col items-center justify-center h-48 text-muted-foreground">
+        <span className="text-4xl mb-2">🔍</span>
+        <p>لا توجد بيانات فحوصات بعد</p>
+        <p className="text-sm mt-1">ستظهر البيانات بعد أن يبدأ الفنيون فحوصات الصيانة الدورية</p>
+      </CardContent>
+    </Card>
+  );
+
+  const monthLabels = (data.months || []).map((m: string) => {
+    const [y, mo] = m.split("-");
+    return new Date(Number(y), Number(mo) - 1, 1).toLocaleDateString("ar-SA", { month: "short", year: "2-digit" });
+  });
+
+  return (
+    <div className="space-y-6">
+      {/* بطاقات ملخص إجمالي */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <Card className="bg-gradient-to-br from-blue-500 to-blue-600 text-white">
+          <CardContent className="pt-4 pb-4">
+            <p className="text-blue-100 text-sm">إجمالي الفنيين</p>
+            <p className="text-3xl font-bold">{data.technicians.length}</p>
+          </CardContent>
+        </Card>
+        <Card className="bg-gradient-to-br from-green-500 to-green-600 text-white">
+          <CardContent className="pt-4 pb-4">
+            <p className="text-green-100 text-sm">إجمالي الفحوصات</p>
+            <p className="text-3xl font-bold">{data.technicians.reduce((s: number, t: any) => s + t.totalInspections, 0)}</p>
+          </CardContent>
+        </Card>
+        <Card className="bg-gradient-to-br from-red-500 to-red-600 text-white">
+          <CardContent className="pt-4 pb-4">
+            <p className="text-red-100 text-sm">أعطال مكتشفة</p>
+            <p className="text-3xl font-bold">{data.technicians.reduce((s: number, t: any) => s + t.totalDefects, 0)}</p>
+          </CardContent>
+        </Card>
+        <Card className="bg-gradient-to-br from-purple-500 to-purple-600 text-white">
+          <CardContent className="pt-4 pb-4">
+            <p className="text-purple-100 text-sm">متوسط معدل الاكتشاف</p>
+            <p className="text-3xl font-bold">
+              {data.technicians.length > 0
+                ? Math.round(data.technicians.reduce((s: number, t: any) => s + t.overallDetectionRate, 0) / data.technicians.length)
+                : 0}%
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* جدول أداء كل فني */}
+      {data.technicians.map((tech: any) => (
+        <Card key={tech.technicianId} className="overflow-hidden">
+          <CardHeader className="pb-2 bg-muted/30">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-lg font-bold text-primary">
+                  {tech.technicianName?.charAt(0) || "?"}
+                </div>
+                <div>
+                  <CardTitle className="text-base">{tech.technicianName}</CardTitle>
+                  <p className="text-xs text-muted-foreground">فني صيانة</p>
+                </div>
+              </div>
+              <div className="flex gap-4 text-center">
+                <div>
+                  <p className="text-2xl font-bold text-green-600">{tech.totalInspections}</p>
+                  <p className="text-xs text-muted-foreground">فحص</p>
+                </div>
+                <div>
+                  <p className="text-2xl font-bold text-red-500">{tech.totalDefects}</p>
+                  <p className="text-xs text-muted-foreground">عطل</p>
+                </div>
+                <div>
+                  <p className="text-2xl font-bold text-purple-600">{tech.overallDetectionRate}%</p>
+                  <p className="text-xs text-muted-foreground">معدل الاكتشاف</p>
+                </div>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="pt-4">
+            {/* جدول شهري */}
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b">
+                    <th className="text-right pb-2 font-medium text-muted-foreground">الشهر</th>
+                    {monthLabels.map((label: string, i: number) => (
+                      <th key={i} className="text-center pb-2 font-medium text-muted-foreground px-2">{label}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr className="border-b">
+                    <td className="py-2 text-muted-foreground">فحوصات</td>
+                    {tech.monthlyData.map((m: any, i: number) => (
+                      <td key={i} className="text-center py-2 px-2">
+                        <span className={`font-bold ${m.inspections > 0 ? "text-green-600" : "text-muted-foreground"}`}>
+                          {m.inspections}
+                        </span>
+                      </td>
+                    ))}
+                  </tr>
+                  <tr className="border-b">
+                    <td className="py-2 text-muted-foreground">أعطال مكتشفة</td>
+                    {tech.monthlyData.map((m: any, i: number) => (
+                      <td key={i} className="text-center py-2 px-2">
+                        <span className={`font-bold ${m.defectsFound > 0 ? "text-red-500" : "text-muted-foreground"}`}>
+                          {m.defectsFound}
+                        </span>
+                      </td>
+                    ))}
+                  </tr>
+                  <tr>
+                    <td className="py-2 text-muted-foreground">معدل الاكتشاف</td>
+                    {tech.monthlyData.map((m: any, i: number) => (
+                      <td key={i} className="text-center py-2 px-2">
+                        <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-bold ${
+                          m.detectionRate >= 20 ? "bg-red-100 text-red-700" :
+                          m.detectionRate >= 10 ? "bg-orange-100 text-orange-700" :
+                          m.inspections > 0 ? "bg-green-100 text-green-700" :
+                          "text-muted-foreground"
+                        }`}>
+                          {m.inspections > 0 ? `${m.detectionRate}%` : "—"}
+                        </span>
+                      </td>
+                    ))}
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            {/* شريط تقدم معدل الاكتشاف */}
+            <div className="mt-3 space-y-1">
+              <div className="flex justify-between text-xs text-muted-foreground">
+                <span>معدل اكتشاف الأعطال الإجمالي</span>
+                <span className="font-bold text-purple-600">{tech.overallDetectionRate}%</span>
+              </div>
+              <Progress value={tech.overallDetectionRate} className="h-2" />
+            </div>
+          </CardContent>
+        </Card>
+      ))}
     </div>
   );
 }

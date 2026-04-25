@@ -11,8 +11,9 @@ import { toast } from "sonner";
 import {
   Bell, BellOff, CheckCheck, AlertTriangle, Info,
   CheckCircle2, XCircle, Clock, Ticket, ShoppingCart,
-  Trash2, RefreshCw, Smartphone
+  Trash2, RefreshCw, Smartphone, Activity
 } from "lucide-react";
+import KpiTimeline from "@/components/KpiTimeline";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 type NotifFilter = "all" | "unread" | "critical" | "warning" | "success" | "info";
@@ -180,8 +181,43 @@ export default function Notifications() {
     }
   };
 
+  const [mainTab, setMainTab] = useState<"notifications" | "kpi">("notifications");
+
   return (
     <div className="space-y-6" dir="rtl">
+      {/* ── Main Tab Switcher ── */}
+      <div className="flex gap-2 p-1 bg-muted rounded-xl">
+        <button
+          onClick={() => setMainTab("notifications")}
+          className={cn(
+            "flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg text-sm font-semibold transition-all",
+            mainTab === "notifications"
+              ? "bg-background shadow-sm text-foreground"
+              : "text-muted-foreground hover:text-foreground"
+          )}
+        >
+          <Bell className="w-4 h-4" />
+          مركز الإشعارات
+        </button>
+        <button
+          onClick={() => setMainTab("kpi")}
+          className={cn(
+            "flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg text-sm font-semibold transition-all",
+            mainTab === "kpi"
+              ? "bg-background shadow-sm text-foreground"
+              : "text-muted-foreground hover:text-foreground"
+          )}
+        >
+          <Activity className="w-4 h-4" />
+          الرقابة الوقتية
+        </button>
+      </div>
+
+      {/* ── KPI Tab ── */}
+      {mainTab === "kpi" && <KpiTimeline />}
+
+      {/* ── Notifications Tab ── */}
+      {mainTab === "notifications" && <>
       {/* ── Header ── */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div className="flex items-center gap-3">
@@ -434,6 +470,7 @@ export default function Notifications() {
           عرض {filtered.length} من {notifications.length} إشعار
         </p>
       )}
+      </> }
     </div>
   );
 }

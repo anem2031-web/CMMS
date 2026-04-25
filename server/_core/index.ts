@@ -18,6 +18,7 @@ import { generateWorkflowGuidePDF } from "../workflowPdfService";
 import { runTechnicianOverdueJob } from "../jobs/technician-overdue";
 import { runPMAutomationJob } from "../jobs/pm-automation";
 import { runPMWorkOrderReminderJob } from "../jobs/pm-reminder";
+import { runSlaOverduePushJob } from "../jobs/sla-overdue-push";
 import { generatePMWorkOrderPDF } from "../pmWorkOrderPdfService";
 import { sdk } from "./sdk";
 
@@ -326,11 +327,17 @@ async function startServer() {
   }, 10000);
 
   // PM Reminder Job: يفحص كل ساعتين أوامر العمل التي تجاوزت 24 ساعة بدون تحديث
-  const TWO_HOURS = 2 * 60 * 60 * 1000;
+   const TWO_HOURS = 2 * 60 * 60 * 1000;
   setTimeout(() => {
     runPMWorkOrderReminderJob();
     setInterval(runPMWorkOrderReminderJob, TWO_HOURS);
   }, 15000);
-}
 
+  // SLA Overdue Push - كل 6 ساعات
+  const SIX_HOURS_MS = 6 * 60 * 60 * 1000;
+  setTimeout(() => {
+    runSlaOverduePushJob();
+    setInterval(runSlaOverduePushJob, SIX_HOURS_MS);
+  }, 20000);
+}
 startServer().catch(console.error);
