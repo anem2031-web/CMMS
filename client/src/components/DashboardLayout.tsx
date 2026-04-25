@@ -87,7 +87,7 @@ const NAV_SECTIONS: NavSection[] = [
       { icon: Truck,        labelKey: "nav.purchaseCycle",  path: "/purchase-cycle",
         roles: ["delegate","warehouse","owner","admin"] },
       { icon: ShoppingBag,  labelKey: "nav.myItems",        path: "/my-items",
-        roles: ["delegate","owner","admin"] },
+        roles: ["owner","admin"] },
       { icon: Package,      labelKey: "nav.inventory",      path: "/inventory",
         roles: ["warehouse","maintenance_manager","owner","admin"] },
     ],
