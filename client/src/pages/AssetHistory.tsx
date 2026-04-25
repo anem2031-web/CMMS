@@ -4,7 +4,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ArrowLeft, Wrench, CheckCircle2, AlertCircle, Clock, FileText, ClipboardCheck, CheckSquare, AlertTriangle, Timer } from "lucide-react";
+import { ArrowLeft, Wrench, CheckCircle2, AlertCircle, Clock, FileText, ClipboardCheck, CheckSquare, AlertTriangle, Timer, TrendingUp } from "lucide-react";
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useTranslation } from "@/contexts/LanguageContext";
 import { useStaticLabels } from "@/hooks/useContentTranslation";
@@ -283,7 +284,60 @@ export default function AssetHistory() {
           )}
         </TabsContent>
         {/* Inspection History Tab */}
-        <TabsContent value="inspections" className="space-y-3">
+        <TabsContent value="inspections" className="space-y-4">
+          {/* Trend Chart */}
+          {inspectionHistory && inspectionHistory.length > 1 && (() => {
+            const chartData = [...inspectionHistory].reverse().map((s: any, i: number) => ({
+              name: `#${i + 1}`,
+              date: s.completedAt ? new Date(s.completedAt).toLocaleDateString("ar-SA", { month: "short", day: "numeric" }) : `فحص ${i + 1}`,
+              سليم: s.okCount,
+              إصلاح: s.fixedCount,
+              خلل: s.issueCount,
+            }));
+            return (
+              <Card className="border-blue-100">
+                <CardHeader className="pb-2 pt-4 px-4">
+                  <CardTitle className="text-sm flex items-center gap-2">
+                    <TrendingUp className="w-4 h-4 text-blue-500" />
+                    تطور نتائج الفحوصات عبر الزمن
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="px-2 pb-4">
+                  <ResponsiveContainer width="100%" height={200}>
+                    <AreaChart data={chartData} margin={{ top: 5, right: 10, left: -20, bottom: 0 }}>
+                      <defs>
+                        <linearGradient id="colorOk" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#22c55e" stopOpacity={0.3} />
+                          <stop offset="95%" stopColor="#22c55e" stopOpacity={0} />
+                        </linearGradient>
+                        <linearGradient id="colorFixed" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3} />
+                          <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
+                        </linearGradient>
+                        <linearGradient id="colorIssue" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#ef4444" stopOpacity={0.3} />
+                          <stop offset="95%" stopColor="#ef4444" stopOpacity={0} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                      <XAxis dataKey="date" tick={{ fontSize: 10 }} />
+                      <YAxis allowDecimals={false} tick={{ fontSize: 10 }} />
+                      <Tooltip
+                        contentStyle={{ fontSize: 12, direction: "rtl" }}
+                        formatter={(value: any, name: string) => [value, name]}
+                      />
+                      <Legend wrapperStyle={{ fontSize: 11 }} />
+                      <Area type="monotone" dataKey="سليم" stroke="#22c55e" fill="url(#colorOk)" strokeWidth={2} />
+                      <Area type="monotone" dataKey="إصلاح" stroke="#3b82f6" fill="url(#colorFixed)" strokeWidth={2} />
+                      <Area type="monotone" dataKey="خلل" stroke="#ef4444" fill="url(#colorIssue)" strokeWidth={2} />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </CardContent>
+              </Card>
+            );
+          })()}
+          {/* Sessions List */}
+          <div className="space-y-3">
           {inspectionLoading ? (
             <Card><CardContent className="p-8 text-center"><Clock className="w-10 h-10 mx-auto text-muted-foreground/40 mb-3 animate-spin" /></CardContent></Card>
           ) : !inspectionHistory || inspectionHistory.length === 0 ? (
@@ -360,6 +414,7 @@ export default function AssetHistory() {
               );
             })
           )}
+          </div>
         </TabsContent>
       </Tabs>
     </div>

@@ -2864,6 +2864,20 @@ ${JSON.stringify(recentAudit.map((a: any) => ({ action: a.action, entity: a.enti
       // Update plan's lastGeneratedAt and nextDueDate
       const nextDue = db.calcNextDueDate(new Date(input.scheduledDate), plan.frequency, plan.frequencyValue ?? 1);
       await db.updatePreventivePlan(input.planId, { lastGeneratedAt: new Date(), nextDueDate: nextDue });
+      // ─── إشعار push للفني المعيّن ───
+      if (plan.assignedToId) {
+        try {
+          const { sendPushToUser } = await import("./webPush");
+          const scheduledDateStr = new Date(input.scheduledDate).toLocaleDateString("ar-SA");
+          await sendPushToUser(plan.assignedToId, {
+            title: "تكليف جديد: صيانة وقائية 🔧",
+            body: `مهمة: ${plan.title}\nرقم الأمر: ${woNumber}\nالتاريخ: ${scheduledDateStr}`,
+            tag: `pm-wo-${result.id}`,
+          });
+        } catch (e) {
+          console.error("[generateWorkOrder] Push notification failed:", e);
+        }
+      }
       return result;
     }),
 
