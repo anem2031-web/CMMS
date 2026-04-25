@@ -3231,6 +3231,19 @@ ${JSON.stringify(recentAudit.map((a: any) => ({ action: a.action, entity: a.enti
         notifContent = `الفني ${techName} أنهى الفحص الدوري لـ "${wo?.title ?? ''}" - جميع ${okCount} بند سليمة.`;
       }
       await notifyOwner({ title: notifTitle, content: notifContent });
+      // Send colored in-app notifications to all managers
+      const managerUsers = await db.getManagerUsers();
+      const notifType = issueCount > 0 ? "critical" : fixedCount > 0 ? "warning" : "success";
+      for (const manager of managerUsers) {
+        await db.createNotification({
+          userId: manager.id,
+          title: notifTitle,
+          message: notifContent,
+          type: notifType,
+          relatedTicketId: undefined,
+          relatedPOId: undefined,
+        });
+      }
       return { success: true, issueCount, fixedCount, okCount };
     }),
 
@@ -3326,6 +3339,44 @@ ${JSON.stringify(recentAudit.map((a: any) => ({ action: a.action, entity: a.enti
         detectionRate,
         summary: `تم اكتشاف ${pmSourceTickets.length} عطل من أصل ${rangeTickets.length} بلاغ (${detectionRate}%) عن طريق الصيانة الدورية`,
       };
+    }),
+
+    // ─── Asset Inspection History ─────────────────────────────────────────
+    getAssetInspectionHistory: protectedProcedure.input(z.object({
+      assetId: z.number(),
+      limit: z.number().optional().default(10),
+    })).query(async ({ input }) => {
+      const ddb = await db.getDb();
+      if (!ddb) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "خطأ في قاعدة البيانات" });
+      const { pmExecutionSessions, pmWorkOrders, pmExecutionResults } = await import("../drizzle/schema");
+      const { eq, desc, and } = await import("drizzle-orm");
+      // Get work orders for this asset
+      const workOrders = await db.listPMWorkOrders({ assetId: input.assetId, status: "completed" });
+      const woIds = workOrders.map((wo: any) => wo.id);
+      if (woIds.length === 0) return [];
+      // Get sessions for these work orders
+      const sessions: any[] = [];
+      for (const woId of woIds.slice(0, input.limit)) {
+        const sess = await ddb.select().from(pmExecutionSessions)
+          .where(and(eq(pmExecutionSessions.workOrderId, woId), eq(pmExecutionSessions.status, "completed")))
+          .limit(1);
+        if (sess.length > 0) {
+          const wo = workOrders.find((w: any) => w.id === woId);
+          const results = await ddb.select().from(pmExecutionResults)
+            .where(eq(pmExecutionResults.workOrderId, woId));
+          sessions.push({
+            ...sess[0],
+            workOrderTitle: wo?.title ?? "",
+            workOrderNumber: wo?.workOrderNumber ?? "",
+            okCount: results.filter((r: any) => r.status === "ok").length,
+            fixedCount: results.filter((r: any) => r.status === "fixed").length,
+            issueCount: results.filter((r: any) => r.status === "issue").length,
+            totalItems: results.length,
+          });
+        }
+      }
+      sessions.sort((a, b) => new Date(b.completedAt ?? b.startedAt).getTime() - new Date(a.completedAt ?? a.startedAt).getTime());
+      return sessions;
     }),
 
     // ─── PM Report ────────────────────────────────────────────────────────

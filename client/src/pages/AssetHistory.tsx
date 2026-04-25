@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ArrowLeft, Wrench, CheckCircle2, AlertCircle, Clock, FileText } from "lucide-react";
+import { ArrowLeft, Wrench, CheckCircle2, AlertCircle, Clock, FileText, ClipboardCheck, CheckSquare, AlertTriangle, Timer } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useTranslation } from "@/contexts/LanguageContext";
 import { useStaticLabels } from "@/hooks/useContentTranslation";
@@ -41,6 +41,7 @@ export default function AssetHistory() {
   const { data: asset, isLoading: assetLoading } = trpc.assets.getById.useQuery({ id: assetId });
   const { data: history, isLoading: historyLoading } = trpc.assets.getMaintenanceHistory.useQuery({ id: assetId });
   const { data: stats, isLoading: statsLoading } = trpc.assets.getMaintenanceStats.useQuery({ id: assetId });
+  const { data: inspectionHistory, isLoading: inspectionLoading } = trpc.preventive.getAssetInspectionHistory.useQuery({ assetId, limit: 10 });
 
   const locale = language === "ar" ? "ar-SA" : language === "ur" ? "ur-PK" : "en-US";
 
@@ -151,10 +152,14 @@ export default function AssetHistory() {
 
       {/* Tabs */}
       <Tabs defaultValue="tickets" className="w-full">
-        <TabsList className="grid w-full grid-cols-3">
+        <TabsList className="grid w-full grid-cols-4">
           <TabsTrigger value="tickets">البلاغات ({history?.tickets.length || 0})</TabsTrigger>
           <TabsTrigger value="plans">خطط الصيانة ({history?.pmPlans.length || 0})</TabsTrigger>
           <TabsTrigger value="workorders">أوامر العمل ({history?.workOrders.length || 0})</TabsTrigger>
+          <TabsTrigger value="inspections" className="flex items-center gap-1">
+            <ClipboardCheck className="w-3.5 h-3.5" />
+            سجل الفحوصات ({inspectionHistory?.length || 0})
+          </TabsTrigger>
         </TabsList>
 
         {/* Tickets Tab */}
@@ -275,6 +280,85 @@ export default function AssetHistory() {
                 </CardContent>
               </Card>
             ))
+          )}
+        </TabsContent>
+        {/* Inspection History Tab */}
+        <TabsContent value="inspections" className="space-y-3">
+          {inspectionLoading ? (
+            <Card><CardContent className="p-8 text-center"><Clock className="w-10 h-10 mx-auto text-muted-foreground/40 mb-3 animate-spin" /></CardContent></Card>
+          ) : !inspectionHistory || inspectionHistory.length === 0 ? (
+            <Card>
+              <CardContent className="p-8 text-center">
+                <ClipboardCheck className="w-10 h-10 mx-auto text-muted-foreground/40 mb-3" />
+                <p className="text-sm text-muted-foreground">لا توجد فحوصات مكتملة لهذا الأصل</p>
+              </CardContent>
+            </Card>
+          ) : (
+            inspectionHistory.map((session: any) => {
+              const hasIssues = session.issueCount > 0;
+              const hasFixed = session.fixedCount > 0;
+              const borderColor = hasIssues ? "border-red-200" : hasFixed ? "border-blue-200" : "border-green-200";
+              const bgColor = hasIssues ? "bg-red-50" : hasFixed ? "bg-blue-50" : "bg-green-50";
+              const icon = hasIssues ? (
+                <AlertTriangle className="w-5 h-5 text-red-500 flex-shrink-0" />
+              ) : hasFixed ? (
+                <Wrench className="w-5 h-5 text-blue-500 flex-shrink-0" />
+              ) : (
+                <CheckSquare className="w-5 h-5 text-green-500 flex-shrink-0" />
+              );
+              const durationMin = session.durationSeconds ? Math.round(session.durationSeconds / 60) : null;
+              return (
+                <Card key={session.id} className={`border ${borderColor} hover:shadow-md transition-shadow`}>
+                  <CardContent className="p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-start gap-3 flex-1 min-w-0">
+                        {icon}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="text-xs font-mono text-muted-foreground">{session.workOrderNumber}</span>
+                            {hasIssues && <Badge className="bg-red-500 text-white text-[10px] px-1.5">{session.issueCount} خلل</Badge>}
+                            {hasFixed && <Badge className="bg-blue-500 text-white text-[10px] px-1.5">{session.fixedCount} إصلاح</Badge>}
+                            {!hasIssues && !hasFixed && <Badge className="bg-green-500 text-white text-[10px] px-1.5">جميعها سليمة</Badge>}
+                          </div>
+                          <h4 className="font-medium text-sm truncate">{session.workOrderTitle}</h4>
+                          <div className="flex items-center gap-3 mt-1.5 text-xs text-muted-foreground">
+                            <span className="flex items-center gap-1">
+                              <Clock className="w-3 h-3" />
+                              {session.completedAt ? new Date(session.completedAt).toLocaleDateString(locale) : "—"}
+                            </span>
+                            {durationMin !== null && (
+                              <span className="flex items-center gap-1">
+                                <Timer className="w-3 h-3" />
+                                {durationMin} دقيقة
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                      <div className={`text-center px-3 py-1.5 rounded-lg ${bgColor}`}>
+                        <div className="text-lg font-bold">{session.totalItems}</div>
+                        <div className="text-[10px] text-muted-foreground">بند</div>
+                      </div>
+                    </div>
+                    {/* Mini stats row */}
+                    <div className="flex gap-4 mt-3 pt-3 border-t text-xs">
+                      <span className="flex items-center gap-1 text-green-600">
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                        سليم: {session.okCount}
+                      </span>
+                      <span className="flex items-center gap-1 text-blue-600">
+                        <Wrench className="w-3.5 h-3.5" />
+                        إصلاح: {session.fixedCount}
+                      </span>
+                      <span className="flex items-center gap-1 text-red-600">
+                        <AlertTriangle className="w-3.5 h-3.5" />
+                        خلل: {session.issueCount}
+                      </span>
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+            })
           )}
         </TabsContent>
       </Tabs>
