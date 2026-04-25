@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Building2, AlertTriangle, CheckCircle2, Clock, Wrench, Package, TrendingUp, ShieldCheck, Zap } from "lucide-react";
+import { Building2, AlertTriangle, CheckCircle2, Clock, Wrench, Package, TrendingUp, ShieldCheck, Zap, Target } from "lucide-react";
 import { useTranslation } from "@/contexts/LanguageContext";
 
 export default function SectionReport() {
@@ -41,6 +41,12 @@ export default function SectionReport() {
   // إجماليات للمقارنة
   const totalPreventive = sections.reduce((sum: number, s: any) => sum + (s.preventiveCount ?? 0), 0);
   const totalEmergency = sections.reduce((sum: number, s: any) => sum + (s.emergencyCount ?? 0), 0);
+
+  // تقرير معدل اكتشاف الأعطال
+  const { data: detectionReport, isLoading: detectionLoading } = trpc.preventive.getDetectionRateReport.useQuery({
+    dateFrom: dateFrom || undefined,
+    dateTo: dateTo || undefined,
+  });
 
   return (
     <div className="space-y-6 p-6">
@@ -325,6 +331,85 @@ export default function SectionReport() {
               ))}
             </div>
           )}
+        </CardContent>
+      </Card>
+
+      {/* ── تقرير معدل اكتشاف الأعطال ── */}
+      <Card className="border-primary/20">
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Target className="w-5 h-5 text-primary" />
+            معدل اكتشاف الأعطال بالصيانة الدورية
+          </CardTitle>
+          <p className="text-xs text-muted-foreground">كم عطلاً تم اكتشافه عن طريق الفحص الدوري قبل أن يبلغ عنه الزوار</p>
+        </CardHeader>
+        <CardContent>
+          {detectionLoading ? (
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              {[1,2,3,4].map(i => <Skeleton key={i} className="h-20" />)}
+            </div>
+          ) : detectionReport ? (
+            <div className="space-y-4">
+              {/* بطاقات الإحصاء */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="bg-blue-50 dark:bg-blue-950/30 rounded-lg p-3 text-center">
+                  <p className="text-xs text-muted-foreground">عمليات فحص مكتملة</p>
+                  <p className="text-2xl font-bold text-blue-600">{detectionReport.completedInspections}</p>
+                </div>
+                <div className="bg-green-50 dark:bg-green-950/30 rounded-lg p-3 text-center">
+                  <p className="text-xs text-muted-foreground">بنود سليمة ✅</p>
+                  <p className="text-2xl font-bold text-green-600">{detectionReport.okItems}</p>
+                </div>
+                <div className="bg-orange-50 dark:bg-orange-950/30 rounded-lg p-3 text-center">
+                  <p className="text-xs text-muted-foreground">إصلاح فوري 🛠️</p>
+                  <p className="text-2xl font-bold text-orange-600">{detectionReport.fixedItems}</p>
+                </div>
+                <div className="bg-red-50 dark:bg-red-950/30 rounded-lg p-3 text-center">
+                  <p className="text-xs text-muted-foreground">أعطال مكتشفة ⚠️</p>
+                  <p className="text-2xl font-bold text-red-600">{detectionReport.issueItems}</p>
+                </div>
+              </div>
+
+              {/* معدل الاكتشاف الرئيسي */}
+              <div className="bg-gradient-to-l from-primary/5 to-primary/10 rounded-xl p-4 flex items-center justify-between gap-4">
+                <div>
+                  <p className="text-sm font-medium">معدل اكتشاف الأعطال</p>
+                  <p className="text-xs text-muted-foreground mt-1">{detectionReport.summary}</p>
+                </div>
+                <div className="text-center shrink-0">
+                  <p className="text-4xl font-bold text-primary">{detectionReport.detectionRate}%</p>
+                  <p className="text-xs text-muted-foreground">من إجمالي البلاغات</p>
+                </div>
+              </div>
+
+              {/* شريط التصنيف */}
+              {detectionReport.totalTicketsInPeriod > 0 && (
+                <div className="space-y-2">
+                  <div className="flex justify-between text-xs text-muted-foreground">
+                    <span>مكتشف بالصيانة الدورية: {detectionReport.pmDetectedTickets}</span>
+                    <span>إجمالي البلاغات: {detectionReport.totalTicketsInPeriod}</span>
+                  </div>
+                  <div className="h-4 bg-muted rounded-full overflow-hidden flex">
+                    <div
+                      className="bg-primary transition-all duration-700 rounded-full"
+                      style={{ width: `${detectionReport.detectionRate}%` }}
+                    />
+                  </div>
+                  <div className="flex items-center gap-4 text-xs">
+                    <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-primary inline-block" /> مكتشف بالصيانة الدورية</span>
+                    <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-muted inline-block" /> بلاغات عادية</span>
+                  </div>
+                </div>
+              )}
+
+              {detectionReport.completedInspections === 0 && (
+                <div className="text-center py-4 text-muted-foreground text-sm">
+                  <Target className="w-8 h-8 mx-auto mb-2 opacity-30" />
+                  لا توجد عمليات فحص مكتملة في هذه الفترة
+                </div>
+              )}
+            </div>
+          ) : null}
         </CardContent>
       </Card>
     </div>

@@ -5,6 +5,7 @@ import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import * as db from "./db";
+import { eq, and, asc, gte, lte } from "drizzle-orm";
 import { storagePut } from "./storage";
 import { notifyOwner } from "./_core/notification";
 import { invokeLLM } from "./_core/llm";
@@ -3018,6 +3019,315 @@ ${JSON.stringify(recentAudit.map((a: any) => ({ action: a.action, entity: a.enti
       if (!content) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "فشل التحليل" });
       return JSON.parse(content as string);
     }),
+    // ─── Checklist Items (New Structured System) ──────────────────────────
+    addChecklistItem: managerProcedure.input(z.object({
+      planId: z.number(),
+      text: z.string().min(1),
+      orderIndex: z.number().optional(),
+      isRequired: z.boolean().default(true),
+    })).mutation(async ({ input }) => {
+      const ddb = await db.getDb();
+      if (!ddb) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "خطأ في قاعدة البيانات" });
+      const { pmChecklistItems } = await import("../drizzle/schema");
+      const result = await ddb.insert(pmChecklistItems).values({
+        planId: input.planId,
+        text: input.text,
+        orderIndex: input.orderIndex ?? 0,
+        isRequired: input.isRequired,
+      });
+      return { id: Number(result[0].insertId), ...input };
+    }),
+
+    updateChecklistItem: managerProcedure.input(z.object({
+      id: z.number(),
+      text: z.string().optional(),
+      orderIndex: z.number().optional(),
+      isRequired: z.boolean().optional(),
+    })).mutation(async ({ input }) => {
+      const ddb = await db.getDb();
+      if (!ddb) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "خطأ في قاعدة البيانات" });
+      const { pmChecklistItems } = await import("../drizzle/schema");
+      const { id, ...data } = input;
+      await ddb.update(pmChecklistItems).set(data).where(eq(pmChecklistItems.id, id));
+      return { success: true };
+    }),
+
+    deleteChecklistItem: managerProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
+      const ddb = await db.getDb();
+      if (!ddb) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "خطأ في قاعدة البيانات" });
+      const { pmChecklistItems } = await import("../drizzle/schema");
+      await ddb.delete(pmChecklistItems).where(eq(pmChecklistItems.id, input.id));
+      return { success: true };
+    }),
+
+    getChecklistItems: protectedProcedure.input(z.object({ planId: z.number() })).query(async ({ input }) => {
+      const ddb = await db.getDb();
+      if (!ddb) return [];
+      const { pmChecklistItems } = await import("../drizzle/schema");
+      return ddb.select().from(pmChecklistItems)
+        .where(eq(pmChecklistItems.planId, input.planId))
+        .orderBy(asc(pmChecklistItems.orderIndex));
+    }),
+
+    reorderChecklistItems: managerProcedure.input(z.object({
+      items: z.array(z.object({ id: z.number(), orderIndex: z.number() })),
+    })).mutation(async ({ input }) => {
+      const ddb = await db.getDb();
+      if (!ddb) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "خطأ في قاعدة البيانات" });
+      const { pmChecklistItems } = await import("../drizzle/schema");
+      for (const item of input.items) {
+        await ddb.update(pmChecklistItems).set({ orderIndex: item.orderIndex }).where(eq(pmChecklistItems.id, item.id));
+      }
+      return { success: true };
+    }),
+
+    // ─── Execution Session ────────────────────────────────────────────────
+    startExecution: protectedProcedure.input(z.object({
+      workOrderId: z.number(),
+    })).mutation(async ({ input, ctx }) => {
+      const ddb = await db.getDb();
+      if (!ddb) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "خطأ في قاعدة البيانات" });
+      const { pmExecutionSessions, pmWorkOrders, pmChecklistItems } = await import("../drizzle/schema");
+      // Get work order
+      const wo = await db.getPMWorkOrderById(input.workOrderId);
+      if (!wo) throw new TRPCError({ code: "NOT_FOUND", message: "أمر العمل غير موجود" });
+      // Get checklist items from the plan
+      const items = await ddb.select().from(pmChecklistItems)
+        .where(eq(pmChecklistItems.planId, wo.planId))
+        .orderBy();
+      // Check if session already exists
+      const existing = await ddb.select().from(pmExecutionSessions)
+        .where(eq(pmExecutionSessions.workOrderId, input.workOrderId));
+      if (existing.length > 0) {
+        return { session: existing[0], items, workOrder: wo };
+      }
+      // Create new session
+      const result = await ddb.insert(pmExecutionSessions).values({
+        workOrderId: input.workOrderId,
+        technicianId: ctx.user.id,
+        totalItems: items.length,
+      });
+      // Update work order status to in_progress
+      await ddb.update(pmWorkOrders).set({ status: "in_progress" }).where(eq(pmWorkOrders.id, input.workOrderId));
+      const session = await ddb.select().from(pmExecutionSessions)
+        .where(eq(pmExecutionSessions.workOrderId, input.workOrderId));
+      return { session: session[0], items, workOrder: wo };
+    }),
+
+    submitItemResult: protectedProcedure.input(z.object({
+      workOrderId: z.number(),
+      checklistItemId: z.number(),
+      status: z.enum(["ok", "fixed", "issue"]),
+      fixNotes: z.string().optional(),
+      photoUrl: z.string().optional(),
+    })).mutation(async ({ input, ctx }) => {
+      const ddb = await db.getDb();
+      if (!ddb) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "خطأ في قاعدة البيانات" });
+      const { pmExecutionResults, pmExecutionSessions } = await import("../drizzle/schema");
+      const { eq, and } = await import("drizzle-orm");
+      // Upsert result
+      const existing = await ddb.select().from(pmExecutionResults)
+        .where(and(
+          eq(pmExecutionResults.workOrderId, input.workOrderId),
+          eq(pmExecutionResults.checklistItemId, input.checklistItemId)
+        ));
+      if (existing.length > 0) {
+        await ddb.update(pmExecutionResults)
+          .set({ status: input.status, fixNotes: input.fixNotes, photoUrl: input.photoUrl })
+          .where(eq(pmExecutionResults.id, existing[0].id));
+      } else {
+        await ddb.insert(pmExecutionResults).values({
+          workOrderId: input.workOrderId,
+          checklistItemId: input.checklistItemId,
+          status: input.status,
+          fixNotes: input.fixNotes,
+          photoUrl: input.photoUrl,
+        });
+      }
+      // Update session counts
+      const allResults = await ddb.select().from(pmExecutionResults)
+        .where(eq(pmExecutionResults.workOrderId, input.workOrderId));
+      const okCount = allResults.filter((r: any) => r.status === "ok").length;
+      const fixedCount = allResults.filter((r: any) => r.status === "fixed").length;
+      const issueCount = allResults.filter((r: any) => r.status === "issue").length;
+      await ddb.update(pmExecutionSessions)
+        .set({ okCount, fixedCount, issueCount })
+        .where(eq(pmExecutionSessions.workOrderId, input.workOrderId));
+      return { success: true, completedCount: allResults.length };
+    }),
+
+    getExecutionProgress: protectedProcedure.input(z.object({ workOrderId: z.number() })).query(async ({ input }) => {
+      const ddb = await db.getDb();
+      if (!ddb) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "خطأ في قاعدة البيانات" });
+      const { pmExecutionResults, pmExecutionSessions, pmChecklistItems, pmWorkOrders } = await import("../drizzle/schema");
+      const { eq } = await import("drizzle-orm");
+      const wo = await db.getPMWorkOrderById(input.workOrderId);
+      if (!wo) throw new TRPCError({ code: "NOT_FOUND", message: "أمر العمل غير موجود" });
+      const items = await ddb.select().from(pmChecklistItems)
+        .where(eq(pmChecklistItems.planId, wo.planId))
+        .orderBy();
+      const results = await ddb.select().from(pmExecutionResults)
+        .where(eq(pmExecutionResults.workOrderId, input.workOrderId));
+      const sessions = await ddb.select().from(pmExecutionSessions)
+        .where(eq(pmExecutionSessions.workOrderId, input.workOrderId));
+      return {
+        workOrder: wo,
+        items,
+        results,
+        session: sessions[0] ?? null,
+        totalItems: items.length,
+        completedItems: results.length,
+      };
+    }),
+
+    completeExecution: protectedProcedure.input(z.object({
+      workOrderId: z.number(),
+      generalNotes: z.string().optional(),
+    })).mutation(async ({ input, ctx }) => {
+      const ddb = await db.getDb();
+      if (!ddb) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "خطأ في قاعدة البيانات" });
+      const { pmExecutionSessions, pmWorkOrders, pmExecutionResults } = await import("../drizzle/schema");
+      const { eq } = await import("drizzle-orm");
+      const now = new Date();
+      // Get session
+      const sessions = await ddb.select().from(pmExecutionSessions)
+        .where(eq(pmExecutionSessions.workOrderId, input.workOrderId));
+      if (sessions.length > 0) {
+        const startedAt = new Date(sessions[0].startedAt);
+        const durationSeconds = Math.floor((now.getTime() - startedAt.getTime()) / 1000);
+        await ddb.update(pmExecutionSessions).set({
+          status: "completed",
+          completedAt: now,
+          durationSeconds,
+          generalNotes: input.generalNotes,
+        }).where(eq(pmExecutionSessions.workOrderId, input.workOrderId));
+      }
+      // Get results for notification
+      const results = await ddb.select().from(pmExecutionResults)
+        .where(eq(pmExecutionResults.workOrderId, input.workOrderId));
+      const issueCount = results.filter((r: any) => r.status === "issue").length;
+      const fixedCount = results.filter((r: any) => r.status === "fixed").length;
+      const okCount = results.filter((r: any) => r.status === "ok").length;
+      // Update work order to completed
+      await ddb.update(pmWorkOrders).set({
+        status: "completed",
+        completedDate: now,
+        technicianNotes: input.generalNotes,
+      }).where(eq(pmWorkOrders.id, input.workOrderId));
+      // Send notification to manager
+      const wo = await db.getPMWorkOrderById(input.workOrderId);
+      const techUser = await db.getUserById(ctx.user.id);
+      const techName = techUser?.name ?? ctx.user.name ?? "الفني";
+      let notifTitle = "";
+      let notifContent = "";
+      if (issueCount > 0) {
+        notifTitle = `⚠️ تنبيه: تم اكتشاف ${issueCount} خلل في الفحص الدوري`;
+        notifContent = `الفني ${techName} أنهى الفحص الدوري لـ "${wo?.title ?? ''}" - اكتشف ${issueCount} خلل، أصلح ${fixedCount} بند، سليم ${okCount} بند.`;
+      } else if (fixedCount > 0) {
+        notifTitle = `🔧 تم إصلاح فوري أثناء الفحص الدوري`;
+        notifContent = `الفني ${techName} أنهى الفحص الدوري لـ "${wo?.title ?? ''}" - أصلح ${fixedCount} بند، جميع البنود الأخرى سليمة.`;
+      } else {
+        notifTitle = `✅ اكتمل الفحص الدوري - جميع البنود سليمة`;
+        notifContent = `الفني ${techName} أنهى الفحص الدوري لـ "${wo?.title ?? ''}" - جميع ${okCount} بند سليمة.`;
+      }
+      await notifyOwner({ title: notifTitle, content: notifContent });
+      return { success: true, issueCount, fixedCount, okCount };
+    }),
+
+    createIssueTicket: protectedProcedure.input(z.object({
+      workOrderId: z.number(),
+      checklistItemId: z.number(),
+      assetId: z.number().optional(),
+      siteId: z.number().optional(),
+      description: z.string(),
+    })).mutation(async ({ input, ctx }) => {
+      const ddb = await db.getDb();
+      if (!ddb) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "خطأ في قاعدة البيانات" });
+      const { pmExecutionResults, pmWorkOrders } = await import("../drizzle/schema");
+      const { eq, and } = await import("drizzle-orm");
+      // Get work order info
+      const wo = await db.getPMWorkOrderById(input.workOrderId);
+      if (!wo) throw new TRPCError({ code: "NOT_FOUND", message: "أمر العمل غير موجود" });
+      // Create ticket
+      const ticketNumber = await db.getNextTicketNumber();
+      const ticketId = await db.createTicket({
+        ticketNumber,
+        title: `خلل مكتشف أثناء الفحص الدوري: ${wo.title}`,
+        description: `${input.description}\n\n📋 المصدر: صيانة دورية رقم ${wo.workOrderNumber}`,
+        priority: "high",
+        status: "open",
+        assetId: input.assetId ?? wo.assetId ?? undefined,
+        siteId: input.siteId ?? wo.siteId ?? undefined,
+        reportedById: ctx.user.id,
+        category: "corrective",
+      });
+      // Link ticket to execution result
+      await ddb.update(pmExecutionResults)
+        .set({ linkedTicketId: ticketId as number, status: "issue" })
+        .where(and(
+          eq(pmExecutionResults.workOrderId, input.workOrderId),
+          eq(pmExecutionResults.checklistItemId, input.checklistItemId)
+        ));
+      return { ticketId, ticketNumber };
+    }),
+
+    // ─── Detection Rate Report ────────────────────────────────────────────
+    getDetectionRateReport: protectedProcedure.input(z.object({
+      dateFrom: z.string().optional(),
+      dateTo: z.string().optional(),
+    }).optional()).query(async ({ input }) => {
+      const ddb = await db.getDb();
+      if (!ddb) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "خطأ في قاعدة البيانات" });
+      const { pmExecutionResults, pmExecutionSessions, pmWorkOrders } = await import("../drizzle/schema");
+      const { gte, lte, and, eq } = await import("drizzle-orm");
+      const from = input?.dateFrom ? new Date(input.dateFrom) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+      const to = input?.dateTo ? new Date(input.dateTo) : new Date();
+      // Get all completed work orders in range
+      const workOrders = await db.listPMWorkOrders({ status: "completed" });
+      const filteredWOs = workOrders.filter((wo: any) => {
+        const d = new Date(wo.completedDate ?? wo.scheduledDate);
+        return d >= from && d <= to;
+      });
+      // Get all execution results for these WOs
+      const woIds = filteredWOs.map((wo: any) => wo.id);
+      let allResults: any[] = [];
+      for (const woId of woIds) {
+        const results = await ddb.select().from(pmExecutionResults)
+          .where(eq(pmExecutionResults.workOrderId, woId));
+        allResults = allResults.concat(results);
+      }
+      const totalItems = allResults.length;
+      const okItems = allResults.filter((r: any) => r.status === "ok").length;
+      const fixedItems = allResults.filter((r: any) => r.status === "fixed").length;
+      const issueItems = allResults.filter((r: any) => r.status === "issue").length;
+      const issueWithTicket = allResults.filter((r: any) => r.status === "issue" && r.linkedTicketId).length;
+      // All tickets in range
+      const allTickets = await db.getTickets();
+      const rangeTickets = allTickets.filter((t: any) => {
+        const d = new Date(t.createdAt);
+        return d >= from && d <= to;
+      });
+      const pmSourceTickets = rangeTickets.filter((t: any) =>
+        t.description?.includes("المصدر: صيانة دورية")
+      );
+      const detectionRate = rangeTickets.length > 0
+        ? Math.round((pmSourceTickets.length / rangeTickets.length) * 100)
+        : 0;
+      return {
+        period: { from: from.toISOString(), to: to.toISOString() },
+        completedInspections: filteredWOs.length,
+        totalItems,
+        okItems,
+        fixedItems,
+        issueItems,
+        issueWithTicket,
+        totalTicketsInPeriod: rangeTickets.length,
+        pmDetectedTickets: pmSourceTickets.length,
+        detectionRate,
+        summary: `تم اكتشاف ${pmSourceTickets.length} عطل من أصل ${rangeTickets.length} بلاغ (${detectionRate}%) عن طريق الصيانة الدورية`,
+      };
+    }),
+
     // ─── PM Report ────────────────────────────────────────────────────────
     getReport: protectedProcedure.input(z.object({
       dateFrom: z.string().optional(),

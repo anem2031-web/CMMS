@@ -134,6 +134,13 @@
       "when": 1776775981888,
       "tag": "0018_faithful_prism",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "5",
+      "when": 1777105475850,
+      "tag": "0019_flat_oracle",
+      "breakpoints": true
     }
   ]
 }

@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 import { nanoid } from "nanoid";
 import { useTranslatedField } from "@/hooks/useTranslatedField";
+import PMExecution from "./PMExecution";
 
 type Frequency = "daily" | "weekly" | "monthly" | "quarterly" | "biannual" | "annual";
 type WOStatus = "scheduled" | "in_progress" | "completed" | "overdue" | "cancelled";
@@ -97,6 +98,7 @@ export default function PreventiveMaintenance() {
   // ── رفع صورة إتمام العمل ──
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [completionPhotoUrl, setCompletionPhotoUrl] = useState("");
+  const [executionWOId, setExecutionWOId] = useState<number | null>(null);
 
   const utils = trpc.useUtils();
 
@@ -597,13 +599,26 @@ export default function PreventiveMaintenance() {
                           )}
                         </div>
                       </div>
-                      {totalCount > 0 && (
-                        <div className="text-xs text-muted-foreground shrink-0 text-center">
-                          <CheckSquare className="h-4 w-4 inline mb-0.5" />
-                          <br />
-                          {doneCount}/{totalCount}
-                        </div>
-                      )}
+                      <div className="flex flex-col items-end gap-2 shrink-0">
+                        {(wo.status === "scheduled" || wo.status === "in_progress") && (
+                          <Button
+                            size="sm"
+                            variant="default"
+                            className="text-xs h-7 px-2"
+                            onClick={(e) => { e.stopPropagation(); setExecutionWOId(wo.id); }}
+                          >
+                            <Play className="h-3 w-3 ml-1" />
+                            {wo.status === "in_progress" ? "متابعة" : "ابدأ الفحص"}
+                          </Button>
+                        )}
+                        {totalCount > 0 && (
+                          <div className="text-xs text-muted-foreground text-center">
+                            <CheckSquare className="h-4 w-4 inline mb-0.5" />
+                            <br />
+                            {doneCount}/{totalCount}
+                          </div>
+                        )}
+                      </div>
                     </CardContent>
                   </Card>
                 );
@@ -612,6 +627,15 @@ export default function PreventiveMaintenance() {
           )}
         </TabsContent>
       </Tabs>
+
+      {/* ── PM Execution Dialog ── */}
+      <Dialog open={executionWOId !== null} onOpenChange={(o) => { if (!o) setExecutionWOId(null); }}>
+        <DialogContent className="max-w-lg max-h-[95vh] overflow-y-auto p-0" dir="rtl">
+          {executionWOId !== null && (
+            <PMExecution workOrderId={executionWOId} onClose={() => setExecutionWOId(null)} />
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* ── Plan Form Dialog ── */}
       <Dialog open={showPlanForm} onOpenChange={(o) => { if (!o) { setShowPlanForm(false); setEditPlanId(null); setPlanForm(defaultPlanForm); } }}>

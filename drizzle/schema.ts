@@ -609,3 +609,69 @@ export const pushSubscriptions = mysqlTable("push_subscriptions", {
 });
 export type PushSubscription = typeof pushSubscriptions.$inferSelect;
 export type InsertPushSubscription = typeof pushSubscriptions.$inferInsert;
+
+// ============================================================
+// 19. PM CHECKLIST ITEMS (بنود قائمة الفحص المنفصلة)
+// ============================================================
+// Each preventive plan can have multiple checklist items stored as rows
+export const pmChecklistItems = mysqlTable("pm_checklist_items", {
+  id: int("id").autoincrement().primaryKey(),
+  planId: int("planId").notNull(), // FK → preventive_plans.id
+  orderIndex: int("orderIndex").default(0).notNull(), // ترتيب البند
+  text: text("text").notNull(), // نص البند
+  text_ar: text("text_ar"),
+  text_en: text("text_en"),
+  isRequired: boolean("isRequired").default(true).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type PMChecklistItem = typeof pmChecklistItems.$inferSelect;
+export type InsertPMChecklistItem = typeof pmChecklistItems.$inferInsert;
+
+// ============================================================
+// 20. PM EXECUTION RESULTS (نتائج تنفيذ بنود الفحص)
+// ============================================================
+// Each work order execution stores per-item results
+export const pmItemResultStatuses = ["ok", "fixed", "issue"] as const;
+export type PMItemResultStatus = typeof pmItemResultStatuses[number];
+
+export const pmExecutionResults = mysqlTable("pm_execution_results", {
+  id: int("id").autoincrement().primaryKey(),
+  workOrderId: int("workOrderId").notNull(), // FK → pm_work_orders.id
+  checklistItemId: int("checklistItemId").notNull(), // FK → pm_checklist_items.id
+  status: mysqlEnum("status", ["ok", "fixed", "issue"]).notNull(), // ✅ سليم | 🛠️ إصلاح فوري | ⚠️ يوجد خلل
+  fixNotes: text("fixNotes"), // ملاحظة الإصلاح الفوري
+  photoUrl: text("photoUrl"), // صورة توثيق
+  linkedTicketId: int("linkedTicketId"), // FK → tickets.id (إذا تم فتح بلاغ)
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type PMExecutionResult = typeof pmExecutionResults.$inferSelect;
+export type InsertPMExecutionResult = typeof pmExecutionResults.$inferInsert;
+
+// ============================================================
+// 21. PM EXECUTION SESSIONS (جلسات تنفيذ الفحص)
+// ============================================================
+// Tracks the overall execution session (start/end time, duration)
+export const pmExecutionSessionStatuses = ["in_progress", "completed", "paused"] as const;
+
+export const pmExecutionSessions = mysqlTable("pm_execution_sessions", {
+  id: int("id").autoincrement().primaryKey(),
+  workOrderId: int("workOrderId").notNull().unique(), // FK → pm_work_orders.id
+  technicianId: int("technicianId").notNull(), // FK → users.id
+  startedAt: timestamp("startedAt").defaultNow().notNull(),
+  completedAt: timestamp("completedAt"),
+  durationSeconds: int("durationSeconds"), // مدة التنفيذ بالثواني
+  totalItems: int("totalItems").default(0).notNull(),
+  okCount: int("okCount").default(0).notNull(),
+  fixedCount: int("fixedCount").default(0).notNull(),
+  issueCount: int("issueCount").default(0).notNull(),
+  generalNotes: text("generalNotes"), // ملاحظات عامة
+  status: mysqlEnum("status", ["in_progress", "completed", "paused"]).default("in_progress").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type PMExecutionSession = typeof pmExecutionSessions.$inferSelect;
+export type InsertPMExecutionSession = typeof pmExecutionSessions.$inferInsert;
