@@ -2,6 +2,17 @@ import type { CookieOptions, Request } from "express";
 
 const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);
 
+// النطاقات العامة المشتركة التي لا يجب تعيين domain لها
+const PUBLIC_SUFFIXES = [
+  "railway.app",
+  "up.railway.app",
+  "vercel.app",
+  "netlify.app",
+  "onrender.com",
+  "fly.dev",
+  "herokuapp.com",
+];
+
 function isIpAddress(host: string) {
   if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host)) return true;
   return host.includes(":");
@@ -21,8 +32,11 @@ function isLocalhost(hostname: string): boolean {
   return LOCAL_HOSTS.has(hostname) || isIpAddress(hostname);
 }
 
+function isPublicSuffix(hostname: string): boolean {
+  return PUBLIC_SUFFIXES.some(suffix => hostname.endsWith(suffix));
+}
+
 // M-02 FIX: sameSite = "strict" في الإنتاج لمنع CSRF
-// domain محدد بـ .tolanwork.sbs في الإنتاج
 export function getSessionCookieOptions(
   req: Request
 ): Pick<CookieOptions, "domain" | "httpOnly" | "path" | "sameSite" | "secure"> {
@@ -34,9 +48,9 @@ export function getSessionCookieOptions(
   // في الإنتاج: sameSite=strict لمنع CSRF
   const sameSite: CookieOptions["sameSite"] = isLocal ? "none" : "strict";
 
-  // تحديد domain فقط في الإنتاج لمنع تسريب الـ cookie لنطاقات أخرى
+  // تحديد domain فقط إذا كان النطاق خاصاً (وليس نطاقاً عاماً مشتركاً)
   let domain: string | undefined = undefined;
-  if (!isLocal && hostname && !hostname.startsWith(".")) {
+  if (!isLocal && !isPublicSuffix(hostname) && hostname && !hostname.startsWith(".")) {
     // استخراج النطاق الجذري (مثال: tolanwork.sbs من sub.tolanwork.sbs)
     const parts = hostname.split(".");
     if (parts.length >= 2) {
