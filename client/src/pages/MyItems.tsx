@@ -15,7 +15,7 @@ import {
 import { useState, useMemo } from "react";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
-import { useTranslation } from "@/contexts/LanguageContext";
+import { useTranslation, useLanguage } from "@/contexts/LanguageContext";
 
 type ItemStatus = "pending" | "estimated" | "approved" | "purchased" | "received";
 
@@ -37,6 +37,7 @@ function numberToArabicWords(num: number): string {
 }
 
 export default function MyItems() {
+  const { t: tr } = useLanguage();
   const { user } = useAuth();
   const [, setLocation] = useLocation();
   const { t, language } = useTranslation();

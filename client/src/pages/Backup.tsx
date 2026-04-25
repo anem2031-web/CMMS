@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Download, Upload, Loader2, Database, CheckCircle2, XCircle, Clock } from "lucide-react";
 import { useState, useRef } from "react";
 import { toast } from "sonner";
-import { useTranslation } from "@/contexts/LanguageContext";
+import { useTranslation, useLanguage } from "@/contexts/LanguageContext";
 import { Badge } from "@/components/ui/badge";
 import {
   AlertDialog,
@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/alert-dialog";
 
 export default function Backup() {
+  const { t: tr } = useLanguage();
   const { t, language } = useTranslation();
   const locale = language === "ar" ? "ar-SA" : language === "ur" ? "ur-PK" : "en-US";
   const bt = (t as any).backup || {};

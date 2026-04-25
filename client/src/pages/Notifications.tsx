@@ -3,7 +3,7 @@ import { trpc } from "@/lib/trpc";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useTranslation } from "@/contexts/LanguageContext";
+import { useTranslation, useLanguage } from "@/contexts/LanguageContext";
 import { useLocation } from "wouter";
 import { usePushNotifications } from "@/hooks/usePushNotifications";
 import { cn } from "@/lib/utils";
@@ -131,6 +131,7 @@ const FILTER_CARDS: {
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 export default function Notifications() {
+  const { t: tr } = useLanguage();
   const { t, language } = useTranslation();
   const [, setLocation] = useLocation();
   const locale = language === "ar" ? "ar-SA" : language === "ur" ? "ur-PK" : "en-US";

@@ -14,6 +14,7 @@ type Message = {
 };
 
 export default function AIAssistant() {
+  const { t: tr } = useLanguage();
   const { t } = useTranslation();
   const { language } = useLanguage();
   const [query, setQuery] = useState("");

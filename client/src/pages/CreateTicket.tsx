@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { ArrowRight, Upload, Loader2, X, FileText, CheckCircle2, AlertCircle, CloudUpload } from "lucide-react";
 import { useState, useRef, useCallback, DragEvent } from "react";
 import { toast } from "sonner";
-import { useTranslation } from "@/contexts/LanguageContext";
+import { useTranslation, useLanguage } from "@/contexts/LanguageContext";
 import { useStaticLabels } from "@/hooks/useContentTranslation";
 import { Progress } from "@/components/ui/progress";
 import { cn } from "@/lib/utils";
@@ -26,6 +26,7 @@ type FileEntry = {
 };
 
 export default function CreateTicket() {
+  const { t: tr } = useLanguage();
   const [, setLocation] = useLocation();
   const { t } = useTranslation();
   const { getPriorityLabel, getCategoryLabel } = useStaticLabels();

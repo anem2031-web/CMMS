@@ -1,4 +1,5 @@
 import { useState, useMemo } from "react";
+import { useLanguage } from "@/contexts/LanguageContext";
 import { trpc } from "@/lib/trpc";
 import { useLocation } from "wouter";
 import {
@@ -20,13 +21,7 @@ const COLORS = [
   "#06b6d4", "#a855f7",
 ];
 
-const PERIOD_LABELS: Record<Period, string> = {
-  month: "آخر شهر",
-  quarter: "آخر 3 أشهر",
-  year: "آخر سنة",
-  all: "كل الوقت",
-  custom: "مخصص",
-};
+// PERIOD_LABELS moved to component
 
 function formatCurrency(val: number) {
   return `${val.toLocaleString("ar-SA", { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ر.س`;
@@ -67,7 +62,15 @@ const PieTooltip = ({ active, payload }: any) => {
 };
 
 export default function CostReport() {
+  const { t, language } = useLanguage();
   const [, setLocation] = useLocation();
+  const PERIOD_LABELS: Record<Period, string> = {
+    month: t.costReport.lastMonth,
+    quarter: t.costReport.last3Months,
+    year: t.costReport.lastYear,
+    all: t.costReport.allTime,
+    custom: t.costReport.custom,
+  };
   const [groupBy, setGroupBy] = useState<GroupBy>("site");
   const [period, setPeriod] = useState<Period>("all");
   const [dateFrom, setDateFrom] = useState("");
@@ -93,7 +96,7 @@ export default function CostReport() {
     const top = classified.slice(0, 5);
     const otherCost = classified.slice(5).reduce((s, g) => s + g.totalCost, 0);
     const otherPct = classified.slice(5).reduce((s, g) => s + g.percentage, 0);
-    return [...top, { id: -2, name: "أخرى", totalCost: otherCost, percentage: Math.round(otherPct * 10) / 10, ticketCost: 0, purchaseCost: 0, ticketCount: 0, ticketsNoCost: 0, isUnclassified: false }];
+    return [...top, { id: -2, name: t.costReport.other, totalCost: otherCost, percentage: Math.round(otherPct * 10) / 10, ticketCost: 0, purchaseCost: 0, ticketCount: 0, ticketsNoCost: 0, isUnclassified: false }];
   }, [groups]);
 
   const totalTicketCost = groups.reduce((s, g) => s + g.ticketCost, 0);
@@ -113,20 +116,20 @@ export default function CostReport() {
           className="flex items-center gap-2 text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 mb-4 transition-colors"
         >
           <ArrowRight className="w-4 h-4" />
-          العودة للوحة التحكم
+          {t.nav?.dashboard || "لوحة التحكم"}
         </button>
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div>
             <h1 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
               <DollarSign className="w-7 h-7 text-violet-500" />
-              تقرير التكاليف
+              {t.costReport.title}
             </h1>
             <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-              تحليل بصري لتكاليف الصيانة والمشتريات المستلمة
+              "تحليل بصري لتكاليف الصيانة والمشتريات المستلمة"
             </p>
           </div>
           <div className="bg-gradient-to-br from-violet-500 to-indigo-600 text-white rounded-2xl px-6 py-3 shadow-lg shadow-violet-200 dark:shadow-violet-900/30">
-            <p className="text-xs opacity-80 mb-0.5">الإجمالي الكلي</p>
+            <p className="text-xs opacity-80 mb-0.5">{t.costReport.grandTotal}</p>
             <p className="text-2xl font-bold">{formatFull(grandTotal)}</p>
           </div>
         </div>
@@ -171,7 +174,7 @@ export default function CostReport() {
             <div className="flex items-center gap-2">
               <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
                 className="border border-gray-200 dark:border-gray-700 rounded-lg px-2 py-1.5 text-xs bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300" />
-              <span className="text-gray-400 text-xs">إلى</span>
+              <span className="text-gray-400 text-xs">{t.costReport.to}</span>
               <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)}
                 className="border border-gray-200 dark:border-gray-700 rounded-lg px-2 py-1.5 text-xs bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300" />
             </div>
@@ -202,7 +205,7 @@ export default function CostReport() {
             <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-xl p-3 mb-4 flex items-start gap-2.5">
               <AlertCircle className="w-4 h-4 text-amber-500 mt-0.5 flex-shrink-0" />
               <p className="text-sm text-amber-700 dark:text-amber-300">
-                يوجد <strong>{totalTicketsNoCost}</strong> بلاغ لم تُدخل لها تكلفة (لا تقديرية ولا فعلية) — هذه البلاغات لا تُحسب في الإجمالي.
+                {t.costReport.ticketsNoCostWarning?.replace("{count}", String(totalTicketsNoCost)) || `يوجد ${totalTicketsNoCost} بلاغ لم تُدخل لها تكلفة`}
               </p>
             </div>
           )}
@@ -212,11 +215,11 @@ export default function CostReport() {
             <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-xl p-4 mb-4 flex items-start gap-2.5">
               <Info className="w-4 h-4 text-blue-500 mt-0.5 flex-shrink-0" />
               <div>
-                <p className="text-sm font-medium text-blue-700 dark:text-blue-300">لا توجد تكاليف مسجلة للفترة المحددة</p>
+                <p className="text-sm font-medium text-blue-700 dark:text-blue-300">{t.costReport.noCosts}</p>
                 <p className="text-xs text-blue-600 dark:text-blue-400 mt-0.5">
                   {hasAnyTickets
-                    ? "يوجد بلاغات لكن لم تُدخل لها تكاليف. يمكن إدخال التكلفة من صفحة تفاصيل البلاغ."
-                    : "لا توجد بلاغات أو مشتريات مستلمة في هذه الفترة."}
+                    ? t.costReport.hasCostsNoData
+                    : t.costReport.noData}
                 </p>
               </div>
             </div>
@@ -230,7 +233,7 @@ export default function CostReport() {
                   <DollarSign className="w-5 h-5 text-violet-500" />
                 </div>
                 <div>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">إجمالي التكاليف</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">{t.costReport.totalCosts}</p>
                   <p className="text-lg font-bold text-gray-900 dark:text-white">{formatCurrency(grandTotal)}</p>
                 </div>
               </div>
@@ -241,7 +244,7 @@ export default function CostReport() {
                   <Wrench className="w-5 h-5 text-blue-500" />
                 </div>
                 <div>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">تكاليف الصيانة</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">{t.costReport.maintenanceCosts}</p>
                   <p className="text-lg font-bold text-gray-900 dark:text-white">{formatCurrency(totalTicketCost)}</p>
                 </div>
               </div>
@@ -252,7 +255,7 @@ export default function CostReport() {
                   <ShoppingCart className="w-5 h-5 text-amber-500" />
                 </div>
                 <div>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">تكاليف المشتريات المستلمة</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">{t.costReport.purchaseCosts}</p>
                   <p className="text-lg font-bold text-gray-900 dark:text-white">{formatCurrency(totalPurchaseCost)}</p>
                 </div>
               </div>
@@ -263,12 +266,12 @@ export default function CostReport() {
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
             <div className="lg:col-span-2 bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 p-5 shadow-sm">
               <h2 className="text-base font-semibold text-gray-800 dark:text-gray-100 mb-4">
-                توزيع التكاليف {groupBy === "site" ? "حسب الموقع" : "حسب القسم"}
+                توزيع التكاليف {groupBy === "site" ? t.costReport.bySite || "حسب الموقع" : t.costReport.bySection || "حسب القسم"}
               </h2>
               {!hasData ? (
                 <div className="flex flex-col items-center justify-center h-48 text-gray-400">
                   <DollarSign className="w-10 h-10 mb-2 opacity-30" />
-                  <p className="text-sm">لا توجد تكاليف للعرض</p>
+                  <p className="text-sm">{t.costReport.noDataToShow || "لا توجد تكاليف للعرض"}</p>
                 </div>
               ) : chartType === "bar" ? (
                 <ResponsiveContainer width="100%" height={280}>
@@ -277,8 +280,8 @@ export default function CostReport() {
                     <XAxis dataKey="name" tick={{ fontSize: 11, fill: "#6b7280" }} angle={-35} textAnchor="end" interval={0} />
                     <YAxis tickFormatter={formatCurrency} tick={{ fontSize: 10, fill: "#6b7280" }} width={72} />
                     <Tooltip content={<CustomTooltip />} />
-                    <Bar dataKey="ticketCost" name="صيانة" stackId="a" fill="#6366f1" />
-                    <Bar dataKey="purchaseCost" name="مشتريات" stackId="a" fill="#f59e0b" radius={[6, 6, 0, 0]} />
+                    <Bar dataKey="ticketCost" name={t.costReport.maintenanceLabel || "صيانة"} stackId="a" fill="#6366f1" />
+                    <Bar dataKey="purchaseCost" name={t.costReport.purchasesLabel || "مشتريات"} stackId="a" fill="#f59e0b" radius={[6, 6, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               ) : (
@@ -298,9 +301,9 @@ export default function CostReport() {
 
             {/* الأعلى تكلفةً */}
             <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 p-5 shadow-sm">
-              <h2 className="text-base font-semibold text-gray-800 dark:text-gray-100 mb-4">الأعلى تكلفةً</h2>
+              <h2 className="text-base font-semibold text-gray-800 dark:text-gray-100 mb-4">{t.costReport.highestCost || "الأعلى تكلفةً"}</h2>
               {!hasData ? (
-                <div className="flex items-center justify-center h-48 text-gray-400 text-sm">لا توجد بيانات</div>
+                <div className="flex items-center justify-center h-48 text-gray-400 text-sm">{t.common.noData || "لا توجد بيانات"}</div>
               ) : (
                 <div className="space-y-3">
                   {classifiedGroups.slice(0, 6).map((g, i) => (
@@ -326,7 +329,7 @@ export default function CostReport() {
                   {unclassifiedGroup && unclassifiedGroup.totalCost > 0 && (
                     <div className="pt-2 border-t border-dashed border-gray-200 dark:border-gray-700">
                       <div className="flex items-center justify-between">
-                        <span className="text-xs text-gray-400">غير محدد</span>
+                        <span className="text-xs text-gray-400">{t.common.unspecified || "غير محدد"}</span>
                         <span className="text-xs font-medium text-gray-500">{formatCurrency(unclassifiedGroup.totalCost)}</span>
                       </div>
                     </div>
@@ -340,7 +343,7 @@ export default function CostReport() {
           <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 p-5 shadow-sm mb-6">
             <div className="flex items-center gap-2 mb-4">
               <TrendingUp className="w-4 h-4 text-indigo-500" />
-              <h2 className="text-base font-semibold text-gray-800 dark:text-gray-100">الاتجاه الشهري (آخر 12 شهر)</h2>
+              <h2 className="text-base font-semibold text-gray-800 dark:text-gray-100">{t.costReport.monthlyTrend || "الاتجاه الشهري (آخر 12 شهر)"}</h2>
             </div>
             <ResponsiveContainer width="100%" height={200}>
               <AreaChart data={monthlyTrend} margin={{ top: 5, right: 5, left: 5, bottom: 5 }}>
@@ -358,8 +361,8 @@ export default function CostReport() {
                 <XAxis dataKey="label" tick={{ fontSize: 10, fill: "#9ca3af" }} />
                 <YAxis tickFormatter={formatCurrency} tick={{ fontSize: 10, fill: "#9ca3af" }} width={68} />
                 <Tooltip content={<CustomTooltip />} />
-                <Area type="monotone" dataKey="ticketCost" name="صيانة" stroke="#6366f1" fill="url(#gradTicket)" strokeWidth={2} dot={false} />
-                <Area type="monotone" dataKey="purchaseCost" name="مشتريات" stroke="#f59e0b" fill="url(#gradPurchase)" strokeWidth={2} dot={false} />
+                <Area type="monotone" dataKey="ticketCost" name={t.costReport.maintenanceLabel || "صيانة"} stroke="#6366f1" fill="url(#gradTicket)" strokeWidth={2} dot={false} />
+                <Area type="monotone" dataKey="purchaseCost" name={t.costReport.purchasesLabel || "مشتريات"} stroke="#f59e0b" fill="url(#gradPurchase)" strokeWidth={2} dot={false} />
               </AreaChart>
             </ResponsiveContainer>
           </div>
@@ -368,17 +371,17 @@ export default function CostReport() {
           <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm overflow-hidden">
             <div className="p-5 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between">
               <h2 className="text-base font-semibold text-gray-800 dark:text-gray-100">
-                التفاصيل {groupBy === "site" ? "حسب الموقع" : "حسب القسم"}
+                التفاصيل {groupBy === "site" ? t.costReport.bySite || "حسب الموقع" : t.costReport.bySection || "حسب القسم"}
               </h2>
               <div className="flex items-center gap-3 text-xs text-gray-400">
-                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-indigo-400 inline-block" />صيانة</span>
-                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-400 inline-block" />مشتريات مستلمة</span>
+                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-indigo-400 inline-block" />{t.costReport.maintenanceLabel || "صيانة"}</span>
+                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-400 inline-block" />{t.costReport.purchasesLabel || "مشتريات مستلمة"}</span>
               </div>
             </div>
             {groups.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-12 text-gray-400">
                 <DollarSign className="w-10 h-10 mb-2 opacity-30" />
-                <p className="text-sm">لا توجد بيانات للفترة المحددة</p>
+                <p className="text-sm">{t.costReport.noDataForPeriod || "لا توجد بيانات للفترة المحددة"}</p>
               </div>
             ) : (
               <div className="overflow-x-auto">
@@ -387,18 +390,18 @@ export default function CostReport() {
                     <tr className="bg-gray-50 dark:bg-gray-800/50">
                       <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400">#</th>
                       <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400">
-                        {groupBy === "site" ? "الموقع" : "القسم"}
+                        {groupBy === "site" ? (t.common.site || "الموقع") : (t.common.section || "القسم")}
                       </th>
                       {groupBy === "section" && (
-                        <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400">الموقع</th>
+                        <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400">{t.common.site || "الموقع"}</th>
                       )}
-                      <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400">تكلفة الصيانة</th>
-                      <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400">تكلفة المشتريات</th>
-                      <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400">الإجمالي</th>
-                      <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400">النسبة</th>
-                      <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400">البلاغات</th>
+                      <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400">{t.costReport.maintenanceCosts}</th>
+                      <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400">{t.costReport.purchaseCosts}</th>
+                      <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400">{t.common.total || "الإجمالي"}</th>
+                      <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400">{t.costReport.percentage || "النسبة"}</th>
+                      <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400">{t.costReport.tickets || "البلاغات"}</th>
                       <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400">
-                        <span title="بلاغات لم تُدخل لها تكلفة">بدون تكلفة</span>
+                        <span title={t.costReport.noCostTitle || "بلاغات لم تُدخل لها تكلفة"}>{t.costReport.noCostLabel || "بدون تكلفة"}</span>
                       </th>
                     </tr>
                   </thead>
@@ -458,7 +461,7 @@ export default function CostReport() {
                   </tbody>
                   <tfoot>
                     <tr className="bg-gray-50 dark:bg-gray-800/50 border-t-2 border-gray-200 dark:border-gray-700">
-                      <td colSpan={groupBy === "section" ? 3 : 2} className="px-4 py-3.5 font-bold text-gray-700 dark:text-gray-300 text-sm">الإجمالي</td>
+                      <td colSpan={groupBy === "section" ? 3 : 2} className="px-4 py-3.5 font-bold text-gray-700 dark:text-gray-300 text-sm">{t.common.total || "الإجمالي"}</td>
                       <td className="px-4 py-3.5 font-bold text-blue-600 dark:text-blue-400">{formatFull(totalTicketCost)}</td>
                       <td className="px-4 py-3.5 font-bold text-amber-600 dark:text-amber-400">{formatFull(totalPurchaseCost)}</td>
                       <td className="px-4 py-3.5 font-bold text-gray-900 dark:text-white text-base">{formatFull(grandTotal)}</td>
@@ -488,8 +491,8 @@ export default function CostReport() {
           <div className="mt-4 flex items-start gap-2 text-xs text-gray-400 dark:text-gray-500">
             <Info className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
             <p>
-              تكاليف الصيانة: من حقل التكلفة الفعلية أو التقديرية في البلاغات.
-              تكاليف المشتريات: من أصناف الشراء المستلمة فعلياً (تطابق بطاقة لوحة التحكم).
+              {t.costReport.sourceNote1 || "تكاليف الصيانة: من حقل التكلفة الفعلية أو التقديرية في البلاغات."}
+              {t.costReport.sourceNote2 || "تكاليف المشتريات: من أصناف الشراء المستلمة فعلياً."}
             </p>
           </div>
         </>

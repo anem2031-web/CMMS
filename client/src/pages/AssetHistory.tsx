@@ -7,7 +7,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ArrowLeft, Wrench, CheckCircle2, AlertCircle, Clock, FileText, ClipboardCheck, CheckSquare, AlertTriangle, Timer, TrendingUp } from "lucide-react";
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useTranslation } from "@/contexts/LanguageContext";
+import { useTranslation, useLanguage } from "@/contexts/LanguageContext";
 import { useStaticLabels } from "@/hooks/useContentTranslation";
 import { useTranslatedField } from "@/hooks/useTranslatedField";
 import { STATUS_COLORS, PRIORITY_COLORS } from "@shared/types";
@@ -15,6 +15,7 @@ import { STATUS_COLORS, PRIORITY_COLORS } from "@shared/types";
 export default function AssetHistory() {
   const [, setLocation] = useLocation();
   const { t, language } = useTranslation();
+  const { t: tr } = useLanguage();
   const { getStatusLabel, getPriorityLabel } = useStaticLabels();
   const { getField } = useTranslatedField();
 
@@ -31,8 +32,8 @@ export default function AssetHistory() {
         <Card>
           <CardContent className="p-12 text-center">
             <AlertCircle className="w-12 h-12 mx-auto text-destructive mb-4" />
-            <h3 className="font-semibold text-lg mb-1">خطأ</h3>
-            <p className="text-sm text-muted-foreground">معرّف الأصل غير صحيح</p>
+            <h3 className="font-semibold text-lg mb-1">{tr.common?.error || "خطأ"}</h3>
+            <p className="text-sm text-muted-foreground">{tr.assetHistory?.invalidId || "معرّف الأصل غير صحيح"}</p>
           </CardContent>
         </Card>
       </div>
@@ -64,8 +65,8 @@ export default function AssetHistory() {
         <Card>
           <CardContent className="p-12 text-center">
             <AlertCircle className="w-12 h-12 mx-auto text-destructive mb-4" />
-            <h3 className="font-semibold text-lg mb-1">غير موجود</h3>
-            <p className="text-sm text-muted-foreground">الأصل غير موجود</p>
+            <h3 className="font-semibold text-lg mb-1">{tr.common?.notFound || "غير موجود"}</h3>
+            <p className="text-sm text-muted-foreground">{tr.assetHistory?.assetNotFound || "الأصل غير موجود"}</p>
           </CardContent>
         </Card>
       </div>
@@ -96,19 +97,19 @@ export default function AssetHistory() {
         <CardContent>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <div>
-              <p className="text-xs text-muted-foreground">الفئة</p>
+              <p className="text-xs text-muted-foreground">{tr.common?.category || "الفئة"}</p>
               <p className="font-semibold">{asset.category || "-"}</p>
             </div>
             <div>
-              <p className="text-xs text-muted-foreground">الحالة</p>
+              <p className="text-xs text-muted-foreground">{tr.common?.status || "الحالة"}</p>
               <Badge className={STATUS_COLORS[asset.status] || ""}>{asset.status}</Badge>
             </div>
             <div>
-              <p className="text-xs text-muted-foreground">الموقع</p>
+              <p className="text-xs text-muted-foreground">{tr.common?.location || "الموقع"}</p>
               <p className="font-semibold text-sm">{asset.locationDetail || "-"}</p>
             </div>
             <div>
-              <p className="text-xs text-muted-foreground">الرقم التسلسلي</p>
+              <p className="text-xs text-muted-foreground">{tr.assetHistory?.serialNumber || "الرقم التسلسلي"}</p>
               <p className="font-semibold text-sm">{asset.serialNumber || "-"}</p>
             </div>
           </div>
@@ -121,31 +122,31 @@ export default function AssetHistory() {
           <Card>
             <CardContent className="p-4 text-center">
               <div className="text-2xl font-bold text-primary">{stats.totalTickets}</div>
-              <p className="text-xs text-muted-foreground mt-1">إجمالي البلاغات</p>
+              <p className="text-xs text-muted-foreground mt-1">{tr.assetHistory?.totalTickets || "إجمالي البلاغات"}</p>
             </CardContent>
           </Card>
           <Card>
             <CardContent className="p-4 text-center">
               <div className="text-2xl font-bold text-orange-500">{stats.openTickets}</div>
-              <p className="text-xs text-muted-foreground mt-1">بلاغات مفتوحة</p>
+              <p className="text-xs text-muted-foreground mt-1">{tr.assetHistory?.openTickets || "بلاغات مفتوحة"}</p>
             </CardContent>
           </Card>
           <Card>
             <CardContent className="p-4 text-center">
               <div className="text-2xl font-bold text-blue-500">{stats.totalPMPlans}</div>
-              <p className="text-xs text-muted-foreground mt-1">خطط الصيانة</p>
+              <p className="text-xs text-muted-foreground mt-1">{tr.assetHistory?.maintenancePlans || "خطط الصيانة"}</p>
             </CardContent>
           </Card>
           <Card>
             <CardContent className="p-4 text-center">
               <div className="text-2xl font-bold text-purple-500">{stats.totalWorkOrders}</div>
-              <p className="text-xs text-muted-foreground mt-1">أوامر العمل</p>
+              <p className="text-xs text-muted-foreground mt-1">{tr.assetHistory?.workOrders || "أوامر العمل"}</p>
             </CardContent>
           </Card>
           <Card>
             <CardContent className="p-4 text-center">
               <div className="text-2xl font-bold text-green-500">{stats.completedWorkOrders}</div>
-              <p className="text-xs text-muted-foreground mt-1">مكتملة</p>
+              <p className="text-xs text-muted-foreground mt-1">{tr.common?.completed || "مكتملة"}</p>
             </CardContent>
           </Card>
         </div>
@@ -169,7 +170,7 @@ export default function AssetHistory() {
             <Card>
               <CardContent className="p-8 text-center">
                 <AlertCircle className="w-10 h-10 mx-auto text-muted-foreground/40 mb-3" />
-                <p className="text-sm text-muted-foreground">لا توجد بلاغات لهذا الأصل</p>
+                <p className="text-sm text-muted-foreground">{tr.assetHistory?.noTickets || "لا توجد بلاغات لهذا الأصل"}</p>
               </CardContent>
             </Card>
           ) : (
@@ -209,7 +210,7 @@ export default function AssetHistory() {
             <Card>
               <CardContent className="p-8 text-center">
                 <Wrench className="w-10 h-10 mx-auto text-muted-foreground/40 mb-3" />
-                <p className="text-sm text-muted-foreground">لا توجد خطط صيانة لهذا الأصل</p>
+                <p className="text-sm text-muted-foreground">{tr.assetHistory?.noPlans || "لا توجد خطط صيانة لهذا الأصل"}</p>
               </CardContent>
             </Card>
           ) : (
@@ -220,7 +221,7 @@ export default function AssetHistory() {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-1">
                         <span className="text-xs font-mono text-muted-foreground">{plan.planNumber}</span>
-                        {plan.isActive && <Badge className="bg-green-500">نشطة</Badge>}
+                        {plan.isActive && <Badge className="bg-green-500">{tr.common?.active || "نشطة"}</Badge>}
                       </div>
                       <h4 className="font-medium truncate">{getField(plan, "title")}</h4>
                       <p className="text-xs text-muted-foreground mt-1">
@@ -244,7 +245,7 @@ export default function AssetHistory() {
             <Card>
               <CardContent className="p-8 text-center">
                 <CheckCircle2 className="w-10 h-10 mx-auto text-muted-foreground/40 mb-3" />
-                <p className="text-sm text-muted-foreground">لا توجد أوامر عمل لهذا الأصل</p>
+                <p className="text-sm text-muted-foreground">{tr.assetHistory?.noWorkOrders || "لا توجد أوامر عمل لهذا الأصل"}</p>
               </CardContent>
             </Card>
           ) : (
@@ -344,7 +345,7 @@ export default function AssetHistory() {
             <Card>
               <CardContent className="p-8 text-center">
                 <ClipboardCheck className="w-10 h-10 mx-auto text-muted-foreground/40 mb-3" />
-                <p className="text-sm text-muted-foreground">لا توجد فحوصات مكتملة لهذا الأصل</p>
+                <p className="text-sm text-muted-foreground">{tr.assetHistory?.noInspections || "لا توجد فحوصات مكتملة لهذا الأصل"}</p>
               </CardContent>
             </Card>
           ) : (
@@ -370,8 +371,8 @@ export default function AssetHistory() {
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 mb-1">
                             <span className="text-xs font-mono text-muted-foreground">{session.workOrderNumber}</span>
-                            {hasIssues && <Badge className="bg-red-500 text-white text-[10px] px-1.5">{session.issueCount} خلل</Badge>}
-                            {hasFixed && <Badge className="bg-blue-500 text-white text-[10px] px-1.5">{session.fixedCount} إصلاح</Badge>}
+                            {hasIssues && <Badge className="bg-red-500 text-white text-[10px] px-1.5">{session.issueCount} {"خلل"}</Badge>}
+                            {hasFixed && <Badge className="bg-blue-500 text-white text-[10px] px-1.5">{session.fixedCount} {"إصلاح"}</Badge>}
                             {!hasIssues && !hasFixed && <Badge className="bg-green-500 text-white text-[10px] px-1.5">جميعها سليمة</Badge>}
                           </div>
                           <h4 className="font-medium text-sm truncate">{session.workOrderTitle}</h4>

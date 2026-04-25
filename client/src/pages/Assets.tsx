@@ -50,6 +50,7 @@ const defaultForm: AssetFormData = {
 };
 
 export default function Assets() {
+  const { t: tr } = useLanguage();
   const { t } = useLanguage();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");

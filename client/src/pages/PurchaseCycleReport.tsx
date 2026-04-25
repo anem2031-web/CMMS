@@ -1,4 +1,5 @@
 import { useState, useMemo } from "react";
+import { useLanguage } from "@/contexts/LanguageContext";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -15,20 +16,20 @@ import {
 } from "lucide-react";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
-function formatHours(h: number | null): string {
+function formatHours(h: number | null, tr?: any): string {
   if (h === null) return "—";
-  if (h < 1) return `${Math.round(h * 60)} دقيقة`;
-  if (h < 24) return `${h} ساعة`;
+  if (h < 1) return `${Math.round(h * 60)} ${tr?.common?.minutes || "دقيقة"}`;
+  if (h < 24) return `${h} ${tr?.purchaseCycleReport?.hour || "ساعة"}`;
   const days = Math.floor(h / 24);
   const rem = Math.round(h % 24);
-  return rem > 0 ? `${days} يوم ${rem} ساعة` : `${days} يوم`;
+  return rem > 0 ? `${days} ${tr?.purchaseCycleReport?.day || "يوم"} ${rem} ${tr?.purchaseCycleReport?.hour || "ساعة"}` : `${days} ${tr?.purchaseCycleReport?.day || "يوم"}`;
 }
 
-function getStatusLabel(s: string): string {
+function getStatusLabel(s: string, tr?: any): string {
   const map: Record<string, string> = {
-    pending: "بانتظار التسعير", estimated: "مُسعَّر", approved: "معتمد",
-    funded: "ممول", purchased: "تم الشراء", delivered_to_warehouse: "في المستودع",
-    delivered_to_requester: "تم التسليم",
+    pending: tr?.poItemStatus?.pending || "بانتظار التسعير", estimated: tr?.poItemStatus?.estimated || "مُسعَّر", approved: tr?.poItemStatus?.approved || "معتمد",
+    funded: tr?.purchaseCycleReport?.funded || "ممول", purchased: tr?.poItemStatus?.purchased || "تم الشراء", delivered_to_warehouse: tr?.purchaseCycleReport?.deliveredToWarehouse || "في المستودع",
+    delivered_to_requester: tr?.purchaseCycleReport?.deliveredToRequester || "تم التسليم",
   };
   return map[s] || s;
 }
@@ -62,11 +63,11 @@ function getPOStatusColor(s: string): string {
   return map[s] || "bg-gray-100 text-gray-600";
 }
 
-function getPOStatusLabel(s: string): string {
+function getPOStatusLabel(s: string, tr?: any): string {
   const map: Record<string, string> = {
-    draft: "مسودة", pending_estimate: "بانتظار التسعير", pending_accounting: "بانتظار الحسابات",
-    pending_management: "بانتظار الإدارة", approved: "معتمد", partial_purchase: "شراء جزئي",
-    purchased: "تم الشراء", received: "مستلم", closed: "مغلق", rejected: "مرفوض",
+    draft: tr?.poStatus?.draft || "مسودة", pending_estimate: tr?.poStatus?.pending_estimate || "بانتظار التسعير", pending_accounting: tr?.poStatus?.pending_accounting || "بانتظار الحسابات",
+    pending_management: tr?.poStatus?.pending_management || "بانتظار الإدارة", approved: tr?.poStatus?.approved || "معتمد", partial_purchase: tr?.poStatus?.partial_purchase || "شراء جزئي",
+    purchased: tr?.poStatus?.purchased || "تم الشراء", received: tr?.poStatus?.received || "مستلم", closed: tr?.poStatus?.closed || "مغلق", rejected: tr?.poStatus?.rejected || "مرفوض",
   };
   return map[s] || s;
 }
@@ -77,6 +78,7 @@ const PHASE_COLORS = [
 ];
 
 function PhaseTimeline({ phases }: { phases: Array<{ phase: string; durationHours: number | null; status: string; actor?: string | null }> }) {
+  const { t: tr } = useLanguage();
   const total = phases.reduce((s, p) => s + (p.durationHours || 0), 0);
   return (
     <div className="space-y-2">
@@ -90,7 +92,7 @@ function PhaseTimeline({ phases }: { phases: Array<{ phase: string; durationHour
                 key={i}
                 className={cn("transition-all", PHASE_COLORS[i % PHASE_COLORS.length])}
                 style={{ width: `${pct}%` }}
-                title={`${p.phase}: ${formatHours(p.durationHours)}`}
+                title={`${p.phase}: ${formatHours(p.durationHours, tr)}`}
               />
             ) : null;
           })}
@@ -114,6 +116,7 @@ function PhaseTimeline({ phases }: { phases: Array<{ phase: string; durationHour
 
 // ─── Item Row ─────────────────────────────────────────────────────────────────
 function ItemRow({ item }: { item: any }) {
+  const { t: tr } = useLanguage();
   const [expanded, setExpanded] = useState(false);
   return (
     <div className="border border-border rounded-lg overflow-hidden">
@@ -127,20 +130,20 @@ function ItemRow({ item }: { item: any }) {
             <span className="font-medium text-sm">{item.itemName}</span>
             <span className="text-xs text-muted-foreground">({item.quantity} {item.unit || "وحدة"})</span>
             <span className={cn("text-xs px-2 py-0.5 rounded-full font-medium", getStatusColor(item.currentStatus))}>
-              {getStatusLabel(item.currentStatus)}
+              {getStatusLabel(item.currentStatus, tr)}
             </span>
           </div>
           <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground flex-wrap">
-            <span>المندوب: {item.delegate}</span>
-            {item.estimatedCost && <span>مقدر: {item.estimatedCost.toFixed(2)} ر.س</span>}
-            {item.actualCost && <span>فعلي: {item.actualCost.toFixed(2)} ر.س</span>}
+            <span>{tr.purchaseCycleReport?.delegate || "المندوب"}: {item.delegate}</span>
+            {item.estimatedCost && <span>{tr.purchaseCycleReport?.estimated || "مقدر"}: {item.estimatedCost.toFixed(2)} {tr.purchaseCycleReport?.currency || "ر.س"}</span>}
+            {item.actualCost && <span>{tr.purchaseCycleReport?.actual || "فعلي"}: {item.actualCost.toFixed(2)} {tr.purchaseCycleReport?.currency || "ر.س"}</span>}
           </div>
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
           {item.totalHours !== null && (
             <div className="flex items-center gap-1 text-xs bg-muted px-2 py-1 rounded-full">
               <Timer className="w-3 h-3" />
-              <span className="font-semibold">{formatHours(item.totalHours)}</span>
+              <span className="font-semibold">{formatHours(item.totalHours, tr)}</span>
             </div>
           )}
           {expanded ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
@@ -156,11 +159,11 @@ function ItemRow({ item }: { item: any }) {
               <table className="w-full text-xs">
                 <thead>
                   <tr className="border-b border-border">
-                    <th className="text-right py-1.5 pr-2 font-semibold text-muted-foreground">المرحلة</th>
-                    <th className="text-right py-1.5 font-semibold text-muted-foreground">بداية</th>
-                    <th className="text-right py-1.5 font-semibold text-muted-foreground">نهاية</th>
-                    <th className="text-right py-1.5 font-semibold text-muted-foreground">المدة</th>
-                    <th className="text-right py-1.5 font-semibold text-muted-foreground">الحالة</th>
+                    <th className="text-right py-1.5 pr-2 font-semibold text-muted-foreground">{tr.purchaseCycleReport?.stage || "المرحلة"}</th>
+                    <th className="text-right py-1.5 font-semibold text-muted-foreground">{tr.purchaseCycleReport?.start || "بداية"}</th>
+                    <th className="text-right py-1.5 font-semibold text-muted-foreground">{tr.purchaseCycleReport?.end || "نهاية"}</th>
+                    <th className="text-right py-1.5 font-semibold text-muted-foreground">{tr.purchaseCycleReport?.duration || "المدة"}</th>
+                    <th className="text-right py-1.5 font-semibold text-muted-foreground">{tr.common?.status || "الحالة"}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -183,10 +186,10 @@ function ItemRow({ item }: { item: any }) {
                       </td>
                       <td className="py-1.5">
                         {p.status === "done"
-                          ? <span className="text-green-600 dark:text-green-400 flex items-center gap-1"><CheckCircle2 className="w-3 h-3" />منجز</span>
+                          ? <span className="text-green-600 dark:text-green-400 flex items-center gap-1"><CheckCircle2 className="w-3 h-3" />{tr.purchaseCycleReport?.done || "منجز"}</span>
                           : p.status === "in_progress"
-                            ? <span className="text-blue-600 dark:text-blue-400 flex items-center gap-1"><Hourglass className="w-3 h-3" />جارٍ</span>
-                            : <span className="text-muted-foreground flex items-center gap-1"><Clock className="w-3 h-3" />انتظار</span>
+                            ? <span className="text-blue-600 dark:text-blue-400 flex items-center gap-1"><Hourglass className="w-3 h-3" />{tr.purchaseCycleReport?.ongoing || "جارٍ"}</span>
+                            : <span className="text-muted-foreground flex items-center gap-1"><Clock className="w-3 h-3" />{tr.purchaseCycleReport?.waiting || "انتظار"}</span>
                         }
                       </td>
                     </tr>
@@ -203,6 +206,7 @@ function ItemRow({ item }: { item: any }) {
 
 // ─── PO Card ──────────────────────────────────────────────────────────────────
 function POCard({ po }: { po: any }) {
+  const { t: tr } = useLanguage();
   const [expanded, setExpanded] = useState(false);
   const [, setLocation] = useLocation();
 
@@ -219,7 +223,7 @@ function POCard({ po }: { po: any }) {
           <div className="flex items-center gap-2 flex-wrap">
             <span className="font-bold text-base">{po.poNumber}</span>
             <span className={cn("text-xs px-2 py-0.5 rounded-full font-medium", getPOStatusColor(po.status))}>
-              {getPOStatusLabel(po.status)}
+              {getPOStatusLabel(po.status, tr)}
             </span>
             {po.ticketId && (
               <button
@@ -227,15 +231,15 @@ function POCard({ po }: { po: any }) {
                 className="text-xs text-primary hover:underline flex items-center gap-1"
               >
                 <ExternalLink className="w-3 h-3" />
-                بلاغ #{po.ticketId}
+                {tr.purchaseCycleReport?.ticket || "بلاغ"} #{po.ticketId}
               </button>
             )}
           </div>
           <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground flex-wrap">
-            <span>طالب: {po.requestedBy}</span>
+            <span>{tr.purchaseCycleReport?.requester || "طالب"}: {po.requestedBy}</span>
             <span>{new Date(po.createdAt).toLocaleDateString("ar-SA")}</span>
-            <span>{po.itemCount} صنف</span>
-            {po.custodyAmount && <span className="text-amber-600 dark:text-amber-400 font-medium">عهدة: {po.custodyAmount.toFixed(2)} ر.س</span>}
+            <span>{po.itemCount} {tr.purchaseCycleReport?.item || "صنف"}</span>
+            {po.custodyAmount && <span className="text-amber-600 dark:text-amber-400 font-medium">{tr.purchaseCycleReport?.custody || "عهدة"}: {po.custodyAmount.toFixed(2)} {tr.purchaseCycleReport?.currency || "ر.س"}</span>}
           </div>
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
@@ -290,6 +294,7 @@ function POCard({ po }: { po: any }) {
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export default function PurchaseCycleReport() {
+  const { t: tr } = useLanguage();
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [filterInput, setFilterInput] = useState({ dateFrom: "", dateTo: "" });
@@ -327,8 +332,8 @@ export default function PurchaseCycleReport() {
             <ShoppingCart className="w-5 h-5 text-primary" />
           </div>
           <div>
-            <h1 className="text-xl font-bold tracking-tight">تقرير دورة الشراء</h1>
-            <p className="text-sm text-muted-foreground">وقت كل مرحلة على مستوى كل صنف</p>
+            <h1 className="text-xl font-bold tracking-tight">{tr.nav?.purchaseCycleReport || "تقرير دورة الشراء"}</h1>
+            <p className="text-sm text-muted-foreground">{tr.purchaseCycleReport?.subtitle || "وقت كل مرحلة على مستوى كل صنف"}</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -349,15 +354,15 @@ export default function PurchaseCycleReport() {
           <CardContent className="p-4">
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 items-end">
               <div className="space-y-1.5">
-                <Label className="text-xs">من تاريخ</Label>
+                <Label className="text-xs">{tr.common?.fromDate || "من تاريخ"}</Label>
                 <Input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className="text-sm" />
               </div>
               <div className="space-y-1.5">
-                <Label className="text-xs">إلى تاريخ</Label>
+                <Label className="text-xs">{tr.common?.toDate || "إلى تاريخ"}</Label>
                 <Input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className="text-sm" />
               </div>
-              <Button size="sm" onClick={handleApplyFilter}>تطبيق</Button>
-              <Button size="sm" variant="outline" onClick={handleClearFilter}>مسح</Button>
+              <Button size="sm" onClick={handleApplyFilter}>{tr.common?.apply || "تطبيق"}</Button>
+              <Button size="sm" variant="outline" onClick={handleClearFilter}>{tr.common?.clearFilters || "مسح"}</Button>
             </div>
           </CardContent>
         </Card>
@@ -374,7 +379,7 @@ export default function PurchaseCycleReport() {
             <CardContent className="p-4">
               <div className="flex items-center gap-2 mb-2">
                 <ShoppingCart className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-                <span className="text-xs text-blue-600 dark:text-blue-400 font-medium">إجمالي الطلبات</span>
+                <span className="text-xs text-blue-600 dark:text-blue-400 font-medium">{tr.purchaseCycleReport?.totalOrders || "إجمالي الطلبات"}</span>
               </div>
               <p className="text-3xl font-bold text-blue-700 dark:text-blue-300">{data.total}</p>
             </CardContent>
@@ -384,7 +389,7 @@ export default function PurchaseCycleReport() {
             <CardContent className="p-4">
               <div className="flex items-center gap-2 mb-2">
                 <Timer className="w-4 h-4 text-green-600 dark:text-green-400" />
-                <span className="text-xs text-green-600 dark:text-green-400 font-medium">متوسط وقت الدورة</span>
+                <span className="text-xs text-green-600 dark:text-green-400 font-medium">{tr.purchaseCycleReport?.avgCycleTime || "متوسط وقت الدورة"}</span>
               </div>
               <p className="text-2xl font-bold text-green-700 dark:text-green-300">
                 {formatHours(data.avgTotalHours)}
@@ -396,7 +401,7 @@ export default function PurchaseCycleReport() {
             <CardContent className="p-4">
               <div className="flex items-center gap-2 mb-2">
                 <AlertTriangle className="w-4 h-4 text-orange-600 dark:text-orange-400" />
-                <span className="text-xs text-orange-600 dark:text-orange-400 font-medium">أطول مرحلة</span>
+                <span className="text-xs text-orange-600 dark:text-orange-400 font-medium">{tr.purchaseCycleReport?.longestStage || "أطول مرحلة"}</span>
               </div>
               <p className="text-sm font-bold text-orange-700 dark:text-orange-300">
                 {data.phaseAvgs.sort((a, b) => (b.avgHours || 0) - (a.avgHours || 0))[0]?.phase || "—"}
@@ -411,7 +416,7 @@ export default function PurchaseCycleReport() {
             <CardContent className="p-4">
               <div className="flex items-center gap-2 mb-2">
                 <TrendingUp className="w-4 h-4 text-purple-600 dark:text-purple-400" />
-                <span className="text-xs text-purple-600 dark:text-purple-400 font-medium">أصناف محللة</span>
+                <span className="text-xs text-purple-600 dark:text-purple-400 font-medium">{tr.purchaseCycleReport?.analyzedItems || "أصناف محللة"}</span>
               </div>
               <p className="text-3xl font-bold text-purple-700 dark:text-purple-300">
                 {data.pos.reduce((s, p) => s + p.itemCount, 0)}
@@ -441,7 +446,7 @@ export default function PurchaseCycleReport() {
                       <div className="flex items-center gap-2">
                         <span className={cn("w-2.5 h-2.5 rounded-sm", PHASE_COLORS[i % PHASE_COLORS.length])} />
                         <span className="font-medium">{p.phase}</span>
-                        <span className="text-xs text-muted-foreground">({p.count} صنف)</span>
+                        <span className="text-xs text-muted-foreground">({p.count} {tr.purchaseCycleReport?.item || "صنف"})</span>
                       </div>
                       <span className="font-bold">{formatHours(p.avgHours)}</span>
                     </div>
@@ -474,7 +479,7 @@ export default function PurchaseCycleReport() {
           <Card>
             <CardContent className="p-12 text-center">
               <ShoppingCart className="w-12 h-12 text-muted-foreground/30 mx-auto mb-3" />
-              <p className="text-muted-foreground">لا توجد طلبات شراء في هذه الفترة</p>
+              <p className="text-muted-foreground">{tr.purchaseCycleReport?.noPOs || "لا توجد طلبات شراء في هذه الفترة"}</p>
             </CardContent>
           </Card>
         ) : (

@@ -9,7 +9,7 @@ import { Shield, Search, Filter, ChevronDown, ChevronUp, Eye, User, Calendar, Fi
 import { Skeleton } from "@/components/ui/skeleton";
 import { useState, useMemo } from "react";
 import { ExportButton } from "@/components/ExportButton";
-import { useTranslation } from "@/contexts/LanguageContext";
+import { useTranslation, useLanguage } from "@/contexts/LanguageContext";
 
 const ACTION_COLORS: Record<string, string> = {
   create: "bg-emerald-100 text-emerald-700 border-emerald-200",
@@ -50,6 +50,7 @@ const ENTITY_COLORS: Record<string, string> = {
 };
 
 export default function AuditLog() {
+  const { t: tr } = useLanguage();
   const { t, language } = useTranslation();
   const locale = language === "ar" ? "ar-SA" : language === "ur" ? "ur-PK" : "en-US";
   const isRTL = language === "ar" || language === "ur";

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
-import { useTranslation } from "@/contexts/LanguageContext";
+import { useTranslation, useLanguage } from "@/contexts/LanguageContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -45,6 +45,7 @@ interface ScannedSite {
 }
 
 export default function ScanAsset() {
+  const { t: tr } = useLanguage();
   const { t } = useTranslation();
   const [, navigate] = useLocation();
   const [scanState, setScanState] = useState<ScanState>("idle");

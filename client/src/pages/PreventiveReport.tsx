@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { trpc } from "@/lib/trpc";
-import { useTranslation } from "@/contexts/LanguageContext";
+import { useTranslation, useLanguage } from "@/contexts/LanguageContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -11,21 +11,28 @@ import {
   Download, BarChart3, ListChecks, TrendingUp, Activity
 } from "lucide-react";
 
-const freqLabels: Record<string, string> = {
-  daily: "يومي", weekly: "أسبوعي", monthly: "شهري",
-  quarterly: "ربع سنوي", biannual: "نصف سنوي", annual: "سنوي",
-};
+// freqLabels moved to component
 
-const statusConfig: Record<string, { label: string; color: string }> = {
-  scheduled:   { label: "مجدول",  color: "bg-blue-100 text-blue-700" },
-  in_progress: { label: "جاري",   color: "bg-yellow-100 text-yellow-700" },
-  completed:   { label: "مكتمل",  color: "bg-green-100 text-green-700" },
-  overdue:     { label: "متأخر",  color: "bg-red-100 text-red-700" },
-  cancelled:   { label: "ملغي",   color: "bg-gray-100 text-gray-600" },
-};
+// statusConfig moved to component
 
 export default function PreventiveReport() {
   const { t } = useTranslation();
+  const { t: tr, language } = useLanguage();
+  const freqLabels: Record<string, string> = {
+    daily: tr.preventive?.daily || "يومي",
+    weekly: tr.preventive?.weekly || "أسبوعي",
+    monthly: tr.preventive?.monthly || "شهري",
+    quarterly: tr.preventive?.quarterly || "ربع سنوي",
+    biannual: tr.preventive?.biannual || "نصف سنوي",
+    annual: tr.preventive?.annual || "سنوي",
+  };
+  const statusConfig: Record<string, { label: string; color: string }> = {
+    scheduled:   { label: tr.preventive?.statusScheduled || "مجدول",  color: "bg-blue-100 text-blue-700" },
+    in_progress: { label: tr.preventive?.statusInProgress || "جاري",   color: "bg-yellow-100 text-yellow-700" },
+    completed:   { label: tr.preventive?.statusCompleted || "مكتمل",  color: "bg-green-100 text-green-700" },
+    overdue:     { label: tr.preventive?.statusOverdue || "متأخر",  color: "bg-red-100 text-red-700" },
+    cancelled:   { label: tr.preventive?.statusCancelled || "ملغي",   color: "bg-gray-100 text-gray-600" },
+  };
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [appliedFilters, setAppliedFilters] = useState<{ dateFrom?: string; dateTo?: string }>({});
@@ -73,8 +80,8 @@ export default function PreventiveReport() {
             <CalendarClock className="h-6 w-6 text-primary" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold">تقرير الصيانة الوقائية</h1>
-            <p className="text-sm text-muted-foreground">إحصائيات وأداء خطط الصيانة الوقائية</p>
+            <h1 className="text-2xl font-bold">{tr.nav?.preventiveReport || "تقرير الصيانة الوقائية"}</h1>
+            <p className="text-sm text-muted-foreground">{tr.preventiveReport?.subtitle || "إحصائيات وأداء خطط الصيانة الوقائية"}</p>
           </div>
         </div>
         <div className="flex gap-2 flex-wrap">
@@ -92,21 +99,21 @@ export default function PreventiveReport() {
       {/* Filters */}
       <Card>
         <CardHeader className="pb-3">
-          <CardTitle className="text-base">فلترة بالتاريخ</CardTitle>
+          <CardTitle className="text-base">{tr.common?.filterByDate || "فلترة بالتاريخ"}</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="flex flex-wrap gap-4 items-end">
             <div className="space-y-1">
-              <Label>من تاريخ</Label>
+              <Label>{tr.common?.fromDate || "من تاريخ"}</Label>
               <Input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className="w-40" />
             </div>
             <div className="space-y-1">
-              <Label>إلى تاريخ</Label>
+              <Label>{tr.common?.toDate || "إلى تاريخ"}</Label>
               <Input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className="w-40" />
             </div>
-            <Button onClick={handleApplyFilters} size="sm">تطبيق</Button>
+            <Button onClick={handleApplyFilters} size="sm">{tr.common?.apply || "تطبيق"}</Button>
             {Object.keys(appliedFilters).length > 0 && (
-              <Button variant="ghost" size="sm" onClick={handleResetFilters}>إعادة تعيين</Button>
+              <Button variant="ghost" size="sm" onClick={handleResetFilters}>{tr.common?.reset || "إعادة تعيين"}</Button>
             )}
           </div>
         </CardContent>
@@ -119,14 +126,14 @@ export default function PreventiveReport() {
             <div className="flex items-center gap-3">
               <div className="p-2 bg-blue-100 rounded-lg"><BarChart3 className="h-5 w-5 text-blue-600" /></div>
               <div>
-                <p className="text-xs text-muted-foreground">إجمالي الخطط</p>
+                <p className="text-xs text-muted-foreground">{tr.preventiveReport?.totalPlans || "إجمالي الخطط"}</p>
                 <p className="text-2xl font-bold">{summary?.totalPlans ?? 0}</p>
               </div>
             </div>
             <div className="mt-2 flex gap-2 text-xs">
-              <span className="text-green-600">{summary?.activePlans ?? 0} نشطة</span>
+              <span className="text-green-600">{summary?.activePlans ?? 0} {tr.preventiveReport?.active || "نشطة"}</span>
               <span className="text-gray-400">|</span>
-              <span className="text-gray-500">{summary?.inactivePlans ?? 0} متوقفة</span>
+              <span className="text-gray-500">{summary?.inactivePlans ?? 0} {tr.preventiveReport?.inactive || "متوقفة"}</span>
             </div>
           </CardContent>
         </Card>
@@ -136,7 +143,7 @@ export default function PreventiveReport() {
             <div className="flex items-center gap-3">
               <div className="p-2 bg-red-100 rounded-lg"><AlertTriangle className="h-5 w-5 text-red-600" /></div>
               <div>
-                <p className="text-xs text-muted-foreground">خطط متأخرة</p>
+                <p className="text-xs text-muted-foreground">{tr.preventiveReport?.overduePlans || "خطط متأخرة"}</p>
                 <p className="text-2xl font-bold text-red-600">{summary?.overduePlans ?? 0}</p>
               </div>
             </div>
@@ -148,14 +155,14 @@ export default function PreventiveReport() {
             <div className="flex items-center gap-3">
               <div className="p-2 bg-purple-100 rounded-lg"><Activity className="h-5 w-5 text-purple-600" /></div>
               <div>
-                <p className="text-xs text-muted-foreground">أوامر العمل</p>
+                <p className="text-xs text-muted-foreground">{tr.preventiveReport?.workOrders || "أوامر العمل"}</p>
                 <p className="text-2xl font-bold">{wos?.total ?? 0}</p>
               </div>
             </div>
             <div className="mt-2 flex gap-2 text-xs">
-              <span className="text-green-600">{wos?.completed ?? 0} مكتملة</span>
+              <span className="text-green-600">{wos?.completed ?? 0} {tr.preventiveReport?.completed || "مكتملة"}</span>
               <span className="text-gray-400">|</span>
-              <span className="text-red-500">{wos?.overdue ?? 0} متأخرة</span>
+              <span className="text-red-500">{wos?.overdue ?? 0} {tr.preventiveReport?.overdue || "متأخرة"}</span>
             </div>
           </CardContent>
         </Card>
@@ -165,7 +172,7 @@ export default function PreventiveReport() {
             <div className="flex items-center gap-3">
               <div className="p-2 bg-green-100 rounded-lg"><TrendingUp className="h-5 w-5 text-green-600" /></div>
               <div>
-                <p className="text-xs text-muted-foreground">نسبة الإنجاز</p>
+                <p className="text-xs text-muted-foreground">{tr.preventiveReport?.completionRate || "نسبة الإنجاز"}</p>
                 <p className="text-2xl font-bold text-green-600">{wos?.completionRate ?? 0}%</p>
               </div>
             </div>
@@ -179,16 +186,16 @@ export default function PreventiveReport() {
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-base flex items-center gap-2">
-              <Clock className="h-4 w-4" /> توزيع أوامر العمل
+              <Clock className="h-4 w-4" /> {tr.preventiveReport?.workOrderDist || "توزيع أوامر العمل"}
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">
             {[
-              { key: "scheduled",   label: "مجدول",  count: wos?.scheduled ?? 0,   color: "bg-blue-500" },
-              { key: "in_progress", label: "جاري",   count: wos?.inProgress ?? 0,  color: "bg-yellow-500" },
-              { key: "completed",   label: "مكتمل",  count: wos?.completed ?? 0,   color: "bg-green-500" },
-              { key: "overdue",     label: "متأخر",  count: wos?.overdue ?? 0,     color: "bg-red-500" },
-              { key: "cancelled",   label: "ملغي",   count: wos?.cancelled ?? 0,   color: "bg-gray-400" },
+              { key: "scheduled",   label: tr.preventive?.statusScheduled || "مجدول",  count: wos?.scheduled ?? 0,   color: "bg-blue-500" },
+              { key: "in_progress", label: tr.preventive?.statusInProgress || "جاري",  count: wos?.inProgress ?? 0,  color: "bg-yellow-500" },
+              { key: "completed",   label: tr.preventive?.statusCompleted || "مكتمل",  count: wos?.completed ?? 0,   color: "bg-green-500" },
+              { key: "overdue",     label: tr.preventive?.statusOverdue || "متأخر",  count: wos?.overdue ?? 0,     color: "bg-red-500" },
+              { key: "cancelled",   label: tr.preventive?.statusCancelled || "ملغي",  count: wos?.cancelled ?? 0,   color: "bg-gray-400" },
             ].map(item => (
               <div key={item.key} className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
@@ -205,26 +212,26 @@ export default function PreventiveReport() {
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-base flex items-center gap-2">
-              <ListChecks className="h-4 w-4" /> إحصائيات قوائم التحقق
+              <ListChecks className="h-4 w-4" /> {tr.preventiveReport?.checklistStats || "إحصائيات قوائم التحقق"}
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
             <div className="flex justify-between text-sm">
-              <span className="text-muted-foreground">إجمالي البنود</span>
+              <span className="text-muted-foreground">{tr.preventiveReport?.totalItems || "إجمالي البنود"}</span>
               <span className="font-semibold">{checklist?.total ?? 0}</span>
             </div>
             <div className="flex justify-between text-sm">
-              <span className="text-muted-foreground">بنود منجزة</span>
+              <span className="text-muted-foreground">{tr.preventiveReport?.completedItems || "بنود منجزة"}</span>
               <span className="font-semibold text-green-600">{checklist?.done ?? 0}</span>
             </div>
             <div className="flex justify-between text-sm">
-              <span className="text-muted-foreground">بنود متبقية</span>
+              <span className="text-muted-foreground">{tr.preventiveReport?.remainingItems || "بنود متبقية"}</span>
               <span className="font-semibold text-orange-500">{(checklist?.total ?? 0) - (checklist?.done ?? 0)}</span>
             </div>
             {/* Progress bar */}
             <div className="mt-2">
               <div className="flex justify-between text-xs mb-1">
-                <span>نسبة الإنجاز</span>
+                <span>{tr.preventiveReport?.completionRate || "نسبة الإنجاز"}</span>
                 <span className="font-bold">{checklist?.completionRate ?? 0}%</span>
               </div>
               <div className="w-full bg-muted rounded-full h-2">
@@ -241,7 +248,7 @@ export default function PreventiveReport() {
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-base flex items-center gap-2">
-              <CalendarClock className="h-4 w-4" /> توزيع التكرار
+              <CalendarClock className="h-4 w-4" /> {tr.preventiveReport?.frequencyDist || "توزيع التكرار"}
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">
@@ -265,7 +272,7 @@ export default function PreventiveReport() {
               );
             })}
             {Object.values(byFreq).every(v => v === 0) && (
-              <p className="text-sm text-muted-foreground text-center py-2">لا توجد خطط مسجلة</p>
+              <p className="text-sm text-muted-foreground text-center py-2">{tr.preventiveReport?.noPlans || "لا توجد خطط مسجلة"}</p>
             )}
           </CardContent>
         </Card>
@@ -275,23 +282,23 @@ export default function PreventiveReport() {
       <Card>
         <CardHeader className="pb-2">
           <CardTitle className="text-base flex items-center gap-2">
-            <Activity className="h-4 w-4" /> آخر أوامر العمل
+            <Activity className="h-4 w-4" /> {tr.preventiveReport?.recentWorkOrders || "آخر أوامر العمل"}
           </CardTitle>
         </CardHeader>
         <CardContent>
           {recent.length === 0 ? (
-            <p className="text-center text-muted-foreground py-6">لا توجد أوامر عمل</p>
+            <p className="text-center text-muted-foreground py-6">{tr.preventiveReport?.noWorkOrders || "لا توجد أوامر عمل"}</p>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b text-muted-foreground">
-                    <th className="text-right pb-2 font-medium">رقم أمر العمل</th>
-                    <th className="text-right pb-2 font-medium">العنوان</th>
-                    <th className="text-right pb-2 font-medium">الحالة</th>
-                    <th className="text-right pb-2 font-medium">تاريخ الجدولة</th>
-                    <th className="text-right pb-2 font-medium">تاريخ الإنجاز</th>
-                    <th className="text-right pb-2 font-medium">صورة</th>
+                    <th className="text-right pb-2 font-medium">{tr.preventiveReport?.woNumber || "رقم أمر العمل"}</th>
+                    <th className="text-right pb-2 font-medium">{tr.common?.title || "العنوان"}</th>
+                    <th className="text-right pb-2 font-medium">{tr.common?.status || "الحالة"}</th>
+                    <th className="text-right pb-2 font-medium">{tr.preventiveReport?.scheduledDate || "تاريخ الجدولة"}</th>
+                    <th className="text-right pb-2 font-medium">{tr.preventiveReport?.completedDate || "تاريخ الإنجاز"}</th>
+                    <th className="text-right pb-2 font-medium">{tr.common?.photo || "صورة"}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y">

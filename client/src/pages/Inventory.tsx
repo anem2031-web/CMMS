@@ -16,9 +16,10 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { ExportButton } from "@/components/ExportButton";
 import { useLocation } from "wouter";
-import { useTranslation } from "@/contexts/LanguageContext";
+import { useTranslation, useLanguage } from "@/contexts/LanguageContext";
 
 export default function Inventory() {
+  const { t: tr } = useLanguage();
   const { user } = useAuth();
   const [, setLocation] = useLocation();
   const { t, language } = useTranslation();
