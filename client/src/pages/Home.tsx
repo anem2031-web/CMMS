@@ -9,7 +9,7 @@ import {
   DollarSign, Package, Clock, Search, Microscope,
   DoorOpen, Wrench, TrendingUp, TrendingDown, Minus,
   Maximize2, Minimize2, X, ChevronRight, AlertCircle,
-  Shield, Activity,
+  Shield, Activity, CalendarCheck, CalendarClock, AlertOctagon,
 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useTranslation } from "@/contexts/LanguageContext";
@@ -181,6 +181,116 @@ function DashboardCard({ card, monitorMode }: { card: SmartCard; monitorMode: bo
   );
 }
 
+// ─── PM Monthly Summary Card ──────────────────────────────────────────────────
+function PMSummaryCard({ onNavigate }: { onNavigate: () => void }) {
+  const { data: pm, isLoading } = trpc.dashboard.pmMonthlySummary.useQuery();
+
+  // اسم الشهر الحالي
+  const now = new Date();
+  const monthName = now.toLocaleDateString("ar-SA", { month: "long", year: "numeric" });
+
+  if (isLoading) {
+    return (
+      <Card className="border-border">
+        <CardContent className="p-5">
+          <Skeleton className="h-4 w-40 mb-4" />
+          <div className="grid grid-cols-3 gap-3">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <div key={i} className="space-y-1.5">
+                <Skeleton className="h-7 w-10" />
+                <Skeleton className="h-3 w-16" />
+              </div>
+            ))}
+          </div>
+          <Skeleton className="h-2 w-full mt-4 rounded-full" />
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const completionRate = pm?.completionRate ?? 0;
+  const rateColor =
+    completionRate >= 80 ? "bg-emerald-500"
+    : completionRate >= 50 ? "bg-amber-500"
+    : "bg-red-500";
+  const rateTextColor =
+    completionRate >= 80 ? "text-emerald-600 dark:text-emerald-400"
+    : completionRate >= 50 ? "text-amber-600 dark:text-amber-400"
+    : "text-red-600 dark:text-red-400";
+
+  return (
+    <Card
+      className="border-teal-200 dark:border-teal-800/50 hover:shadow-md hover:border-teal-400/50 transition-all duration-200 cursor-pointer group overflow-hidden relative"
+      onClick={onNavigate}
+    >
+      {/* Top accent bar */}
+      <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-teal-500 to-cyan-400" />
+
+      <CardContent className="p-5">
+        {/* Header */}
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-lg bg-teal-500/10 flex items-center justify-center">
+              <CalendarCheck className="w-4 h-4 text-teal-600 dark:text-teal-400" />
+            </div>
+            <div>
+              <p className="text-xs font-semibold text-teal-700 dark:text-teal-300">الصيانة الوقائية</p>
+              <p className="text-[10px] text-muted-foreground">{monthName}</p>
+            </div>
+          </div>
+          <ChevronRight className="h-4 w-4 text-muted-foreground group-hover:text-teal-500 transition-colors" />
+        </div>
+
+        {/* Stats Row */}
+        <div className="grid grid-cols-4 gap-2 mb-4">
+          {/* الخطط النشطة */}
+          <div className="text-center">
+            <p className="text-xl font-bold text-foreground">{pm?.activePlans ?? 0}</p>
+            <p className="text-[10px] text-muted-foreground leading-tight mt-0.5">خطة نشطة</p>
+          </div>
+          {/* المكتملة */}
+          <div className="text-center">
+            <p className="text-xl font-bold text-emerald-600 dark:text-emerald-400">{pm?.completedThisMonth ?? 0}</p>
+            <p className="text-[10px] text-muted-foreground leading-tight mt-0.5">مكتمل</p>
+          </div>
+          {/* المعلقة */}
+          <div className="text-center">
+            <p className="text-xl font-bold text-amber-600 dark:text-amber-400">{pm?.pendingThisMonth ?? 0}</p>
+            <p className="text-[10px] text-muted-foreground leading-tight mt-0.5">معلق</p>
+          </div>
+          {/* المتأخرة */}
+          <div className="text-center">
+            <p className={`text-xl font-bold ${(pm?.overdueCount ?? 0) > 0 ? "text-red-600 dark:text-red-400" : "text-muted-foreground"}`}>
+              {pm?.overdueCount ?? 0}
+            </p>
+            <div className="flex items-center justify-center gap-0.5 mt-0.5">
+              {(pm?.overdueCount ?? 0) > 0 && <AlertOctagon className="w-2.5 h-2.5 text-red-500" />}
+              <p className="text-[10px] text-muted-foreground leading-tight">متأخر</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Progress Bar */}
+        <div className="space-y-1.5">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] text-muted-foreground">نسبة الإنجاز هذا الشهر</span>
+            <span className={`text-[11px] font-bold ${rateTextColor}`}>{completionRate}%</span>
+          </div>
+          <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+            <div
+              className={`h-full rounded-full transition-all duration-700 ${rateColor}`}
+              style={{ width: `${completionRate}%` }}
+            />
+          </div>
+          {pm?.totalWorkOrders === 0 && (
+            <p className="text-[10px] text-muted-foreground text-center">لا توجد أوامر عمل مجدولة هذا الشهر</p>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 export default function Home() {
   const { user } = useAuth();
@@ -250,11 +360,19 @@ export default function Home() {
           onDrilldown: () => openSlideover("بلاغاتي النشطة", { status: "assigned" }),
         },
         {
+          id: "closed_today",
+          title: t.dashboard.closedToday,
+          value: stats?.closedToday ?? 0,
+          icon: CheckCircle2,
+          color: "text-emerald-600 bg-emerald-50 dark:bg-emerald-950/30",
+          onClick: () => setLocation("/tickets?status=closed"),
+        },
+        {
           id: "in_progress",
           title: "قيد التنفيذ",
-          value: stats?.criticalTickets ?? 0,
+          value: stats?.underInspection ?? 0,
           icon: Wrench,
-          color: "text-emerald-600 bg-emerald-50 dark:bg-emerald-950/30",
+          color: "text-indigo-600 bg-indigo-50 dark:bg-indigo-950/30",
           onClick: () => setLocation("/tickets?status=in_progress"),
         },
       ];
@@ -472,6 +590,9 @@ export default function Home() {
     ];
   }, [stats, role, t, language, setLocation, openSlideover]);
 
+  // Roles that should see PM summary card
+  const showPMSummary = ["admin", "owner", "senior_management", "maintenance_manager", "supervisor"].includes(role);
+
   const greeting = language === "en"
     ? `Welcome, ${user?.name || "User"}`
     : language === "ur"
@@ -539,6 +660,17 @@ export default function Home() {
                 </div>
               ))}
         </div>
+
+        {/* PM Monthly Summary — for managers, supervisors, admins */}
+        {showPMSummary && (
+          <div>
+            <div className="flex items-center gap-2 mb-3">
+              <CalendarClock className="h-4 w-4 text-teal-600 dark:text-teal-400" />
+              <h2 className="text-sm font-semibold text-foreground">ملخص الصيانة الوقائية</h2>
+            </div>
+            <PMSummaryCard onNavigate={() => setLocation("/preventive-maintenance")} />
+          </div>
+        )}
 
         {/* Quick Actions */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

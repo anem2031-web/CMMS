@@ -722,3 +722,8 @@
 - [ ] Frontend: واجهة الرقابة الوقتية البصرية في مركز الإشعارات (Timeline cards + ألوان)
 - [ ] إشعار Push تلقائي عند تجاوز SLA 48 ساعة (job دوري)
 - [ ] تقرير أداء الفني الشهري (فحوصات + معدل اكتشاف الأعطال)
+
+## Phase 55: بطاقة ملخص الصيانة الوقائية الشهرية في Dashboard
+- [x] Backend: procedure pmMonthlySummary في dashboard router (خطط نشطة + مكتمل + معلق + متأخر + نسبة إنجاز)
+- [x] Frontend: PMSummaryCard component مع شريط تقدم ملون + 4 إحصائيات + تنقل لصفحة الصيانة الوقائية
+- [x] تظهر للأدوار: admin, owner, senior_management, maintenance_manager, supervisor
