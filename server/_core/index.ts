@@ -167,13 +167,21 @@ async function startServer() {
   // ============================================================
   // MEDIA PROXY: serves images from iDrive e2 through the server
   // ============================================================
-  app.get("/api/media", requireAuthMiddleware, async (req: any, res: any) => {
+  // Media proxy is intentionally public to allow <img> tags to load images
+  // without sending session cookies. Security is enforced by restricting
+  // access to the cmms/ key prefix only.
+  app.get("/api/media", async (req: any, res: any) => {
     try {
       const key = req.query.key as string;
       if (!key) return res.status(400).json({ error: "Missing key" });
-      const { stream, contentType } = await storageGetStream(key);
+      // Only allow keys under the cmms/ namespace to prevent arbitrary file access
+      const normalizedKey = key.replace(/^\/+/, "");
+      if (!normalizedKey.startsWith("cmms/")) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      const { stream, contentType } = await storageGetStream(normalizedKey);
       res.setHeader("Content-Type", contentType || "image/webp");
-      res.setHeader("Cache-Control", "private, max-age=86400");
+      res.setHeader("Cache-Control", "public, max-age=86400");
       (stream as any).pipe(res);
     } catch (error: any) {
       console.error("Media proxy error:", error);

@@ -33,9 +33,14 @@ interface ScannedAsset {
   model?: string | null;
   serialNumber?: string | null;
   siteId?: number | null;
+  sectionId?: number | null;
   locationDetail?: string | null;
   photoUrl?: string | null;
   rfidTag?: string | null;
+}
+interface ScannedSection {
+  id: number;
+  name: string;
 }
 
 interface ScannedSite {
@@ -52,6 +57,7 @@ export default function ScanAsset() {
   const [errorMessage, setErrorMessage] = useState<string>("");
   const [scannedAsset, setScannedAsset] = useState<ScannedAsset | null>(null);
   const [scannedSite, setScannedSite] = useState<ScannedSite | null>(null);
+  const [scannedSection, setScannedSection] = useState<ScannedSection | null>(null);
   const [manualTag, setManualTag] = useState("");
   const [showManualInput, setShowManualInput] = useState(false);
   const [nfcSupported, setNfcSupported] = useState<boolean | null>(null);
@@ -190,6 +196,7 @@ export default function ScanAsset() {
       const result = await scanMutation.mutateAsync({ rfidTag: rfidTag.trim() });
       setScannedAsset(result.asset);
       setScannedSite(result.site);
+      setScannedSection(result.section ?? null);
       setScanState("success");
     } catch (err: any) {
       setScanState("error");
@@ -384,9 +391,12 @@ export default function ScanAsset() {
                 {scannedAsset.photoUrl && (
                   <div className="flex justify-center mb-2">
                     <img
-                      src={scannedAsset.photoUrl}
+                      src={scannedAsset.photoUrl.startsWith("/api/media")
+                        ? `${window.location.origin}${scannedAsset.photoUrl}`
+                        : scannedAsset.photoUrl}
                       alt={scannedAsset.name}
-                      className="w-24 h-24 rounded-lg object-cover border border-green-200"
+                      className="w-28 h-28 rounded-xl object-cover border-2 border-green-200 shadow-sm"
+                      onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
                     />
                   </div>
                 )}
@@ -414,6 +424,16 @@ export default function ScanAsset() {
                     )}
                   </div>
                 </div>
+                {/* Section */}
+                {scannedSection && (
+                  <div className="flex items-start gap-2">
+                    <Building2 className="w-4 h-4 text-muted-foreground mt-1 shrink-0" />
+                    <div>
+                      <p className="text-xs text-muted-foreground">{t.tickets.section}</p>
+                      <p className="font-medium text-foreground">{scannedSection.name}</p>
+                    </div>
+                  </div>
+                )}
 
                 {/* RFID Tag */}
                 <div className="flex items-start gap-2">

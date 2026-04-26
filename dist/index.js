@@ -4602,6 +4602,12 @@ var appRouter = router({
         });
       }
       const site = asset.siteId ? await getSiteById(asset.siteId) : null;
+      let section = null;
+      if (asset.sectionId) {
+        const sectionsList = await getSections();
+        const found = sectionsList.find((s) => s.id === asset.sectionId);
+        if (found) section = { id: found.id, name: found.name };
+      }
       return {
         success: true,
         asset: {
@@ -4614,11 +4620,13 @@ var appRouter = router({
           model: asset.model,
           serialNumber: asset.serialNumber,
           siteId: asset.siteId,
+          sectionId: asset.sectionId,
           locationDetail: asset.locationDetail,
           photoUrl: asset.photoUrl,
           rfidTag: asset.rfidTag
         },
-        site: site ? { id: site.id, name: site.name, address: site.address } : null
+        site: site ? { id: site.id, name: site.name, address: site.address } : null,
+        section
       };
     }),
     // Lookup asset by tag without mutation (for QR code or manual entry)
@@ -8483,13 +8491,17 @@ async function startServer() {
       }
     }
   });
-  app.get("/api/media", requireAuthMiddleware, async (req, res) => {
+  app.get("/api/media", async (req, res) => {
     try {
       const key = req.query.key;
       if (!key) return res.status(400).json({ error: "Missing key" });
-      const { stream, contentType } = await storageGetStream(key);
+      const normalizedKey = key.replace(/^\/+/, "");
+      if (!normalizedKey.startsWith("cmms/")) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      const { stream, contentType } = await storageGetStream(normalizedKey);
       res.setHeader("Content-Type", contentType || "image/webp");
-      res.setHeader("Cache-Control", "private, max-age=86400");
+      res.setHeader("Cache-Control", "public, max-age=86400");
       stream.pipe(res);
     } catch (error) {
       console.error("Media proxy error:", error);

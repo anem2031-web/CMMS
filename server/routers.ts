@@ -1134,6 +1134,13 @@ export const appRouter = router({
       }
       // ✅ Get site/location associated with the asset
       const site = asset.siteId ? await db.getSiteById(asset.siteId) : null;
+      // ✅ Get section associated with the asset
+      let section: { id: number; name: string } | null = null;
+      if (asset.sectionId) {
+        const sectionsList = await db.getSections();
+        const found = sectionsList.find((s: any) => s.id === asset.sectionId);
+        if (found) section = { id: found.id, name: found.name };
+      }
       return {
         success: true,
         asset: {
@@ -1146,11 +1153,13 @@ export const appRouter = router({
           model: asset.model,
           serialNumber: asset.serialNumber,
           siteId: asset.siteId,
+          sectionId: asset.sectionId,
           locationDetail: asset.locationDetail,
           photoUrl: asset.photoUrl,
           rfidTag: asset.rfidTag,
         },
         site: site ? { id: site.id, name: site.name, address: site.address } : null,
+        section: section,
       };
     }),
 
