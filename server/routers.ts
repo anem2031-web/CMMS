@@ -6,7 +6,7 @@ import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import * as db from "./db";
 import { eq, and, asc, gte, lte } from "drizzle-orm";
-import { storagePut } from "./storage";
+import { storagePut, storageRename } from "./storage";
 import { notifyOwner } from "./_core/notification";
 import { invokeLLM } from "./_core/llm";
 import { nanoid } from "nanoid";
@@ -2783,6 +2783,24 @@ ${JSON.stringify(recentAudit.map((a: any) => ({ action: a.action, entity: a.enti
         status: input.status ?? "active",
         createdById: ctx.user.id,
       });
+      // ── إعادة تسمية صورة الأصل بقيمة RFID إذا توفر كلاهما ──────────────
+      if (result && input.rfidTag && input.photoUrl) {
+        try {
+          const oldKey = input.photoUrl.includes("/api/media?key=")
+            ? decodeURIComponent(input.photoUrl.split("key=")[1])
+            : input.photoUrl.replace(/^.*\/cmms\//, "cmms/");
+          const safeRfid = input.rfidTag.replace(/[^a-zA-Z0-9_\-]/g, "_");
+          const newKey = `cmms/assets/${safeRfid}.webp`;
+          if (oldKey !== newKey) {
+            const { url: newUrl } = await storageRename(oldKey, newKey);
+            const proxyUrl = `/api/media?key=${encodeURIComponent(newKey)}`;
+            await db.updateAsset(result.id, { photoUrl: proxyUrl });
+            result.photoUrl = proxyUrl;
+          }
+        } catch (e) {
+          console.error("[Asset] RFID photo rename failed (create):", e);
+        }
+      }
       return result;
     }),
 
@@ -2831,9 +2849,47 @@ ${JSON.stringify(recentAudit.map((a: any) => ({ action: a.action, entity: a.enti
           console.error("[Asset] Update translation failed:", e);
         }
       }
+      // ── إعادة تسمية صورة الأصل بقيمة RFID عند التعديل ─────────────────────
+      let finalPhotoUrl = data.photoUrl;
+      const effectiveRfid = data.rfidTag;
+      if (effectiveRfid && data.photoUrl) {
+        // صورة جديدة + RFID: إعادة تسمية الصورة المرفوعة
+        try {
+          const oldKey = data.photoUrl.includes("/api/media?key=")
+            ? decodeURIComponent(data.photoUrl.split("key=")[1])
+            : data.photoUrl.replace(/^.*\/cmms\//, "cmms/");
+          const safeRfid = effectiveRfid.replace(/[^a-zA-Z0-9_\-]/g, "_");
+          const newKey = `cmms/assets/${safeRfid}.webp`;
+          if (!oldKey.endsWith(`${safeRfid}.webp`)) {
+            await storageRename(oldKey, newKey);
+            finalPhotoUrl = `/api/media?key=${encodeURIComponent(newKey)}`;
+          }
+        } catch (e) {
+          console.error("[Asset] RFID photo rename failed (update+photo):", e);
+        }
+      } else if (effectiveRfid && !data.photoUrl) {
+        // تغيير RFID فقط: إعادة تسمية الصورة الموجودة في قاعدة البيانات
+        try {
+          const existing = await db.getAssetById(id);
+          if (existing?.photoUrl) {
+            const oldKey = existing.photoUrl.includes("/api/media?key=")
+              ? decodeURIComponent(existing.photoUrl.split("key=")[1])
+              : existing.photoUrl.replace(/^.*\/cmms\//, "cmms/");
+            const safeRfid = effectiveRfid.replace(/[^a-zA-Z0-9_\-]/g, "_");
+            const newKey = `cmms/assets/${safeRfid}.webp`;
+            if (!oldKey.endsWith(`${safeRfid}.webp`)) {
+              await storageRename(oldKey, newKey);
+              finalPhotoUrl = `/api/media?key=${encodeURIComponent(newKey)}`;
+            }
+          }
+        } catch (e) {
+          console.error("[Asset] RFID rename on rfid-change failed:", e);
+        }
+      }
       return db.updateAsset(id, {
         ...data,
         ...assetTranslation,
+        photoUrl: finalPhotoUrl,
         purchaseDate: data.purchaseDate ? new Date(data.purchaseDate) : undefined,
         warrantyExpiry: data.warrantyExpiry ? new Date(data.warrantyExpiry) : undefined,
       });

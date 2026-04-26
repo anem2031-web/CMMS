@@ -1,5 +1,11 @@
 // Storage helpers using iDrive e2 (S3-compatible)
-import { S3Client, PutObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
+import {
+  S3Client,
+  PutObjectCommand,
+  GetObjectCommand,
+  CopyObjectCommand,
+  DeleteObjectCommand,
+} from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
 const S3_ENDPOINT   = process.env.S3_ENDPOINT   || "https://s3.eu-central-1.idrivee2.com";
@@ -65,4 +71,51 @@ export async function storageGetStream(relKey: string): Promise<{ stream: NodeJS
   const stream = response.Body as NodeJS.ReadableStream;
   const contentType = response.ContentType || "application/octet-stream";
   return { stream, contentType };
+}
+
+/**
+ * Rename (copy → delete) a file in S3-compatible storage.
+ * Used to rename asset photos to match their RFID tag.
+ * Returns the new key and public URL.
+ */
+export async function storageRename(
+  oldRelKey: string,
+  newRelKey: string
+): Promise<{ key: string; url: string }> {
+  const oldKey = normalizeKey(oldRelKey);
+  const newKey = normalizeKey(newRelKey);
+
+  // 1. Copy to new key
+  await s3.send(
+    new CopyObjectCommand({
+      Bucket: S3_BUCKET,
+      CopySource: `${S3_BUCKET}/${oldKey}`,
+      Key: newKey,
+      ACL: "public-read",
+    })
+  );
+
+  // 2. Delete old key
+  await s3.send(
+    new DeleteObjectCommand({
+      Bucket: S3_BUCKET,
+      Key: oldKey,
+    })
+  );
+
+  const url = `${S3_ENDPOINT}/${S3_BUCKET}/${newKey}`;
+  return { key: newKey, url };
+}
+
+/**
+ * Delete a file from S3-compatible storage.
+ */
+export async function storageDelete(relKey: string): Promise<void> {
+  const key = normalizeKey(relKey);
+  await s3.send(
+    new DeleteObjectCommand({
+      Bucket: S3_BUCKET,
+      Key: key,
+    })
+  );
 }

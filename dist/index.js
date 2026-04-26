@@ -2507,7 +2507,13 @@ import { z as z3 } from "zod";
 import { eq as eq3, and as and3, asc as asc2, gte as gte2 } from "drizzle-orm";
 
 // server/storage.ts
-import { S3Client, PutObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
+import {
+  S3Client,
+  PutObjectCommand,
+  GetObjectCommand,
+  CopyObjectCommand,
+  DeleteObjectCommand
+} from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 var S3_ENDPOINT = process.env.S3_ENDPOINT || "https://s3.eu-central-1.idrivee2.com";
 var S3_REGION = process.env.S3_REGION || "eu-central-1";
@@ -2547,6 +2553,26 @@ async function storageGetStream(relKey) {
   const stream = response.Body;
   const contentType = response.ContentType || "application/octet-stream";
   return { stream, contentType };
+}
+async function storageRename(oldRelKey, newRelKey) {
+  const oldKey = normalizeKey(oldRelKey);
+  const newKey = normalizeKey(newRelKey);
+  await s3.send(
+    new CopyObjectCommand({
+      Bucket: S3_BUCKET,
+      CopySource: `${S3_BUCKET}/${oldKey}`,
+      Key: newKey,
+      ACL: "public-read"
+    })
+  );
+  await s3.send(
+    new DeleteObjectCommand({
+      Bucket: S3_BUCKET,
+      Key: oldKey
+    })
+  );
+  const url = `${S3_ENDPOINT}/${S3_BUCKET}/${newKey}`;
+  return { key: newKey, url };
 }
 
 // server/_core/llm.ts
@@ -6135,6 +6161,21 @@ ${dbContext}` },
         status: input.status ?? "active",
         createdById: ctx.user.id
       });
+      if (result && input.rfidTag && input.photoUrl) {
+        try {
+          const oldKey = input.photoUrl.includes("/api/media?key=") ? decodeURIComponent(input.photoUrl.split("key=")[1]) : input.photoUrl.replace(/^.*\/cmms\//, "cmms/");
+          const safeRfid = input.rfidTag.replace(/[^a-zA-Z0-9_\-]/g, "_");
+          const newKey = `cmms/assets/${safeRfid}.webp`;
+          if (oldKey !== newKey) {
+            const { url: newUrl } = await storageRename(oldKey, newKey);
+            const proxyUrl = `/api/media?key=${encodeURIComponent(newKey)}`;
+            await updateAsset(result.id, { photoUrl: proxyUrl });
+            result.photoUrl = proxyUrl;
+          }
+        } catch (e) {
+          console.error("[Asset] RFID photo rename failed (create):", e);
+        }
+      }
       return result;
     }),
     update: managerProcedure.input(z3.object({
@@ -6181,9 +6222,40 @@ ${dbContext}` },
           console.error("[Asset] Update translation failed:", e);
         }
       }
+      let finalPhotoUrl = data.photoUrl;
+      const effectiveRfid = data.rfidTag;
+      if (effectiveRfid && data.photoUrl) {
+        try {
+          const oldKey = data.photoUrl.includes("/api/media?key=") ? decodeURIComponent(data.photoUrl.split("key=")[1]) : data.photoUrl.replace(/^.*\/cmms\//, "cmms/");
+          const safeRfid = effectiveRfid.replace(/[^a-zA-Z0-9_\-]/g, "_");
+          const newKey = `cmms/assets/${safeRfid}.webp`;
+          if (!oldKey.endsWith(`${safeRfid}.webp`)) {
+            await storageRename(oldKey, newKey);
+            finalPhotoUrl = `/api/media?key=${encodeURIComponent(newKey)}`;
+          }
+        } catch (e) {
+          console.error("[Asset] RFID photo rename failed (update+photo):", e);
+        }
+      } else if (effectiveRfid && !data.photoUrl) {
+        try {
+          const existing = await getAssetById(id);
+          if (existing?.photoUrl) {
+            const oldKey = existing.photoUrl.includes("/api/media?key=") ? decodeURIComponent(existing.photoUrl.split("key=")[1]) : existing.photoUrl.replace(/^.*\/cmms\//, "cmms/");
+            const safeRfid = effectiveRfid.replace(/[^a-zA-Z0-9_\-]/g, "_");
+            const newKey = `cmms/assets/${safeRfid}.webp`;
+            if (!oldKey.endsWith(`${safeRfid}.webp`)) {
+              await storageRename(oldKey, newKey);
+              finalPhotoUrl = `/api/media?key=${encodeURIComponent(newKey)}`;
+            }
+          }
+        } catch (e) {
+          console.error("[Asset] RFID rename on rfid-change failed:", e);
+        }
+      }
       return updateAsset(id, {
         ...data,
         ...assetTranslation,
+        photoUrl: finalPhotoUrl,
         purchaseDate: data.purchaseDate ? new Date(data.purchaseDate) : void 0,
         warrantyExpiry: data.warrantyExpiry ? new Date(data.warrantyExpiry) : void 0
       });
