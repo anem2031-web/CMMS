@@ -311,7 +311,7 @@ const ur: TranslationKeys = {
     managementNotes: "انتظامی نوٹس",
     approveAccounting: "منظور (اکاؤنٹنگ)",
     approveManagement: "منظور (انتظامیہ)",
-    confirmPurchase: "خریداری کی تصدیق",
+    confirmPurchase: "آرڈر کی خریداری کی تصدیق",
     receiveItem: "شے وصول کریں",
     totalEstimated: "کل تخمینی لاگت",
     totalActual: "کل اصل لاگت",

@@ -70,7 +70,8 @@ const NAV_SECTIONS: NavSection[] = [
     items: [
       { icon: Nfc,           labelKey: "nav.scanAsset",    path: "/scan-asset",
         roles: ["operator","technician","maintenance_manager","supervisor","gate_security","owner","admin"] },
-      { icon: ClipboardList, labelKey: "nav.tickets",      path: "/tickets" },
+      { icon: ClipboardList, labelKey: "nav.tickets",      path: "/tickets",
+        roles: ["operator","technician","maintenance_manager","supervisor","gate_security","delegate","senior_management","owner","admin"] },
       { icon: ScanSearch,    labelKey: "nav.triage",       path: "/triage",
         roles: ["supervisor","maintenance_manager","owner","admin"] },
       { icon: DoorOpen,      labelKey: "nav.gateSecurity", path: "/gate-security",
@@ -553,7 +554,7 @@ function DashboardLayoutContent({ children, setSidebarWidth }: { children: React
           <SidebarContent className="gap-0 overflow-y-auto pt-1 pb-2">
 
             {/* ── لوحة التحكم مستقلة في الأعلى ── */}
-            {!searchResults && (
+            {!searchResults && role !== "warehouse" && (
               <div className="px-2 pb-1">
                 <SidebarMenu className="gap-0.5">
                   <SidebarMenuItem>

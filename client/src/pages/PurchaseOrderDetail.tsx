@@ -580,7 +580,7 @@ export default function PurchaseOrderDetail() {
         </Card>
       )}
 
-      {po.custodyAmount && (
+      {po.custodyAmount && !isWarehouse && (
         <Card className="border-amber-200 bg-amber-50/50">
           <CardContent className="p-4 flex items-center gap-3">
             <div className="w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0">

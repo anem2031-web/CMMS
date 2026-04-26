@@ -650,39 +650,7 @@ export default function Home() {
           </div>
         )}
 
-        {/* Quick Actions */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <Card
-            className="hover:shadow-md hover:border-primary/30 transition-all duration-200 cursor-pointer group"
-            onClick={() => setLocation("/tickets/new")}
-          >
-            <CardContent className="p-5 flex items-center gap-4">
-              <div className="w-11 h-11 rounded-xl bg-primary/10 flex items-center justify-center group-hover:scale-105 transition-transform">
-                <ClipboardList className="w-5 h-5 text-primary" />
-              </div>
-              <div>
-                <h3 className="font-semibold text-sm">{t.dashboard.newTicket}</h3>
-                <p className="text-xs text-muted-foreground mt-0.5">{t.tickets.description}</p>
-              </div>
-              <ChevronRight className="h-4 w-4 text-muted-foreground mr-auto" />
-            </CardContent>
-          </Card>
-          <Card
-            className="hover:shadow-md hover:border-teal-500/30 transition-all duration-200 cursor-pointer group"
-            onClick={() => setLocation("/purchase-orders/new")}
-          >
-            <CardContent className="p-5 flex items-center gap-4">
-              <div className="w-11 h-11 rounded-xl bg-teal-500/10 flex items-center justify-center group-hover:scale-105 transition-transform">
-                <ShoppingCart className="w-5 h-5 text-teal-600" />
-              </div>
-              <div>
-                <h3 className="font-semibold text-sm">{t.dashboard.newPO}</h3>
-                <p className="text-xs text-muted-foreground mt-0.5">{t.purchaseOrders.justification}</p>
-              </div>
-              <ChevronRight className="h-4 w-4 text-muted-foreground mr-auto" />
-            </CardContent>
-          </Card>
-        </div>
+
       </div>
 
       {/* Slide-over Panel */}

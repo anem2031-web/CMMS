@@ -312,7 +312,7 @@ const en: TranslationKeys = {
     managementNotes: "Management Notes",
     approveAccounting: "Approve (Accounting)",
     approveManagement: "Approve (Management)",
-    confirmPurchase: "Confirm Purchase",
+    confirmPurchase: "Confirm Purchase Order",
     receiveItem: "Receive Item",
     totalEstimated: "Total Estimated Cost",
     totalActual: "Total Actual Cost",

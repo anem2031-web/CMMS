@@ -322,7 +322,7 @@ const ar = {
     managementNotes: "ملاحظات الإدارة",
     approveAccounting: "اعتماد (حسابات)",
     approveManagement: "اعتماد (إدارة)",
-    confirmPurchase: "تأكيد الشراء",
+    confirmPurchase: "تأكيد الشراء للطلب",
     receiveItem: "استلام الصنف",
     totalEstimated: "إجمالي التكلفة التقديرية",
     totalActual: "إجمالي التكلفة الفعلية",
