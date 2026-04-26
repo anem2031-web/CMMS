@@ -288,29 +288,51 @@ function DashboardLayoutContent({ children, setSidebarWidth }: { children: React
       window.removeEventListener('appinstalled', handleAppInstalled);
     };
   }, []);
-  const handleInstallPWA = async () => {
-    if (installPrompt) {
-      // Android/Chrome/Edge - نافذة التثبيت الأصلية
-      try {
-        await (installPrompt as any).prompt();
-        const choiceResult = await (installPrompt as any).userChoice;
-        if (choiceResult.outcome === 'accepted') {
+  const handleInstallPWA = () => {
+    // ─── Chrome/Edge/Android: استخدام BeforeInstallPromptEvent ───
+    const prompt = (window as any).__pwaInstallPrompt || installPrompt;
+    if (prompt) {
+      // استدعاء prompt() مباشرة - يجب أن يكون synchronous في user gesture context
+      const promptResult = prompt.prompt();
+      // Chrome القديم: userChoice كـ Promise منفصل
+      // Chrome الجديد: prompt() يُرجع Promise<{outcome, platform}>
+      const handleChoice = (outcome: string) => {
+        if (outcome === 'accepted') {
           setIsInstalled(true);
           setShowInstallBanner(false);
+          (window as any).__pwaInstallPrompt = null;
+          setInstallPrompt(null);
+        } else {
+          // رُفض - نحتفظ بالـ prompt للمحاولة مستقبلاً
         }
-        setInstallPrompt(null);
-      } catch {
-        setShowInstallTooltip(true);
-        setTimeout(() => setShowInstallTooltip(false), 5000);
+      };
+      if (promptResult && typeof promptResult.then === 'function') {
+        // Chrome الجديد: prompt() يُرجع Promise
+        promptResult.then((result: any) => {
+          handleChoice(result?.outcome || 'dismissed');
+        }).catch(() => {
+          // إذا فشل، نظهر tooltip
+          setShowInstallTooltip(true);
+          setTimeout(() => setShowInstallTooltip(false), 6000);
+        });
+      } else {
+        // Chrome القديم: userChoice كـ Promise منفصل
+        if (prompt.userChoice && typeof prompt.userChoice.then === 'function') {
+          prompt.userChoice.then((choice: any) => {
+            handleChoice(choice?.outcome || 'dismissed');
+          }).catch(() => {});
+        }
       }
-    } else if (isIOS) {
-      // iPhone/iPad - دليل التثبيت اليدوي
-      setShowIOSGuide(true);
-    } else {
-      // متصفحات أخرى - tooltip توجيهي
-      setShowInstallTooltip(true);
-      setTimeout(() => setShowInstallTooltip(false), 5000);
+      return;
     }
+    // ─── iOS: دليل التثبيت اليدوي ───
+    if (isIOS) {
+      setShowIOSGuide(true);
+      return;
+    }
+    // ─── متصفحات أخرى: tooltip توجيهي ───
+    setShowInstallTooltip(true);
+    setTimeout(() => setShowInstallTooltip(false), 6000);
   };
   const dismissInstallBanner = () => {
     setShowInstallBanner(false);
