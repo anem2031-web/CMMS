@@ -4,18 +4,18 @@ WORKDIR /app
 # Install pnpm
 RUN npm install -g pnpm
 
-# Copy all package files including patches
+# Copy package files including patches
 COPY package.json pnpm-lock.yaml ./
 COPY patches ./patches
 
-# Install all dependencies (including dev for build)
+# Install ALL dependencies (dev needed for esbuild server build)
 RUN pnpm install --frozen-lockfile
 
-# Copy source code
+# Copy source and pre-built frontend dist
 COPY . .
 
-# Build the project
-RUN pnpm build
+# Only rebuild the server (esbuild is fast, avoids Vite frontend cache issues)
+RUN pnpm exec esbuild server/_core/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist
 
 # Remove dev dependencies after build
 RUN pnpm prune --prod
