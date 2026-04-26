@@ -19,7 +19,6 @@ import {
   ArrowRight,
   AlertTriangle,
   Keyboard,
-  Building2,
 } from "lucide-react";
 
 type ScanState = "idle" | "scanning" | "success" | "error";
