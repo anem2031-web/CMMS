@@ -8,6 +8,20 @@
       content="width=device-width, initial-scale=1.0, maximum-scale=1" />
     <title>نظام إدارة الصيانة المتكامل - CMMS</title>
 
+    <!-- PWA: Capture beforeinstallprompt EARLY before React mounts -->
+    <script>
+      window.__pwaInstallPrompt = null;
+      window.addEventListener('beforeinstallprompt', function(e) {
+        e.preventDefault();
+        window.__pwaInstallPrompt = e;
+        window.dispatchEvent(new CustomEvent('pwa-prompt-ready', { detail: e }));
+      });
+      window.addEventListener('appinstalled', function() {
+        window.__pwaInstallPrompt = null;
+        window.dispatchEvent(new CustomEvent('pwa-app-installed'));
+      });
+    </script>
+
     <!-- PWA Manifest & Meta -->
     <link rel="manifest" href="/manifest.json" />
     <meta name="theme-color" content="#6366f1" />

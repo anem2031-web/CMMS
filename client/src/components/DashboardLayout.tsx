@@ -245,24 +245,45 @@ function DashboardLayoutContent({ children, setSidebarWidth }: { children: React
     sessionStorage.setItem('ios-guide-closed-this-session', '1');
   };
   useEffect(() => {
-    // استقبال حدث beforeinstallprompt (Android/Chrome/Edge)
+    // ── قراءة الحدث المُخزَّن مسبقاً في index.html قبل تحميل React ──
+    if ((window as any).__pwaInstallPrompt) {
+      setInstallPrompt((window as any).__pwaInstallPrompt);
+      if (!sessionStorage.getItem('pwa-banner-closed-this-session')) {
+        setShowInstallBanner(true);
+      }
+    }
+    // ── استقبال حدث pwa-prompt-ready من index.html ──
+    const handlePromptReady = (e: Event) => {
+      const prompt = (e as CustomEvent).detail;
+      setInstallPrompt(prompt);
+      if (!sessionStorage.getItem('pwa-banner-closed-this-session')) {
+        setShowInstallBanner(true);
+      }
+    };
+    // ── استقبال حدث beforeinstallprompt إذا جاء بعد تحميل React (نادر) ──
     const handleBeforeInstall = (e: Event) => {
       e.preventDefault();
+      (window as any).__pwaInstallPrompt = e;
       setInstallPrompt(e);
       if (!sessionStorage.getItem('pwa-banner-closed-this-session')) {
         setShowInstallBanner(true);
       }
     };
-    // استقبال حدث appinstalled (بعد التثبيت الناجح)
+    // ── استقبال حدث appinstalled (بعد التثبيت الناجح) ──
     const handleAppInstalled = () => {
       setIsInstalled(true);
       setInstallPrompt(null);
+      (window as any).__pwaInstallPrompt = null;
       setShowInstallBanner(false);
     };
+    window.addEventListener('pwa-prompt-ready', handlePromptReady);
     window.addEventListener('beforeinstallprompt', handleBeforeInstall);
+    window.addEventListener('pwa-app-installed', handleAppInstalled);
     window.addEventListener('appinstalled', handleAppInstalled);
     return () => {
+      window.removeEventListener('pwa-prompt-ready', handlePromptReady);
       window.removeEventListener('beforeinstallprompt', handleBeforeInstall);
+      window.removeEventListener('pwa-app-installed', handleAppInstalled);
       window.removeEventListener('appinstalled', handleAppInstalled);
     };
   }, []);
