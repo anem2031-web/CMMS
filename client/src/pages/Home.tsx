@@ -452,17 +452,6 @@ export default function Home() {
           onDrilldown: () => openSlideover("قيد الفحص", { status: "under_inspection" }),
         },
         {
-          id: "budget",
-          title: t.dashboard.totalCost,
-          value: stats?.totalMaintenanceCost
-            ? `${Number(stats.totalMaintenanceCost).toLocaleString(language === "ar" ? "ar-SA" : "en-US")} ر.س`
-            : "0 ر.س",
-          icon: DollarSign,
-          color: "text-violet-600 bg-violet-50 dark:bg-violet-950/30",
-          onClick: () => setLocation("/reports/cost"),
-          isLarge: true,
-        },
-        {
           id: "pending_po",
           title: t.dashboard.pendingApprovals,
           value: stats?.pendingApprovals ?? 0,
@@ -475,19 +464,6 @@ export default function Home() {
 
     if (isAccountant) {
       return [
-        {
-          id: "budget",
-          title: t.dashboard.totalCost,
-          value: stats?.totalMaintenanceCost
-            ? `${Number(stats.totalMaintenanceCost).toLocaleString(language === "ar" ? "ar-SA" : "en-US")} ر.س`
-            : "0 ر.س",
-          icon: DollarSign,
-          color: "text-violet-600 bg-violet-50 dark:bg-violet-950/30",
-          sparkColor: "#8b5cf6",
-          trend,
-          onClick: () => setLocation("/reports/cost"),
-          isLarge: true,
-        },
         {
           id: "pending_po",
           title: t.dashboard.pendingApprovals,
