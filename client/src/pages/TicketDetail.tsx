@@ -1,4 +1,5 @@
 import { trpc } from "@/lib/trpc";
+import { mediaUrl } from "@/lib/mediaUrl";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { useRoute, useLocation } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -268,9 +269,9 @@ export default function TicketDetail() {
                 {(ticketAttachments ?? []).length > 0 && (
                   <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
                     {(ticketAttachments ?? []).map((att: any) => (
-                      <a key={att.id} href={att.fileUrl} target="_blank" rel="noopener noreferrer" className="group border rounded-lg overflow-hidden hover:border-primary transition-colors">
+                      <a key={att.id} href={mediaUrl(att.fileUrl)} target="_blank" rel="noopener noreferrer" className="group border rounded-lg overflow-hidden hover:border-primary transition-colors">
                         {att.mimeType?.startsWith("image/") ? (
-                          <img src={att.fileUrl} alt={att.fileName} className="w-full h-28 object-cover" />
+                          <img src={mediaUrl(att.fileUrl)} alt={att.fileName} className="w-full h-28 object-cover" />
                         ) : (
                           <div className="w-full h-28 flex flex-col items-center justify-center bg-muted/50 gap-2">
                             <FileText className="w-8 h-8 text-muted-foreground" />

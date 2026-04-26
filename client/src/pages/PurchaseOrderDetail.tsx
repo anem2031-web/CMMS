@@ -1,4 +1,5 @@
 import { trpc } from "@/lib/trpc";
+import { mediaUrl } from "@/lib/mediaUrl";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { useRoute, useLocation } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -280,15 +281,15 @@ export default function PurchaseOrderDetail() {
                 {(item.invoicePhotoUrl || item.purchasedPhotoUrl) && (
                   <div className="flex gap-3 border-t pt-2">
                     {item.invoicePhotoUrl && (
-                      <a href={item.invoicePhotoUrl} target="_blank" rel="noopener" className="group">
+                      <a href={mediaUrl(item.invoicePhotoUrl)} target="_blank" rel="noopener" className="group">
                         <p className="text-[10px] text-muted-foreground mb-1">{t.purchaseOrders.accountingNotes}</p>
-                        <img src={item.invoicePhotoUrl} className="w-20 h-20 rounded-lg object-cover border group-hover:ring-2 ring-primary/30 transition-all" />
+                        <img src={mediaUrl(item.invoicePhotoUrl)} className="w-20 h-20 rounded-lg object-cover border group-hover:ring-2 ring-primary/30 transition-all" />
                       </a>
                     )}
                     {item.purchasedPhotoUrl && (
-                      <a href={item.purchasedPhotoUrl} target="_blank" rel="noopener" className="group">
+                      <a href={mediaUrl(item.purchasedPhotoUrl)} target="_blank" rel="noopener" className="group">
                         <p className="text-[10px] text-muted-foreground mb-1">{t.tickets.photos}</p>
-                        <img src={item.purchasedPhotoUrl} className="w-20 h-20 rounded-lg object-cover border group-hover:ring-2 ring-primary/30 transition-all" />
+                        <img src={mediaUrl(item.purchasedPhotoUrl)} className="w-20 h-20 rounded-lg object-cover border group-hover:ring-2 ring-primary/30 transition-all" />
                       </a>
                     )}
                   </div>

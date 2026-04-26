@@ -27,7 +27,7 @@ import {
   Package, BarChart3, Users, Bell, MapPin, Wrench, Shield,
   Brain, ShoppingBag, Truck, Languages, Database,
   HardDrive, CalendarClock, ScanSearch, DoorOpen, Nfc,
-  ChevronDown, Search, X, Building2, UserCog, Download, Smartphone
+  ChevronDown, Search, X, Building2, UserCog, Download, Smartphone, DollarSign
 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState, useMemo, useCallback } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
@@ -142,6 +142,8 @@ const NAV_SECTIONS: NavSection[] = [
         roles: ["owner","admin","senior_management","maintenance_manager"] },
       { icon: UserCog,       labelKey: "nav.technicianReport",       path: "/reports/technicians",
         roles: ["owner","admin","senior_management","maintenance_manager"] },
+      { icon: DollarSign,    labelKey: "nav.costReport",              path: "/reports/cost",
+        roles: ["owner","admin"] },
     ],
   },
   // 6. وحدة التحليل AI

@@ -58,3 +58,11 @@ export async function storageGet(relKey: string): Promise<{ key: string; url: st
     return { key, url: publicUrl };
   }
 }
+
+export async function storageGetStream(relKey: string): Promise<{ stream: NodeJS.ReadableStream; contentType: string }> {
+  const key = normalizeKey(relKey);
+  const response = await s3.send(new GetObjectCommand({ Bucket: S3_BUCKET, Key: key }));
+  const stream = response.Body as NodeJS.ReadableStream;
+  const contentType = response.ContentType || "application/octet-stream";
+  return { stream, contentType };
+}

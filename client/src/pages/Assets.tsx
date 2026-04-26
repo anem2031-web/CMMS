@@ -1,4 +1,5 @@
 import { useState, useMemo } from "react";
+import { mediaUrl } from "@/lib/mediaUrl";
 import { trpc } from "@/lib/trpc";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { toast } from "sonner";

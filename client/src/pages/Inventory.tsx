@@ -1,4 +1,5 @@
 import { trpc } from "@/lib/trpc";
+import { mediaUrl } from "@/lib/mediaUrl";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -218,13 +219,13 @@ export default function Inventory() {
                       {item.invoicePhotoUrl && (
                         <div className="flex-1">
                           <p className="text-[10px] text-muted-foreground mb-1">{t.tickets.photos}</p>
-                          <img src={item.invoicePhotoUrl} alt="invoice" className="w-full h-20 object-cover rounded-lg border cursor-pointer hover:opacity-80" onClick={() => window.open(item.invoicePhotoUrl, "_blank")} />
+                          <img src={mediaUrl(item.invoicePhotoUrl)} alt="invoice" className="w-full h-20 object-cover rounded-lg border cursor-pointer hover:opacity-80" onClick={() => window.open(mediaUrl(item.invoicePhotoUrl), "_blank")} />
                         </div>
                       )}
                       {item.purchasedPhotoUrl && (
                         <div className="flex-1">
                           <p className="text-[10px] text-muted-foreground mb-1">{t.tickets.photos}</p>
-                          <img src={item.purchasedPhotoUrl} alt="item" className="w-full h-20 object-cover rounded-lg border cursor-pointer hover:opacity-80" onClick={() => window.open(item.purchasedPhotoUrl, "_blank")} />
+                          <img src={mediaUrl(item.purchasedPhotoUrl)} alt="item" className="w-full h-20 object-cover rounded-lg border cursor-pointer hover:opacity-80" onClick={() => window.open(mediaUrl(item.purchasedPhotoUrl), "_blank")} />
                         </div>
                       )}
                     </div>

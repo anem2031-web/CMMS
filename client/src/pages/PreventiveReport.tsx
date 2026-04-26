@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { mediaUrl } from "@/lib/mediaUrl";
 import { trpc } from "@/lib/trpc";
 import { useTranslation, useLanguage } from "@/contexts/LanguageContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -319,7 +320,7 @@ export default function PreventiveReport() {
                         </td>
                         <td className="py-2">
                           {wo.completionPhotoUrl ? (
-                            <a href={wo.completionPhotoUrl} target="_blank" rel="noopener noreferrer">
+                            <a href={mediaUrl(wo.completionPhotoUrl)} target="_blank" rel="noopener noreferrer">
                               <CheckCircle2 className="h-4 w-4 text-green-500" />
                             </a>
                           ) : (

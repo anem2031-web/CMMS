@@ -79,6 +79,7 @@ export default function TriageDashboard() {
     trpc.tickets.list.useQuery({ status: "under_inspection" });
 
   const { data: users = [] } = trpc.users.list.useQuery();
+  const { data: techniciansList = [] } = trpc.technicians.list.useQuery(false);
   const { data: sites = [] } = trpc.sites.list.useQuery();
 
   // ── Active view (card click) ──────────────────────────────────────────────
@@ -145,9 +146,12 @@ export default function TriageDashboard() {
   });
 
   // ── Derived data ──────────────────────────────────────────────────────────
-  const technicians = users.filter((u: any) =>
-    ["technician", "maintenance_manager", "supervisor"].includes(u.role)
-  );
+  // Use dedicated technicians table; fallback to users with technician roles
+  const technicians = techniciansList.length > 0
+    ? techniciansList.map((tech: any) => ({ ...tech, id: tech.id, name: tech.name, role: "technician" }))
+    : users.filter((u: any) =>
+        ["technician", "maintenance_manager", "supervisor"].includes(u.role)
+      );
 
   const criticalPending = useMemo(
     () => pendingTickets.filter((t: any) => t.priority === "critical"),

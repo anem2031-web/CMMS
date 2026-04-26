@@ -2541,6 +2541,13 @@ async function storagePut(relKey, data, contentType = "application/octet-stream"
   const url = `${S3_ENDPOINT}/${S3_BUCKET}/${key}`;
   return { key, url };
 }
+async function storageGetStream(relKey) {
+  const key = normalizeKey(relKey);
+  const response = await s3.send(new GetObjectCommand({ Bucket: S3_BUCKET, Key: key }));
+  const stream = response.Body;
+  const contentType = response.ContentType || "application/octet-stream";
+  return { stream, contentType };
+}
 
 // server/_core/llm.ts
 init_env();
@@ -8402,6 +8409,19 @@ async function startServer() {
       } else {
         cb(new Error(`\u0646\u0648\u0639 \u0627\u0644\u0645\u0644\u0641 \u063A\u064A\u0631 \u0645\u0633\u0645\u0648\u062D: ${file.mimetype}`));
       }
+    }
+  });
+  app.get("/api/media", requireAuthMiddleware, async (req, res) => {
+    try {
+      const key = req.query.key;
+      if (!key) return res.status(400).json({ error: "Missing key" });
+      const { stream, contentType } = await storageGetStream(key);
+      res.setHeader("Content-Type", contentType || "image/webp");
+      res.setHeader("Cache-Control", "private, max-age=86400");
+      stream.pipe(res);
+    } catch (error) {
+      console.error("Media proxy error:", error);
+      res.status(404).json({ error: "Media not found" });
     }
   });
   app.post("/api/upload", requireAuthMiddleware, upload.single("file"), async (req, res) => {

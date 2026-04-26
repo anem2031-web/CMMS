@@ -10,7 +10,7 @@ import { serveStatic, setupVite } from "./vite";
 import helmet from "helmet";
 import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import multer from "multer";
-import { storagePut } from "../storage";
+import { storagePut, storageGetStream } from "../storage";
 import { nanoid } from "nanoid";
 import sharp from "sharp";
 import { exportTicketsToExcel, exportPurchaseOrdersToExcel, exportTechnicianPerformanceToExcel, exportAuditLogToExcel, exportInventoryToExcel, exportPreventivePlansToExcel, exportPMWorkOrdersToExcel } from "../exportService";
@@ -162,6 +162,23 @@ async function startServer() {
         cb(new Error(`نوع الملف غير مسموح: ${file.mimetype}`));
       }
     },
+  });
+
+  // ============================================================
+  // MEDIA PROXY: serves images from iDrive e2 through the server
+  // ============================================================
+  app.get("/api/media", requireAuthMiddleware, async (req: any, res: any) => {
+    try {
+      const key = req.query.key as string;
+      if (!key) return res.status(400).json({ error: "Missing key" });
+      const { stream, contentType } = await storageGetStream(key);
+      res.setHeader("Content-Type", contentType || "image/webp");
+      res.setHeader("Cache-Control", "private, max-age=86400");
+      (stream as any).pipe(res);
+    } catch (error: any) {
+      console.error("Media proxy error:", error);
+      res.status(404).json({ error: "Media not found" });
+    }
   });
 
   app.post("/api/upload", requireAuthMiddleware, upload.single("file"), async (req: any, res: any) => {

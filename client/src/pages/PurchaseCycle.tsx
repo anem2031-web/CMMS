@@ -1,4 +1,5 @@
 import { useState, useRef } from "react";
+import { mediaUrl } from "@/lib/mediaUrl";
 import { trpc } from "@/lib/trpc";
 import { useTranslation } from "@/contexts/LanguageContext";
 import { useAuth } from "@/_core/hooks/useAuth";
@@ -173,13 +174,13 @@ export default function PurchaseCycle() {
               {/* Show photos if available */}
               <div className="flex gap-2 flex-wrap">
                 {item.purchasedPhotoUrl && (
-                  <img src={item.purchasedPhotoUrl} alt="purchased" className="w-12 h-12 object-cover rounded border cursor-pointer hover:opacity-80" onClick={() => window.open(item.purchasedPhotoUrl, "_blank")} />
+                  <img src={mediaUrl(item.purchasedPhotoUrl)} alt="purchased" className="w-12 h-12 object-cover rounded border cursor-pointer hover:opacity-80" onClick={() => window.open(mediaUrl(item.purchasedPhotoUrl), "_blank")} />
                 )}
                 {item.invoicePhotoUrl && (
-                  <img src={item.invoicePhotoUrl} alt="invoice" className="w-12 h-12 object-cover rounded border cursor-pointer hover:opacity-80" onClick={() => window.open(item.invoicePhotoUrl, "_blank")} />
+                  <img src={mediaUrl(item.invoicePhotoUrl)} alt="invoice" className="w-12 h-12 object-cover rounded border cursor-pointer hover:opacity-80" onClick={() => window.open(mediaUrl(item.invoicePhotoUrl), "_blank")} />
                 )}
                 {item.warehousePhotoUrl && (
-                  <img src={item.warehousePhotoUrl} alt="warehouse" className="w-12 h-12 object-cover rounded border cursor-pointer hover:opacity-80" onClick={() => window.open(item.warehousePhotoUrl, "_blank")} />
+                  <img src={mediaUrl(item.warehousePhotoUrl)} alt="warehouse" className="w-12 h-12 object-cover rounded border cursor-pointer hover:opacity-80" onClick={() => window.open(mediaUrl(item.warehousePhotoUrl), "_blank")} />
                 )}
               </div>
             </div>
@@ -399,13 +400,13 @@ export default function PurchaseCycle() {
                   {warehouseDialog.purchasedPhotoUrl && (
                     <div className="flex-1">
                       <p className="text-[10px] text-muted-foreground mb-1">{t.purchaseOrders.purchasedItemPhoto}</p>
-                      <img src={warehouseDialog.purchasedPhotoUrl} alt="purchased" className="w-full h-20 object-cover rounded border cursor-pointer" onClick={() => window.open(warehouseDialog.purchasedPhotoUrl, "_blank")} />
+                      <img src={mediaUrl(warehouseDialog.purchasedPhotoUrl)} alt="purchased" className="w-full h-20 object-cover rounded border cursor-pointer" onClick={() => window.open(mediaUrl(warehouseDialog.purchasedPhotoUrl), "_blank")} />
                     </div>
                   )}
                   {warehouseDialog.invoicePhotoUrl && (
                     <div className="flex-1">
                       <p className="text-[10px] text-muted-foreground mb-1">{t.purchaseOrders.invoicePhoto}</p>
-                      <img src={warehouseDialog.invoicePhotoUrl} alt="invoice" className="w-full h-20 object-cover rounded border cursor-pointer" onClick={() => window.open(warehouseDialog.invoicePhotoUrl, "_blank")} />
+                      <img src={mediaUrl(warehouseDialog.invoicePhotoUrl)} alt="invoice" className="w-full h-20 object-cover rounded border cursor-pointer" onClick={() => window.open(mediaUrl(warehouseDialog.invoicePhotoUrl), "_blank")} />
                     </div>
                   )}
                 </div>
@@ -436,7 +437,7 @@ export default function PurchaseCycle() {
                   <Label className="text-xs flex items-center gap-1"><Camera className="w-3.5 h-3.5" /> {t.purchaseOrders.warehousePhoto} *</Label>
                   {warehouseForm.warehousePhotoUrl ? (
                     <div className="relative">
-                      <img src={warehouseForm.warehousePhotoUrl} alt="warehouse" className="w-full h-32 object-cover rounded-lg border" />
+                      <img src={mediaUrl(warehouseForm.warehousePhotoUrl)} alt="warehouse" className="w-full h-32 object-cover rounded-lg border" />
                       <Button size="sm" variant="destructive" className="absolute top-1 end-1 h-6 w-6 p-0" onClick={() => setWarehouseForm(p => ({ ...p, warehousePhotoUrl: "" }))}>×</Button>
                     </div>
                   ) : (
@@ -499,19 +500,19 @@ export default function PurchaseCycle() {
                 {deliveryDialog.purchasedPhotoUrl && (
                   <div>
                     <p className="text-[10px] text-muted-foreground mb-1">{t.purchaseOrders.purchasedItemPhoto}</p>
-                    <img src={deliveryDialog.purchasedPhotoUrl} alt="purchased" className="w-16 h-16 object-cover rounded border cursor-pointer" onClick={() => window.open(deliveryDialog.purchasedPhotoUrl, "_blank")} />
+                    <img src={mediaUrl(deliveryDialog.purchasedPhotoUrl)} alt="purchased" className="w-16 h-16 object-cover rounded border cursor-pointer" onClick={() => window.open(mediaUrl(deliveryDialog.purchasedPhotoUrl), "_blank")} />
                   </div>
                 )}
                 {deliveryDialog.invoicePhotoUrl && (
                   <div>
                     <p className="text-[10px] text-muted-foreground mb-1">{t.purchaseOrders.invoicePhoto}</p>
-                    <img src={deliveryDialog.invoicePhotoUrl} alt="invoice" className="w-16 h-16 object-cover rounded border cursor-pointer" onClick={() => window.open(deliveryDialog.invoicePhotoUrl, "_blank")} />
+                    <img src={mediaUrl(deliveryDialog.invoicePhotoUrl)} alt="invoice" className="w-16 h-16 object-cover rounded border cursor-pointer" onClick={() => window.open(mediaUrl(deliveryDialog.invoicePhotoUrl), "_blank")} />
                   </div>
                 )}
                 {deliveryDialog.warehousePhotoUrl && (
                   <div>
                     <p className="text-[10px] text-muted-foreground mb-1">{t.purchaseOrders.warehousePhoto}</p>
-                    <img src={deliveryDialog.warehousePhotoUrl} alt="warehouse" className="w-16 h-16 object-cover rounded border cursor-pointer" onClick={() => window.open(deliveryDialog.warehousePhotoUrl, "_blank")} />
+                    <img src={mediaUrl(deliveryDialog.warehousePhotoUrl)} alt="warehouse" className="w-16 h-16 object-cover rounded border cursor-pointer" onClick={() => window.open(mediaUrl(deliveryDialog.warehousePhotoUrl), "_blank")} />
                   </div>
                 )}
               </div>

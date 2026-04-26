@@ -1,4 +1,5 @@
 import { useState, useMemo } from "react";
+import { mediaUrl } from "@/lib/mediaUrl";
 import { trpc } from "@/lib/trpc";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { toast } from "sonner";
@@ -837,7 +838,7 @@ export default function PreventiveMaintenance() {
                 {(completionPhotoUrl || selectedWO.completionPhotoUrl) ? (
                   <div className="relative">
                     <img
-                      src={completionPhotoUrl || selectedWO.completionPhotoUrl}
+                      src={mediaUrl(completionPhotoUrl || selectedWO.completionPhotoUrl)}
                       alt="completion"
                       className="rounded-lg max-h-48 w-full object-cover border"
                     />

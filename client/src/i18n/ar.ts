@@ -15,6 +15,7 @@ const ar = {
     inventory: "المستودع",
     reports: "التقارير",
     technicianReport: "أداء الفنيين",
+    costReport: "تقرير التكاليف",
     purchaseCycleReport: "تقرير دورة الشراء",
     maintenanceCycleReport: "تقرير دورة الصيانة",
     sectionReport: "تقرير الأقسام",
