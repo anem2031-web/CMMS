@@ -8521,8 +8521,9 @@ async function startServer() {
         ext = "webp";
       }
       const fileKey = `cmms/uploads/${Date.now()}-${nanoid3(8)}.${ext}`;
-      const { url } = await storagePut(fileKey, fileBuffer, mimeType);
-      res.json({ url, fileKey });
+      await storagePut(fileKey, fileBuffer, mimeType);
+      const proxyUrl = `/api/media?key=${encodeURIComponent(fileKey)}`;
+      res.json({ url: proxyUrl, fileKey });
     } catch (error) {
       console.error("Upload error:", error);
       res.status(500).json({ error: "Upload failed" });

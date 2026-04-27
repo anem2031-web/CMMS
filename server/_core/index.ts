@@ -207,8 +207,10 @@ async function startServer() {
         ext = "webp";
       }
       const fileKey = `cmms/uploads/${Date.now()}-${nanoid(8)}.${ext}`;
-      const { url } = await storagePut(fileKey, fileBuffer, mimeType);
-      res.json({ url, fileKey });
+      await storagePut(fileKey, fileBuffer, mimeType);
+      // Always return proxy URL so images load reliably regardless of bucket ACL or CORS
+      const proxyUrl = `/api/media?key=${encodeURIComponent(fileKey)}`;
+      res.json({ url: proxyUrl, fileKey });
     } catch (error: any) {
       console.error("Upload error:", error);
       res.status(500).json({ error: "Upload failed" });
