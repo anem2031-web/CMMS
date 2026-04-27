@@ -305,6 +305,24 @@ export default function Home() {
   });
 
   const role = user?.role || "user";
+  // ── Redirect non-admin/owner roles away from dashboard ──
+  if (role && role !== "admin" && role !== "owner") {
+    const roleRedirect: Record<string, string> = {
+      maintenance_manager: "/tickets",
+      supervisor: "/tickets",
+      technician: "/tickets",
+      accountant: "/purchase-orders",
+      warehouse: "/inventory",
+      delegate: "/purchase-orders",
+      procurement_officer: "/purchase-orders",
+      senior_management: "/reports",
+      gate_security: "/gate-security",
+      operator: "/tickets",
+    };
+    const target = roleRedirect[role] || "/tickets";
+    setLocation(target);
+    return null;
+  }
 
   // Fetch tickets for slideover
   const { data: slideoverTickets } = trpc.tickets.list.useQuery(slideover.filter, {

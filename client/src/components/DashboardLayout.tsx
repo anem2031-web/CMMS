@@ -576,7 +576,7 @@ function DashboardLayoutContent({ children, setSidebarWidth }: { children: React
           <SidebarContent className="gap-0 overflow-y-auto pt-1 pb-2">
 
             {/* ── لوحة التحكم مستقلة في الأعلى ── */}
-            {!searchResults && role !== "warehouse" && (
+            {!searchResults && (role === "admin" || role === "owner") && (
               <div className="px-2 pb-1">
                 <SidebarMenu className="gap-0.5">
                   <SidebarMenuItem>
