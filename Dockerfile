@@ -14,8 +14,9 @@ RUN pnpm install --frozen-lockfile
 # Copy source and pre-built frontend dist
 COPY . .
 
-# Only rebuild the server (esbuild is fast, avoids Vite frontend cache issues)
-RUN pnpm exec esbuild server/_core/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist
+# Use pre-built dist/index.js committed to the repo (built with --bundle, includes all source)
+# Avoids Railway overwriting with --packages=external build that misses bundled vite.ts changes
+# RUN pnpm exec esbuild server/_core/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist
 
 # Remove dev dependencies after build
 RUN pnpm prune --prod
