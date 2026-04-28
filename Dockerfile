@@ -2,7 +2,7 @@ FROM node:22-alpine
 WORKDIR /app
 
 # Install pnpm
-RUN npm install -g pnpm
+RUN npm install -g pnpm@10.15.1
 
 # Copy package files including patches
 COPY package.json pnpm-lock.yaml ./
@@ -14,9 +14,9 @@ RUN pnpm install --frozen-lockfile
 # Copy source and pre-built frontend dist
 COPY . .
 
-# Use pre-built dist/index.js committed to the repo (built with --bundle, includes all source)
-# Avoids Railway overwriting with --packages=external build that misses bundled vite.ts changes
-# RUN pnpm exec esbuild server/_core/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist
+# Build server from source using esbuild (--bundle inlines all imports including vite.ts)
+# Using --bundle ensures vite.ts serveStatic logic is correctly inlined
+RUN pnpm exec esbuild server/_core/index.ts --platform=node --bundle --format=esm --outdir=dist
 
 # Remove dev dependencies after build
 RUN pnpm prune --prod
