@@ -176,6 +176,10 @@ async function startServer() {
   // No authentication required (used by Railway health checks)
   // ============================================================
   app.get("/api/health", async (_req: any, res: any) => {
+    // Prevent CDN (Fastly/Railway) from caching this endpoint
+    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+    res.setHeader("Surrogate-Control", "no-store");
+    res.setHeader("Pragma", "no-cache");
     const timestamp = new Date().toISOString();
     const uptime = Math.floor(process.uptime());
     try {
