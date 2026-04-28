@@ -9,6 +9,8 @@ import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import helmet from "helmet";
 import rateLimit, { ipKeyGenerator } from "express-rate-limit";
+import { RedisStore } from "rate-limit-redis";
+import IORedis from "ioredis";
 import multer from "multer";
 import { storagePut, storageGetStream } from "../storage";
 import { nanoid } from "nanoid";
@@ -112,7 +114,40 @@ async function startServer() {
 
   // ============================================================
   // M-01 FIX: Rate Limiting محسّن يشمل /api/trpc
+  // Redis store إذا كان REDIS_URL متاحاً، وإلا in-memory fallback
   // ============================================================
+  let redisStoreForApi: RedisStore | undefined;
+  let redisStoreForAuth: RedisStore | undefined;
+  if (process.env.REDIS_URL) {
+    try {
+      const redisClient = new IORedis(process.env.REDIS_URL, {
+        maxRetriesPerRequest: 1,
+        enableOfflineQueue: false,
+        lazyConnect: true,
+      });
+      await redisClient.connect().catch(() => { /* handled below */ });
+      if (redisClient.status === "ready") {
+        redisStoreForApi = new RedisStore({
+          // @ts-expect-error - Known issue: the `call` function is not present in @types/ioredis
+          sendCommand: (...args: string[]) => redisClient.call(...args),
+          prefix: "rl:api:",
+        });
+        redisStoreForAuth = new RedisStore({
+          // @ts-expect-error - Known issue: the `call` function is not present in @types/ioredis
+          sendCommand: (...args: string[]) => redisClient.call(...args),
+          prefix: "rl:auth:",
+        });
+        console.log("[RateLimit] Redis store active");
+      } else {
+        console.warn("[RateLimit] Redis not ready, falling back to in-memory store");
+      }
+    } catch (err) {
+      console.warn("[RateLimit] Redis init failed, falling back to in-memory store:", (err as Error).message);
+    }
+  } else {
+    console.warn("[RateLimit] REDIS_URL not set, using in-memory store (not suitable for multi-instance)");
+  }
+
   const apiLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
     max: 500,
@@ -120,6 +155,7 @@ async function startServer() {
     legacyHeaders: false,
     keyGenerator: (req) => ipKeyGenerator(req.ip ?? req.socket.remoteAddress ?? ''),
     message: { error: "تم تجاوز الحد الأقصى للطلبات. يرجى المحاولة لاحقاً" },
+    ...(redisStoreForApi ? { store: redisStoreForApi } : {}),
   });
 
   // Rate limiter أكثر صرامة للـ auth endpoints
@@ -130,6 +166,7 @@ async function startServer() {
     legacyHeaders: false,
     keyGenerator: (req) => ipKeyGenerator(req.ip ?? req.socket.remoteAddress ?? ''),
     message: { error: "تم تجاوز الحد الأقصى لمحاولات تسجيل الدخول. يرجى المحاولة بعد 15 دقيقة" },
+    ...(redisStoreForAuth ? { store: redisStoreForAuth } : {}),
   });
 
   app.use("/api/", apiLimiter);

@@ -1,7 +1,18 @@
 import { Request, Response, NextFunction } from 'express';
 
 /**
- * Smart Rate Limiter
+ * Smart Rate Limiter (UNUSED UTILITY)
+ *
+ * NOTE: This module is NOT currently wired to any route or middleware.
+ * The active rate limiting is handled by `express-rate-limit` (apiLimiter / authLimiter)
+ * in `server/_core/index.ts`, which now uses a Redis store when REDIS_URL is set.
+ *
+ * This file is intentionally kept (not deleted) because:
+ *  1. Tests may reference `rateLimiters`, `createRateLimiter`, or helper exports.
+ *  2. It may be wired to individual tRPC procedures in the future.
+ *
+ * DO NOT delete this file without first auditing all test files.
+ *
  * - User-ID based limiting for authenticated users (not affected by shared IP)
  * - IP-based limiting for guests
  * - Tiered limits based on user role
