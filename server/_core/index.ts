@@ -173,9 +173,10 @@ async function startServer() {
 
   // ============================================================
   // HEALTH CHECK — registered BEFORE rate limiter and all other middleware
+  // Using /health (not /api/health) to bypass Railway/Fastly CDN static caching
   // No authentication required (used by Railway health checks)
   // ============================================================
-  app.get("/api/health", async (_req: any, res: any) => {
+  app.get("/health", async (_req: any, res: any) => {
     // Prevent CDN (Fastly/Railway) from caching this endpoint
     res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
     res.setHeader("Surrogate-Control", "no-store");

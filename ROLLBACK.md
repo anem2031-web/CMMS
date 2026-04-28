@@ -6,7 +6,7 @@
 2. Click the **Deployments** tab.
 3. Find the last known-good deployment and click **Redeploy**.
 4. Wait for the build to complete (green status indicator).
-5. Verify with: `curl https://cmms-production-adf1.up.railway.app/api/health`
+5. Verify with: `curl https://cmms-production-adf1.up.railway.app/health`
 
 ---
 
@@ -32,7 +32,7 @@ The app exposes a backup restore API (Phase 16). Use it as follows:
 Run a single health check request:
 
 ```bash
-curl https://cmms-production-adf1.up.railway.app/api/health
+curl https://cmms-production-adf1.up.railway.app/health
 ```
 
 **Expected response (HTTP 200):**
