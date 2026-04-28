@@ -21,6 +21,8 @@ import { runTechnicianOverdueJob } from "../jobs/technician-overdue";
 import { runPMAutomationJob } from "../jobs/pm-automation";
 import { runPMWorkOrderReminderJob } from "../jobs/pm-reminder";
 import { runSlaOverduePushJob } from "../jobs/sla-overdue-push";
+import { runBackupCleanupJob } from "../jobs/backup-cleanup";
+import { getDb } from "../db";
 import { generatePMWorkOrderPDF } from "../pmWorkOrderPdfService";
 import { sdk } from "./sdk";
 
@@ -204,6 +206,26 @@ async function startServer() {
   });
 
   // ============================================================
+  // ============================================================
+  // HEALTH CHECK — no auth required (used by Railway health checks)
+  // ============================================================
+  app.get("/api/health", async (_req: any, res: any) => {
+    const timestamp = new Date().toISOString();
+    const uptime = Math.floor(process.uptime());
+    try {
+      const db = await getDb();
+      if (db) {
+        // Simple connectivity check
+        await db.execute("SELECT 1" as any);
+        return res.status(200).json({ status: "ok", timestamp, database: "connected", uptime });
+      } else {
+        return res.status(503).json({ status: "degraded", timestamp, database: "disconnected", uptime });
+      }
+    } catch {
+      return res.status(503).json({ status: "degraded", timestamp, database: "disconnected", uptime });
+    }
+  });
+
   // MEDIA PROXY: serves images from iDrive e2 through the server
   // ============================================================
   // Media proxy is intentionally public to allow <img> tags to load images
@@ -412,5 +434,45 @@ async function startServer() {
     runSlaOverduePushJob();
     setInterval(runSlaOverduePushJob, SIX_HOURS_MS);
   }, 20000);
+
+  // Backup Cleanup Job: runs daily, deletes backups older than 30 days
+  const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+  setTimeout(() => {
+    runBackupCleanupJob();
+    setInterval(runBackupCleanupJob, ONE_DAY_MS);
+  }, 25000);
+
+  // ============================================================
+  // GLOBAL EXPRESS ERROR HANDLER (TASK 3)
+  // Logs structured error info for every unhandled Express error
+  // ============================================================
+  app.use((err: any, req: any, res: any, _next: any) => {
+    const ts = new Date().toISOString();
+    const status = err.status || err.statusCode || 500;
+    const message = err.message || "Internal Server Error";
+    console.error(`[ERROR] ${ts} ${req.method} ${req.path} ${status} ${message}`);
+    if (!res.headersSent) {
+      res.status(status).json({ error: message });
+    }
+  });
 }
+
+// ============================================================
+// PROCESS-LEVEL ERROR HANDLERS (TASK 3)
+// Railway auto-restarts on exit — crashing fast is safer than
+// staying alive in a corrupted state.
+// ============================================================
+process.on("uncaughtException", (err: Error) => {
+  const ts = new Date().toISOString();
+  console.error(`[UNCAUGHT_EXCEPTION] ${ts} ${err.stack || err.message}`);
+  process.exit(1);
+});
+
+process.on("unhandledRejection", (reason: unknown) => {
+  const ts = new Date().toISOString();
+  const msg = reason instanceof Error ? reason.stack || reason.message : String(reason);
+  console.error(`[UNHANDLED_REJECTION] ${ts} ${msg}`);
+  process.exit(1);
+});
+
 startServer().catch(console.error);
