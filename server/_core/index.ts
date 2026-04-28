@@ -171,6 +171,26 @@ async function startServer() {
     ...(redisStoreForAuth ? { store: redisStoreForAuth } : {}),
   });
 
+  // ============================================================
+  // HEALTH CHECK — registered BEFORE rate limiter and all other middleware
+  // No authentication required (used by Railway health checks)
+  // ============================================================
+  app.get("/api/health", async (_req: any, res: any) => {
+    const timestamp = new Date().toISOString();
+    const uptime = Math.floor(process.uptime());
+    try {
+      const db = await getDb();
+      if (db) {
+        await db.execute("SELECT 1" as any);
+        return res.status(200).json({ status: "ok", timestamp, database: "connected", uptime });
+      } else {
+        return res.status(503).json({ status: "degraded", timestamp, database: "disconnected", uptime });
+      }
+    } catch {
+      return res.status(503).json({ status: "degraded", timestamp, database: "disconnected", uptime });
+    }
+  });
+
   app.use("/api/", apiLimiter);
   app.use("/api/oauth/", authLimiter);
 
@@ -203,27 +223,6 @@ async function startServer() {
         cb(new Error(`نوع الملف غير مسموح: ${file.mimetype}`));
       }
     },
-  });
-
-  // ============================================================
-  // ============================================================
-  // HEALTH CHECK — no auth required (used by Railway health checks)
-  // ============================================================
-  app.get("/api/health", async (_req: any, res: any) => {
-    const timestamp = new Date().toISOString();
-    const uptime = Math.floor(process.uptime());
-    try {
-      const db = await getDb();
-      if (db) {
-        // Simple connectivity check
-        await db.execute("SELECT 1" as any);
-        return res.status(200).json({ status: "ok", timestamp, database: "connected", uptime });
-      } else {
-        return res.status(503).json({ status: "degraded", timestamp, database: "disconnected", uptime });
-      }
-    } catch {
-      return res.status(503).json({ status: "degraded", timestamp, database: "disconnected", uptime });
-    }
   });
 
   // MEDIA PROXY: serves images from iDrive e2 through the server
