@@ -91,7 +91,9 @@ async function startServer() {
     contentSecurityPolicy: {
       directives: {
         defaultSrc: ["'self'"],
-        scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https://fonts.googleapis.com"],
+        // unsafe-eval removed (high risk, not needed for production build)
+        // unsafe-inline kept: required for Vite HMR in dev and inline event handlers in built bundle
+        scriptSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
         styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
         fontSrc: ["'self'", "https://fonts.gstatic.com", "data:"],
         imgSrc: ["'self'", "data:", "blob:", "https:"],
@@ -173,11 +175,18 @@ async function startServer() {
   app.get("/api/media", async (req: any, res: any) => {
     try {
       const key = req.query.key as string;
-      if (!key) return res.status(400).json({ error: "Missing key" });
+      // Reject empty or missing keys
+      if (!key || typeof key !== "string" || key.trim() === "") {
+        return res.status(400).json({ error: "Missing or invalid key" });
+      }
+      // Reject path traversal attempts (encoded and plain)
+      if (key.includes("..") || key.toLowerCase().includes("%2e%2e")) {
+        return res.status(400).json({ error: "Invalid key" });
+      }
       // Only allow keys under the cmms/ namespace to prevent arbitrary file access
       const normalizedKey = key.replace(/^\/+/, "");
       if (!normalizedKey.startsWith("cmms/")) {
-        return res.status(403).json({ error: "Access denied" });
+        return res.status(400).json({ error: "Invalid key" });
       }
       const { stream, contentType } = await storageGetStream(normalizedKey);
       res.setHeader("Content-Type", contentType || "image/webp");

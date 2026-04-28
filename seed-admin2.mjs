@@ -1,3 +1,9 @@
+/**
+ * Seed Admin Script (v2)
+ * Required environment variable: ADMIN_SEED_PASSWORD
+ * This variable must be set before running this script.
+ * Never hardcode passwords — use environment variables only.
+ */
 import bcrypt from "bcryptjs";
 import mysql from "mysql2/promise";
 import dotenv from "dotenv";
@@ -8,10 +14,15 @@ async function seedAdmin() {
   const dbUrl = process.env.DATABASE_URL;
   if (!dbUrl) { console.error("DATABASE_URL not set"); process.exit(1); }
 
+  const password = process.env.ADMIN_SEED_PASSWORD;
+  if (!password) {
+    console.error("ADMIN_SEED_PASSWORD environment variable is required but not set.");
+    process.exit(1);
+  }
+
   const connection = await mysql.createConnection(dbUrl);
 
   const username = "admin";
-  const password = "ADMIN33";
   const hash = await bcrypt.hash(password, 10);
   const openId = `local_admin_seed`;
   const name = "مدير النظام";
@@ -34,7 +45,8 @@ async function seedAdmin() {
   }
 
   console.log(`Username: ${username}`);
-  console.log(`Password: ${password}`);
+  // SECURITY: Do NOT log the password value — only confirm it was set
+  console.log("Password: [set from ADMIN_SEED_PASSWORD env variable]");
   console.log(`Role: owner (admin)`);
 
   await connection.end();

@@ -46,7 +46,7 @@ export const appRouter = router({
     }),
     login: publicProcedure.input(z.object({
       username: z.string().min(1),
-      password: z.string().min(1),
+      password: z.string().min(8, "كلمة المرور يجب أن تكون 8 أحرف على الأقل"),
     })).mutation(async ({ input, ctx }) => {
       const user = await db.getUserByUsername(input.username);
       if (!user || !user.passwordHash) {

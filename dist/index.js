@@ -1934,6 +1934,7 @@ var init_errors = __esm({
         this.statusCode = statusCode;
         this.name = "HttpError";
       }
+      statusCode;
     };
     ForbiddenError = (msg) => new HttpError(403, msg);
   }
@@ -1969,6 +1970,7 @@ var init_sdk = __esm({
           );
         }
       }
+      client;
       decodeState(state) {
         const redirectUri = atob(state);
         return redirectUri;
@@ -3579,7 +3581,7 @@ var appRouter = router({
     }),
     login: publicProcedure.input(z3.object({
       username: z3.string().min(1),
-      password: z3.string().min(1)
+      password: z3.string().min(8, "\u0643\u0644\u0645\u0629 \u0627\u0644\u0645\u0631\u0648\u0631 \u064A\u062C\u0628 \u0623\u0646 \u062A\u0643\u0648\u0646 8 \u0623\u062D\u0631\u0641 \u0639\u0644\u0649 \u0627\u0644\u0623\u0642\u0644")
     })).mutation(async ({ input, ctx }) => {
       const user = await getUserByUsername(input.username);
       if (!user || !user.passwordHash) {
@@ -8431,7 +8433,9 @@ async function startServer() {
     contentSecurityPolicy: {
       directives: {
         defaultSrc: ["'self'"],
-        scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https://fonts.googleapis.com"],
+        // unsafe-eval removed (high risk, not needed for production build)
+        // unsafe-inline kept: required for Vite HMR in dev and inline event handlers in built bundle
+        scriptSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
         styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
         fontSrc: ["'self'", "https://fonts.gstatic.com", "data:"],
         imgSrc: ["'self'", "data:", "blob:", "https:"],
@@ -8494,10 +8498,15 @@ async function startServer() {
   app.get("/api/media", async (req, res) => {
     try {
       const key = req.query.key;
-      if (!key) return res.status(400).json({ error: "Missing key" });
+      if (!key || typeof key !== "string" || key.trim() === "") {
+        return res.status(400).json({ error: "Missing or invalid key" });
+      }
+      if (key.includes("..") || key.toLowerCase().includes("%2e%2e")) {
+        return res.status(400).json({ error: "Invalid key" });
+      }
       const normalizedKey = key.replace(/^\/+/, "");
       if (!normalizedKey.startsWith("cmms/")) {
-        return res.status(403).json({ error: "Access denied" });
+        return res.status(400).json({ error: "Invalid key" });
       }
       const { stream, contentType } = await storageGetStream(normalizedKey);
       res.setHeader("Content-Type", contentType || "image/webp");
