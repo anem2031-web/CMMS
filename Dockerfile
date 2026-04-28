@@ -8,15 +8,14 @@ RUN npm install -g pnpm@10.15.1
 COPY package.json pnpm-lock.yaml ./
 COPY patches ./patches
 
-# Install ALL dependencies (dev needed for esbuild server build)
+# Install ALL dependencies (dev needed for build step)
 RUN pnpm install --frozen-lockfile
 
-# Copy source and pre-built frontend dist
+# Copy source files
 COPY . .
 
-# Build server from source using esbuild (--bundle inlines all imports including vite.ts)
-# Using --bundle ensures vite.ts serveStatic logic is correctly inlined
-RUN pnpm exec esbuild server/_core/index.ts --platform=node --bundle --format=esm --outdir=dist
+# Build frontend (vite) + server (esbuild --packages=external) using project build script
+RUN pnpm build
 
 # Remove dev dependencies after build
 RUN pnpm prune --prod
