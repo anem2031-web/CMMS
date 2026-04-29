@@ -9,7 +9,8 @@ import type { User } from "../../drizzle/schema";
 
 // Roles that require 2FA
 // L-01 FIX: إضافة purchase_manager لقائمة الـ 2FA الإلزامية
-export const MANDATORY_2FA_ROLES = ["admin", "maintenance_manager", "supervisor", "senior_management", "purchase_manager"] as const;
+// Temporarily disabled — re-enable before final production handover
+export const MANDATORY_2FA_ROLES: readonly string[] = [];
 
 // Grace period in milliseconds (3 days)
 export const GRACE_PERIOD_MS = 3 * 24 * 60 * 60 * 1000;
