@@ -1604,18 +1604,22 @@ export const appRouter = router({
       const allItems = await db.getPOItems(item.purchaseOrderId);
       const allDelivered = allItems.every(i => i.status === "delivered_to_requester");
       if (allDelivered) {
-        await db.updatePurchaseOrder(item.purchaseOrderId, { status: "closed" });
-        // Auto-update ticket to allow closure
+        await db.updatePurchaseOrder(item.purchaseOrderId, { status: "received" });
+        // Advance ticket to received_warehouse so technician can complete work via completeWithParts
         const po = await db.getPurchaseOrderById(item.purchaseOrderId);
         if (po?.ticketId) {
           const ticket = await db.getTicketById(po.ticketId);
-          if (ticket && ticket.status !== "closed") {
-            await db.updateTicket(po.ticketId, { status: "repaired" });
-            await db.addTicketStatusHistory({ ticketId: po.ticketId, fromStatus: ticket.status, toStatus: "repaired", changedById: ctx.user.id, notes: "تم تسليم جميع المواد - جاهز للإغلاق" });
-            // Notify maintenance manager to close the ticket
+          if (ticket && !["received_warehouse", "ready_for_closure", "repaired", "verified", "closed"].includes(ticket.status)) {
+            await db.updateTicket(po.ticketId, { status: "received_warehouse" });
+            await db.addTicketStatusHistory({ ticketId: po.ticketId, fromStatus: ticket.status, toStatus: "received_warehouse", changedById: ctx.user.id, notes: "تم تسليم جميع المواد للفني - بانتظار إتمام العمل" });
+            // Notify assigned technician to complete the work
+            if (ticket.assignedToId) {
+              await db.createNotification({ userId: ticket.assignedToId, title: "📦 تم تسليم المواد - أكمل العمل", message: `تم تسليم جميع مواد البلاغ ${ticket.ticketNumber} إليك. يرجى إتمام العمل وإرساله للإغلاق.`, type: "info", relatedTicketId: po.ticketId });
+            }
+            // Notify managers
             const managers = await db.getManagerUsers();
             for (const mgr of managers) {
-              await db.createNotification({ userId: mgr.id, title: "بلاغ جاهز للإغلاق", message: `تم تسليم جميع مواد البلاغ ${ticket.ticketNumber}. يمكن إغلاقه الآن.`, type: "success", relatedTicketId: po.ticketId });
+              await db.createNotification({ userId: mgr.id, title: "📦 مواد بلاغ جاهزة للفني", message: `تم تسليم جميع مواد البلاغ ${ticket.ticketNumber}. بانتظار إتمام الفني للعمل.`, type: "info", relatedTicketId: po.ticketId });
             }
           }
         }

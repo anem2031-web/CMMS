@@ -53,6 +53,7 @@ export default function TicketDetail() {
   const approveWorkMut = trpc.tickets.approveWork.useMutation({ onSuccess: () => { toast.success("تم اعتماد بدء العمل"); refetch(); } });
   const markReadyMut = trpc.tickets.markReadyForClosure.useMutation({ onSuccess: () => { toast.success("تم رفع صورة الإصلاح - جاهز للإغلاق"); refetch(); } });
   const closeBySupervisorMut = trpc.tickets.closeBySupervisor.useMutation({ onSuccess: () => { toast.success("تم إغلاق البلاغ"); refetch(); } });
+  const completeWithPartsMut = trpc.tickets.completeWithParts.useMutation({ onSuccess: () => { toast.success("تم إكمال العمل بالمواد - البلاغ جاهز للإغلاق"); refetch(); } });
   const approveGateExitMut = trpc.tickets.approveGateExit.useMutation({ onSuccess: () => { toast.success("تمت الموافقة على خروج الأصل"); refetch(); } });
   const approveGateEntryMut = trpc.tickets.approveGateEntry.useMutation({ onSuccess: () => { toast.success("تمت الموافقة على دخول الأصل"); refetch(); } });
 
@@ -105,7 +106,7 @@ export default function TicketDetail() {
 
   // Legacy actions
   const canApprove = isManager && ticket?.status === "new";
-  const canAssign = isManager && ["approved", "received_warehouse", "work_approved"].includes(ticket?.status || "");
+  const canAssign = isManager && ["approved", "work_approved"].includes(ticket?.status || "");
   const canStartRepair = isTechnician && ["assigned", "work_approved", "repaired", "purchase_approved", "purchased", "partial_purchase"].includes(ticket?.status || "");
   const canCompleteRepair = isTechnician && ticket?.status === "in_progress";
   const canClose = isManager && ticket?.status === "repaired";
@@ -127,6 +128,9 @@ export default function TicketDetail() {
   // Gate Security (Path C)
   const canApproveExit = isGateSecurity && ticket?.status === "work_approved" && ticket?.maintenancePath === "C";
   const canApproveEntry = isGateSecurity && ticket?.status === "out_for_repair" && ticket?.maintenancePath === "C";
+
+  // Technician (Path B): Complete work after parts delivered from warehouse
+  const canCompleteWithParts = isTechnician && ticket?.status === "received_warehouse" && ticket?.maintenancePath === "B";
 
   const handleUploadAfterPhoto = async (file: File) => {
     setUploading(true);
@@ -552,6 +556,41 @@ export default function TicketDetail() {
                 </div>
               )}
 
+              {/* Technician: Complete Work with Parts (Path B) */}
+              {canCompleteWithParts && (
+                <div className="space-y-3 bg-indigo-50 dark:bg-indigo-950/20 rounded-xl p-4 border border-indigo-200 dark:border-indigo-800">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-indigo-600 dark:text-indigo-400 font-semibold text-sm">🔧 إتمام العمل بعد استلام المواد - المسار B</span>
+                  </div>
+                  <Textarea placeholder="ملاحظات الإصلاح..." value={repairNotes} onChange={e => setRepairNotes(e.target.value)} rows={2} className="text-sm" />
+                  {afterPhotoUrl ? (
+                    <div className="relative">
+                      <img src={afterPhotoUrl} alt="after repair" className="rounded-lg max-h-40 object-cover border w-full" />
+                      <Button variant="destructive" size="sm" className="absolute top-2 left-2" onClick={() => setAfterPhotoUrl("")}>{t.common.delete}</Button>
+                    </div>
+                  ) : (
+                    <Button variant="outline" className="w-full h-20 border-dashed gap-2" onClick={() => {
+                      const input = document.createElement("input");
+                      input.type = "file"; input.accept = "image/*";
+                      input.onchange = (e: any) => { if (e.target.files[0]) handleUploadAfterPhoto(e.target.files[0]); };
+                      input.click();
+                    }} disabled={uploading}>
+                      {uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Camera className="w-4 h-4" />}
+                      {uploading ? t.common.loading : "رفع صورة بعد الإصلاح (اختياري)"}
+                    </Button>
+                  )}
+                  <Button
+                    onClick={() => completeWithPartsMut.mutate({ id: ticket.id, afterPhotoUrl: afterPhotoUrl || undefined, repairNotes: repairNotes || undefined })}
+                    disabled={completeWithPartsMut.isPending}
+                    className="w-full gap-2 bg-indigo-600 hover:bg-indigo-700 text-white"
+                    size="lg"
+                  >
+                    {completeWithPartsMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+                    إتمام العمل - إرسال للإغلاق
+                  </Button>
+                </div>
+              )}
+
               {/* Supervisor: Final Closure (Path A) */}
               {canClosePathA && (
                 <div className="space-y-2 bg-emerald-50 dark:bg-emerald-950/20 rounded-xl p-4 border border-emerald-200 dark:border-emerald-800">
@@ -612,7 +651,7 @@ export default function TicketDetail() {
                 </div>
               )}
 
-              {!canApprove && !canAssign && !canStartRepair && !canCompleteRepair && !canClose && !canCreatePO && !canTriage && !canInspect && !canClosePathA && !canApproveWork && !canClosePathBC && !canMarkReadyForClosure && !canApproveExit && !canApproveEntry && (
+              {!canApprove && !canAssign && !canStartRepair && !canCompleteRepair && !canClose && !canCreatePO && !canTriage && !canInspect && !canClosePathA && !canApproveWork && !canClosePathBC && !canMarkReadyForClosure && !canApproveExit && !canApproveEntry && !canCompleteWithParts && (
                 <div className="text-center py-4 text-sm text-muted-foreground flex items-center justify-center gap-2">
                   <AlertCircle className="w-4 h-4" />
                   {t.tickets.noTickets}
