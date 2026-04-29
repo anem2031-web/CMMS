@@ -123,17 +123,25 @@ export default function ScanAsset() {
                   const isUtf16 = (statusByte & 0x80) !== 0;
                   debugLines.push(`status: 0x${statusByte.toString(16)} langLen: ${langLen} utf16: ${isUtf16}`);
                   
-                  // Validate langLen doesn't exceed data
-                  if (1 + langLen >= rawData.length) {
-                    // No text after language code, try treating whole thing as text
-                    debugLines.push(`langLen too large, trying raw decode`);
-                    const text = new TextDecoder("utf-8").decode(rawData.slice(1)).trim();
-                    if (text) { tag = text; break; }
-                  } else {
+                  // Validate this is a real NDEF text record:
+                  // langLen must be 1-8, there must be text after it,
+                  // AND the language bytes must be ASCII letters only (e.g. "en", "ar")
+                  const hasRoomForText = langLen >= 1 && langLen <= 8 && (1 + langLen < rawData.length);
+                  const langBytes = hasRoomForText ? rawData.slice(1, 1 + langLen) : new Uint8Array(0);
+                  const langIsLetters = Array.from(langBytes).every((b: number) => (b >= 65 && b <= 90) || (b >= 97 && b <= 122));
+                  const isValidNDEF = hasRoomForText && langIsLetters;
+
+                  if (isValidNDEF) {
+                    // Real NDEF Text Record: skip status byte + language code
                     const textBytes = rawData.slice(1 + langLen);
                     const encoding = isUtf16 ? "utf-16" : "utf-8";
                     const text = new TextDecoder(encoding).decode(textBytes).trim();
-                    debugLines.push(`text decoded: "${text}"`);
+                    debugLines.push(`text decoded (NDEF): "${text}"`);
+                    if (text) { tag = text; break; }
+                  } else {
+                    // Plain text tag: decode entire rawData as-is
+                    debugLines.push(`plain text decode (langLen=${langLen} not valid NDEF)`);
+                    const text = new TextDecoder("utf-8").decode(rawData).trim();
                     if (text) { tag = text; break; }
                   }
                 }
