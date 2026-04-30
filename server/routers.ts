@@ -810,9 +810,15 @@ export const appRouter = router({
       await db.updateTicket(input.id, { status: "closed", closedAt: new Date() });
       await db.addTicketStatusHistory({ ticketId: input.id, fromStatus: "verified", toStatus: "closed", changedById: ctx.user.id });
       await db.createAuditLog({ userId: ctx.user.id, action: "close_ticket", entityType: "ticket", entityId: input.id });
+      // Notify ticket creator and assigned technician
+      if (ticket.reportedById) {
+        await db.createNotification({ userId: ticket.reportedById, title: "🔒 تم إغلاق بلاغك", message: `تم إغلاق البلاغ ${ticket.ticketNumber} بنجاح`, type: "success", relatedTicketId: input.id });
+      }
+      if (ticket.assignedToId && ticket.assignedToId !== ticket.reportedById) {
+        await db.createNotification({ userId: ticket.assignedToId, title: "🔒 تم إغلاق البلاغ", message: `تم إغلاق البلاغ ${ticket.ticketNumber} الذي كنت مسؤولاً عنه`, type: "success", relatedTicketId: input.id });
+      }
       return { success: true };
     }),
-
     update: protectedProcedure.input(z.object({
       id: z.number(),
       title: z.string().optional(),
