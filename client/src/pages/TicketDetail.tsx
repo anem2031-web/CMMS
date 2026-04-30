@@ -116,8 +116,8 @@ export default function TicketDetail() {
   // Reassign is now a fallback available at any post-triage status
   const postTriageStatuses = ["under_inspection", "work_approved", "assigned", "in_progress", "needs_purchase", "purchase_pending_estimate", "purchase_pending_accounting", "purchase_pending_management", "purchase_approved", "purchased", "received_warehouse"];
   const canAssign = isManager && postTriageStatuses.includes(ticket?.status || "");
-  const canStartRepair = isTechnician && ["assigned", "work_approved", "repaired", "purchase_approved", "purchased", "partial_purchase", "received_warehouse"].includes(ticket?.status || "");
-  const canCompleteRepair = isTechnician && ticket?.status === "in_progress";
+  const canStartRepair = (isTechnician || isManager) && ["assigned", "work_approved", "repaired", "purchase_approved", "purchased", "partial_purchase", "received_warehouse"].includes(ticket?.status || "");
+  const canCompleteRepair = (isTechnician || isManager) && ticket?.status === "in_progress";
   const canClose = isManager && ticket?.status === "repaired";
   const canCreatePO = isManager && ["approved", "assigned", "in_progress", "work_approved", "needs_purchase"].includes(ticket?.status || "");
 
@@ -132,14 +132,14 @@ export default function TicketDetail() {
   const canClosePathBC = isManager && ticket?.status === "ready_for_closure" && ["B", "C", null, undefined].includes(ticket?.maintenancePath as any);
 
   // Technician (Path A)
-  const canMarkReadyForClosure = isTechnician && ticket?.status === "work_approved" && ticket?.maintenancePath === "A";
+  const canMarkReadyForClosure = (isTechnician || isManager) && ticket?.status === "work_approved" && ticket?.maintenancePath === "A";
 
   // Gate Security (Path C)
   const canApproveExit = isGateSecurity && ticket?.status === "work_approved" && ticket?.maintenancePath === "C";
   const canApproveEntry = isGateSecurity && ticket?.status === "out_for_repair" && ticket?.maintenancePath === "C";
 
   // Technician (Path B): Complete work after parts delivered from warehouse
-  const canCompleteWithParts = isTechnician && ticket?.status === "received_warehouse" && (ticket?.maintenancePath === "B" || ticket?.maintenancePath === "C");
+  const canCompleteWithParts = (isTechnician || isManager) && ticket?.status === "received_warehouse" && (ticket?.maintenancePath === "B" || ticket?.maintenancePath === "C");
 
   const handleUploadAfterPhoto = async (file: File) => {
     setUploading(true);
