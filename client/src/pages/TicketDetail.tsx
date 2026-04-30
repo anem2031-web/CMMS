@@ -7,6 +7,8 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
 import { STATUS_COLORS, PRIORITY_COLORS } from "@shared/types";
 import {
   ArrowRight, Clock, User, MapPin, CheckCircle2, Wrench, ShoppingCart,
@@ -63,6 +65,10 @@ export default function TicketDetail() {
   const [pathJustification, setPathJustification] = useState("");
   const [showApproveWorkForm, setShowApproveWorkForm] = useState(false);
 
+  // Triage dialog state
+  const [showTriageDialog, setShowTriageDialog] = useState(false);
+  const [triageAssignedTo, setTriageAssignedTo] = useState("");
+
   const [selectedTech, setSelectedTech] = useState("");
   const [selectedExternalTech, setSelectedExternalTech] = useState("");
   const [repairNotes, setRepairNotes] = useState("");
@@ -93,7 +99,8 @@ export default function TicketDetail() {
     }
   }, [addAttachMut, ticketId]);
 
-  const technicians = users?.filter(u => u.role === "technician") || [];
+  // For triage assignment: include technicians, supervisors, and maintenance managers
+  const technicians = users?.filter(u => ["technician", "supervisor", "maintenance_manager"].includes(u.role)) || [];
   const role = user?.role || "";
 
   const linkedPOs = allPOs?.filter(po => po.ticketId === ticketId) || [];
@@ -106,7 +113,9 @@ export default function TicketDetail() {
 
   // Legacy actions
   const canApprove = isManager && ticket?.status === "new";
-  const canAssign = isManager && ["approved", "work_approved"].includes(ticket?.status || "");
+  // Reassign is now a fallback available at any post-triage status
+  const postTriageStatuses = ["under_inspection", "work_approved", "assigned", "in_progress", "needs_purchase", "purchase_pending_estimate", "purchase_pending_accounting", "purchase_pending_management", "purchase_approved", "purchased", "received_warehouse"];
+  const canAssign = isManager && postTriageStatuses.includes(ticket?.status || "");
   const canStartRepair = isTechnician && ["assigned", "work_approved", "repaired", "purchase_approved", "purchased", "partial_purchase"].includes(ticket?.status || "");
   const canCompleteRepair = isTechnician && ticket?.status === "in_progress";
   const canClose = isManager && ticket?.status === "repaired";
@@ -166,6 +175,7 @@ export default function TicketDetail() {
   ];
 
   return (
+    <>
     <div className="space-y-6 max-w-5xl">
       <div className="flex items-center gap-3">
         <Button variant="ghost" size="icon" onClick={() => setLocation("/tickets")}>
@@ -360,8 +370,8 @@ export default function TicketDetail() {
               )}
 
               {canAssign && (
-                <div className="space-y-2">
-                  <p className="text-sm font-medium">{t.tickets.assignTechnician}:</p>
+                <div className="space-y-2 border rounded-xl p-3 bg-muted/20">
+                  <p className="text-sm font-semibold text-muted-foreground">🔄 إعادة إسناد الفني:</p>
                   <div className="flex gap-2">
                     <Select value={selectedExternalTech || selectedTech} onValueChange={(val) => {
                       // Check if it's an external tech (prefixed with "ext_")
@@ -396,7 +406,7 @@ export default function TicketDetail() {
                         assignMut.mutate({ id: ticket.id, technicianId: parseInt(selectedTech) });
                       }
                     }} disabled={(!selectedTech && !selectedExternalTech) || assignMut.isPending}>
-                      {t.tickets.assignTechnician}
+                      {assignMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "إعادة الإسناد"}
                     </Button>
                   </div>
                 </div>
@@ -451,15 +461,15 @@ export default function TicketDetail() {
 
               {/* ===== NEW WORKFLOW SMART BUTTONS ===== */}
 
-              {/* Supervisor: Start Triage */}
+              {/* Supervisor: Start Triage - opens dialog to assign technician */}
               {canTriage && (
                 <div className="space-y-2 bg-amber-50 dark:bg-amber-950/20 rounded-xl p-4 border border-amber-200 dark:border-amber-800">
                   <div className="flex items-center gap-2 mb-2">
                     <span className="text-amber-600 dark:text-amber-400 font-semibold text-sm">🔍 فرز وتصنيف البلاغ</span>
                   </div>
-                  <Button onClick={() => triageMut.mutate({ id: ticket.id })} disabled={triageMut.isPending} className="w-full gap-2 bg-amber-600 hover:bg-amber-700 text-white" size="lg">
-                    {triageMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
-                    بدء الفرز والفحص
+                  <Button onClick={() => { setTriageAssignedTo(""); setShowTriageDialog(true); }} className="w-full gap-2 bg-amber-600 hover:bg-amber-700 text-white" size="lg">
+                    <CheckCircle2 className="w-4 h-4" />
+                    بدء الفرز وتعيين الفني
                   </Button>
                 </div>
               )}
@@ -729,5 +739,57 @@ export default function TicketDetail() {
         </div>
       </div>
     </div>
+
+    {/* ===== TRIAGE DIALOG ===== */}
+      <Dialog open={showTriageDialog} onOpenChange={setShowTriageDialog}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <CheckCircle2 className="w-5 h-5 text-amber-600" />
+              فرز البلاغ وتعيين الفني
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="p-3 bg-muted rounded-lg">
+              <p className="font-medium text-sm">{ticket?.ticketNumber}</p>
+              <p className="text-sm text-muted-foreground">{ticket && getField(ticket, "title")}</p>
+            </div>
+            <div className="space-y-2">
+              <Label>تعيين فني <span className="text-muted-foreground text-xs">(مطلوب)</span></Label>
+              <Select value={triageAssignedTo} onValueChange={setTriageAssignedTo}>
+                <SelectTrigger>
+                  <SelectValue placeholder="اختر فنيًا للفحص..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {technicians.map(tech => (
+                    <SelectItem key={tech.id} value={tech.id.toString()}>
+                      {tech.name || tech.email}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              سيتم نقل البلاغ إلى مرحلة الفحص الميداني وتعيين الفني مباشرةً.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowTriageDialog(false)}>إلغاء</Button>
+            <Button
+              onClick={() => {
+                const assignedToId = triageAssignedTo ? parseInt(triageAssignedTo) : undefined;
+                triageMut.mutate({ id: ticket!.id, assignedToId });
+                setShowTriageDialog(false);
+              }}
+              disabled={triageMut.isPending || !triageAssignedTo}
+              className="bg-amber-600 hover:bg-amber-700 text-white"
+            >
+              {triageMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+              تأكيد الفرز
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }

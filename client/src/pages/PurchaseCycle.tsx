@@ -188,7 +188,7 @@ export default function PurchaseCycle() {
             <Button size="sm" className="shrink-0 gap-1.5" onClick={onAction}>
               {step === 1 && <><ShoppingCart className="w-4 h-4" /> {t.purchaseOrders.confirmPurchase}</>}
               {step === 2 && <><Package className="w-4 h-4" /> {t.purchaseOrders.confirmDeliveryToWarehouse}</>}
-              {step === 3 && <><Truck className="w-4 h-4" /> {t.purchaseOrders.confirmDeliveryToRequester}</>}
+              {step === 3 && <><Truck className="w-4 h-4" /> تسليم للفني</>}
             </Button>
           </div>
         </CardContent>
@@ -272,7 +272,7 @@ export default function PurchaseCycle() {
           )}
         </TabsContent>
 
-        {/* ==================== TAB 3: Delivery to Requester ==================== */}
+        {/* ==================== TAB 3: Delivery to Assigned Technician ==================== */}
         <TabsContent value="delivery" className="mt-4 space-y-4">
           <StepIndicator currentStep={3} />
           {pendingDelivery.length === 0 ? (
@@ -284,7 +284,9 @@ export default function PurchaseCycle() {
             <div className="space-y-3">
               {sortByDate(pendingDelivery).map((item: any) => (
                 <ItemCard key={item.id} item={item} step={3} onAction={() => {
-                  setDeliveryUserId("");
+                  // Preselect the assigned technician from the linked ticket
+                  const preselect = item.ticketAssignedToId ? String(item.ticketAssignedToId) : "";
+                  setDeliveryUserId(preselect);
                   setDeliveryDialog(item);
                 }} />
               ))}
@@ -473,13 +475,13 @@ export default function PurchaseCycle() {
         </DialogContent>
       </Dialog>
 
-      {/* ==================== DIALOG 3: Delivery to Requester ==================== */}
+      {/* ==================== DIALOG 3: Delivery to Assigned Technician ==================== */}
       <Dialog open={!!deliveryDialog} onOpenChange={(open) => !open && setDeliveryDialog(null)}>
         <DialogContent className="max-w-md" dir={isRTL ? "rtl" : "ltr"}>
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Truck className="w-5 h-5 text-blue-600" />
-              {t.purchaseOrders.confirmDeliveryToRequester}
+              تسليم للفني المسند
             </DialogTitle>
           </DialogHeader>
 
@@ -517,13 +519,18 @@ export default function PurchaseCycle() {
                 )}
               </div>
 
-              {/* Select who to deliver to */}
+              {/* Select technician to deliver to - preselected from ticket assignment */}
               <div className="space-y-1.5">
-                <Label className="text-xs flex items-center gap-1"><User className="w-3.5 h-3.5" /> {t.purchaseOrders.deliverTo}</Label>
+                <Label className="text-xs flex items-center gap-1"><User className="w-3.5 h-3.5" /> الفني المسند</Label>
+                {deliveryDialog.ticketAssignedToId && (
+                  <p className="text-xs text-emerald-600 font-medium">
+                    ✅ تم تحديد الفني تلقائيًا من بيانات البلاغ
+                  </p>
+                )}
                 <Select value={deliveryUserId} onValueChange={setDeliveryUserId}>
-                  <SelectTrigger><SelectValue placeholder={t.purchaseOrders.deliverTo} /></SelectTrigger>
+                  <SelectTrigger><SelectValue placeholder="اختر الفني..." /></SelectTrigger>
                   <SelectContent>
-                    {allUsers.filter((u: any) => u.role !== "warehouse").map((u: any) => (
+                    {allUsers.filter((u: any) => u.role === "technician" || u.role === "supervisor" || u.role === "maintenance_manager").map((u: any) => (
                       <SelectItem key={u.id} value={String(u.id)}>{u.name} ({u.role})</SelectItem>
                     ))}
                   </SelectContent>
@@ -546,7 +553,7 @@ export default function PurchaseCycle() {
               }}
             >
               {confirmDeliveryMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Truck className="w-4 h-4" />}
-              {t.purchaseOrders.confirmDeliveryToRequester}
+              تأكيد التسليم للفني
             </Button>
           </DialogFooter>
         </DialogContent>

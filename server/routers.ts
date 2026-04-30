@@ -482,6 +482,7 @@ export const appRouter = router({
       return { success: true };
     }),
 
+    // Reassign Technician (fallback for manager to reassign at any point after triage)
     assign: managerProcedure.input(z.object({
       id: z.number(),
       technicianId: z.number().optional(),           // System user technician
@@ -490,16 +491,20 @@ export const appRouter = router({
       const ticket = await db.getTicketById(input.id);
       if (!ticket) throw new TRPCError({ code: "NOT_FOUND" });
       if (!input.technicianId && !input.externalTechnicianId) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "يجب تحديد فني للإسناد" });
+        throw new TRPCError({ code: "BAD_REQUEST", message: "يجب تحديد فني لإعادة الإسناد" });
+      }
+      // Reassign is allowed from any post-triage status
+      const reassignableStatuses = ["under_inspection", "work_approved", "assigned", "in_progress", "needs_purchase", "purchase_pending_estimate", "purchase_pending_accounting", "purchase_pending_management", "purchase_approved", "purchased", "received_warehouse"];
+      if (!reassignableStatuses.includes(ticket.status)) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: `لا يمكن إعادة الإسناد في الحالة: ${ticket.status}` });
       }
       const updateData: Record<string, any> = {
-        status: "assigned",
         assignedAt: new Date(),
       };
       if (input.technicianId) updateData.assignedToId = input.technicianId;
       if (input.externalTechnicianId) updateData.assignedTechnicianId = input.externalTechnicianId;
       await db.updateTicket(input.id, updateData);
-      await db.addTicketStatusHistory({ ticketId: input.id, fromStatus: ticket.status, toStatus: "assigned", changedById: ctx.user.id });
+      await db.addTicketStatusHistory({ ticketId: input.id, fromStatus: ticket.status, toStatus: ticket.status, changedById: ctx.user.id, notes: "إعادة إسناد الفني" });
       if (input.technicianId) {
         await db.createNotification({ userId: input.technicianId, title: "بلاغ مُسند إليك", message: `تم إسناد البلاغ ${ticket.ticketNumber} إليك`, type: "info", relatedTicketId: input.id });
       }
@@ -631,7 +636,7 @@ export const appRouter = router({
     // Already exists as closeBySupervisor - no change needed
 
     // ========== PATH B TRANSITIONS ==========
-    // Transition: work_approved → assigned (Manager assigns technician)
+    // Transition: work_approved → assigned (Manager assigns technician - or auto-advances if already assigned at triage)
     assignTechnician: managerProcedure.input(z.object({
       id: z.number(),
       assignedToId: z.number(),
@@ -640,19 +645,22 @@ export const appRouter = router({
       if (!ticket) throw new TRPCError({ code: "NOT_FOUND" });
       if (ticket.status !== "work_approved") throw new TRPCError({ code: "BAD_REQUEST", message: "البلاغ يجب أن يكون معتمداً" });
       if (ticket.maintenancePath !== "B") throw new TRPCError({ code: "BAD_REQUEST", message: "هذا الإجراء للمسار B فقط" });
-      await db.updateTicket(input.id, { status: "assigned", assignedToId: input.assignedToId });
+      await db.updateTicket(input.id, { status: "assigned", assignedToId: input.assignedToId, assignedAt: new Date() });
       await db.addTicketStatusHistory({ ticketId: input.id, fromStatus: "work_approved", toStatus: "assigned", changedById: ctx.user.id });
       return { success: true };
     }),
 
-    // Transition: assigned → in_progress (Technician starts work)
+    // Transition: assigned/work_approved → in_progress (Technician starts work)
+    // Accepts work_approved when technician was pre-assigned at triage
     startWork: protectedProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
       const ticket = await db.getTicketById(input.id);
       if (!ticket) throw new TRPCError({ code: "NOT_FOUND" });
-      if (ticket.status !== "assigned") throw new TRPCError({ code: "BAD_REQUEST", message: "البلاغ يجب أن يكون مسنداً" });
+      if (ticket.status !== "assigned" && ticket.status !== "work_approved") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "البلاغ يجب أن يكون مسنداً أو معتمداً" });
+      }
       if (ticket.maintenancePath !== "B") throw new TRPCError({ code: "BAD_REQUEST", message: "هذا الإجراء للمسار B فقط" });
       await db.updateTicket(input.id, { status: "in_progress" });
-      await db.addTicketStatusHistory({ ticketId: input.id, fromStatus: "assigned", toStatus: "in_progress", changedById: ctx.user.id });
+      await db.addTicketStatusHistory({ ticketId: input.id, fromStatus: ticket.status, toStatus: "in_progress", changedById: ctx.user.id });
       return { success: true };
     }),
 
@@ -946,9 +954,12 @@ export const appRouter = router({
       if (!ticket) throw new TRPCError({ code: "NOT_FOUND" });
       if (ticket.status !== "pending_triage") throw new TRPCError({ code: "BAD_REQUEST", message: "البلاغ ليس في مرحلة الفرز" });
       const updateData: any = { status: "under_inspection", supervisorId: ctx.user.id };
-      if (input.assignedToId) updateData.assignedToId = input.assignedToId;
+      if (input.assignedToId) {
+        updateData.assignedToId = input.assignedToId;
+        updateData.assignedAt = new Date();
+      }
       await db.updateTicket(input.id, updateData);
-      await db.addTicketStatusHistory({ ticketId: input.id, fromStatus: ticket.status, toStatus: "under_inspection", changedById: ctx.user.id, notes: input.assignedToId ? `تم نقل البلاغ لمرحلة الفحص وتعيينه للفني` : "تم نقل البلاغ لمرحلة الفحص" });
+      await db.addTicketStatusHistory({ ticketId: input.id, fromStatus: ticket.status, toStatus: "under_inspection", changedById: ctx.user.id, notes: input.assignedToId ? `تم نقل البلاغ لمرحلة الفحص وتعيين الفني` : "تم نقل البلاغ لمرحلة الفحص" });
       // Notify maintenance manager
       const managers = await db.getManagerUsers();
       for (const mgr of managers) {
@@ -1651,11 +1662,21 @@ export const appRouter = router({
       return [];
     }),
 
-    // Get items pending delivery to requester
+    // Get items pending delivery to technician
     pendingDeliveryItems: protectedProcedure.query(async ({ ctx }) => {
       const isAdminOrOwner = ctx.user.role === "admin" || ctx.user.role === "owner";
       if (isAdminOrOwner || ctx.user.role === "warehouse") {
-        return db.getPOItemsByStatus("delivered_to_warehouse");
+        const items = await db.getPOItemsByStatus("delivered_to_warehouse");
+        // Enrich each item with the assignedToId from the linked ticket
+        const enriched = await Promise.all(items.map(async (item: any) => {
+          const po = await db.getPurchaseOrderById(item.purchaseOrderId);
+          if (po?.ticketId) {
+            const ticket = await db.getTicketById(po.ticketId);
+            return { ...item, ticketAssignedToId: ticket?.assignedToId ?? null };
+          }
+          return { ...item, ticketAssignedToId: null };
+        }));
+        return enriched;
       }
       return [];
     }),
