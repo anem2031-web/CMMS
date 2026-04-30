@@ -139,7 +139,7 @@ export default function TicketDetail() {
   const canApproveEntry = isGateSecurity && ticket?.status === "out_for_repair" && ticket?.maintenancePath === "C";
 
   // Technician (Path B): Complete work after parts delivered from warehouse
-  const canCompleteWithParts = isTechnician && ticket?.status === "received_warehouse" && ticket?.maintenancePath === "B";
+  const canCompleteWithParts = isTechnician && ticket?.status === "received_warehouse" && (ticket?.maintenancePath === "B" || ticket?.maintenancePath === "C");
 
   const handleUploadAfterPhoto = async (file: File) => {
     setUploading(true);
