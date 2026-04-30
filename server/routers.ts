@@ -1109,14 +1109,19 @@ export const appRouter = router({
       const ticket = await db.getTicketById(input.id);
       if (!ticket) throw new TRPCError({ code: "NOT_FOUND" });
       if (ticket.maintenancePath !== "C") throw new TRPCError({ code: "BAD_REQUEST", message: "هذا الإجراء للمسار C فقط" });
-      // ✅ Fixed: Move to ready_for_closure (NOT repaired)
-      await db.updateTicket(input.id, { status: "ready_for_closure", gateEntryApprovedById: ctx.user.id, gateEntryApprovedAt: new Date() });
-      await db.addTicketStatusHistory({ ticketId: input.id, fromStatus: ticket.status, toStatus: "ready_for_closure", changedById: ctx.user.id, notes: "تمت الموافقة على دخول الأصل - جاهز للإغلاق" });
+      // Path C: gate entry → received_warehouse so warehouse flow (Path B) takes over
+      await db.updateTicket(input.id, { status: "received_warehouse", gateEntryApprovedById: ctx.user.id, gateEntryApprovedAt: new Date() });
+      await db.addTicketStatusHistory({ ticketId: input.id, fromStatus: ticket.status, toStatus: "received_warehouse", changedById: ctx.user.id, notes: "تمت الموافقة على دخول الأصل - بانتظار استلام المستودع" });
       await db.createAuditLog({ userId: ctx.user.id, action: "gate_entry_approved", entityType: "ticket", entityId: input.id });
-      // Notify maintenance manager to close
-      const managers = await db.getManagerUsers();
-      for (const mgr of managers) {
-        await db.createNotification({ userId: mgr.id, title: "أصل عاد بعد الإصلاح", message: `البلاغ ${ticket.ticketNumber} - الأصل عاد بعد الإصلاح الخارجي وجاهز للإغلاق`, type: "success", relatedTicketId: input.id });
+      // Notify warehouse users to receive the returned asset
+      const warehouseUsersGE = await db.getUsersByRole("warehouse");
+      for (const w of warehouseUsersGE) {
+        await db.createNotification({ userId: w.id, title: "📦 أصل عاد من الإصلاح الخارجي", message: `البلاغ ${ticket.ticketNumber} - الأصل عاد ويحتاج استلام في المستودع`, type: "info", relatedTicketId: input.id });
+      }
+      // Also notify managers
+      const managersGE = await db.getManagerUsers();
+      for (const mgr of managersGE) {
+        await db.createNotification({ userId: mgr.id, title: "📦 أصل عاد من الإصلاح الخارجي", message: `البلاغ ${ticket.ticketNumber} - الأصل عاد بعد الإصلاح وبانتظار استلام المستودع`, type: "info", relatedTicketId: input.id });
       }
       return { success: true };
     }),
@@ -1250,10 +1255,10 @@ export const appRouter = router({
       });
       const itemsData = input.items.map(item => ({ ...item, purchaseOrderId: poId!, status: "pending" }));
       await db.createPOItems(itemsData);
-      // Update ticket status if linked
+      // Update ticket status if linked (Path C: keep at work_approved — gate security controls status)
       if (input.ticketId) {
         const ticket = await db.getTicketById(input.ticketId);
-        if (ticket) {
+        if (ticket && ticket.maintenancePath !== "C") {
           await db.updateTicket(input.ticketId, { status: "needs_purchase" });
           await db.addTicketStatusHistory({ ticketId: input.ticketId, fromStatus: ticket.status, toStatus: "needs_purchase", changedById: ctx.user.id });
         }
@@ -1444,10 +1449,26 @@ export const appRouter = router({
           });
         }
       }
-      // Update ticket
+      // Update ticket (Path C: keep at work_approved, notify gate security)
       if (po?.ticketId) {
-        await db.updateTicket(po.ticketId, { status: "purchase_approved" });
-        await db.addTicketStatusHistory({ ticketId: po.ticketId, fromStatus: "purchase_pending_management", toStatus: "purchase_approved", changedById: ctx.user.id });
+        const ticketForPath = await db.getTicketById(po.ticketId);
+        if (ticketForPath?.maintenancePath === "C") {
+          // Path C: do NOT change ticket status — gate security must approve exit first
+          const gateUsers = await db.getUsersByRole("gate_security");
+          for (const g of gateUsers) {
+            await db.createNotification({
+              userId: g.id,
+              title: "🚪 أصل بانتظار الموافقة على الخروج",
+              message: `البلاغ ${ticketForPath.ticketNumber} - تمت الموافقة على تكلفة الإصلاح، الأصل جاهز للخروج`,
+              type: "info",
+              relatedTicketId: po.ticketId
+            });
+          }
+        } else {
+          // Path A or B: normal behavior
+          await db.updateTicket(po.ticketId, { status: "purchase_approved" });
+          await db.addTicketStatusHistory({ ticketId: po.ticketId, fromStatus: "purchase_pending_management", toStatus: "purchase_approved", changedById: ctx.user.id });
+        }
       }
       await db.createAuditLog({ userId: ctx.user.id, action: "approve_management", entityType: "purchase_order", entityId: input.id });
       return { success: true };
@@ -1499,20 +1520,21 @@ export const appRouter = router({
         purchasedPhotoUrl: input.purchasedPhotoUrl,
         invoicePhotoUrl: input.invoicePhotoUrl,
       });
-      // Update PO status
+      // Update PO status (Path C: do not change ticket status — gate security controls it)
       const poItems = await db.getPOItems(item.purchaseOrderId);
       const purchasedOrLater = poItems.filter(i => ["purchased", "delivered_to_warehouse", "delivered_to_requester"].includes(i.status));
+      const poForPath = await db.getPurchaseOrderById(item.purchaseOrderId);
+      const ticketForPath = poForPath?.ticketId ? await db.getTicketById(poForPath.ticketId) : null;
+      const isPathC = ticketForPath?.maintenancePath === "C";
       if (purchasedOrLater.length === poItems.length) {
         await db.updatePurchaseOrder(item.purchaseOrderId, { status: "purchased" });
-        const po = await db.getPurchaseOrderById(item.purchaseOrderId);
-        if (po?.ticketId) {
-          await db.updateTicket(po.ticketId, { status: "purchased" });
+        if (poForPath?.ticketId && !isPathC) {
+          await db.updateTicket(poForPath.ticketId, { status: "purchased" });
         }
       } else if (purchasedOrLater.length > 0) {
         await db.updatePurchaseOrder(item.purchaseOrderId, { status: "partial_purchase" });
-        const po = await db.getPurchaseOrderById(item.purchaseOrderId);
-        if (po?.ticketId) {
-          await db.updateTicket(po.ticketId, { status: "partial_purchase" });
+        if (poForPath?.ticketId && !isPathC) {
+          await db.updateTicket(poForPath.ticketId, { status: "partial_purchase" });
         }
       }
       // Notify warehouse with detailed message
@@ -1568,15 +1590,18 @@ export const appRouter = router({
         actualTotalCost: String(actualTotal),
         warehousePhotoUrl: input.warehousePhotoUrl,
       });
-      // Update PO status
+      // Update PO status (Path C: do not change ticket status — gate security controls it)
       const allItems = await db.getPOItems(item.purchaseOrderId);
       const allInWarehouse = allItems.every(i => ["delivered_to_warehouse", "delivered_to_requester"].includes(i.status));
       if (allInWarehouse) {
         const totalActual = allItems.reduce((sum, i) => sum + parseFloat(i.actualTotalCost || "0"), 0);
         await db.updatePurchaseOrder(item.purchaseOrderId, { status: "received", totalActualCost: String(totalActual) });
-        const po = await db.getPurchaseOrderById(item.purchaseOrderId);
-        if (po?.ticketId) {
-          await db.updateTicket(po.ticketId, { status: "received_warehouse" });
+        const poWH = await db.getPurchaseOrderById(item.purchaseOrderId);
+        if (poWH?.ticketId) {
+          const ticketWH = await db.getTicketById(poWH.ticketId);
+          if (ticketWH && ticketWH.maintenancePath !== "C") {
+            await db.updateTicket(poWH.ticketId, { status: "received_warehouse" });
+          }
         }
       }
       // Notify assigned technician and managers that item arrived at warehouse
@@ -1611,7 +1636,7 @@ export const appRouter = router({
         deliveredById: ctx.user.id,
         deliveredToId: input.deliveredToId || null,
       });
-      // Check if all items delivered to requester
+      // Check if all items delivered to requester (Path C: do not change ticket status)
       const allItems = await db.getPOItems(item.purchaseOrderId);
       const allDelivered = allItems.every(i => i.status === "delivered_to_requester");
       if (allDelivered) {
@@ -1620,7 +1645,8 @@ export const appRouter = router({
         const po = await db.getPurchaseOrderById(item.purchaseOrderId);
         if (po?.ticketId) {
           const ticket = await db.getTicketById(po.ticketId);
-          if (ticket && !["received_warehouse", "ready_for_closure", "repaired", "verified", "closed"].includes(ticket.status)) {
+          // Path C: gate security controls ticket status, do not advance here
+          if (ticket && ticket.maintenancePath !== "C" && !["received_warehouse", "ready_for_closure", "repaired", "verified", "closed"].includes(ticket.status)) {
             await db.updateTicket(po.ticketId, { status: "received_warehouse" });
             await db.addTicketStatusHistory({ ticketId: po.ticketId, fromStatus: ticket.status, toStatus: "received_warehouse", changedById: ctx.user.id, notes: "تم تسليم جميع المواد للفني - بانتظار إتمام العمل" });
             // Notify assigned technician to complete the work
