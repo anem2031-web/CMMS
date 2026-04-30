@@ -12,7 +12,7 @@ import { Label } from "@/components/ui/label";
 import { STATUS_COLORS, PRIORITY_COLORS } from "@shared/types";
 import {
   ArrowRight, Clock, User, MapPin, CheckCircle2, Wrench, ShoppingCart,
-  Camera, Loader2, FileText, AlertCircle, ExternalLink, Upload
+  Camera, Loader2, FileText, AlertCircle, ExternalLink, Upload, X, ZoomIn
 } from "lucide-react";
 import { useState, useMemo, useCallback } from "react";
 import { toast } from "sonner";
@@ -76,6 +76,8 @@ export default function TicketDetail() {
   const [afterPhotoUrl, setAfterPhotoUrl] = useState("");
   const [uploading, setUploading] = useState(false);
   const [showAttachDropZone, setShowAttachDropZone] = useState(false);
+  // Lightbox state
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
 
   const addAttachMut = trpc.attachments.add.useMutation({
     onSuccess: () => { refetch(); },
@@ -252,7 +254,12 @@ export default function TicketDetail() {
                     <p className="text-sm font-medium flex items-center gap-1.5">
                       <Camera className="w-3.5 h-3.5" /> {t.tickets.photos}
                     </p>
-                    <img src={ticket.beforePhotoUrl} alt="before" className="rounded-lg max-h-48 w-full object-cover border" />
+                    <div className="relative group cursor-pointer" onClick={() => setLightboxUrl(ticket.beforePhotoUrl!)}>
+                      <img src={ticket.beforePhotoUrl} alt="before" className="rounded-lg max-h-48 w-full object-cover border" />
+                      <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors rounded-lg flex items-center justify-center">
+                        <ZoomIn className="w-8 h-8 text-white opacity-0 group-hover:opacity-100 transition-opacity drop-shadow-lg" />
+                      </div>
+                    </div>
                   </div>
                 )}
                 {ticket.afterPhotoUrl && (
@@ -260,7 +267,12 @@ export default function TicketDetail() {
                     <p className="text-sm font-medium flex items-center gap-1.5 text-emerald-600">
                       <CheckCircle2 className="w-3.5 h-3.5" /> {t.tickets.photos}
                     </p>
-                    <img src={ticket.afterPhotoUrl} alt="after" className="rounded-lg max-h-48 w-full object-cover border" />
+                    <div className="relative group cursor-pointer" onClick={() => setLightboxUrl(ticket.afterPhotoUrl!)}>
+                      <img src={ticket.afterPhotoUrl} alt="after" className="rounded-lg max-h-48 w-full object-cover border" />
+                      <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors rounded-lg flex items-center justify-center">
+                        <ZoomIn className="w-8 h-8 text-white opacity-0 group-hover:opacity-100 transition-opacity drop-shadow-lg" />
+                      </div>
+                    </div>
                   </div>
                 )}
               </div>
@@ -283,18 +295,32 @@ export default function TicketDetail() {
                 {(ticketAttachments ?? []).length > 0 && (
                   <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
                     {(ticketAttachments ?? []).map((att: any) => (
-                      <a key={att.id} href={mediaUrl(att.fileUrl)} target="_blank" rel="noopener noreferrer" className="group border rounded-lg overflow-hidden hover:border-primary transition-colors">
-                        {att.mimeType?.startsWith("image/") ? (
-                          <img src={mediaUrl(att.fileUrl)} alt={att.fileName} className="w-full h-28 object-cover" />
-                        ) : (
+                      att.mimeType?.startsWith("image/") ? (
+                        <div
+                          key={att.id}
+                          className="group border rounded-lg overflow-hidden hover:border-primary transition-colors cursor-pointer"
+                          onClick={() => setLightboxUrl(mediaUrl(att.fileUrl))}
+                        >
+                          <div className="relative">
+                            <img src={mediaUrl(att.fileUrl)} alt={att.fileName} className="w-full h-28 object-cover" />
+                            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center">
+                              <ZoomIn className="w-6 h-6 text-white opacity-0 group-hover:opacity-100 transition-opacity drop-shadow-lg" />
+                            </div>
+                          </div>
+                          <div className="px-2 py-1.5 text-xs truncate text-muted-foreground group-hover:text-primary">
+                            {att.fileName}
+                          </div>
+                        </div>
+                      ) : (
+                        <a key={att.id} href={mediaUrl(att.fileUrl)} target="_blank" rel="noopener noreferrer" className="group border rounded-lg overflow-hidden hover:border-primary transition-colors">
                           <div className="w-full h-28 flex flex-col items-center justify-center bg-muted/50 gap-2">
                             <FileText className="w-8 h-8 text-muted-foreground" />
                           </div>
-                        )}
-                        <div className="px-2 py-1.5 text-xs truncate text-muted-foreground group-hover:text-primary">
-                          {att.fileName}
-                        </div>
-                      </a>
+                          <div className="px-2 py-1.5 text-xs truncate text-muted-foreground group-hover:text-primary">
+                            {att.fileName}
+                          </div>
+                        </a>
+                      )
                     ))}
                   </div>
                 )}
@@ -739,6 +765,26 @@ export default function TicketDetail() {
         </div>
       </div>
     </div>
+
+    {/* ===== LIGHTBOX DIALOG ===== */}
+    <Dialog open={!!lightboxUrl} onOpenChange={(open) => { if (!open) setLightboxUrl(null); }}>
+      <DialogContent className="max-w-3xl w-full p-2 bg-black/90 border-none shadow-2xl" style={{ borderRadius: "12px" }}>
+        <button
+          onClick={() => setLightboxUrl(null)}
+          className="absolute top-3 right-3 z-50 bg-black/60 hover:bg-black/80 text-white rounded-full p-1.5 transition-colors"
+          aria-label="إغلاق"
+        >
+          <X className="w-5 h-5" />
+        </button>
+        {lightboxUrl && (
+          <img
+            src={lightboxUrl}
+            alt="عرض الصورة"
+            className="w-full max-h-[80vh] object-contain rounded-lg"
+          />
+        )}
+      </DialogContent>
+    </Dialog>
 
     {/* ===== TRIAGE DIALOG ===== */}
       <Dialog open={showTriageDialog} onOpenChange={setShowTriageDialog}>
