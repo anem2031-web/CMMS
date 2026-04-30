@@ -1,6 +1,6 @@
 import { trpc } from "@/lib/trpc";
 import { getLocalizedName } from "@/hooks/useTranslatedField";
-import { useLocation } from "wouter";
+import { useLocation, useSearch } from "wouter";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,7 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ArrowRight, Upload, Loader2, X, FileText, CheckCircle2, AlertCircle, CloudUpload } from "lucide-react";
-import { useState, useRef, useCallback, DragEvent } from "react";
+import { useState, useRef, useCallback, useEffect, DragEvent } from "react";
 import { toast } from "sonner";
 import { useTranslation, useLanguage } from "@/contexts/LanguageContext";
 import { useStaticLabels } from "@/hooks/useContentTranslation";
@@ -29,6 +29,7 @@ type FileEntry = {
 export default function CreateTicket() {
   const { t: tr } = useLanguage();
   const [, setLocation] = useLocation();
+  const search = useSearch();
   const { t, language } = useTranslation();
   const { getPriorityLabel, getCategoryLabel } = useStaticLabels();
   const { data: sites } = trpc.sites.list.useQuery();
@@ -38,6 +39,24 @@ export default function CreateTicket() {
     title: "", description: "", priority: "medium",
     category: "general", siteId: "", sectionId: "", assetId: "", locationDetail: "", beforePhotoUrl: "",
   });
+  // Pre-fill form from URL params (e.g. from NFC scan)
+  useEffect(() => {
+    const params = new URLSearchParams(search);
+    const assetId = params.get("assetId");
+    const siteId = params.get("siteId");
+    const sectionId = params.get("sectionId");
+    const locationDetail = params.get("locationDetail");
+    if (assetId || siteId || sectionId || locationDetail) {
+      setForm(prev => ({
+        ...prev,
+        ...(assetId && { assetId }),
+        ...(siteId && { siteId }),
+        ...(sectionId && { sectionId }),
+        ...(locationDetail && { locationDetail }),
+      }));
+    }
+  }, [search]);
+
   const { data: sections } = trpc.sections.list.useQuery(
     form.siteId ? { siteId: Number(form.siteId) } : undefined,
     { enabled: !!form.siteId }

@@ -233,6 +233,7 @@ export default function ScanAsset() {
       assetNumber: scannedAsset.assetNumber,
       ...(scannedAsset.siteId && { siteId: scannedAsset.siteId.toString() }),
       ...(scannedSite && { siteName: scannedSite.name }),
+      ...(scannedAsset.sectionId && { sectionId: scannedAsset.sectionId.toString() }),
       ...(scannedAsset.locationDetail && { locationDetail: scannedAsset.locationDetail }),
       fromNFC: "true",
     });
