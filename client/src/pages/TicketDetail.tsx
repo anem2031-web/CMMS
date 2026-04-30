@@ -116,7 +116,7 @@ export default function TicketDetail() {
   // Reassign is now a fallback available at any post-triage status
   const postTriageStatuses = ["under_inspection", "work_approved", "assigned", "in_progress", "needs_purchase", "purchase_pending_estimate", "purchase_pending_accounting", "purchase_pending_management", "purchase_approved", "purchased", "received_warehouse"];
   const canAssign = isManager && postTriageStatuses.includes(ticket?.status || "");
-  const canStartRepair = isTechnician && ["assigned", "work_approved", "repaired", "purchase_approved", "purchased", "partial_purchase"].includes(ticket?.status || "");
+  const canStartRepair = isTechnician && ["assigned", "work_approved", "repaired", "purchase_approved", "purchased", "partial_purchase", "received_warehouse"].includes(ticket?.status || "");
   const canCompleteRepair = isTechnician && ticket?.status === "in_progress";
   const canClose = isManager && ticket?.status === "repaired";
   const canCreatePO = isManager && ["approved", "assigned", "in_progress", "work_approved", "needs_purchase"].includes(ticket?.status || "");

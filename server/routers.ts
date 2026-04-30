@@ -514,8 +514,8 @@ export const appRouter = router({
     startRepair: protectedProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
       const ticket = await db.getTicketById(input.id);
       if (!ticket) throw new TRPCError({ code: "NOT_FOUND" });
-      // Accept from assigned, in_progress, or repaired (after materials delivered)
-      const validStatuses = ["assigned", "in_progress", "repaired", "purchase_approved", "purchased", "partial_purchase"];
+      // Accept from assigned, in_progress, repaired, or received_warehouse (after materials delivered to technician)
+      const validStatuses = ["assigned", "in_progress", "repaired", "purchase_approved", "purchased", "partial_purchase", "received_warehouse"];
       if (!validStatuses.includes(ticket.status)) {
         throw new TRPCError({ code: "BAD_REQUEST", message: `لا يمكن بدء التنفيذ في الحالة الحالية: ${ticket.status}` });
       }
