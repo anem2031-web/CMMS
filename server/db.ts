@@ -236,7 +236,13 @@ export async function getTickets(filters?: { status?: string; priority?: string;
   const db = await getDb();
   if (!db) return [];
   const conditions: any[] = [];
-  if (filters?.status) conditions.push(eq(tickets.status, filters.status as any));
+  if (filters?.status) {
+    if (filters.status === "open") {
+      conditions.push(ne(tickets.status, "closed" as any));
+    } else {
+      conditions.push(eq(tickets.status, filters.status as any));
+    }
+  }
   if (filters?.priority) conditions.push(eq(tickets.priority, filters.priority as any));
   if (filters?.siteId) conditions.push(eq(tickets.siteId, filters.siteId));
   if (filters?.sectionId) conditions.push(eq(tickets.sectionId, filters.sectionId));
