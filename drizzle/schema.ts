@@ -161,7 +161,7 @@ export const tickets = mysqlTable("tickets", {
 // 4. PURCHASE ORDERS
 // ============================================================
 export const poStatuses = [
-  "draft", "pending_estimate", "pending_accounting", "pending_management",
+  "draft", "pending_review", "pending_estimate", "pending_accounting", "pending_management",
   "approved", "partial_purchase", "purchased", "received", "closed", "rejected"
 ] as const;
 
@@ -195,7 +195,7 @@ export const purchaseOrders = mysqlTable("purchase_orders", {
 // ============================================================
 // 5. PURCHASE ORDER ITEMS (per-item tracking)
 // ============================================================
-export const poItemStatuses = ["pending", "estimated", "approved", "funded", "purchased", "delivered_to_warehouse", "delivered_to_requester"] as const;
+export const poItemStatuses = ["pending", "estimated", "approved", "rejected", "funded", "purchased", "delivered_to_warehouse", "delivered_to_requester"] as const;
 
 export const purchaseOrderItems = mysqlTable("purchase_order_items", {
   id: int("id").autoincrement().primaryKey(),
@@ -207,6 +207,7 @@ export const purchaseOrderItems = mysqlTable("purchase_order_items", {
   photoUrl: text("photoUrl"),
   notes: text("notes"),
   delegateId: int("delegateId"),
+  rejectionReason: text("rejectionReason"),
   estimatedUnitCost: decimal("estimatedUnitCost", { precision: 12, scale: 2 }),
   estimatedTotalCost: decimal("estimatedTotalCost", { precision: 12, scale: 2 }),
   actualUnitCost: decimal("actualUnitCost", { precision: 12, scale: 2 }),
