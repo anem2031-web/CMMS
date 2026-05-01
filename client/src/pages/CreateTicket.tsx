@@ -241,7 +241,9 @@ export default function CreateTicket() {
     if (!form.title.trim()) { toast.error(t.tickets.ticketTitle); return; }
     const uploading = fileEntries.some(e => e.status === "uploading" || e.status === "pending");
     if (uploading) { toast.error(at.uploading || "الرجاء انتظار اكتمال رفع الملفات"); return; }
-    createMut.mutate({ ...form, siteId: form.siteId ? parseInt(form.siteId) : undefined, sectionId: form.sectionId ? parseInt(form.sectionId) : undefined, assetId: form.assetId ? parseInt(form.assetId) : undefined });
+    // Read beforePhotoUrl directly from fileEntries to avoid stale React state closure
+    const freshBeforePhotoUrl = fileEntries.find(e => e.status === "done" && e.url && e.file.type.startsWith("image/"))?.url || "";
+    createMut.mutate({ ...form, beforePhotoUrl: freshBeforePhotoUrl, siteId: form.siteId ? parseInt(form.siteId) : undefined, sectionId: form.sectionId ? parseInt(form.sectionId) : undefined, assetId: form.assetId ? parseInt(form.assetId) : undefined });
   };
 
   const isImage = (type: string) => type.startsWith("image/");
