@@ -1519,7 +1519,20 @@ export const appRouter = router({
       if (po.status !== "pending_review") {
         throw new TRPCError({ code: "BAD_REQUEST", message: "طلب الشراء ليس في مرحلة المراجعة" });
       }
-      // Validate each item action
+      // ── Atomic validation: fetch all DB items for this PO before any updates ──
+      const dbItems = await db.getPOItems(input.poId);
+      // A) Count check: submitted items must equal DB items (no partial submission)
+      if (input.items.length !== dbItems.length) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: `يجب مراجعة جميع الأصناف (${dbItems.length} صنف). تم إرسال ${input.items.length} فقط` });
+      }
+      // B) Ownership check: every submitted item.id must belong to this PO
+      const dbItemIds = new Set(dbItems.map((i: any) => i.id));
+      for (const reviewItem of input.items) {
+        if (!dbItemIds.has(reviewItem.id)) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: `الصنف رقم ${reviewItem.id} لا ينتمي لطلب الشراء هذا` });
+        }
+      }
+      // ── Validate each item action ──
       for (const reviewItem of input.items) {
         if (reviewItem.action === "approve" && !reviewItem.delegateId) {
           throw new TRPCError({ code: "BAD_REQUEST", message: `الصنف رقم ${reviewItem.id}: يجب تعيين مندوب للأصناف المعتمدة` });
