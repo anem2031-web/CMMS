@@ -182,6 +182,7 @@ const ar = {
   // PO statuses
   poStatus: {
     draft: "مسودة",
+    pending_review: "بانتظار المراجعة",
     pending_estimate: "بانتظار التسعير",
     pending_accounting: "بانتظار اعتماد الحسابات",
     pending_management: "بانتظار اعتماد الإدارة",
@@ -198,6 +199,7 @@ const ar = {
     pending: "معلّق",
     estimated: "تم التسعير",
     approved: "معتمد",
+    rejected: "مرفوض",
     purchased: "تم الشراء",
     received: "تم الاستلام",
   },

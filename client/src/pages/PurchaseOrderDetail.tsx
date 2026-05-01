@@ -16,12 +16,14 @@ import { useState, useMemo } from "react";
 import { toast } from "sonner";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useTranslation } from "@/contexts/LanguageContext";
 import { useStaticLabels } from "@/hooks/useContentTranslation";
 import DropZone, { type UploadedFile } from "@/components/DropZone";
 
 const PO_STATUS_COLORS: Record<string, string> = {
   draft: "bg-gray-100 text-gray-700",
+  pending_review: "bg-purple-100 text-purple-700",
   pending_estimate: "bg-amber-100 text-amber-700",
   pending_accounting: "bg-orange-100 text-orange-700",
   pending_management: "bg-orange-100 text-orange-700",
@@ -37,6 +39,7 @@ const ITEM_STATUS_COLORS: Record<string, string> = {
   pending: "bg-gray-100 text-gray-700",
   estimated: "bg-amber-100 text-amber-700",
   approved: "bg-teal-100 text-teal-700",
+  rejected: "bg-red-100 text-red-700",
   purchased: "bg-emerald-100 text-emerald-700",
   received: "bg-green-100 text-green-700",
 };
@@ -77,6 +80,7 @@ export default function PurchaseOrderDetail() {
   const { data: users } = trpc.users.list.useQuery();
 
   const estimateMut = trpc.purchaseOrders.estimateCost.useMutation({ onSuccess: () => { toast.success(t.common.save); refetch(); }, onError: (e) => toast.error(e.message) });
+  const reviewItemsMut = trpc.purchaseOrders.reviewItems.useMutation({ onSuccess: () => { toast.success(t.common.confirm); refetch(); }, onError: (e) => toast.error(e.message) });
   const approveAccMut = trpc.purchaseOrders.approveAccounting.useMutation({ onSuccess: () => { toast.success(t.common.confirm); refetch(); }, onError: (e) => toast.error(e.message) });
   const approveMgmtMut = trpc.purchaseOrders.approveManagement.useMutation({ onSuccess: () => { toast.success(t.common.confirm); refetch(); }, onError: (e) => toast.error(e.message) });
   const rejectMut = trpc.purchaseOrders.reject.useMutation({ onSuccess: () => { toast.success(t.common.confirm); refetch(); }, onError: (e) => toast.error(e.message) });
@@ -96,12 +100,14 @@ export default function PurchaseOrderDetail() {
   const [receiveData, setReceiveData] = useState<Record<number, { cost: string; supplier: string; supplierItemName: string; warehousePhotoUrl: string }>>({});
   const [editingItem, setEditingItem] = useState<any>(null);
   const [editForm, setEditForm] = useState<{ itemName: string; description: string; quantity: number; estimatedUnitCost: string }>({ itemName: "", description: "", quantity: 1, estimatedUnitCost: "" });
+  const [reviewDecisions, setReviewDecisions] = useState<Record<number, { action: "approve" | "reject"; delegateId?: number; rejectionReason?: string }>>({});
 
   const isAdminOrOwner = role === "admin" || role === "owner";
   const isDelegate = role === "delegate" || isAdminOrOwner;
   const isAccountant = role === "accountant" || isAdminOrOwner;
   const isManagement = role === "senior_management" || isAdminOrOwner;
   const isWarehouse = role === "warehouse" || isAdminOrOwner;
+  const isManager = role === "maintenance_manager" || role === "purchase_manager" || isAdminOrOwner;
   const visibleItems = useMemo(() => {
     if (!po?.items) return [];
     // Admin/owner see all items; delegate sees only their own
@@ -137,9 +143,10 @@ export default function PurchaseOrderDetail() {
 
   const steps = [
     { key: "draft", label: getPOStatusLabel("draft"), done: true },
-    { key: "pending_estimate", label: getPOStatusLabel("pending_estimate"), done: !["draft"].includes(po.status) },
-    { key: "pending_accounting", label: getPOStatusLabel("pending_accounting"), done: !["draft", "pending_estimate"].includes(po.status) },
-    { key: "pending_management", label: getPOStatusLabel("pending_management"), done: !["draft", "pending_estimate", "pending_accounting"].includes(po.status) },
+    { key: "pending_review", label: getPOStatusLabel("pending_review"), done: !["draft"].includes(po.status) },
+    { key: "pending_estimate", label: getPOStatusLabel("pending_estimate"), done: !["draft", "pending_review"].includes(po.status) },
+    { key: "pending_accounting", label: getPOStatusLabel("pending_accounting"), done: !["draft", "pending_review", "pending_estimate"].includes(po.status) },
+    { key: "pending_management", label: getPOStatusLabel("pending_management"), done: !["draft", "pending_review", "pending_estimate", "pending_accounting"].includes(po.status) },
     { key: "approved", label: getPOStatusLabel("approved"), done: ["approved", "partial_purchase", "purchased", "received", "closed"].includes(po.status) },
     { key: "purchased", label: getPOStatusLabel("purchased"), done: ["purchased", "received", "closed"].includes(po.status) },
     { key: "received", label: getPOStatusLabel("received"), done: ["received", "closed"].includes(po.status) },
@@ -533,6 +540,103 @@ export default function PurchaseOrderDetail() {
           )}
         </CardContent>
       </Card>
+
+      {isManager && po.status === "pending_review" && (() => {
+        const delegates = users?.filter((u: any) => u.role === "delegate") || [];
+        const allDecided = po.items?.every((item: any) => reviewDecisions[item.id]?.action) || false;
+        const isValid = po.items?.every((item: any) => {
+          const d = reviewDecisions[item.id];
+          if (!d) return false;
+          if (d.action === "approve") return !!d.delegateId;
+          if (d.action === "reject") return !!(d.rejectionReason?.trim());
+          return false;
+        }) || false;
+        return (
+          <Card className="border-purple-200 bg-purple-50/50">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base text-purple-800">مراجعة الأصناف وتعيين المندوبين</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {po.items?.map((item: any) => {
+                const decision = reviewDecisions[item.id] || {};
+                return (
+                  <div key={item.id} className="border rounded-lg p-3 space-y-3 bg-white">
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <p className="text-sm font-medium">{item.itemName}</p>
+                        {item.description && <p className="text-xs text-muted-foreground">{item.description}</p>}
+                        <p className="text-xs text-muted-foreground mt-0.5">{t.purchaseOrders.quantity}: <strong>{item.quantity} {item.unit || ""}</strong></p>
+                      </div>
+                    </div>
+                    <div className="flex gap-3">
+                      <Button
+                        size="sm"
+                        variant={decision.action === "approve" ? "default" : "outline"}
+                        className="flex-1"
+                        onClick={() => setReviewDecisions(p => ({ ...p, [item.id]: { ...p[item.id], action: "approve" } }))}
+                      >
+                        {t.common.confirm}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant={decision.action === "reject" ? "destructive" : "outline"}
+                        className="flex-1"
+                        onClick={() => setReviewDecisions(p => ({ ...p, [item.id]: { ...p[item.id], action: "reject" } }))}
+                      >
+                        {t.tickets.reject}
+                      </Button>
+                    </div>
+                    {decision.action === "approve" && (
+                      <div className="space-y-1">
+                        <Label className="text-xs">{t.purchaseOrders.delegate} *</Label>
+                        <Select
+                          value={decision.delegateId ? String(decision.delegateId) : ""}
+                          onValueChange={v => setReviewDecisions(p => ({ ...p, [item.id]: { ...p[item.id], delegateId: parseInt(v) } }))}
+                        >
+                          <SelectTrigger className="bg-white"><SelectValue placeholder={t.purchaseOrders.delegate} /></SelectTrigger>
+                          <SelectContent>
+                            {delegates.map((d: any) => <SelectItem key={d.id} value={String(d.id)}>{d.name || d.email}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    )}
+                    {decision.action === "reject" && (
+                      <div className="space-y-1">
+                        <Label className="text-xs">{t.purchaseOrders.justification} *</Label>
+                        <Input
+                          placeholder="سبب الرفض"
+                          value={decision.rejectionReason || ""}
+                          onChange={e => setReviewDecisions(p => ({ ...p, [item.id]: { ...p[item.id], rejectionReason: e.target.value } }))}
+                          className="bg-white"
+                        />
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+              <Button
+                className="w-full gap-1.5"
+                disabled={!allDecided || !isValid || reviewItemsMut.isPending}
+                onClick={() => {
+                  const items = (po.items || []).map((item: any) => {
+                    const d = reviewDecisions[item.id];
+                    return {
+                      id: item.id,
+                      action: d.action as "approve" | "reject",
+                      delegateId: d.action === "approve" ? d.delegateId : undefined,
+                      rejectionReason: d.action === "reject" ? d.rejectionReason : undefined,
+                    };
+                  });
+                  reviewItemsMut.mutate({ poId: po.id, items });
+                }}
+              >
+                {reviewItemsMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+                {t.common.submit}
+              </Button>
+            </CardContent>
+          </Card>
+        );
+      })()}
 
       {isAccountant && po.status === "pending_accounting" && (
         <Card className="border-orange-200 bg-orange-50/50">

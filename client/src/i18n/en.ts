@@ -178,6 +178,7 @@ const en: TranslationKeys = {
 
   poStatus: {
     draft: "Draft",
+    pending_review: "Pending Review",
     pending_estimate: "Pending Estimate",
     pending_accounting: "Pending Accounting",
     pending_management: "Pending Management",
@@ -193,6 +194,7 @@ const en: TranslationKeys = {
     pending: "Pending",
     estimated: "Estimated",
     approved: "Approved",
+    rejected: "Rejected",
     purchased: "Purchased",
     received: "Received",
   },

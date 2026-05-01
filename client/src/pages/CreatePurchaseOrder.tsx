@@ -5,7 +5,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ArrowRight, Plus, Trash2, Loader2, ShoppingCart, Camera, Link2, Upload } from "lucide-react";
 import DropZone, { type UploadedFile } from "@/components/DropZone";
 import { useState } from "react";
@@ -19,10 +18,9 @@ type ItemForm = {
   unit: string;
   photoUrl: string;
   notes: string;
-  delegateId: string;
 };
 
-const emptyItem = (): ItemForm => ({ itemName: "", description: "", quantity: 1, unit: "قطعة", photoUrl: "", notes: "", delegateId: "" });
+const emptyItem = (): ItemForm => ({ itemName: "", description: "", quantity: 1, unit: "قطعة", photoUrl: "", notes: "" });
 
 export default function CreatePurchaseOrder() {
   const [, setLocation] = useLocation();
@@ -31,7 +29,6 @@ export default function CreatePurchaseOrder() {
   const params = new URLSearchParams(searchStr);
   const ticketId = params.get("ticketId") ? parseInt(params.get("ticketId")!) : undefined;
 
-  const { data: delegates } = trpc.users.byRole.useQuery({ role: "delegate" });
   const { data: ticket } = trpc.tickets.getById.useQuery(
     { id: ticketId || 0 },
     { enabled: !!ticketId }
@@ -65,8 +62,6 @@ export default function CreatePurchaseOrder() {
   const handleSubmit = () => {
     const validItems = items.filter(i => i.itemName.trim());
     if (validItems.length === 0) { toast.error(t.purchaseOrders.items); return; }
-    const missingDelegate = validItems.some(i => !i.delegateId);
-    if (missingDelegate) { toast.error(t.purchaseOrders.delegate); return; }
     createMut.mutate({
       ticketId,
       notes: notes || undefined,
@@ -77,17 +72,9 @@ export default function CreatePurchaseOrder() {
         unit: i.unit || undefined,
         photoUrl: i.photoUrl || undefined,
         notes: i.notes || undefined,
-        delegateId: parseInt(i.delegateId),
       })),
     });
   };
-
-  const delegateGroups = items.filter(i => i.itemName.trim() && i.delegateId).reduce((acc, item) => {
-    const did = item.delegateId;
-    if (!acc[did]) acc[did] = [];
-    acc[did].push(item);
-    return acc;
-  }, {} as Record<string, ItemForm[]>);
 
   return (
     <div className="max-w-4xl space-y-6">
@@ -129,20 +116,9 @@ export default function CreatePurchaseOrder() {
             </div>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>{t.purchaseOrders.itemName} *</Label>
-                <Input value={item.itemName} onChange={e => updateItem(idx, "itemName", e.target.value)} />
-              </div>
-              <div className="space-y-2">
-                <Label>{t.purchaseOrders.delegate} *</Label>
-                <Select value={item.delegateId} onValueChange={v => updateItem(idx, "delegateId", v)}>
-                  <SelectTrigger><SelectValue placeholder={t.purchaseOrders.delegate} /></SelectTrigger>
-                  <SelectContent>
-                    {delegates?.map(d => <SelectItem key={d.id} value={String(d.id)}>{d.name || d.email}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
+            <div className="space-y-2">
+              <Label>{t.purchaseOrders.itemName} *</Label>
+              <Input value={item.itemName} onChange={e => updateItem(idx, "itemName", e.target.value)} />
             </div>
             <div className="space-y-2">
               <Label>{t.tickets.description}</Label>
@@ -206,25 +182,6 @@ export default function CreatePurchaseOrder() {
       <Button variant="outline" onClick={() => setItems(prev => [...prev, emptyItem()])} className="w-full gap-2 border-dashed h-12">
         <Plus className="w-4 h-4" /> {t.common.add}
       </Button>
-
-      {Object.keys(delegateGroups).length > 0 && (
-        <Card className="bg-muted/30">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm">{t.purchaseOrders.delegate}</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            {Object.entries(delegateGroups).map(([did, ditems]) => {
-              const delegateName = delegates?.find(d => String(d.id) === did)?.name || `#${did}`;
-              return (
-                <div key={did} className="flex items-center justify-between text-sm bg-background rounded-lg p-2.5 border">
-                  <span className="font-medium">{delegateName}</span>
-                  <span className="text-muted-foreground">{ditems.length} {t.purchaseOrders.items}</span>
-                </div>
-              );
-            })}
-          </CardContent>
-        </Card>
-      )}
 
       <div className="space-y-3">
         <Textarea placeholder={t.purchaseOrders.justification} value={notes} onChange={e => setNotes(e.target.value)} />

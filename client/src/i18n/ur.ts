@@ -177,6 +177,7 @@ const ur: TranslationKeys = {
 
   poStatus: {
     draft: "مسودہ",
+    pending_review: "جائزہ زیر التوا",
     pending_estimate: "تخمینہ زیر التوا",
     pending_accounting: "اکاؤنٹنگ زیر التوا",
     pending_management: "انتظامیہ زیر التوا",
@@ -192,6 +193,7 @@ const ur: TranslationKeys = {
     pending: "زیر التوا",
     estimated: "تخمینہ لگایا",
     approved: "منظور",
+    rejected: "مسترد",
     purchased: "خریدا گیا",
     received: "موصول",
   },
