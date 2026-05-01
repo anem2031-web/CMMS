@@ -1256,9 +1256,10 @@ export const appRouter = router({
         poNumber,
         ticketId: input.ticketId,
         requestedById: ctx.user.id,
-        status: "pending_estimate",
+        status: "pending_review",
         notes: input.notes,
       });
+      // delegateId is optional at creation — assigned during reviewItems step
       const itemsData = input.items.map(item => ({ ...item, purchaseOrderId: poId!, status: "pending" }));
       await db.createPOItems(itemsData);
       // Update ticket status if linked (Path C: keep at work_approved — gate security controls status)
@@ -1269,11 +1270,7 @@ export const appRouter = router({
           await db.addTicketStatusHistory({ ticketId: input.ticketId, fromStatus: ticket.status, toStatus: "needs_purchase", changedById: ctx.user.id });
         }
       }
-      // Notify delegates
-      const delegateIds = Array.from(new Set(input.items.filter(i => i.delegateId).map(i => i.delegateId!)));
-      for (const dId of delegateIds) {
-        await db.createNotification({ userId: dId, title: "طلب شراء جديد", message: `تم تخصيص أصناف لك في طلب الشراء ${poNumber}`, type: "info", relatedPOId: poId! });
-      }
+      // Delegate notifications are sent in reviewItems after delegates are assigned
       await db.createAuditLog({ userId: ctx.user.id, action: "create_po", entityType: "purchase_order", entityId: poId! });
       return { id: poId, poNumber };
     }),
@@ -1380,13 +1377,17 @@ export const appRouter = router({
       for (const item of input.items) {
         const cost = parseFloat(item.estimatedUnitCost);
         const poItem = (await db.getPOItems(input.purchaseOrderId)).find(i => i.id === item.id);
+        // Guard: item must have a delegateId assigned before it can be estimated
+        if (!poItem?.delegateId) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: `الصنف "${poItem?.itemName || item.id}" لا يمكن تسعيره قبل تعيين مندوب له` });
+        }
         const totalCost = cost * (poItem?.quantity || 1);
         totalEstimated += totalCost;
         await db.updatePOItem(item.id, { estimatedUnitCost: item.estimatedUnitCost, estimatedTotalCost: String(totalCost), status: "estimated" });
       }
-      // Check if all items are estimated
+      // Check if all items are estimated (excluding rejected items)
       const allItems = await db.getPOItems(input.purchaseOrderId);
-      const allEstimated = allItems.every(i => i.status !== "pending");
+      const allEstimated = allItems.every(i => i.status === "estimated" || i.status === "rejected");
       if (allEstimated) {
         await db.updatePurchaseOrder(input.purchaseOrderId, { status: "pending_accounting", totalEstimatedCost: String(totalEstimated) });
         // Notify accountants
@@ -1423,13 +1424,16 @@ export const appRouter = router({
     })).mutation(async ({ input, ctx }) => {
       const po = await db.getPurchaseOrderById(input.id);
       await db.updatePurchaseOrder(input.id, { status: "approved", managementApprovedById: ctx.user.id, managementApprovedAt: new Date(), managementNotes: input.notes });
-      // Update all items to approved
+      // Update non-rejected items to approved (skip items already rejected in review step)
       const items = await db.getPOItems(input.id);
       for (const item of items) {
-        await db.updatePOItem(item.id, { status: "approved" });
+        if (item.status !== "rejected") {
+          await db.updatePOItem(item.id, { status: "approved" });
+        }
       }
-      // Notify delegates with detailed message
-      const delegateIds = Array.from(new Set(items.filter(i => i.delegateId).map(i => i.delegateId!)));
+      // Notify delegates — only for non-rejected items
+      const approvedItemsForNotif = items.filter(i => i.status !== "rejected");
+      const delegateIds = Array.from(new Set(approvedItemsForNotif.filter(i => i.delegateId).map(i => i.delegateId!)));
       for (const dId of delegateIds) {
         const delegateItems = items.filter(i => i.delegateId === dId);
         const itemNames = delegateItems.map(i => i.itemName).join("، ");
@@ -1497,6 +1501,76 @@ export const appRouter = router({
           await db.createNotification({ userId: mgr.id, title: "❌ رفض طلب شراء", message: `تم رفض طلب الشراء رقم ${poReject?.poNumber || input.id}. السبب: ${input.reason}`, type: "critical", relatedPOId: input.id });
         }
       }
+      return { success: true };
+    }),
+
+    // ============ مرحلة المراجعة: اعتماد/رفض الأصناف وتعيين المندوبين ============
+    reviewItems: managerProcedure.input(z.object({
+      poId: z.number(),
+      items: z.array(z.object({
+        id: z.number(),
+        action: z.enum(["approve", "reject"]),
+        delegateId: z.number().optional(),
+        rejectionReason: z.string().optional(),
+      })),
+    })).mutation(async ({ input, ctx }) => {
+      const po = await db.getPurchaseOrderById(input.poId);
+      if (!po) throw new TRPCError({ code: "NOT_FOUND", message: "طلب الشراء غير موجود" });
+      if (po.status !== "pending_review") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "طلب الشراء ليس في مرحلة المراجعة" });
+      }
+      // Validate each item action
+      for (const reviewItem of input.items) {
+        if (reviewItem.action === "approve" && !reviewItem.delegateId) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: `الصنف رقم ${reviewItem.id}: يجب تعيين مندوب للأصناف المعتمدة` });
+        }
+        if (reviewItem.action === "reject" && !reviewItem.rejectionReason) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: `الصنف رقم ${reviewItem.id}: يجب إدخال سبب رفض الأصناف المرفوضة` });
+        }
+      }
+      // Apply per-item decisions
+      for (const reviewItem of input.items) {
+        if (reviewItem.action === "approve") {
+          await db.updatePOItem(reviewItem.id, {
+            status: "pending",
+            delegateId: reviewItem.delegateId,
+            rejectionReason: null,
+          });
+        } else {
+          await db.updatePOItem(reviewItem.id, {
+            status: "rejected",
+            rejectionReason: reviewItem.rejectionReason,
+          });
+        }
+      }
+      // Determine new PO status
+      const allItems = await db.getPOItems(input.poId);
+      const hasApproved = allItems.some(i => i.status === "pending");
+      const allRejected = allItems.every(i => i.status === "rejected");
+      if (allRejected) {
+        await db.updatePurchaseOrder(input.poId, { status: "rejected", rejectedById: ctx.user.id, rejectedAt: new Date(), rejectionReason: "تم رفض جميع الأصناف" });
+        // Notify PO creator
+        if (po.requestedById && po.requestedById !== ctx.user.id) {
+          await db.createNotification({ userId: po.requestedById, title: "❌ تم رفض جميع أصناف طلب الشراء", message: `تم رفض جميع أصناف طلب الشراء رقم ${po.poNumber}.`, type: "critical", relatedPOId: input.poId });
+        }
+      } else if (hasApproved) {
+        await db.updatePurchaseOrder(input.poId, { status: "pending_estimate" });
+        // Notify assigned delegates
+        const approvedItems = allItems.filter(i => i.status === "pending" && i.delegateId);
+        const delegateIds = Array.from(new Set(approvedItems.map(i => i.delegateId!)));
+        for (const dId of delegateIds) {
+          const delegateItems = approvedItems.filter(i => i.delegateId === dId);
+          const itemNames = delegateItems.map(i => i.itemName).join("، ");
+          await db.createNotification({ userId: dId, title: "طلب شراء جديد — ابدأ التسعير", message: `تم تخصيص الأصناف التالية لك في طلب الشراء ${po.poNumber}: ${itemNames}`, type: "info", relatedPOId: input.poId });
+        }
+        // Notify PO creator if some items were rejected
+        const rejectedItems = allItems.filter(i => i.status === "rejected");
+        if (rejectedItems.length > 0 && po.requestedById && po.requestedById !== ctx.user.id) {
+          const rejectedNames = rejectedItems.map(i => i.itemName).join("، ");
+          await db.createNotification({ userId: po.requestedById, title: "⚠️ بعض أصناف طلب الشراء مرفوضة", message: `تم رفض الأصناف التالية من طلب الشراء ${po.poNumber}: ${rejectedNames}`, type: "warning", relatedPOId: input.poId });
+        }
+      }
+      await db.createAuditLog({ userId: ctx.user.id, action: "review_po_items", entityType: "purchase_order", entityId: input.poId });
       return { success: true };
     }),
 
