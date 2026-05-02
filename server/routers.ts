@@ -4126,9 +4126,10 @@ ${JSON.stringify(recentAudit.map((a: any) => ({ action: a.action, entity: a.enti
       rootCause: z.string().optional(),
       findings: z.string().optional(),
       recommendedAction: z.string().optional(),
-    })).mutation(async ({ input }) => {
+    })).mutation(async ({ input, ctx }) => {
       const result = await db.createInspectionResult({
         ...input,
+        inspectorId: ctx.user.id, // always use authenticated user, ignore input.inspectorId
         severity: input.severity ?? "medium",
         rootCause: input.rootCause ?? "",
         findings: input.findings ?? "",
