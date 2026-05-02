@@ -77,9 +77,9 @@ export default function Assets() {
 
   const utils = trpc.useUtils();
   const { data: categories = [] } = trpc.assetCategories.list.useQuery();
-  const createCategoryMut = trpc.assetCategories.create.useMutation({ onSuccess: () => { utils.assetCategories.list.invalidate(); setNewCategoryName(""); } });
-  const updateCategoryMut = trpc.assetCategories.update.useMutation({ onSuccess: () => { utils.assetCategories.list.invalidate(); setEditCategoryId(null); setEditCategoryName(""); } });
-  const deleteCategoryMut = trpc.assetCategories.delete.useMutation({ onSuccess: () => utils.assetCategories.list.invalidate() });
+  const createCategoryMut = trpc.assetCategories.create.useMutation({ onSuccess: () => { utils.assetCategories.list.invalidate(); setNewCategoryName(""); toast.success("تم إضافة الفئة"); }, onError: () => toast.error("حدث خطأ، حاول مرة أخرى") });
+  const updateCategoryMut = trpc.assetCategories.update.useMutation({ onSuccess: () => { utils.assetCategories.list.invalidate(); setEditCategoryId(null); setEditCategoryName(""); toast.success("تم تعديل الفئة"); }, onError: () => toast.error("حدث خطأ، حاول مرة أخرى") });
+  const deleteCategoryMut = trpc.assetCategories.delete.useMutation({ onSuccess: () => { utils.assetCategories.list.invalidate(); toast.success("تم حذف الفئة"); }, onError: () => toast.error("حدث خطأ، حاول مرة أخرى") });
 
   const { data: assets = [], isLoading } = trpc.assets.list.useQuery({
     status: statusFilter !== "all" ? statusFilter : undefined,
