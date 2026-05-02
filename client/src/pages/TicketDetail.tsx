@@ -820,6 +820,15 @@ export default function TicketDetail() {
                   <span className="font-medium">{assignedTo.name || "-"}</span>
                 </div>
               )}
+              {assignedTo && (
+                <button
+                  type="button"
+                  onClick={() => window.print()}
+                  className="mt-1 w-full flex items-center justify-center gap-2 border border-gray-300 rounded-lg px-3 py-2 text-sm font-medium hover:bg-gray-50 transition-colors print:hidden"
+                >
+                  🖨️ طباعة المهمة
+                </button>
+              )}
               <div className="flex items-center gap-2">
                 <Clock className="w-4 h-4 text-muted-foreground shrink-0" />
                 <span className="text-muted-foreground">{t.tickets.timeline}:</span>
@@ -943,6 +952,53 @@ export default function TicketDetail() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Printable Task Section — hidden on screen, shown only on print */}
+      <div id="print-task-section" style={{ display: "none" }}>
+        <style>{`
+          @media print {
+            body > * { display: none !important; }
+            #print-task-section { display: block !important; }
+            #print-task-section * { display: revert !important; }
+            .print\\:hidden { display: none !important; }
+          }
+          @media print {
+            #print-task-section {
+              font-family: Arial, sans-serif;
+              direction: rtl;
+              padding: 32px;
+              color: #111;
+            }
+            #print-task-section h1 {
+              font-size: 22px;
+              font-weight: bold;
+              margin-bottom: 24px;
+              border-bottom: 2px solid #333;
+              padding-bottom: 8px;
+            }
+            #print-task-section .print-row {
+              display: flex;
+              gap: 8px;
+              margin-bottom: 12px;
+              font-size: 14px;
+            }
+            #print-task-section .print-label {
+              font-weight: bold;
+              min-width: 140px;
+            }
+          }
+        `}</style>
+        <h1>مهمة صيانة</h1>
+        <div className="print-row"><span className="print-label">رقم البلاغ:</span><span>{ticket.ticketNumber}</span></div>
+        <div className="print-row"><span className="print-label">العنوان:</span><span>{ticket.title}</span></div>
+        <div className="print-row"><span className="print-label">الفني المسند إليه:</span><span>{assignedTo?.name || "-"}</span></div>
+        <div className="print-row"><span className="print-label">وصف العطل:</span><span>{ticket.description || "-"}</span></div>
+        {ticket.inspectionNotes && (
+          <div className="print-row"><span className="print-label">ملاحظات الفحص:</span><span>{ticket.inspectionNotes}</span></div>
+        )}
+        <div className="print-row"><span className="print-label">تاريخ الإنشاء:</span><span>{new Date(ticket.createdAt).toLocaleDateString("ar-SA")}</span></div>
+        <div className="print-row"><span className="print-label">الحالة:</span><span>{ticket.status}</span></div>
+      </div>
     </>
   );
 }
