@@ -636,7 +636,7 @@ function DashboardLayoutContent({ children, setSidebarWidth }: { children: React
                       >
                         <div className="flex items-center gap-1.5">
                           <section.icon className="h-3 w-3 text-sidebar-foreground/35" />
-                          <span className="text-[10.5px] font-semibold uppercase tracking-wider text-sidebar-foreground/40 group-hover:text-sidebar-foreground/60 transition-colors">
+                          <span className="text-xs font-bold uppercase tracking-wider text-sidebar-foreground/70 group-hover:text-sidebar-foreground/90 transition-colors">
                             {section.label}
                           </span>
                         </div>
@@ -692,7 +692,7 @@ function DashboardLayoutContent({ children, setSidebarWidth }: { children: React
               {!isCollapsed && (
                 <div className="flex items-center gap-1.5 px-1 py-1.5">
                   <Bell className="h-3 w-3 text-sidebar-foreground/35" />
-                  <span className="text-[10.5px] font-semibold uppercase tracking-wider text-sidebar-foreground/40">
+                  <span className="text-xs font-bold uppercase tracking-wider text-sidebar-foreground/70">
                     {t.nav.sections.notificationsSection}
                   </span>
                 </div>
