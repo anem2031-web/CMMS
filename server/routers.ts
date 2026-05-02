@@ -2904,6 +2904,7 @@ ${JSON.stringify(recentAudit.map((a: any) => ({ action: a.action, entity: a.enti
       photoUrl: z.string().optional(),
       notes: z.string().optional(),
       rfidTag: z.string().optional(),
+      categoryId: z.number().optional(),
     })).mutation(async ({ input, ctx }) => {
       const assetNumber = await db.generateAssetNumber();
       // Auto-translate description and notes
@@ -2979,6 +2980,7 @@ ${JSON.stringify(recentAudit.map((a: any) => ({ action: a.action, entity: a.enti
       photoUrl: z.string().optional(),
       notes: z.string().optional(),
       rfidTag: z.string().optional(),
+      categoryId: z.number().optional(),
     })).mutation(async ({ input }) => {
       const { id, ...data } = input;
       // Auto-translate updated text fields to all 3 languages

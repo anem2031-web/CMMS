@@ -41,13 +41,14 @@ interface AssetFormData {
   warrantyNotes: string;
   photoUrl: string;
   notes: string;
+  categoryId: string;
 }
 
 const defaultForm: AssetFormData = {
   name: "", description: "", category: "", brand: "", model: "",
   serialNumber: "", rfidTag: "", siteId: "", sectionId: "", locationDetail: "", status: "active",
   purchaseDate: "", purchaseCost: "", warrantyExpiry: "", warrantyNotes: "",
-  photoUrl: "", notes: "",
+  photoUrl: "", notes: "", categoryId: "",
 };
 
 export default function Assets() {
@@ -70,6 +71,7 @@ export default function Assets() {
   const [editCategoryId, setEditCategoryId] = useState<number | null>(null);
   const [editCategoryName, setEditCategoryName] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("all");
+  const [categoryFilter, setCategoryFilter] = useState("all");
 
   const utils = trpc.useUtils();
   const { data: categories = [] } = trpc.assetCategories.list.useQuery();
@@ -136,6 +138,7 @@ export default function Assets() {
       warrantyNotes: form.warrantyNotes || undefined,
       photoUrl: form.photoUrl || undefined,
       notes: form.notes || undefined,
+      categoryId: form.categoryId ? Number(form.categoryId) : undefined,
     };
     if (editId) {
       updateMut.mutate({ id: editId, ...payload });
@@ -163,8 +166,8 @@ export default function Assets() {
       warrantyExpiry: asset.warrantyExpiry ? new Date(asset.warrantyExpiry).toISOString().split("T")[0] : "",
       warrantyNotes: asset.warrantyNotes ?? "",
       photoUrl: asset.photoUrl ?? "",
-      // ensure string
       notes: asset.notes ?? "",
+      categoryId: asset.categoryId ? String(asset.categoryId) : "",
     });
     setShowForm(true);
   };
@@ -294,6 +297,17 @@ export default function Assets() {
             </SelectContent>
           </Select>
         )}
+        <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+          <SelectTrigger className="w-[150px]">
+            <SelectValue placeholder="تصفية حسب الفئة" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">كل الفئات</SelectItem>
+            {categories.map((c) => (
+              <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
         <Button variant="outline" onClick={() => setShowRfidScanner(true)}>
           {t.assets.scanRfid || "مسح RFID"}
         </Button>
@@ -315,7 +329,7 @@ export default function Assets() {
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {assets.map((asset: any) => {
+          {assets.filter((asset: any) => categoryFilter === "all" || String(asset.categoryId) === categoryFilter).map((asset: any) => {
             const cfg = statusConfig[asset.status as AssetStatus] ?? statusConfig.active;
             const StatusIcon = cfg.icon;
             const wExpired = isWarrantyExpired(asset.warrantyExpiry);
@@ -334,6 +348,7 @@ export default function Assets() {
                   </div>
                 </CardHeader>
                 <CardContent className="space-y-2">
+                  {asset.categoryId && (() => { const cat = categories.find((c) => c.id === asset.categoryId); return cat ? <p className="text-xs text-blue-600 font-medium">{cat.name}</p> : null; })()}
                   {asset.category && (
                     <p className="text-sm text-muted-foreground">{asset.category}</p>
                   )}
@@ -383,6 +398,18 @@ export default function Assets() {
             <div>
               <Label>{t.assets.category}</Label>
               <Input value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value }))} />
+            </div>
+            <div>
+              <Label>الفئة</Label>
+              <Select value={form.categoryId || "none"} onValueChange={v => setForm(f => ({ ...f, categoryId: v === "none" ? "" : v }))}>
+                <SelectTrigger><SelectValue placeholder="اختر الفئة (اختياري)" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">بدون فئة</SelectItem>
+                  {categories.map((c) => (
+                    <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div>
               <Label>{t.assets.status}</Label>

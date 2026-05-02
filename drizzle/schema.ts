@@ -440,6 +440,7 @@ export const assets = mysqlTable("assets", {
   notes_ur: text("notes_ur"),
   originalLanguage: mysqlEnum("originalLanguage", ["ar", "en", "ur"]).default("ar").notNull(),
   createdById: int("createdById"),
+  categoryId: int("categoryId"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
