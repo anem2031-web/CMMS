@@ -347,11 +347,11 @@ export default function Assets() {
                       <Edit className="h-3 w-3 ml-1" />
                       {t.common.edit}
                     </Button>
-                    <Button size="sm" variant="outline" className="text-destructive hover:text-destructive" onClick={() => setDeleteId(asset.id)}>
-                      <Trash2 className="h-3 w-3" />
                     <Button size="sm" variant="outline" onClick={() => window.location.href = `/assets/history?id=${asset.id}`}>
                       <History className="h-3 w-3" />
                     </Button>
+                    <Button size="sm" variant="outline" className="text-destructive hover:text-destructive" onClick={() => setDeleteId(asset.id)}>
+                      <Trash2 className="h-3 w-3" />
                     </Button>
                   </div>
                 </CardContent>
