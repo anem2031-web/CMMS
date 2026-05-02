@@ -420,6 +420,32 @@ export default function AssetHistory() {
         </TabsContent>
       </Tabs>
 
+      {/* تحليل الفحوصات */}
+      {inspectionResultsList && inspectionResultsList.length > 0 && (() => {
+        const severityOrder = ["low", "medium", "high", "critical"];
+        const totalInspections = inspectionResultsList.length;
+        const rootCauseCounts: Record<string, number> = {};
+        for (const r of inspectionResultsList) {
+          if (r.rootCause) rootCauseCounts[r.rootCause] = (rootCauseCounts[r.rootCause] || 0) + 1;
+        }
+        const mostFrequentRootCause = Object.entries(rootCauseCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || "-";
+        const highestSeverity = inspectionResultsList.reduce((max, r) => {
+          return severityOrder.indexOf(r.severity) > severityOrder.indexOf(max) ? r.severity : max;
+        }, "low" as string);
+        return (
+          <div className="space-y-3 mt-6">
+            <h3 className="font-semibold text-base">تحليل الفحوصات</h3>
+            <Card>
+              <CardContent className="p-4 space-y-2 text-sm">
+                <div><span className="font-bold">عدد الفحوصات:</span> {totalInspections}</div>
+                <div><span className="font-bold">العطل الأكثر تكراراً:</span> {mostFrequentRootCause}</div>
+                <div><span className="font-bold">أعلى خطورة:</span> {highestSeverity}</div>
+              </CardContent>
+            </Card>
+          </div>
+        );
+      })()}
+
       {/* سجل الفحوصات */}
       <div className="space-y-3 mt-6">
         <h3 className="font-semibold text-base">سجل الفحوصات</h3>
