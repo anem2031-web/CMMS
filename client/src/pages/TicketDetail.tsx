@@ -42,6 +42,7 @@ export default function TicketDetail() {
   const { data: allPOs } = trpc.purchaseOrders.list.useQuery();
   const attachmentsInput = useMemo(() => ({ entityType: "ticket", entityId: ticketId }), [ticketId]);
   const { data: ticketAttachments } = trpc.attachments.list.useQuery(attachmentsInput, { enabled: !!ticketId });
+  const { data: inspectionResultsList } = trpc.inspectionResults.listByTicket.useQuery({ ticketId }, { enabled: !!ticketId });
 
   const approveMut = trpc.tickets.approve.useMutation({ onSuccess: () => { toast.success(t.common.confirm); refetch(); } });
   const assignMut = trpc.tickets.assign.useMutation({ onSuccess: () => { toast.success(t.tickets.assignedTo); refetch(); } });
@@ -520,12 +521,26 @@ export default function TicketDetail() {
                 </div>
               )}
 
-              {/* Inspection Results — Static Placeholder */}
+              {/* Inspection Results */}
               <div className="space-y-3 bg-gray-50 dark:bg-gray-900/30 rounded-xl p-4 border border-gray-200 dark:border-gray-700">
                 <div className="flex items-center gap-2 mb-1">
                   <span className="text-gray-600 dark:text-gray-400 font-semibold text-sm">🔍 نتائج الفحص (النظام الجديد)</span>
                 </div>
-                <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-2">لا توجد بيانات فحص متاحة حالياً</p>
+                {!inspectionResultsList || inspectionResultsList.length === 0 ? (
+                  <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-2">لا توجد بيانات فحص متاحة حالياً</p>
+                ) : (
+                  <div className="space-y-3">
+                    {inspectionResultsList.map((r) => (
+                      <div key={r.id} className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-3 text-sm space-y-1">
+                        <div><span className="font-semibold">الخطورة:</span> {r.severity}</div>
+                        <div><span className="font-semibold">السبب الجذري:</span> {r.rootCause}</div>
+                        <div><span className="font-semibold">النتائج:</span> {r.findings}</div>
+                        <div><span className="font-semibold">الإجراء الموصى به:</span> {r.recommendedAction}</div>
+                        <div className="text-gray-400 text-xs">{r.createdAt ? new Date(r.createdAt).toLocaleString(locale) : ""}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {/* Maintenance Manager: Approve Work + Select Path */}

@@ -1734,3 +1734,9 @@ export async function createInspectionResult(data: InsertInspectionResult) {
   const result = await db.insert(inspectionResults).values(data);
   return { id: result[0].insertId };
 }
+
+export async function getInspectionResultsByTicket(ticketId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(inspectionResults).where(eq(inspectionResults.ticketId, ticketId));
+}
