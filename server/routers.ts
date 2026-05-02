@@ -4147,6 +4147,9 @@ ${JSON.stringify(recentAudit.map((a: any) => ({ action: a.action, entity: a.enti
     })).query(async ({ input }) => {
       return db.getInspectionResultsByAsset(input.assetId);
     }),
+    dashboardStats: protectedProcedure.query(async () => {
+      return db.getDashboardStats();
+    }),
   }),
 });
 export type AppRouter = typeof appRouter;
