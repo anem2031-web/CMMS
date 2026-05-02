@@ -44,6 +44,7 @@ export default function AssetHistory() {
   const { data: history, isLoading: historyLoading } = trpc.assets.getMaintenanceHistory.useQuery({ id: assetId });
   const { data: stats, isLoading: statsLoading } = trpc.assets.getMaintenanceStats.useQuery({ id: assetId });
   const { data: inspectionHistory, isLoading: inspectionLoading } = trpc.preventive.getAssetInspectionHistory.useQuery({ assetId, limit: 10 });
+  const { data: inspectionResultsList } = trpc.inspectionResults.listByAsset.useQuery({ assetId }, { enabled: !!assetId });
 
   const locale = language === "ar" ? "ar-SA" : language === "ur" ? "ur-PK" : "en-US";
 
@@ -418,6 +419,27 @@ export default function AssetHistory() {
           </div>
         </TabsContent>
       </Tabs>
+
+      {/* سجل الفحوصات */}
+      <div className="space-y-3 mt-6">
+        <h3 className="font-semibold text-base">سجل الفحوصات</h3>
+        {!inspectionResultsList || inspectionResultsList.length === 0 ? (
+          <p className="text-sm text-muted-foreground text-center py-4">لا توجد فحوصات مسجلة لهذا الأصل</p>
+        ) : (
+          <div className="space-y-3">
+            {inspectionResultsList.map((r) => (
+              <Card key={r.id}>
+                <CardContent className="p-4 text-sm space-y-1">
+                  <div><span className="font-semibold">الخطورة:</span> {r.severity}</div>
+                  <div><span className="font-semibold">السبب الجذري:</span> {r.rootCause}</div>
+                  <div><span className="font-semibold">النتائج:</span> {r.findings}</div>
+                  <div className="text-xs text-muted-foreground">{r.createdAt ? new Date(r.createdAt).toLocaleString(locale) : ""}</div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

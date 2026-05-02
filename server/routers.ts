@@ -4132,6 +4132,11 @@ ${JSON.stringify(recentAudit.map((a: any) => ({ action: a.action, entity: a.enti
     })).query(async ({ input }) => {
       return db.getInspectionResultsByTicket(input.ticketId);
     }),
+    listByAsset: protectedProcedure.input(z.object({
+      assetId: z.number(),
+    })).query(async ({ input }) => {
+      return db.getInspectionResultsByAsset(input.assetId);
+    }),
   }),
 });
 export type AppRouter = typeof appRouter;

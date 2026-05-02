@@ -1740,3 +1740,9 @@ export async function getInspectionResultsByTicket(ticketId: number) {
   if (!db) return [];
   return db.select().from(inspectionResults).where(eq(inspectionResults.ticketId, ticketId));
 }
+
+export async function getInspectionResultsByAsset(assetId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(inspectionResults).where(eq(inspectionResults.assetId, assetId));
+}
