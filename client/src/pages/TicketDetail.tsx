@@ -62,6 +62,10 @@ export default function TicketDetail() {
 
   // Workflow state
   const [inspectionNotes, setInspectionNotes] = useState("");
+  const [inspSeverity, setInspSeverity] = useState<"low" | "medium" | "high" | "critical" | "">("");
+  const [inspRootCause, setInspRootCause] = useState("");
+  const [inspFindings, setInspFindings] = useState("");
+  const [inspRecommendedAction, setInspRecommendedAction] = useState("");
   const [selectedPath, setSelectedPath] = useState<"A" | "B" | "C">("A");
   const [pathJustification, setPathJustification] = useState("");
   const [showApproveWorkForm, setShowApproveWorkForm] = useState(false);
@@ -512,6 +516,38 @@ export default function TicketDetail() {
                     value={inspectionNotes}
                     onChange={e => setInspectionNotes(e.target.value)}
                     rows={3}
+                    className="text-sm"
+                  />
+                  <select
+                    value={inspSeverity}
+                    onChange={e => setInspSeverity(e.target.value as any)}
+                    className="w-full border rounded px-3 py-2 text-sm bg-white dark:bg-gray-800 dark:border-gray-600"
+                  >
+                    <option value="">مستوى الخطورة (اختياري)</option>
+                    <option value="low">منخفض</option>
+                    <option value="medium">متوسط</option>
+                    <option value="high">مرتفع</option>
+                    <option value="critical">حرج</option>
+                  </select>
+                  <Textarea
+                    placeholder="السبب الجذري (اختياري)..."
+                    value={inspRootCause}
+                    onChange={e => setInspRootCause(e.target.value)}
+                    rows={2}
+                    className="text-sm"
+                  />
+                  <Textarea
+                    placeholder="النتائج (اختياري)..."
+                    value={inspFindings}
+                    onChange={e => setInspFindings(e.target.value)}
+                    rows={2}
+                    className="text-sm"
+                  />
+                  <Textarea
+                    placeholder="الإجراء الموصى به (اختياري)..."
+                    value={inspRecommendedAction}
+                    onChange={e => setInspRecommendedAction(e.target.value)}
+                    rows={2}
                     className="text-sm"
                   />
                   <Button onClick={() => inspectMut.mutate({ id: ticket.id, inspectionNotes })} disabled={inspectMut.isPending || !inspectionNotes.trim()} className="w-full gap-2 bg-blue-600 hover:bg-blue-700 text-white" size="lg">

@@ -4122,12 +4122,18 @@ ${JSON.stringify(recentAudit.map((a: any) => ({ action: a.action, entity: a.enti
       assetId: z.number().optional(),
       inspectorId: z.number(),
       inspectionType: z.enum(["triage", "detailed"]),
-      severity: z.enum(["low", "medium", "high", "critical"]),
-      rootCause: z.string(),
-      findings: z.string(),
-      recommendedAction: z.string(),
+      severity: z.enum(["low", "medium", "high", "critical"]).optional(),
+      rootCause: z.string().optional(),
+      findings: z.string().optional(),
+      recommendedAction: z.string().optional(),
     })).mutation(async ({ input }) => {
-      const result = await db.createInspectionResult(input);
+      const result = await db.createInspectionResult({
+        ...input,
+        severity: input.severity ?? "medium",
+        rootCause: input.rootCause ?? "",
+        findings: input.findings ?? "",
+        recommendedAction: input.recommendedAction ?? "",
+      });
       return result;
     }),
     listByTicket: protectedProcedure.input(z.object({
