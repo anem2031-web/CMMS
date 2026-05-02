@@ -91,6 +91,77 @@ export default function Dashboard() {
       {totalInspections === 0 && (
         <p className="text-center text-muted-foreground text-sm pt-4">لا توجد بيانات فحص متاحة</p>
       )}
+
+      {/* التحليل البصري */}
+      {totalInspections > 0 && (
+        <div className="space-y-4">
+          <h3 className="text-base font-bold">📈 التحليل البصري</h3>
+
+          {/* Root Cause Bar */}
+          {mostFrequentRootCause !== "-" && (
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm text-muted-foreground">أكثر سبب تكراراً</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                <div className="space-y-1">
+                  <div className="flex justify-between text-sm">
+                    <span className="font-medium">{mostFrequentRootCause}</span>
+                    <span className="text-muted-foreground">{totalInspections} فحص</span>
+                  </div>
+                  <div className="w-full bg-gray-200 dark:bg-gray-700 rounded h-3">
+                    <div className="bg-blue-500 h-3 rounded" style={{ width: "100%" }} />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Severity Indicator */}
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm text-muted-foreground">مؤشر الخطورة</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {(["low", "medium", "high", "critical"] as const).map((level) => {
+                const severityBgClass: Record<string, string> = {
+                  low: "bg-green-500",
+                  medium: "bg-yellow-500",
+                  high: "bg-orange-500",
+                  critical: "bg-red-500",
+                };
+                const severityLabelAr: Record<string, string> = {
+                  low: "منخفض",
+                  medium: "متوسط",
+                  high: "مرتفع",
+                  critical: "حرج",
+                };
+                const severityOrder = ["low", "medium", "high", "critical"];
+                const currentIdx = severityOrder.indexOf(highestSeverity);
+                const levelIdx   = severityOrder.indexOf(level);
+                const widthPct   = levelIdx <= currentIdx ? Math.round(((levelIdx + 1) / (currentIdx + 1)) * 100) : 0;
+                const isActive   = levelIdx <= currentIdx;
+                return (
+                  <div key={level} className="space-y-1">
+                    <div className="flex justify-between text-sm">
+                      <span className={`font-medium ${isActive ? severityColorClass[level] : "text-muted-foreground"}`}>
+                        {severityLabelAr[level]}
+                      </span>
+                      {level === highestSeverity && <span className="text-xs font-bold">← الحالي</span>}
+                    </div>
+                    <div className="w-full bg-gray-200 dark:bg-gray-700 rounded h-2">
+                      <div
+                        className={`h-2 rounded transition-all ${isActive ? severityBgClass[level] : ""}`}
+                        style={{ width: isActive ? `${widthPct}%` : "0%" }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </CardContent>
+          </Card>
+        </div>
+      )}
     </div>
   );
 }
