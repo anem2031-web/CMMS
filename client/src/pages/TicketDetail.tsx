@@ -520,6 +520,14 @@ export default function TicketDetail() {
                 </div>
               )}
 
+              {/* Inspection Results — Static Placeholder */}
+              <div className="space-y-3 bg-gray-50 dark:bg-gray-900/30 rounded-xl p-4 border border-gray-200 dark:border-gray-700">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-gray-600 dark:text-gray-400 font-semibold text-sm">🔍 نتائج الفحص (النظام الجديد)</span>
+                </div>
+                <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-2">لا توجد بيانات فحص متاحة حالياً</p>
+              </div>
+
               {/* Maintenance Manager: Approve Work + Select Path */}
               {canApproveWork && (
                 <div className="space-y-3 bg-green-50 dark:bg-green-950/20 rounded-xl p-4 border border-green-200 dark:border-green-800">
