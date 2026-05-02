@@ -505,6 +505,54 @@ export default function TicketDetail() {
                 </div>
               )}
 
+              {/* Smart Timeline */}
+              {(() => {
+                const steps = [
+                  { label: "إنشاء",    statuses: ["new"] },
+                  { label: "فحص",     statuses: ["pending_triage", "under_inspection"] },
+                  { label: "اعتماد",  statuses: ["work_approved", "approved"] },
+                  { label: "شراء",    statuses: ["needs_purchase", "purchase_pending_estimate", "purchase_pending_accounting", "purchase_pending_management", "purchase_approved", "partial_purchase", "purchased", "received_warehouse"] },
+                  { label: "إصلاح",   statuses: ["assigned", "in_progress", "out_for_repair", "ready_for_closure", "repaired", "verified"] },
+                  { label: "إغلاق",   statuses: ["closed"] },
+                ];
+                const currentStepIndex = steps.findIndex(s => s.statuses.includes(ticket.status));
+                const scrollTargets: Record<number, string> = {
+                  1: "inspection-section",
+                };
+                return (
+                  <div className="flex items-center gap-1 overflow-x-auto py-2 px-1 mb-2">
+                    {steps.map((step, i) => {
+                      const isDone = i < currentStepIndex || (i === currentStepIndex);
+                      const isCurrent = i === currentStepIndex;
+                      const targetId = scrollTargets[i];
+                      return (
+                        <div key={i} className="flex items-center gap-1 flex-1 min-w-0">
+                          <button
+                            type="button"
+                            onClick={() => targetId && document.getElementById(targetId)?.scrollIntoView({ behavior: "smooth" })}
+                            className={`flex items-center gap-1 focus:outline-none ${
+                              isCurrent ? "text-blue-600 font-bold" :
+                              isDone ? "text-primary" : "text-muted-foreground/40"
+                            }`}
+                          >
+                            <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 ${
+                              isCurrent ? "bg-blue-600 text-white ring-2 ring-blue-300" :
+                              isDone ? "bg-primary/20 text-primary" : "bg-muted text-muted-foreground/40"
+                            }`}>
+                              {isDone && !isCurrent ? "✓" : i + 1}
+                            </div>
+                            <span className="text-[11px] font-medium whitespace-nowrap">{step.label}</span>
+                          </button>
+                          {i < steps.length - 1 && (
+                            <div className={`flex-1 h-px mx-1 ${isDone ? "bg-primary/40" : "bg-muted"}`} />
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
+
               {/* Supervisor: Complete Inspection */}
               {canInspect && (
                 <div className="space-y-3 bg-blue-50 dark:bg-blue-950/20 rounded-xl p-4 border border-blue-200 dark:border-blue-800">
@@ -558,7 +606,7 @@ export default function TicketDetail() {
               )}
 
               {/* Inspection Results */}
-              <div className="space-y-3 bg-gray-50 dark:bg-gray-900/30 rounded-xl p-4 border border-gray-200 dark:border-gray-700">
+              <div id="inspection-section" className="space-y-3 bg-gray-50 dark:bg-gray-900/30 rounded-xl p-4 border border-gray-200 dark:border-gray-700">
                 <div className="flex items-center gap-2 mb-1">
                   <span className="text-gray-600 dark:text-gray-400 font-semibold text-sm">🔍 نتائج الفحص (النظام الجديد)</span>
                 </div>
