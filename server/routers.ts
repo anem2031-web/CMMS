@@ -988,15 +988,10 @@ export const appRouter = router({
       if (ticket.status !== "under_inspection") throw new TRPCError({ code: "BAD_REQUEST", message: "البلاغ ليس في مرحلة الفحص" });
       // Update inspection notes
       const _ddb = await db.getDb();
-      if (_ddb) {
-        await _ddb.transaction(async (tx) => {
-          await tx.update((await import("../drizzle/schema")).tickets).set({ inspectionNotes: input.inspectionNotes }).where((await import("drizzle-orm")).eq((await import("../drizzle/schema")).tickets.id, input.id));
-          await tx.insert((await import("../drizzle/schema")).inspectionResults).values({ ticketId: input.id, assetId: ticket.assetId ?? undefined, inspectorId: ctx.user.id, inspectionType: "triage", severity: "medium", rootCause: input.inspectionNotes, findings: input.inspectionNotes, recommendedAction: input.inspectionNotes });
-        });
-      } else {
+      await _ddb!.transaction(async () => {
         await db.updateTicket(input.id, { inspectionNotes: input.inspectionNotes });
         await db.createInspectionResult({ ticketId: input.id, assetId: ticket.assetId ?? undefined, inspectorId: ctx.user.id, inspectionType: "triage", severity: "medium", rootCause: input.inspectionNotes, findings: input.inspectionNotes, recommendedAction: input.inspectionNotes });
-      }
+      });
       await db.addTicketStatusHistory({ ticketId: input.id, fromStatus: ticket.status, toStatus: "under_inspection", changedById: ctx.user.id, notes: `ملاحظات الفحص: ${input.inspectionNotes}` });
       // Notify maintenance manager to approve work
       const managers = await db.getManagerUsers();
