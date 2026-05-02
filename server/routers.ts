@@ -4109,5 +4109,24 @@ ${JSON.stringify(recentAudit.map((a: any) => ({ action: a.action, entity: a.enti
       return { subscribed: subs.length > 0, count: subs.length };
     }),
   }),
+
+  // ============================================================
+  // INSPECTION RESULTS
+  // ============================================================
+  inspectionResults: router({
+    create: protectedProcedure.input(z.object({
+      ticketId: z.number(),
+      assetId: z.number().optional(),
+      inspectorId: z.number(),
+      inspectionType: z.enum(["triage", "detailed"]),
+      severity: z.enum(["low", "medium", "high", "critical"]),
+      rootCause: z.string(),
+      findings: z.string(),
+      recommendedAction: z.string(),
+    })).mutation(async ({ input }) => {
+      const result = await db.createInspectionResult(input);
+      return result;
+    }),
+  }),
 });
 export type AppRouter = typeof appRouter;

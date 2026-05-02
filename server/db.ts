@@ -6,9 +6,9 @@ import {
   ticketStatusHistory, attachments, sites, backups,
   assets, preventivePlans, pmWorkOrders, assetSpareParts, pmJobs, assetMetrics,
   twoFactorSecrets, twoFactorAuditLogs,
-  pushSubscriptions, sections, technicians,
+  pushSubscriptions, sections, technicians, inspectionResults,
   type InsertAsset, type InsertPreventivePlan, type InsertPMWorkOrder,
-  type InsertSection
+  type InsertSection, type InsertInspectionResult
 } from "../drizzle/schema";
 import { ENV } from './_core/env';
 
@@ -1723,4 +1723,14 @@ export async function getAllPOItems() {
   const db = await getDb();
   if (!db) return [];
   return db.select().from(purchaseOrderItems).orderBy(desc(purchaseOrderItems.createdAt));
+}
+
+// ============================================================
+// INSPECTION RESULTS
+// ============================================================
+export async function createInspectionResult(data: InsertInspectionResult) {
+  const db = await getDb();
+  if (!db) return null;
+  const result = await db.insert(inspectionResults).values(data);
+  return { id: result[0].insertId };
 }
