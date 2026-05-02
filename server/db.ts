@@ -8,7 +8,8 @@ import {
   twoFactorSecrets, twoFactorAuditLogs,
   pushSubscriptions, sections, technicians, inspectionResults,
   type InsertAsset, type InsertPreventivePlan, type InsertPMWorkOrder,
-  type InsertSection, type InsertInspectionResult
+  type InsertSection, type InsertInspectionResult,
+  assetCategories
 } from "../drizzle/schema";
 import { ENV } from './_core/env';
 
@@ -1778,4 +1779,31 @@ export async function getInspectionDashboardStats() {
     ? { assetId: assetRows[0].assetId as number, count: Number(assetRows[0].cnt) }
     : null;
   return { totalInspections, mostFrequentRootCause, highestSeverity, mostInspectedAsset };
+}
+
+// ============================================================
+// ASSET CATEGORIES
+// ============================================================
+export async function listAssetCategories() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(assetCategories).orderBy(asc(assetCategories.name));
+}
+export async function createAssetCategory(name: string) {
+  const db = await getDb();
+  if (!db) return null;
+  const result = await db.insert(assetCategories).values({ name });
+  return { id: result[0].insertId, name };
+}
+export async function updateAssetCategory(id: number, name: string) {
+  const db = await getDb();
+  if (!db) return null;
+  await db.update(assetCategories).set({ name }).where(eq(assetCategories.id, id));
+  return { id, name };
+}
+export async function deleteAssetCategory(id: number) {
+  const db = await getDb();
+  if (!db) return null;
+  await db.delete(assetCategories).where(eq(assetCategories.id, id));
+  return { id };
 }

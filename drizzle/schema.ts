@@ -702,3 +702,26 @@ export const inspectionResults = mysqlTable("inspection_results", {
 });
 export type InspectionResult = typeof inspectionResults.$inferSelect;
 export type InsertInspectionResult = typeof inspectionResults.$inferInsert;
+
+// ============================================================
+// ASSET CATEGORIES TABLE
+// ============================================================
+export const assetCategories = mysqlTable("asset_categories", {
+  id:        int("id").primaryKey().autoincrement(),
+  name:      varchar("name", { length: 255 }).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+export type AssetCategory = typeof assetCategories.$inferSelect;
+export type InsertAssetCategory = typeof assetCategories.$inferInsert;
+
+
+// ============================================================
+// ASSET CATEGORIES TABLE
+// ============================================================
+export const assetCategories = mysqlTable("asset_categories", {
+  id:        int("id").primaryKey().autoincrement(),
+  name:      varchar("name", { length: 255 }).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+export type AssetCategory = typeof assetCategories.$inferSelect;
+export type InsertAssetCategory = typeof assetCategories.$inferInsert;

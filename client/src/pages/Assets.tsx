@@ -66,8 +66,16 @@ export default function Assets() {
   const [rfidInput, setRfidInput] = useState("");
   const [rfidResult, setRfidResult] = useState<any | null>(null);
   const [rfidError, setRfidError] = useState("");
+  const [newCategoryName, setNewCategoryName] = useState("");
+  const [editCategoryId, setEditCategoryId] = useState<number | null>(null);
+  const [editCategoryName, setEditCategoryName] = useState("");
+  const [selectedCategory, setSelectedCategory] = useState("all");
 
   const utils = trpc.useUtils();
+  const { data: categories = [] } = trpc.assetCategories.list.useQuery();
+  const createCategoryMut = trpc.assetCategories.create.useMutation({ onSuccess: () => { utils.assetCategories.list.invalidate(); setNewCategoryName(""); } });
+  const updateCategoryMut = trpc.assetCategories.update.useMutation({ onSuccess: () => { utils.assetCategories.list.invalidate(); setEditCategoryId(null); setEditCategoryName(""); } });
+  const deleteCategoryMut = trpc.assetCategories.delete.useMutation({ onSuccess: () => utils.assetCategories.list.invalidate() });
 
   const { data: assets = [], isLoading } = trpc.assets.list.useQuery({
     status: statusFilter !== "all" ? statusFilter : undefined,
@@ -569,6 +577,90 @@ export default function Assets() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Category Management Section */}
+      <div className="border rounded-lg p-4 space-y-3">
+        <h3 className="font-bold text-base">إدارة الفئات</h3>
+
+        {/* Dropdown */}
+        <div className="space-y-1">
+          <label className="text-sm font-medium">الفئة</label>
+          <select
+            className="w-full border rounded px-3 py-2 text-sm bg-background"
+            value={selectedCategory}
+            onChange={(e) => setSelectedCategory(e.target.value)}
+          >
+            <option value="all">-- جميع الفئات --</option>
+            {categories.map((c) => (
+              <option key={c.id} value={String(c.id)}>{c.name}</option>
+            ))}
+          </select>
+        </div>
+
+        {/* Add new category */}
+        <div className="flex gap-2">
+          <input
+            className="flex-1 border rounded px-3 py-2 text-sm bg-background"
+            placeholder="اسم الفئة الجديدة"
+            value={newCategoryName}
+            onChange={(e) => setNewCategoryName(e.target.value)}
+          />
+          <button
+            className="px-4 py-2 bg-primary text-primary-foreground rounded text-sm font-medium hover:opacity-90"
+            onClick={() => { if (newCategoryName.trim()) createCategoryMut.mutate({ name: newCategoryName.trim() }); }}
+          >
+            إضافة
+          </button>
+        </div>
+
+        {/* Categories list */}
+        <div className="space-y-2">
+          {categories.map((c) => (
+            <div key={c.id} className="flex items-center gap-2 border rounded px-3 py-2">
+              {editCategoryId === c.id ? (
+                <>
+                  <input
+                    className="flex-1 border rounded px-2 py-1 text-sm bg-background"
+                    value={editCategoryName}
+                    onChange={(e) => setEditCategoryName(e.target.value)}
+                  />
+                  <button
+                    className="px-3 py-1 bg-primary text-primary-foreground rounded text-xs"
+                    onClick={() => { if (editCategoryName.trim()) updateCategoryMut.mutate({ id: c.id, name: editCategoryName.trim() }); }}
+                  >
+                    حفظ
+                  </button>
+                  <button
+                    className="px-3 py-1 border rounded text-xs"
+                    onClick={() => { setEditCategoryId(null); setEditCategoryName(""); }}
+                  >
+                    إلغاء
+                  </button>
+                </>
+              ) : (
+                <>
+                  <span className="flex-1 text-sm">{c.name}</span>
+                  <button
+                    className="px-3 py-1 border rounded text-xs hover:bg-muted"
+                    onClick={() => { setEditCategoryId(c.id); setEditCategoryName(c.name); }}
+                  >
+                    تعديل
+                  </button>
+                  <button
+                    className="px-3 py-1 border border-red-300 text-red-600 rounded text-xs hover:bg-red-50"
+                    onClick={() => deleteCategoryMut.mutate({ id: c.id })}
+                  >
+                    حذف
+                  </button>
+                </>
+              )}
+            </div>
+          ))}
+          {categories.length === 0 && (
+            <p className="text-sm text-muted-foreground">لا توجد فئات بعد</p>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
