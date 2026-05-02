@@ -991,12 +991,12 @@ export const appRouter = router({
       await db.addTicketStatusHistory({ ticketId: input.id, fromStatus: ticket.status, toStatus: "under_inspection", changedById: ctx.user.id, notes: `ملاحظات الفحص: ${input.inspectionNotes}` });
       // Notify maintenance manager to approve work
       const managers = await db.getManagerUsers();
-      for (const mgr of managers) {
+       for (const mgr of managers) {
         await db.createNotification({ userId: mgr.id, title: "بلاغ جاهز للموافقة", message: `البلاغ ${ticket.ticketNumber} انتهى من الفحص وجاهز للموافقة على العمل`, type: "warning", relatedTicketId: input.id });
       }
+      await db.createInspectionResult({ ticketId: input.id, assetId: ticket.assetId ?? undefined, inspectorId: ctx.user.id, inspectionType: "triage", severity: "medium", rootCause: input.inspectionNotes, findings: input.inspectionNotes, recommendedAction: input.inspectionNotes });
       return { success: true };
     }),
-
     // 3. Work Approval by Maintenance Manager (Abdel Fattah) + Path Selection
     approveWork: managerProcedure.input(z.object({
       id: z.number(),
