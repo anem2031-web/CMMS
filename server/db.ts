@@ -1746,15 +1746,13 @@ export async function getInspectionResultsByAsset(assetId: number) {
   if (!db) return [];
   return db.select().from(inspectionResults).where(eq(inspectionResults.assetId, assetId));
 }
-export async function getDashboardStats() {
+export async function getInspectionDashboardStats() {
   const db = await getDb();
   if (!db) return { totalInspections: 0, mostFrequentRootCause: "-", highestSeverity: "low", mostInspectedAsset: null };
-
   // 1. Total inspections
   const [totalRow] = await db.select({ total: count() }).from(inspectionResults);
   const totalInspections = Number(totalRow?.total ?? 0);
-
-  // 2. Most frequent rootCause (GROUP BY rootCause ORDER BY count DESC LIMIT 1)
+  // 2. Most frequent rootCause
   const rootCauseRows = await db
     .select({ rootCause: inspectionResults.rootCause, cnt: count() })
     .from(inspectionResults)
@@ -1762,16 +1760,14 @@ export async function getDashboardStats() {
     .orderBy(desc(count()))
     .limit(1);
   const mostFrequentRootCause = rootCauseRows[0]?.rootCause ?? "-";
-
-  // 3. Highest severity using FIELD() for enum ordering
+  // 3. Highest severity
   const severityRows = await db
     .select({ severity: inspectionResults.severity })
     .from(inspectionResults)
     .orderBy(sql`FIELD(${inspectionResults.severity}, 'low', 'medium', 'high', 'critical') DESC`)
     .limit(1);
   const highestSeverity = severityRows[0]?.severity ?? "low";
-
-  // 4. Most inspected asset (GROUP BY assetId ORDER BY count DESC LIMIT 1)
+  // 4. Most inspected asset
   const assetRows = await db
     .select({ assetId: inspectionResults.assetId, cnt: count() })
     .from(inspectionResults)
@@ -1781,6 +1777,5 @@ export async function getDashboardStats() {
   const mostInspectedAsset = assetRows[0]
     ? { assetId: assetRows[0].assetId as number, count: Number(assetRows[0].cnt) }
     : null;
-
   return { totalInspections, mostFrequentRootCause, highestSeverity, mostInspectedAsset };
 }

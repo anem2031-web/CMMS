@@ -4148,7 +4148,7 @@ ${JSON.stringify(recentAudit.map((a: any) => ({ action: a.action, entity: a.enti
       return db.getInspectionResultsByAsset(input.assetId);
     }),
     dashboardStats: protectedProcedure.query(async () => {
-      return db.getDashboardStats();
+      return db.getInspectionDashboardStats();
     }),
   }),
 });
