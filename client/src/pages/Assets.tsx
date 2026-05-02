@@ -1,4 +1,5 @@
 import { useState, useMemo } from "react";
+import { useLocation } from "wouter";
 import { mediaUrl } from "@/lib/mediaUrl";
 import { trpc } from "@/lib/trpc";
 import { useLanguage } from "@/contexts/LanguageContext";
@@ -54,6 +55,7 @@ const defaultForm: AssetFormData = {
 export default function Assets() {
   const { t: tr } = useLanguage();
   const { t } = useLanguage();
+  const [, navigate] = useLocation();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [siteFilter, setSiteFilter] = useState("all");
@@ -334,7 +336,7 @@ export default function Assets() {
             const StatusIcon = cfg.icon;
             const wExpired = isWarrantyExpired(asset.warrantyExpiry);
             return (
-              <Card key={asset.id} className="hover:shadow-md transition-shadow">
+              <Card key={asset.id} className="hover:shadow-md transition-shadow cursor-pointer" onClick={() => navigate(`/asset/${asset.id}`)}>
                 <CardHeader className="pb-2">
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex-1 min-w-0">
