@@ -16,6 +16,7 @@ const ar = {
     reports: "التقارير",
     technicianReport: "أداء الفنيين",
     costReport: "تقرير التكاليف",
+    inspectionDashboard: "Dashboard الفحوصات",
     purchaseCycleReport: "تقرير دورة الشراء",
     maintenanceCycleReport: "تقرير دورة الصيانة",
     sectionReport: "تقرير الأقسام",

@@ -145,6 +145,8 @@ const NAV_SECTIONS: NavSection[] = [
         roles: ["owner","admin","senior_management","maintenance_manager"] },
       { icon: DollarSign,    labelKey: "nav.costReport",              path: "/reports/cost",
         roles: ["owner","admin"] },
+      { icon: BarChart3,     labelKey: "nav.inspectionDashboard",     path: "/inspection-dashboard",
+        roles: ["owner","admin","senior_management","maintenance_manager"] },
     ],
   },
   // 6. وحدة التحليل AI
