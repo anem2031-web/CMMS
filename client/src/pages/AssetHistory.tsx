@@ -1,4 +1,5 @@
 import { trpc } from "@/lib/trpc";
+import { useState } from "react";
 import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -18,6 +19,7 @@ export default function AssetHistory() {
   const { t: tr } = useLanguage();
   const { getStatusLabel, getPriorityLabel } = useStaticLabels();
   const { getField } = useTranslatedField();
+  const [alertsEnabled, setAlertsEnabled] = useState(true);
 
   // Get assetId from URL params
   const params = new URLSearchParams(window.location.search);
@@ -419,6 +421,55 @@ export default function AssetHistory() {
           </div>
         </TabsContent>
       </Tabs>
+
+      {/* تنبيهات ذكية */}
+      {inspectionResultsList && inspectionResultsList.length > 0 && (() => {
+        const severityOrder2 = ["low", "medium", "high", "critical"];
+        const total2 = inspectionResultsList.length;
+        const rc2: Record<string, number> = {};
+        for (const r of inspectionResultsList) {
+          if (r.rootCause) rc2[r.rootCause] = (rc2[r.rootCause] || 0) + 1;
+        }
+        const hs2 = inspectionResultsList.reduce((max, r) => {
+          return severityOrder2.indexOf(r.severity) > severityOrder2.indexOf(max) ? r.severity : max;
+        }, "low" as string);
+        const alerts: string[] = [];
+        for (const [cause, cnt] of Object.entries(rc2)) {
+          if (cnt >= 3) alerts.push(`⚠️ عطل متكرر: ${cause}`);
+        }
+        if (hs2 === "high" || hs2 === "critical") alerts.push("⚠️ مستوى الخطورة مرتفع");
+        if (total2 >= 5) alerts.push("💡 يوصى بالصيانة الوقائية");
+        return (
+          <div className="space-y-3 mt-6">
+            <div className="flex items-center justify-between">
+              <h3 className="font-semibold text-base">🧠 تنبيهات ذكية</h3>
+              <button
+                onClick={() => setAlertsEnabled(v => !v)}
+                className={`px-3 py-1 rounded text-sm font-semibold border transition-colors ${
+                  alertsEnabled
+                    ? "bg-blue-600 text-white border-blue-600"
+                    : "bg-white dark:bg-gray-800 text-gray-600 border-gray-300"
+                }`}
+              >
+                {alertsEnabled ? "✔ تشغيل التنبؤات" : "○ تشغيل التنبؤات"}
+              </button>
+            </div>
+            {alertsEnabled && (
+              alerts.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-2">لا توجد تنبيهات</p>
+              ) : (
+                <div className="space-y-2">
+                  {alerts.map((alert, i) => (
+                    <div key={i} className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-300 dark:border-yellow-700 rounded-lg px-4 py-3 text-sm font-bold text-yellow-800 dark:text-yellow-200">
+                      {alert}
+                    </div>
+                  ))}
+                </div>
+              )
+            )}
+          </div>
+        );
+      })()}
 
       {/* تحليل الفحوصات */}
       {inspectionResultsList && inspectionResultsList.length > 0 && (() => {
