@@ -432,6 +432,14 @@ export default function AssetHistory() {
         const highestSeverity = inspectionResultsList.reduce((max, r) => {
           return severityOrder.indexOf(r.severity) > severityOrder.indexOf(max) ? r.severity : max;
         }, "low" as string);
+        const severityColorClass: Record<string, string> = {
+          low: "text-green-600",
+          medium: "text-yellow-600",
+          high: "text-orange-600",
+          critical: "text-red-600",
+        };
+        const rootCauseEntries = Object.entries(rootCauseCounts).sort((a, b) => b[1] - a[1]);
+        const maxCount = rootCauseEntries[0]?.[1] || 1;
         return (
           <div className="space-y-3 mt-6">
             <h3 className="font-semibold text-base">تحليل الفحوصات</h3>
@@ -439,7 +447,26 @@ export default function AssetHistory() {
               <CardContent className="p-4 space-y-2 text-sm">
                 <div><span className="font-bold">عدد الفحوصات:</span> {totalInspections}</div>
                 <div><span className="font-bold">العطل الأكثر تكراراً:</span> {mostFrequentRootCause}</div>
-                <div><span className="font-bold">أعلى خطورة:</span> {highestSeverity}</div>
+                <div><span className="font-bold">أعلى خطورة:</span> <span className={`font-bold ${severityColorClass[highestSeverity] || ""}`}>{highestSeverity}</span></div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-4 space-y-3 text-sm">
+                <div className="font-bold mb-2">توزيع الأسباب الجذرية</div>
+                {rootCauseEntries.map(([cause, cnt]) => (
+                  <div key={cause} className="space-y-1">
+                    <div className="flex justify-between">
+                      <span>{cause}</span>
+                      <span className="font-bold">{cnt}</span>
+                    </div>
+                    <div className="w-full bg-gray-200 dark:bg-gray-700 rounded h-2">
+                      <div
+                        className="bg-blue-500 h-2 rounded"
+                        style={{ width: `${Math.round((cnt / maxCount) * 100)}%` }}
+                      />
+                    </div>
+                  </div>
+                ))}
               </CardContent>
             </Card>
           </div>
