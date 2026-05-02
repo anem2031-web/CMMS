@@ -684,3 +684,21 @@ export const pmExecutionSessions = mysqlTable("pm_execution_sessions", {
 
 export type PMExecutionSession = typeof pmExecutionSessions.$inferSelect;
 export type InsertPMExecutionSession = typeof pmExecutionSessions.$inferInsert;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Inspection Results — structured corrective maintenance inspection records
+// ─────────────────────────────────────────────────────────────────────────────
+export const inspectionResults = mysqlTable("inspection_results", {
+  id:                int("id").autoincrement().primaryKey(),
+  ticketId:          int("ticketId").notNull(),           // FK → tickets.id
+  assetId:           int("assetId"),                      // FK → assets.id (nullable)
+  inspectorId:       int("inspectorId").notNull(),        // FK → users.id
+  inspectionType:    mysqlEnum("inspectionType", ["triage", "detailed"]).notNull(),
+  severity:          mysqlEnum("severity", ["low", "medium", "high", "critical"]).notNull(),
+  rootCause:         varchar("rootCause", { length: 500 }),
+  findings:          text("findings"),
+  recommendedAction: text("recommendedAction"),
+  createdAt:         timestamp("createdAt").defaultNow().notNull(),
+});
+export type InspectionResult = typeof inspectionResults.$inferSelect;
+export type InsertInspectionResult = typeof inspectionResults.$inferInsert;
