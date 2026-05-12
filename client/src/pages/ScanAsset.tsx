@@ -68,7 +68,8 @@ export default function ScanAsset() {
   const nfcReaderRef = useRef<any>(null);
   const scanMutation = trpc.nfc.scanTag.useMutation();
   const linkMutation = trpc.assets.linkRfidTag.useMutation();
-  const assetsQuery = trpc.assets.list.useQuery({});
+  const assetsQueryRaw = trpc.assets.list.useQuery({});
+  const assetsQuery = { ...assetsQueryRaw, data: assetsQueryRaw.data?.data ?? [] };
 
   // Check NFC support on mount
   useEffect(() => {

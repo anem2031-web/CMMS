@@ -325,9 +325,10 @@ export default function Home() {
   }
 
   // Fetch tickets for slideover
-  const { data: slideoverTickets } = trpc.tickets.list.useQuery(slideover.filter, {
+  const { data: slideoverTicketsResult } = trpc.tickets.list.useQuery(slideover.filter, {
     enabled: slideover.open,
   });
+  const slideoverTickets = slideoverTicketsResult?.data;
 
   const openSlideover = useCallback((title: string, filter: any) => {
     setSlideover({ open: true, title, filter });

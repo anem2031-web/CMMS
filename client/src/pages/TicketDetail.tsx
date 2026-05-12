@@ -34,18 +34,19 @@ export default function TicketDetail() {
   const ticketId = parseInt(params?.id || "0");
 
   const { data: ticket, isLoading, refetch } = trpc.tickets.getById.useQuery({ id: ticketId }, { enabled: !!ticketId });
-  const { data: history } = trpc.tickets.history.useQuery({ ticketId }, { enabled: !!ticketId });
-  const { data: users } = trpc.users.list.useQuery();
+  const { data: history } = trpc.tickets.history.useQuery({ ticketId }, { enabled: !!ticketId, staleTime: 60_000 });
+  const { data: users } = trpc.users.list.useQuery(undefined, { staleTime: 120_000 });
   // Phase 2: listTechnicians gives users with specialty; legacy technicians.list kept for external-only assignments
-  const { data: userTechniciansList } = trpc.users.listTechnicians.useQuery();
-  // Phase 5: externalTechs query kept for backend compatibility (historical data, fallback). Hidden from UI dropdowns.
-  const { data: externalTechs } = trpc.technicians.list.useQuery({ activeOnly: true });
-  const { data: allSections } = trpc.sections.list.useQuery(undefined);
-  const { data: allSites } = trpc.sites.list.useQuery();
-  const { data: allPOs } = trpc.purchaseOrders.list.useQuery();
+  const { data: userTechniciansList } = trpc.users.listTechnicians.useQuery(undefined, { staleTime: 120_000 });
+  // Phase 5: externalTechs hidden from UI; disabled to reduce over-fetching (Stage 0.5 Phase 2)
+  // const { data: externalTechs } = trpc.technicians.list.useQuery({ activeOnly: true });
+  const { data: allSections } = trpc.sections.list.useQuery(undefined, { staleTime: 120_000 });
+  const { data: allSites } = trpc.sites.list.useQuery(undefined, { staleTime: 120_000 });
+  const { data: allPOsResult } = trpc.purchaseOrders.list.useQuery(undefined, { staleTime: 60_000 });
+  const allPOs = allPOsResult?.data ?? [];
   const attachmentsInput = useMemo(() => ({ entityType: "ticket", entityId: ticketId }), [ticketId]);
-  const { data: ticketAttachments } = trpc.attachments.list.useQuery(attachmentsInput, { enabled: !!ticketId });
-  const { data: inspectionResultsList } = trpc.inspectionResults.listByTicket.useQuery({ ticketId }, { enabled: !!ticketId });
+  const { data: ticketAttachments } = trpc.attachments.list.useQuery(attachmentsInput, { enabled: !!ticketId, staleTime: 60_000 });
+  const { data: inspectionResultsList } = trpc.inspectionResults.listByTicket.useQuery({ ticketId }, { enabled: !!ticketId, staleTime: 60_000 });
 
   const approveMut = trpc.tickets.approve.useMutation({ onSuccess: () => { toast.success(t.common.confirm); refetch(); } });
   const assignMut = trpc.tickets.assign.useMutation({ onSuccess: () => { toast.success(t.tickets.assignedTo); refetch(); } });

@@ -37,7 +37,8 @@ export default function GateSecurity() {
   const { t } = useLanguage();
   const utils = trpc.useUtils();
 
-  const { data: allTickets = [], isLoading } = trpc.tickets.list.useQuery({});
+  const { data: allTicketsResult, isLoading } = trpc.tickets.list.useQuery({});
+  const allTickets = allTicketsResult?.data ?? [];
 
   // Path C tickets awaiting gate exit approval (work_approved + path C)
   const pendingExitTickets = allTickets.filter((t: any) =>

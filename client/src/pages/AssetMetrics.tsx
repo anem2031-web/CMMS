@@ -37,7 +37,8 @@ export default function AssetMetrics() {
     { assetId: selectedAsset || 0 },
     { enabled: !!selectedAsset }
   );
-  const { data: assets = [] } = trpc.assets.list.useQuery();
+  const { data: assetsResult } = trpc.assets.list.useQuery();
+  const assets = assetsResult?.data ?? [];
 
   // Prepare chart data
   const chartData = allMetrics.map((m: MetricsData) => ({

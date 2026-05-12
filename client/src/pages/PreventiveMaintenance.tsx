@@ -105,7 +105,8 @@ export default function PreventiveMaintenance() {
 
   const { data: plans = [], isLoading: plansLoading } = trpc.preventive.listPlans.useQuery({});
   const { data: workOrders = [], isLoading: woLoading } = trpc.preventive.listWorkOrders.useQuery({});
-  const { data: assets = [] } = trpc.assets.list.useQuery({});
+  const { data: assetsResult } = trpc.assets.list.useQuery({});
+  const assets = assetsResult?.data ?? [];
   const { data: sites = [] } = trpc.sites.list.useQuery();
   // Phase 4: use listTechnicians as primary source for PM assignee dropdown and display.
   // users.list is still available if other parts of the page need it, but PM assignment

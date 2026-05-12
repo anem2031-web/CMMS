@@ -1,4 +1,5 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
+import { PaginationBar } from "@/components/PaginationBar";
 import { useLocation } from "wouter";
 import { mediaUrl } from "@/lib/mediaUrl";
 import { trpc } from "@/lib/trpc";
@@ -75,6 +76,8 @@ export default function Assets() {
   const [selectedCategory, setSelectedCategory] = useState("all");
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [warrantyFilter, setWarrantyFilter] = useState(false);
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 24;
 
   const utils = trpc.useUtils();
   const { data: categories = [] } = trpc.assetCategories.list.useQuery();
@@ -82,12 +85,19 @@ export default function Assets() {
   const updateCategoryMut = trpc.assetCategories.update.useMutation({ onSuccess: () => { utils.assetCategories.list.invalidate(); setEditCategoryId(null); setEditCategoryName(""); toast.success("تم تعديل الفئة"); }, onError: () => toast.error("حدث خطأ، حاول مرة أخرى") });
   const deleteCategoryMut = trpc.assetCategories.delete.useMutation({ onSuccess: () => { utils.assetCategories.list.invalidate(); toast.success("تم حذف الفئة"); }, onError: () => toast.error("حدث خطأ، حاول مرة أخرى") });
 
-  const { data: assets = [], isLoading } = trpc.assets.list.useQuery({
+  // Stage 0.5 Phase 2: reset to page 1 whenever any filter changes
+  useEffect(() => { setPage(1); }, [statusFilter, siteFilter, sectionFilter, search]);
+
+  const { data: assetsResult, isLoading } = trpc.assets.list.useQuery({
     status: statusFilter !== "all" ? statusFilter : undefined,
     siteId: siteFilter !== "all" ? Number(siteFilter) : undefined,
     sectionId: sectionFilter !== "all" ? Number(sectionFilter) : undefined,
     search: search || undefined,
+    page,
+    pageSize: PAGE_SIZE,
   });
+  const assets = assetsResult?.data ?? [];
+  const assetsTotal = assetsResult?.total ?? 0;
 
   const { data: sites = [] } = trpc.sites.list.useQuery();
   const { data: sections } = trpc.sections.list.useQuery(undefined);
@@ -184,7 +194,7 @@ export default function Assets() {
 
   // Stats
   const stats = useMemo(() => ({
-    total: assets.length,
+    total: assetsTotal,
     active: assets.filter((a: any) => a.status === "active").length,
     underMaintenance: assets.filter((a: any) => a.status === "under_maintenance").length,
     warrantyExpiringSoon: assets.filter((a: any) => {
@@ -331,7 +341,7 @@ export default function Assets() {
             </Card>
           ))}
         </div>
-      ) : assets.length === 0 ? (
+      ) : assets.length === 0 && assetsTotal === 0 ? (
         <div className="text-center py-16 text-muted-foreground">
           <Package className="h-12 w-12 mx-auto mb-3 opacity-30" />
           <p>{t.assets.noAssets}</p>
@@ -401,6 +411,14 @@ export default function Assets() {
           })}
         </div>
       )}
+
+      {/* Stage 0.5 Phase 2: Pagination */}
+      <PaginationBar
+        page={page}
+        pageSize={PAGE_SIZE}
+        total={assetsTotal}
+        onPageChange={setPage}
+      />
 
       {/* Create/Edit Dialog */}
       <Dialog open={showForm} onOpenChange={(o) => { if (!o) { setShowForm(false); setEditId(null); setForm(defaultForm); } }}>

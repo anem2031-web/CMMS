@@ -9,13 +9,15 @@ export default function AssetDetail() {
   const [, navigate] = useLocation();
   const assetId = params?.id ? Number(params.id) : null;
 
-  const { data: assets = [], isLoading: assetsLoading } = trpc.assets.list.useQuery({});
+  const { data: assetsResult, isLoading: assetsLoading } = trpc.assets.list.useQuery({});
+  const assets = assetsResult?.data ?? [];
   const { data: categories = [] } = trpc.assetCategories.list.useQuery();
   const { data: inspectionResults = [], isLoading: inspLoading } = trpc.inspectionResults.listByAsset.useQuery(
     { assetId: assetId! },
     { enabled: !!assetId }
   );
-  const { data: tickets = [] } = trpc.tickets.list.useQuery({});
+  const { data: ticketsResult } = trpc.tickets.list.useQuery({});
+  const tickets = ticketsResult?.data ?? [];
 
   const asset = assets.find((a: any) => a.id === assetId);
   const categoryName = asset?.categoryId

@@ -274,7 +274,12 @@ export async function createTicket(data: any) {
   return result[0].insertId;
 }
 
-export async function getTickets(filters?: { status?: string; priority?: string; siteId?: number; sectionId?: number; assetId?: number; assignedToId?: number; assignedTechnicianId?: number; reportedById?: number; search?: string; category?: string }) {
+// Overload 1: with pagination → returns paginated result
+export async function getTickets(filters: { status?: string; priority?: string; siteId?: number; sectionId?: number; assetId?: number; assignedToId?: number; assignedTechnicianId?: number; reportedById?: number; search?: string; category?: string; pagination: { limit?: number; offset?: number } }): Promise<{ data: (typeof tickets.$inferSelect & { assignedTechnicianName: string | null; assignedToUserName: string | null })[]; total: number; limit: number; offset: number }>;
+// Overload 2: without pagination → returns plain array
+export async function getTickets(filters?: { status?: string; priority?: string; siteId?: number; sectionId?: number; assetId?: number; assignedToId?: number; assignedTechnicianId?: number; reportedById?: number; search?: string; category?: string; pagination?: never }): Promise<(typeof tickets.$inferSelect & { assignedTechnicianName: string | null; assignedToUserName: string | null })[]>;
+// Implementation
+export async function getTickets(filters?: { status?: string; priority?: string; siteId?: number; sectionId?: number; assetId?: number; assignedToId?: number; assignedTechnicianId?: number; reportedById?: number; search?: string; category?: string; pagination?: { limit?: number; offset?: number } }) {
   const db = await getDb();
   if (!db) return [];
   const conditions: any[] = [];
@@ -298,6 +303,37 @@ export async function getTickets(filters?: { status?: string; priority?: string;
   // Phase 4: join both external technicians table AND internal users table
   // to resolve display names for both assignment paths.
   const assignedUser = alias(users, "assignedUser");
+  // Stage 0.5 Phase 2: optional pagination — report callers omit pagination param
+  if (filters?.pagination) {
+    const pageLimit = Math.min(filters.pagination.limit ?? 50, 200);
+    const pageOffset = filters.pagination.offset ?? 0;
+    const [countResult, rows] = await Promise.all([
+      db.select({ cnt: count() }).from(tickets).where(where),
+      db
+        .select({
+          ticket: tickets,
+          technicianName: technicians.name,
+          assignedUserName: assignedUser.name,
+        })
+        .from(tickets)
+        .leftJoin(technicians, eq(tickets.assignedTechnicianId, technicians.id))
+        .leftJoin(assignedUser, eq(tickets.assignedToId, assignedUser.id))
+        .where(where)
+        .orderBy(desc(tickets.createdAt))
+        .limit(pageLimit)
+        .offset(pageOffset),
+    ]);
+    return {
+      data: rows.map(r => ({
+        ...r.ticket,
+        assignedTechnicianName: r.technicianName ?? null,
+        assignedToUserName: r.assignedUserName ?? null,
+      })),
+      total: countResult[0]?.cnt ?? 0,
+      limit: pageLimit,
+      offset: pageOffset,
+    };
+  }
   const rows = await db
     .select({
       ticket: tickets,
@@ -369,13 +405,28 @@ export async function createPurchaseOrder(data: any) {
   return result[0].insertId;
 }
 
-export async function getPurchaseOrders(filters?: { status?: string; requestedById?: number }) {
+// Overload 1: with pagination → returns paginated result
+export async function getPurchaseOrders(filters: { status?: string; requestedById?: number; pagination: { limit?: number; offset?: number } }): Promise<{ data: (typeof purchaseOrders.$inferSelect)[]; total: number; limit: number; offset: number }>;
+// Overload 2: without pagination → returns plain array
+export async function getPurchaseOrders(filters?: { status?: string; requestedById?: number; pagination?: never }): Promise<(typeof purchaseOrders.$inferSelect)[]>;
+// Implementation
+export async function getPurchaseOrders(filters?: { status?: string; requestedById?: number; pagination?: { limit?: number; offset?: number } }) {
   const db = await getDb();
   if (!db) return [];
   const conditions: any[] = [];
   if (filters?.status) conditions.push(eq(purchaseOrders.status, filters.status as any));
   if (filters?.requestedById) conditions.push(eq(purchaseOrders.requestedById, filters.requestedById));
   const where = conditions.length > 0 ? and(...conditions) : undefined;
+  // Stage 0.5 Phase 2: optional pagination — report callers omit pagination param
+  if (filters?.pagination) {
+    const pageLimit = Math.min(filters.pagination.limit ?? 50, 200);
+    const pageOffset = filters.pagination.offset ?? 0;
+    const [countResult, rows] = await Promise.all([
+      db.select({ cnt: count() }).from(purchaseOrders).where(where),
+      db.select().from(purchaseOrders).where(where).orderBy(desc(purchaseOrders.createdAt)).limit(pageLimit).offset(pageOffset),
+    ]);
+    return { data: rows, total: countResult[0]?.cnt ?? 0, limit: pageLimit, offset: pageOffset };
+  }
   return db.select().from(purchaseOrders).where(where).orderBy(desc(purchaseOrders.createdAt));
 }
 
@@ -1047,11 +1098,15 @@ export async function restoreFromBackup(backupData: Record<string, any[]>) {
 // ============================================================
 // ASSETS - إدارة الأصول
 // ============================================================
-export async function listAssets(filters?: { siteId?: number; sectionId?: number; status?: string; search?: string }) {
+// Overload 1: with pagination → returns paginated result
+export async function listAssets(filters: { siteId?: number; sectionId?: number; status?: string; search?: string; pagination: { limit?: number; offset?: number } }): Promise<{ data: (typeof assets.$inferSelect)[]; total: number; limit: number; offset: number }>;
+// Overload 2: without pagination → returns plain array
+export async function listAssets(filters?: { siteId?: number; sectionId?: number; status?: string; search?: string; pagination?: never }): Promise<(typeof assets.$inferSelect)[]>;
+// Implementation
+export async function listAssets(filters?: { siteId?: number; sectionId?: number; status?: string; search?: string; pagination?: { limit?: number; offset?: number } }) {
   const db = await getDb();
   if (!db) return [];
-  let query = db.select().from(assets);
-  const conditions = [];
+  const conditions: any[] = [];
   if (filters?.siteId) conditions.push(eq(assets.siteId, filters.siteId));
   if (filters?.sectionId) conditions.push(eq(assets.sectionId, filters.sectionId));
   if (filters?.status) conditions.push(eq(assets.status, filters.status as any));
@@ -1060,8 +1115,18 @@ export async function listAssets(filters?: { siteId?: number; sectionId?: number
     like(assets.assetNumber, `%${filters.search}%`),
     like(assets.serialNumber, `%${filters.search}%`)
   ));
-  if (conditions.length > 0) return await (query as any).where(and(...conditions)).orderBy(desc(assets.createdAt));
-  return await query.orderBy(desc(assets.createdAt));
+  const where = conditions.length > 0 ? and(...conditions) : undefined;
+  // Stage 0.5 Phase 2: optional pagination
+  if (filters?.pagination) {
+    const pageLimit = Math.min(filters.pagination.limit ?? 50, 200);
+    const pageOffset = filters.pagination.offset ?? 0;
+    const [countResult, rows] = await Promise.all([
+      db.select({ cnt: count() }).from(assets).where(where),
+      db.select().from(assets).where(where).orderBy(desc(assets.createdAt)).limit(pageLimit).offset(pageOffset),
+    ]);
+    return { data: rows, total: countResult[0]?.cnt ?? 0, limit: pageLimit, offset: pageOffset };
+  }
+  return db.select().from(assets).where(where).orderBy(desc(assets.createdAt));
 }
 
 export async function getAssetById(id: number) {

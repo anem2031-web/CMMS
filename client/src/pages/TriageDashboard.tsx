@@ -72,11 +72,13 @@ export default function TriageDashboard() {
   const utils = trpc.useUtils();
 
   // ── Data queries ──────────────────────────────────────────────────────────
-  const { data: pendingTickets = [], isLoading: loadingPending } =
+  const { data: pendingTicketsResult, isLoading: loadingPending } =
     trpc.tickets.list.useQuery({ status: "pending_triage" });
+  const pendingTickets = pendingTicketsResult?.data ?? [];
 
-  const { data: inspectionTickets = [], isLoading: loadingInspection } =
+  const { data: inspectionTicketsResult, isLoading: loadingInspection } =
     trpc.tickets.list.useQuery({ status: "under_inspection" });
+  const inspectionTickets = inspectionTicketsResult?.data ?? [];
 
   const { data: users = [] } = trpc.users.list.useQuery();
   // Phase 2: use users.listTechnicians as primary source; legacy technicians.list kept for compatibility

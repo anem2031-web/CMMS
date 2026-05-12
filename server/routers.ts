@@ -433,12 +433,21 @@ export const appRouter = router({
       category: z.string().optional(),
       assignedTechnicianId: z.number().optional(),
       assignedToId: z.number().optional(), // Phase 2: filter by user-based assignment
+      // Stage 0.5 Phase 2: pagination — only active when page is explicitly provided
+      page: z.number().int().min(1).optional(),
+      pageSize: z.number().int().min(1).max(200).optional(),
     }).optional()).query(async ({ input, ctx }) => {
       const role = ctx.user.role;
-      let filters: any = input || {};
+      const { page, pageSize, ...rest } = input || {};
+      let filters: any = { ...rest };
       if (role === "operator") filters.reportedById = ctx.user.id;
       else if (role === "technician") filters.assignedToId = ctx.user.id;
-      return db.getTickets(filters);
+      // Always return paginated shape; page defaults to 1, pageSize defaults to 10000 (all records)
+      const resolvedPage = page ?? 1;
+      const resolvedPageSize = pageSize ?? 10000;
+      filters.pagination = { limit: resolvedPageSize, offset: (resolvedPage - 1) * resolvedPageSize };
+      const result = await db.getTickets(filters);
+      return { data: result.data, total: result.total, page: resolvedPage, pageSize: resolvedPageSize };
     }),
 
     getById: protectedProcedure.input(z.object({ id: z.number() })).query(async ({ input }) => {
@@ -1257,18 +1266,37 @@ export const appRouter = router({
   // PURCHASE ORDERS
   // ============================================================
   purchaseOrders: router({
-    list: protectedProcedure.input(z.object({ status: z.string().optional() }).optional()).query(async ({ input, ctx }) => {
+    list: protectedProcedure.input(z.object({
+      status: z.string().optional(),
+      // Stage 0.5 Phase 2: pagination — only active when page is explicitly provided
+      page: z.number().int().min(1).optional(),
+      pageSize: z.number().int().min(1).max(200).optional(),
+    }).optional()).query(async ({ input, ctx }) => {
       const role = ctx.user.role;
-      let filters: any = input || {};
+      const { page, pageSize, status } = input || {};
+      const filters: any = status ? { status } : {};
       if (role === "delegate") {
         // Delegates see POs that have items assigned to them
         const items = await db.getPOItemsByDelegate(ctx.user.id);
         const poIds = Array.from(new Set(items.map(i => i.purchaseOrderId)));
-        if (poIds.length === 0) return [];
-        const allPOs = await db.getPurchaseOrders(filters);
-        return allPOs.filter(po => poIds.includes(po.id));
+        if (poIds.length === 0) {
+          const resolvedPage = page ?? 1;
+          return { data: [], total: 0, page: resolvedPage, pageSize: pageSize ?? 10000 };
+        }
+        // Fetch all delegate-visible POs then paginate in memory
+        const allPOs = await db.getPurchaseOrders({ status: filters.status });
+        const delegatePOs = allPOs.filter(po => poIds.includes(po.id));
+        const resolvedPage = page ?? 1;
+        const resolvedPageSize = pageSize ?? 10000;
+        const offset = (resolvedPage - 1) * resolvedPageSize;
+        return { data: delegatePOs.slice(offset, offset + resolvedPageSize), total: delegatePOs.length, page: resolvedPage, pageSize: resolvedPageSize };
       }
-      return db.getPurchaseOrders(filters);
+      // Always return paginated shape; page defaults to 1, pageSize defaults to 10000 (all records)
+      const resolvedPage = page ?? 1;
+      const resolvedPageSize = pageSize ?? 10000;
+      filters.pagination = { limit: resolvedPageSize, offset: (resolvedPage - 1) * resolvedPageSize };
+      const result = await db.getPurchaseOrders(filters);
+      return { data: result.data, total: result.total, page: resolvedPage, pageSize: resolvedPageSize };
     }),
 
     getById: protectedProcedure.input(z.object({ id: z.number() })).query(async ({ input }) => {
@@ -3032,8 +3060,17 @@ ${JSON.stringify(recentAudit.map((a: any) => ({ action: a.action, entity: a.enti
       sectionId: z.number().optional(),
       status: z.string().optional(),
       search: z.string().optional(),
+      // Stage 0.5 Phase 2: pagination — only active when page is explicitly provided
+      page: z.number().int().min(1).optional(),
+      pageSize: z.number().int().min(1).max(200).optional(),
     }).optional()).query(async ({ input }) => {
-      return db.listAssets(input ?? {});
+      const { page, pageSize, ...filters } = input || {};
+      // Always return paginated shape; page defaults to 1, pageSize defaults to 10000 (all records)
+      const resolvedPage = page ?? 1;
+      const resolvedPageSize = pageSize ?? 10000;
+      const filtersWithPagination = { ...filters, pagination: { limit: resolvedPageSize, offset: (resolvedPage - 1) * resolvedPageSize } };
+      const result = await db.listAssets(filtersWithPagination);
+      return { data: result.data, total: result.total, page: resolvedPage, pageSize: resolvedPageSize };
     }),
 
     getById: protectedProcedure.input(z.object({ id: z.number() })).query(async ({ input }) => {

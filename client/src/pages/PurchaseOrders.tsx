@@ -6,7 +6,8 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Plus, ShoppingCart, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { PaginationBar } from "@/components/PaginationBar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useTranslation } from "@/contexts/LanguageContext";
 import { useStaticLabels } from "@/hooks/useContentTranslation";
@@ -30,6 +31,8 @@ const PO_STATUS_COLORS: Record<string, string> = {
 export default function PurchaseOrders() {
   const [, setLocation] = useLocation();
   const [statusFilter, setStatusFilter] = useState("all");
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 25;
   const { t, language } = useTranslation();
   const { getPOStatusLabel } = useStaticLabels();
   const { user } = useAuth();
@@ -40,9 +43,14 @@ export default function PurchaseOrders() {
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [selectedPO, setSelectedPO] = useState<any>(null);
 
-  const { data: pos, isLoading } = trpc.purchaseOrders.list.useQuery(
-    statusFilter !== "all" ? { status: statusFilter } : undefined
+  // Stage 0.5 Phase 2: reset to page 1 when filter changes
+  useEffect(() => { setPage(1); }, [statusFilter]);
+
+  const { data: posResult, isLoading } = trpc.purchaseOrders.list.useQuery(
+    statusFilter !== "all" ? { status: statusFilter, page, pageSize: PAGE_SIZE } : { page, pageSize: PAGE_SIZE }
   );
+  const pos = posResult?.data;
+  const posTotal = posResult?.total ?? 0;
 
   const deleteMutation = trpc.purchaseOrders.delete.useMutation({
     onSuccess: () => {
@@ -89,7 +97,7 @@ export default function PurchaseOrders() {
 
       {isLoading ? (
         <div className="space-y-3">{Array.from({ length: 4 }).map((_, i) => <Card key={i}><CardContent className="p-4"><Skeleton className="h-16 w-full" /></CardContent></Card>)}</div>
-      ) : !pos?.length ? (
+      ) : !(pos?.length) ? (
         <Card><CardContent className="p-12 text-center">
           <ShoppingCart className="w-12 h-12 mx-auto text-muted-foreground/40 mb-4" />
           <h3 className="font-semibold text-lg mb-1">{t.purchaseOrders.noPOs}</h3>
@@ -97,7 +105,7 @@ export default function PurchaseOrders() {
         </CardContent></Card>
       ) : (
         <div className="space-y-2">
-          {pos.map(po => (
+          {(pos ?? []).map(po => (
             <Card key={po.id} className="hover:shadow-lg hover:border-primary/20 transition-all duration-200 cursor-pointer" onClick={() => setLocation(`/purchase-orders/${po.id}`)}>
               <CardContent className="p-4">
                 <div className="flex items-center justify-between gap-4">
@@ -127,6 +135,14 @@ export default function PurchaseOrders() {
           ))}
         </div>
       )}
+
+      {/* Stage 0.5 Phase 2: Pagination */}
+      <PaginationBar
+        page={page}
+        pageSize={PAGE_SIZE}
+        total={posTotal}
+        onPageChange={setPage}
+      />
 
       {/* Delete Confirmation Dialog */}
       <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>

@@ -39,9 +39,10 @@ export default function CreateTicket() {
     category: "general", siteId: "", sectionId: "", assetId: "", locationDetail: "", beforePhotoUrl: "",
   });
 
-  const { data: assets } = trpc.assets.list.useQuery(
+  const { data: assetsResult } = trpc.assets.list.useQuery(
     form.sectionId ? { sectionId: Number(form.sectionId) } : {},
   );
+  const assets = assetsResult?.data;
   // Pre-fill form from URL params (e.g. from NFC scan)
   useEffect(() => {
     const params = new URLSearchParams(search);

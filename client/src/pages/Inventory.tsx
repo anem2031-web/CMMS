@@ -28,7 +28,8 @@ export default function Inventory() {
   const currency = language === "en" ? "SAR" : "ر.س";
 
   const { data: items, isLoading, refetch } = trpc.inventory.list.useQuery();
-  const { data: allPOs } = trpc.purchaseOrders.list.useQuery();
+  const { data: allPOsResult } = trpc.purchaseOrders.list.useQuery();
+  const allPOs = allPOsResult?.data ?? [];
   const createMut = trpc.inventory.create.useMutation({
     onSuccess: () => { toast.success(t.common.save); refetch(); setOpen(false); },
     onError: (err) => toast.error(err.message),

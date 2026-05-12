@@ -26,12 +26,14 @@ export default function Reports() {
   const { data: byCategory } = trpc.reports.ticketsByCategory.useQuery();
 
   // Phase 5B: Ambient Operational Procurement Awareness - Material Pending Tickets
-  const { data: needsPurchaseTickets } = trpc.tickets.list.useQuery({ status: 'needs_purchase' });
+  const { data: needsPurchaseResult } = trpc.tickets.list.useQuery({ status: 'needs_purchase' });
+  const needsPurchaseTickets = needsPurchaseResult?.data;
 
   // Phase 2A: Fetch only critical tickets for attention panel
-  const { data: criticalList, isLoading: lCritical } = trpc.tickets.list.useQuery({ 
+  const { data: criticalListResult, isLoading: lCritical } = trpc.tickets.list.useQuery({ 
     priority: 'critical' 
   });
+  const criticalList = criticalListResult?.data;
 
   // Summary Calculations
   const openTickets = byStatus?.filter(d => d.status !== 'closed' && d.status !== 'cancelled')

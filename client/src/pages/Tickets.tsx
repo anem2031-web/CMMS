@@ -11,7 +11,8 @@ import { Label } from "@/components/ui/label";
 import { STATUS_COLORS, PRIORITY_COLORS } from "@shared/types";
 import { Plus, Search, ClipboardList, Pencil, Trash2 } from "lucide-react";
 import { ExportButton } from "@/components/ExportButton";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
+import { PaginationBar } from "@/components/PaginationBar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useTranslation } from "@/contexts/LanguageContext";
 import { useStaticLabels } from "@/hooks/useContentTranslation";
@@ -40,7 +41,9 @@ export default function Tickets() {
   const [siteFilter, setSiteFilter] = useState("all");
   const [sectionFilter, setSectionFilter] = useState("all");
   const [technicianFilter, setTechnicianFilter] = useState("all");
-  
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 25;
+
   const { t, language } = useTranslation();
   const { getStatusLabel, getPriorityLabel, getCategoryLabel } = useStaticLabels();
   const { getField } = useTranslatedField();
@@ -59,14 +62,21 @@ export default function Tickets() {
   const { data: userTechniciansList = [] } = trpc.users.listTechnicians.useQuery();
   const allTechnicians = userTechniciansList.map((u: any) => ({ id: u.id, name: u.name || u.email }));
   
-  const { data: tickets, isLoading } = trpc.tickets.list.useQuery({
+  // Stage 0.5 Phase 2: reset to page 1 whenever any filter changes
+  useEffect(() => { setPage(1); }, [statusFilter, priorityFilter, siteFilter, sectionFilter, search, technicianFilter]);
+
+  const { data: ticketsResult, isLoading } = trpc.tickets.list.useQuery({
     status: statusFilter !== "all" ? statusFilter : undefined,
     priority: priorityFilter !== "all" ? priorityFilter : undefined,
     siteId: siteFilter !== "all" ? Number(siteFilter) : undefined,
     sectionId: sectionFilter !== "all" ? Number(sectionFilter) : undefined,
     search: search || undefined,
     assignedToId: technicianFilter !== "all" ? Number(technicianFilter) : undefined,
+    page,
+    pageSize: PAGE_SIZE,
   });
+  const tickets = ticketsResult?.data;
+  const ticketsTotal = ticketsResult?.total ?? 0;
 
   const updateMutation = trpc.tickets.update.useMutation({
     onSuccess: () => {
@@ -194,7 +204,7 @@ export default function Tickets() {
             <Card key={i}><CardContent className="p-4"><Skeleton className="h-16 w-full" /></CardContent></Card>
           ))}
         </div>
-      ) : !tickets?.length ? (
+      ) : !(tickets?.length) ? (
         <Card>
           <CardContent className="p-12 text-center">
             <ClipboardList className="w-12 h-12 mx-auto text-muted-foreground/40 mb-4" />
@@ -204,7 +214,7 @@ export default function Tickets() {
         </Card>
       ) : (
         <div className="space-y-2">
-          {tickets.map(ticket => (
+          {(tickets ?? []).map(ticket => (
             <Card
               key={ticket.id}
               className="hover:shadow-lg hover:border-primary/20 transition-all duration-200 cursor-pointer"
@@ -252,6 +262,14 @@ export default function Tickets() {
           ))}
         </div>
       )}
+
+      {/* Stage 0.5 Phase 2: Pagination */}
+      <PaginationBar
+        page={page}
+        pageSize={PAGE_SIZE}
+        total={ticketsTotal}
+        onPageChange={setPage}
+      />
 
       {/* Edit Dialog */}
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
