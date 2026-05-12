@@ -3099,6 +3099,16 @@ ${JSON.stringify(recentAudit.map((a: any) => ({ action: a.action, entity: a.enti
       rfidTag: z.string().optional(),
       categoryId: z.number().optional(),
     })).mutation(async ({ input, ctx }) => {
+      // ── Backend FK validation: reject deleted/invalid siteId & sectionId ──
+      if (input.siteId) {
+        const site = await db.getSiteById(input.siteId);
+        if (!site) throw new TRPCError({ code: "BAD_REQUEST", message: `الموقع المحدد (${input.siteId}) غير موجود. يرجى اختيار موقع صحيح.` });
+      }
+      if (input.sectionId) {
+        const secs = await db.getSections();
+        const sec = secs.find((s: any) => s.id === input.sectionId);
+        if (!sec) throw new TRPCError({ code: "BAD_REQUEST", message: `القسم المحدد (${input.sectionId}) غير موجود. يرجى اختيار قسم صحيح.` });
+      }
       const assetNumber = await db.generateAssetNumber();
       // Auto-translate description and notes
       let assetTranslation: Record<string, any> = {};
@@ -3176,6 +3186,16 @@ ${JSON.stringify(recentAudit.map((a: any) => ({ action: a.action, entity: a.enti
       categoryId: z.number().optional(),
     })).mutation(async ({ input }) => {
       const { id, ...data } = input;
+      // ── Backend FK validation: reject deleted/invalid siteId & sectionId ──
+      if (data.siteId) {
+        const site = await db.getSiteById(data.siteId);
+        if (!site) throw new TRPCError({ code: "BAD_REQUEST", message: `الموقع المحدد (${data.siteId}) غير موجود. يرجى اختيار موقع صحيح.` });
+      }
+      if (data.sectionId) {
+        const secs = await db.getSections();
+        const sec = secs.find((s: any) => s.id === data.sectionId);
+        if (!sec) throw new TRPCError({ code: "BAD_REQUEST", message: `القسم المحدد (${data.sectionId}) غير موجود. يرجى اختيار قسم صحيح.` });
+      }
       // Auto-translate updated text fields to all 3 languages
       let assetTranslation: Record<string, any> = {};
       const assetFieldsToTranslate: Record<string, string> = {};

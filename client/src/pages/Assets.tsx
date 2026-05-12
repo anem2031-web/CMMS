@@ -99,8 +99,10 @@ export default function Assets() {
   const assets = assetsResult?.data ?? [];
   const assetsTotal = assetsResult?.total ?? 0;
 
-  const { data: sites = [] } = trpc.sites.list.useQuery();
-  const { data: sections } = trpc.sections.list.useQuery(undefined);
+  // staleTime:0 ensures the live sites/sections lists are always fresh so that
+  // openEdit() sanitization never passes a stale deleted ID through the cache.
+  const { data: sites = [] } = trpc.sites.list.useQuery(undefined, { staleTime: 0 });
+  const { data: sections } = trpc.sections.list.useQuery(undefined, { staleTime: 0 });
 
   const createMut = trpc.assets.create.useMutation({
     onSuccess: () => {
