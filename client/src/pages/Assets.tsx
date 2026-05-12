@@ -133,6 +133,23 @@ export default function Assets() {
   });
 
   const handleSubmit = () => {
+    // [DIAG] Capture form state at exact submit time
+    console.log('[ASSET-DIAG] handleSubmit — form.siteId:', form.siteId, '| form.sectionId:', form.sectionId);
+    // Pre-submit guard: reject any siteId/sectionId that is not in the current
+    // live lists. This is the last-resort defence against stale IDs reaching
+    // the mutation even if openEdit sanitization was somehow bypassed.
+    if (form.siteId && !sites.some((s: any) => String(s.id) === form.siteId)) {
+      console.warn('[ASSET-DIAG] PRE-SUBMIT GUARD: siteId', form.siteId, 'not in live sites list — clearing');
+      toast.error('الموقع المحدد لم يعد متاحاً. يرجى اختيار موقع صحيح أو تركه فارغاً.');
+      setForm(f => ({ ...f, siteId: '', sectionId: '' }));
+      return;
+    }
+    if (form.sectionId && !sections?.some((s: any) => String(s.id) === form.sectionId)) {
+      console.warn('[ASSET-DIAG] PRE-SUBMIT GUARD: sectionId', form.sectionId, 'not in live sections list — clearing');
+      toast.error('القسم المحدد لم يعد متاحاً. يرجى اختيار قسم صحيح أو تركه فارغاً.');
+      setForm(f => ({ ...f, sectionId: '' }));
+      return;
+    }
     const payload = {
       name: form.name,
       description: form.description || undefined,
@@ -153,6 +170,7 @@ export default function Assets() {
       notes: form.notes || undefined,
       categoryId: form.categoryId ? Number(form.categoryId) : undefined,
     };
+    console.log('[ASSET-DIAG] mutation payload siteId:', payload.siteId, '| sectionId:', payload.sectionId);
     if (editId) {
       updateMut.mutate({ id: editId, ...payload });
     } else {
@@ -161,6 +179,15 @@ export default function Assets() {
   };
 
   const openEdit = (asset: any) => {
+    console.log('[ASSET-DIAG] openEdit — asset.id:', asset.id, '| asset.siteId:', asset.siteId, '| asset.sectionId:', asset.sectionId);
+    // Sanitize siteId/sectionId: if the stored ID no longer exists in the live
+    // sites/sections lists (e.g. after master-data cleanup), clear it so the
+    // Select renders the placeholder and the stale ID is never submitted.
+    const validSiteId = asset.siteId && sites.some((s: any) => s.id === asset.siteId)
+      ? String(asset.siteId) : "";
+    const validSectionId = asset.sectionId && sections?.some((s: any) => s.id === asset.sectionId)
+      ? String(asset.sectionId) : "";
+    console.log('[ASSET-DIAG] openEdit sanitized — validSiteId:', validSiteId, '| validSectionId:', validSectionId);
     setEditId(asset.id);
     setForm({
       name: asset.name ?? "",
@@ -170,8 +197,8 @@ export default function Assets() {
       model: asset.model ?? "",
       serialNumber: asset.serialNumber ?? "",
       rfidTag: asset.rfidTag ?? "",
-      siteId: asset.siteId ? String(asset.siteId) : "",
-      sectionId: asset.sectionId ? String(asset.sectionId) : "",
+      siteId: validSiteId,
+      sectionId: validSectionId,
       locationDetail: asset.locationDetail ?? "",
       status: asset.status ?? "active",
       purchaseDate: asset.purchaseDate ? new Date(asset.purchaseDate).toISOString().split("T")[0] : "",
@@ -217,7 +244,7 @@ export default function Assets() {
           <h1 className="text-2xl font-bold">{t.assets.title}</h1>
           <p className="text-muted-foreground text-sm">{t.assets.description}</p>
         </div>
-        <Button onClick={() => { setEditId(null); setForm(defaultForm); setShowForm(true); }}>
+        <Button onClick={() => { console.log('[ASSET-DIAG] Add New clicked — resetting form'); setEditId(null); setForm(defaultForm); setShowForm(true); }}>
           <Plus className="h-4 w-4 ml-2" />
           {t.assets.addAsset}
         </Button>
@@ -421,7 +448,7 @@ export default function Assets() {
       />
 
       {/* Create/Edit Dialog */}
-      <Dialog open={showForm} onOpenChange={(o) => { if (!o) { setShowForm(false); setEditId(null); setForm(defaultForm); } }}>
+      <Dialog open={showForm} onOpenChange={(o) => { if (!o) { console.log('[ASSET-DIAG] Dialog closing — form.siteId was:', form.siteId, '| form.sectionId was:', form.sectionId); setShowForm(false); setEditId(null); setForm(defaultForm); } }}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{editId ? t.assets.editAsset : t.assets.addAsset}</DialogTitle>
@@ -473,7 +500,7 @@ export default function Assets() {
             </div>
             <div>
               <Label>{t.assets.location}</Label>
-              <Select value={form.siteId || "none"} onValueChange={v => setForm(f => ({ ...f, siteId: v === "none" ? "" : v, sectionId: "" }))}>
+              <Select value={form.siteId || "none"} onValueChange={v => { console.log('[ASSET-DIAG] site Select changed — new value:', v, '| prev siteId:', form.siteId); setForm(f => ({ ...f, siteId: v === "none" ? "" : v, sectionId: "" })); }}>
                 <SelectTrigger><SelectValue placeholder={t.common.none} /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="none">{t.common.none}</SelectItem>
@@ -486,7 +513,7 @@ export default function Assets() {
             {form.siteId && form.siteId !== "none" && (
               <div>
                 <Label>القسم</Label>
-                <Select value={form.sectionId || "none"} onValueChange={v => setForm(f => ({ ...f, sectionId: v === "none" ? "" : v }))}>
+                <Select value={form.sectionId || "none"} onValueChange={v => { console.log('[ASSET-DIAG] section Select changed — new value:', v, '| prev sectionId:', form.sectionId); setForm(f => ({ ...f, sectionId: v === "none" ? "" : v })); }}>
                   <SelectTrigger><SelectValue placeholder="اختر القسم (اختياري)" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="none">بدون قسم</SelectItem>
