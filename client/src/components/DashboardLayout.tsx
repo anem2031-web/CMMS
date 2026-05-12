@@ -355,8 +355,8 @@ function DashboardLayoutContent({ children, setSidebarWidth }: { children: React
   const isMobile = useIsMobile();
   const { t } = useTranslation();
 
-  const { data: unreadCount } = trpc.notifications.unreadCount.useQuery(undefined, { refetchInterval: 5000 });
-  const { data: latestNotifications } = trpc.notifications.list.useQuery(undefined, { refetchInterval: 5000 });
+  const { data: unreadCount } = trpc.notifications.unreadCount.useQuery(undefined, { refetchInterval: 30000 }); // stabilized: was 5s → 30s
+  const { data: latestNotifications } = trpc.notifications.list.useQuery(undefined, { refetchInterval: 30000 }); // stabilized: was 5s → 30s
 
   // ── Live notification popup ──
   const [popupNotifs, setPopupNotifs] = useState<Array<{ id: number; title: string; message: string; type: string; relatedTicketId?: number | null }>>([]);

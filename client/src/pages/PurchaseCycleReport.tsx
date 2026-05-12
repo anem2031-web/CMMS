@@ -304,7 +304,7 @@ export default function PurchaseCycleReport() {
     filterInput.dateFrom || filterInput.dateTo
       ? { dateFrom: filterInput.dateFrom || undefined, dateTo: filterInput.dateTo || undefined }
       : undefined,
-    { refetchInterval: 60000 }
+    { refetchInterval: 120000 } // stabilized: was 60s → 120s
   );
 
   const handleApplyFilter = () => {

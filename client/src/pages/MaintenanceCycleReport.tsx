@@ -350,7 +350,7 @@ export default function MaintenanceCycleReport() {
           status: filterInput.status || undefined,
         }
       : undefined,
-    { refetchInterval: 60000 }
+    { refetchInterval: 120000 } // stabilized: was 60s → 120s
   );
 
   const handleApplyFilter = () => {

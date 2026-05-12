@@ -293,11 +293,11 @@ export default function KpiTimeline() {
   const [activeTab, setActiveTab] = useState<"tickets" | "po">("tickets");
 
   const { data: ticketTimelines = [], isLoading: ticketsLoading } = trpc.kpi.getTicketTimelines.useQuery(undefined, {
-    refetchInterval: 60000,
+    refetchInterval: 120000, // stabilized: was 60s → 120s
   });
 
   const { data: poTimelines = [], isLoading: poLoading } = trpc.kpi.getPOTimelines.useQuery(undefined, {
-    refetchInterval: 60000,
+    refetchInterval: 120000, // stabilized: was 60s → 120s
   });
 
   const isLoading = activeTab === "tickets" ? ticketsLoading : poLoading;
