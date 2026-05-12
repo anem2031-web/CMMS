@@ -102,6 +102,7 @@ export default function PurchaseOrderDetail() {
   const [editingItem, setEditingItem] = useState<any>(null);
   const [editForm, setEditForm] = useState<{ itemName: string; description: string; quantity: number; estimatedUnitCost: string; unit: string; photoUrl: string; notes: string }>({ itemName: "", description: "", quantity: 1, estimatedUnitCost: "", unit: "", photoUrl: "", notes: "" });
   const [reviewDecisions, setReviewDecisions] = useState<Record<number, { action: "approve" | "reject"; delegateId?: number; rejectionReason?: string }>>({});
+  const [bulkDelegateId, setBulkDelegateId] = useState("");
   const [revisionNote, setRevisionNote] = useState("");
   const [isRevisionDialogOpen, setIsRevisionDialogOpen] = useState(false);
   const [resubmitNote, setResubmitNote] = useState("");
@@ -625,6 +626,38 @@ export default function PurchaseOrderDetail() {
               <CardTitle className="text-base text-purple-800">مراجعة الأصناف وتعيين المندوبين</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
+              {delegates.length > 0 && (
+                <div className="flex items-end gap-3 border-b pb-3 mb-1">
+                  <div className="flex-1 space-y-1">
+                    <Label className="text-xs text-purple-700">المندوب (للاعتماد الجماعي)</Label>
+                    <Select value={bulkDelegateId} onValueChange={setBulkDelegateId}>
+                      <SelectTrigger className="bg-white"><SelectValue placeholder="اختر مندوباً" /></SelectTrigger>
+                      <SelectContent>
+                        {delegates.map((d: any) => (
+                          <SelectItem key={d.id} value={String(d.id)}>{d.name || d.email}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <Button
+                    size="sm"
+                    disabled={!bulkDelegateId}
+                    onClick={() => {
+                      setReviewDecisions(prev => {
+                        const next = { ...prev };
+                        (po.items || []).forEach((item: any) => {
+                          next[item.id] = { action: "approve", delegateId: parseInt(bulkDelegateId) };
+                        });
+                        return next;
+                      });
+                    }}
+                    className="shrink-0 bg-purple-600 hover:bg-purple-700"
+                  >
+                    <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" />
+                    اعتماد الكل
+                  </Button>
+                </div>
+              )}
               {po.items?.map((item: any) => {
                 const decision = reviewDecisions[item.id] || {};
                 return (
