@@ -213,43 +213,43 @@ export default function PurchaseOrderDetail() {
           <h1 className="text-xl font-bold mt-1">{t.purchaseOrders.title}</h1>
         </div>
         <div className="flex gap-2">
-          {isDelegate && po.status === "pending_estimate" && (
-            <>
-              <Button 
-                variant="outline" 
-                className="border-blue-200 text-blue-700 hover:bg-blue-50" 
-                onClick={async () => {
-                  try {
-                    const response = await fetch(`/api/export/po/estimated-items-pdf`, {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify(po)
-                    });
-                    if (!response.ok) {
-                      const error = await response.json();
-                      throw new Error(error.error || "فشل تصدير الملف");
-                    }
-                    const blob = await response.blob();
-                    const url = window.URL.createObjectURL(blob);
-                    const link = document.createElement('a');
-                    link.href = url;
-                    link.download = `PO_${po.poNumber}_estimated_items.pdf`;
-                    document.body.appendChild(link);
-                    link.click();
-                    document.body.removeChild(link);
-                    window.URL.revokeObjectURL(url);
-                    toast.success("تم تصدير الأصناف المُسعرة بنجاح");
-                  } catch (error: any) {
-                    toast.error(error.message || "فشل تصدير الملف");
+          {isDelegate && ["pending_estimate", "pending_accounting", "pending_management", "approved", "partial_purchase"].includes(po.status) && po.items?.some((i: any) => i.status === "estimated") && (
+            <Button 
+              variant="outline" 
+              className="border-blue-200 text-blue-700 hover:bg-blue-50" 
+              onClick={async () => {
+                try {
+                  const response = await fetch(`/api/export/po/estimated-items-pdf`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(po)
+                  });
+                  if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || "فشل تصدير الملف");
                   }
-                }}
-              >
-                <FileDown className="w-4 h-4 mr-1.5" /> تصدير PDF
-              </Button>
-              <Button variant="outline" className="border-rose-200 text-rose-700 hover:bg-rose-50" onClick={() => setIsRevisionDialogOpen(true)}>
-                <AlertCircle className="w-4 h-4 mr-1.5" /> {t.purchaseOrders.returnForRevision}
-              </Button>
-            </>
+                  const blob = await response.blob();
+                  const url = window.URL.createObjectURL(blob);
+                  const link = document.createElement('a');
+                  link.href = url;
+                  link.download = `PO_${po.poNumber}_estimated_items.pdf`;
+                  document.body.appendChild(link);
+                  link.click();
+                  document.body.removeChild(link);
+                  window.URL.revokeObjectURL(url);
+                  toast.success("تم تصدير الأصناف المُسعرة بنجاح");
+                } catch (error: any) {
+                  toast.error(error.message || "فشل تصدير الملف");
+                }
+              }}
+            >
+              <FileDown className="w-4 h-4 mr-1.5" /> تصدير PDF
+            </Button>
+          )}
+          {isDelegate && po.status === "pending_estimate" && (
+            <Button variant="outline" className="border-rose-200 text-rose-700 hover:bg-rose-50" onClick={() => setIsRevisionDialogOpen(true)}>
+              <AlertCircle className="w-4 h-4 mr-1.5" /> {t.purchaseOrders.returnForRevision}
+            </Button>
           )}
           {po.status !== "closed" && (isAdminOrOwner || po.requestedById === userId) && (
             <Button variant="outline" className="text-muted-foreground" onClick={() => { if (confirm("هل أنت متأكد من إغلاق هذا الطلب؟")) closeMut.mutate({ id: po.id }); }}>
