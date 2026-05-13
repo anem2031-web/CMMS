@@ -200,6 +200,8 @@ const en: TranslationKeys = {
     rejected: "Rejected",
     purchased: "Purchased",
     received: "Received",
+    pending_review: "Pending Creator Review",
+    cancelled: "Cancelled",
   },
 
   priority: {

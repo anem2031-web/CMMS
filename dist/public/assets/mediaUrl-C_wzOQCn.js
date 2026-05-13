@@ -1,0 +1,1 @@
+function a(t){if(!t)return"";if(t.startsWith("/api/media"))return t;const i=t.match(/idrivee2\.com\/[^/]+\/(.+)$/);return i?`/api/media?key=${encodeURIComponent(i[1])}`:t.startsWith("cmms/")||t.startsWith("uploads/")?`/api/media?key=${encodeURIComponent(t)}`:!t.startsWith("http")&&!t.startsWith("/")?`/api/media?key=${encodeURIComponent(`cmms/uploads/${t}`)}`:t}export{a as m};

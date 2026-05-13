@@ -1,0 +1,37 @@
+{
+  "Dashboard Stats": {
+    "requestsPerSecond": 697.74,
+    "latencyAverageMs": 13.84,
+    "throughputMb": "0.87"
+  },
+  "Tickets List": {
+    "requestsPerSecond": 886.04,
+    "latencyAverageMs": 10.71,
+    "throughputMb": "1.11"
+  },
+  "Reports: Tickets by Status": {
+    "requestsPerSecond": 1127.77,
+    "latencyAverageMs": 8.39,
+    "throughputMb": "1.41"
+  },
+  "Reports: Purchase Cycle Report": {
+    "requestsPerSecond": 1636.64,
+    "latencyAverageMs": 5.59,
+    "throughputMb": "2.05"
+  },
+  "Reports: Maintenance Cycle Report": {
+    "requestsPerSecond": 3059.67,
+    "latencyAverageMs": 2.58,
+    "throughputMb": "3.82"
+  },
+  "Reports: Cost Report": {
+    "requestsPerSecond": 3429.67,
+    "latencyAverageMs": 2.27,
+    "throughputMb": "4.29"
+  },
+  "KPI: Get Ticket Timelines": {
+    "requestsPerSecond": 3465.54,
+    "latencyAverageMs": 2.2,
+    "throughputMb": "4.33"
+  }
+}

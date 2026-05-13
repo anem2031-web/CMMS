@@ -8,6 +8,49 @@ var __export = (target, all) => {
     __defProp(target, name, { get: all[name], enumerable: true });
 };
 
+// server/_core/config.ts
+import { z } from "zod";
+var serverEnvSchema, validateEnv, env;
+var init_config = __esm({
+  "server/_core/config.ts"() {
+    "use strict";
+    serverEnvSchema = z.object({
+      DATABASE_URL: z.string().min(1, "DATABASE_URL is required"),
+      JWT_SECRET: z.string().min(1, "JWT_SECRET is required"),
+      OAUTH_SERVER_URL: z.string().min(1, "OAUTH_SERVER_URL is required"),
+      OWNER_OPEN_ID: z.string().min(1, "OWNER_OPEN_ID is required"),
+      REDIS_URL: z.string().optional(),
+      VAPID_PUBLIC_KEY: z.string().min(1, "VAPID_PUBLIC_KEY is required for push notifications").optional(),
+      VAPID_PRIVATE_KEY: z.string().min(1, "VAPID_PRIVATE_KEY is required for push notifications").optional(),
+      VAPID_SUBJECT_EMAIL: z.string().email("VAPID_SUBJECT_EMAIL must be a valid email").optional(),
+      NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
+      BUILT_IN_FORGE_API_URL: z.string().optional(),
+      BUILT_IN_FORGE_API_KEY: z.string().optional(),
+      VITE_APP_ID: z.string().optional()
+    });
+    validateEnv = () => {
+      try {
+        const parsed = serverEnvSchema.parse(process.env);
+        if (parsed.NODE_ENV === "production") {
+          if (!parsed.VAPID_PUBLIC_KEY || !parsed.VAPID_PRIVATE_KEY) {
+            console.warn("VAPID keys are recommended in production for push notifications");
+          }
+        }
+        return parsed;
+      } catch (error) {
+        if (error instanceof z.ZodError) {
+          console.error("\u274C Invalid environment variables:", error.flatten().fieldErrors);
+          throw new Error("Invalid environment variables");
+        } else {
+          console.error("\u274C Environment variable validation failed:", error);
+          throw new Error("Environment variable validation failed");
+        }
+      }
+    };
+    env = validateEnv();
+  }
+});
+
 // shared/const.ts
 var COOKIE_NAME, ONE_YEAR_MS, AXIOS_TIMEOUT_MS, UNAUTHED_ERR_MSG, NOT_ADMIN_ERR_MSG;
 var init_const = __esm({
@@ -24,6 +67,7 @@ var init_const = __esm({
 // drizzle/schema.ts
 var schema_exports = {};
 __export(schema_exports, {
+  assetCategories: () => assetCategories,
   assetMetrics: () => assetMetrics,
   assetSpareParts: () => assetSpareParts,
   assetStatuses: () => assetStatuses,
@@ -32,6 +76,7 @@ __export(schema_exports, {
   auditLogs: () => auditLogs,
   backups: () => backups,
   entityTranslations: () => entityTranslations,
+  inspectionResults: () => inspectionResults,
   inventory: () => inventory,
   inventoryTransactions: () => inventoryTransactions,
   notifications: () => notifications,
@@ -47,6 +92,7 @@ __export(schema_exports, {
   poItemStatuses: () => poItemStatuses,
   poStatuses: () => poStatuses,
   preventivePlans: () => preventivePlans,
+  procurementComments: () => procurementComments,
   purchaseOrderItems: () => purchaseOrderItems,
   purchaseOrders: () => purchaseOrders,
   pushSubscriptions: () => pushSubscriptions,
@@ -70,7 +116,7 @@ __export(schema_exports, {
   users: () => users
 });
 import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, decimal, json, boolean } from "drizzle-orm/mysql-core";
-var userRoles, supportedLanguages, users, sites, sections, technicianStatuses, technicians, ticketStatuses, ticketPriorities, ticketCategories, tickets, poStatuses, purchaseOrders, poItemStatuses, purchaseOrderItems, inventory, inventoryTransactions, notifications, auditLogs, ticketStatusHistory, attachments, backups, translationStatuses, entityTranslations, translationJobStatuses, translationJobs, translationVersions, assetStatuses, assets, pmFrequencies, preventivePlans, pmWorkOrderStatuses, pmWorkOrders, assetSpareParts, pmJobs, assetMetrics, twoFactorSecrets, twoFactorAuditLogs, pushSubscriptions, pmChecklistItems, pmItemResultStatuses, pmExecutionResults, pmExecutionSessionStatuses, pmExecutionSessions;
+var userRoles, supportedLanguages, users, sites, sections, technicianStatuses, technicians, ticketStatuses, ticketPriorities, ticketCategories, tickets, poStatuses, purchaseOrders, poItemStatuses, purchaseOrderItems, procurementComments, inventory, inventoryTransactions, notifications, auditLogs, ticketStatusHistory, attachments, backups, translationStatuses, entityTranslations, translationJobStatuses, translationJobs, translationVersions, assetStatuses, assets, pmFrequencies, preventivePlans, pmWorkOrderStatuses, pmWorkOrders, assetSpareParts, pmJobs, assetMetrics, twoFactorSecrets, twoFactorAuditLogs, pushSubscriptions, pmChecklistItems, pmItemResultStatuses, pmExecutionResults, pmExecutionSessionStatuses, pmExecutionSessions, inspectionResults, assetCategories;
 var init_schema = __esm({
   "drizzle/schema.ts"() {
     "use strict";
@@ -215,6 +261,7 @@ var init_schema = __esm({
     });
     poStatuses = [
       "draft",
+      "pending_review",
       "pending_estimate",
       "pending_accounting",
       "pending_management",
@@ -223,7 +270,8 @@ var init_schema = __esm({
       "purchased",
       "received",
       "closed",
-      "rejected"
+      "rejected",
+      "revision_needed"
     ];
     purchaseOrders = mysqlTable("purchase_orders", {
       id: int("id").autoincrement().primaryKey(),
@@ -251,7 +299,7 @@ var init_schema = __esm({
       createdAt: timestamp("createdAt").defaultNow().notNull(),
       updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull()
     });
-    poItemStatuses = ["pending", "estimated", "approved", "funded", "purchased", "delivered_to_warehouse", "delivered_to_requester"];
+    poItemStatuses = ["pending", "estimated", "approved", "rejected", "funded", "purchased", "delivered_to_warehouse", "delivered_to_requester"];
     purchaseOrderItems = mysqlTable("purchase_order_items", {
       id: int("id").autoincrement().primaryKey(),
       purchaseOrderId: int("purchaseOrderId").notNull(),
@@ -284,6 +332,17 @@ var init_schema = __esm({
       originalLanguage: mysqlEnum("originalLanguage", ["ar", "en", "ur"]).default("ar").notNull(),
       createdAt: timestamp("createdAt").defaultNow().notNull(),
       updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull()
+    });
+    procurementComments = mysqlTable("procurement_comments", {
+      id: int("id").autoincrement().primaryKey(),
+      purchaseOrderId: int("purchaseOrderId").notNull(),
+      userId: int("userId").notNull(),
+      userName: text("userName").notNull(),
+      userRole: varchar("userRole", { length: 50 }).notNull(),
+      actionType: varchar("actionType", { length: 50 }).notNull(),
+      // "return_for_revision", "resubmitted", "comment"
+      note: text("note").notNull(),
+      createdAt: timestamp("createdAt").defaultNow().notNull()
     });
     inventory = mysqlTable("inventory", {
       id: int("id").autoincrement().primaryKey(),
@@ -448,6 +507,7 @@ var init_schema = __esm({
       notes_ur: text("notes_ur"),
       originalLanguage: mysqlEnum("originalLanguage", ["ar", "en", "ur"]).default("ar").notNull(),
       createdById: int("createdById"),
+      categoryId: int("categoryId"),
       createdAt: timestamp("createdAt").defaultNow().notNull(),
       updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull()
     });
@@ -628,6 +688,26 @@ var init_schema = __esm({
       createdAt: timestamp("createdAt").defaultNow().notNull(),
       updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull()
     });
+    inspectionResults = mysqlTable("inspection_results", {
+      id: int("id").autoincrement().primaryKey(),
+      ticketId: int("ticketId").notNull(),
+      // FK → tickets.id
+      assetId: int("assetId"),
+      // FK → assets.id (nullable)
+      inspectorId: int("inspectorId").notNull(),
+      // FK → users.id
+      inspectionType: mysqlEnum("inspectionType", ["triage", "detailed"]).notNull(),
+      severity: mysqlEnum("severity", ["low", "medium", "high", "critical"]).notNull(),
+      rootCause: varchar("rootCause", { length: 500 }),
+      findings: text("findings"),
+      recommendedAction: text("recommendedAction"),
+      createdAt: timestamp("createdAt").defaultNow().notNull()
+    });
+    assetCategories = mysqlTable("asset_categories", {
+      id: int("id").primaryKey().autoincrement(),
+      name: varchar("name", { length: 255 }).notNull(),
+      createdAt: timestamp("createdAt").defaultNow().notNull()
+    });
   }
 });
 
@@ -636,15 +716,16 @@ var ENV;
 var init_env = __esm({
   "server/_core/env.ts"() {
     "use strict";
+    init_config();
     ENV = {
-      appId: process.env.VITE_APP_ID ?? "",
-      cookieSecret: process.env.JWT_SECRET ?? "",
-      databaseUrl: process.env.DATABASE_URL ?? "",
-      oAuthServerUrl: process.env.OAUTH_SERVER_URL ?? "",
-      ownerOpenId: process.env.OWNER_OPEN_ID ?? "",
-      isProduction: process.env.NODE_ENV === "production",
-      forgeApiUrl: process.env.BUILT_IN_FORGE_API_URL ?? "",
-      forgeApiKey: process.env.BUILT_IN_FORGE_API_KEY ?? ""
+      appId: env.VITE_APP_ID ?? "",
+      cookieSecret: env.JWT_SECRET,
+      databaseUrl: env.DATABASE_URL,
+      oAuthServerUrl: env.OAUTH_SERVER_URL,
+      ownerOpenId: env.OWNER_OPEN_ID,
+      isProduction: env.NODE_ENV === "production",
+      forgeApiUrl: env.BUILT_IN_FORGE_API_URL ?? "",
+      forgeApiKey: env.BUILT_IN_FORGE_API_KEY ?? ""
     };
   }
 });
@@ -659,14 +740,17 @@ __export(webPush_exports, {
 import webpush from "web-push";
 function ensureInit() {
   if (initialized) return;
-  const publicKey = process.env.VAPID_PUBLIC_KEY;
-  const privateKey = process.env.VAPID_PRIVATE_KEY;
+  const publicKey = env.VAPID_PUBLIC_KEY;
+  const privateKey = env.VAPID_PRIVATE_KEY;
   if (!publicKey || !privateKey) {
-    console.warn("[WebPush] VAPID keys not configured, push notifications disabled");
+    if (!vapidWarningLogged) {
+      console.warn("[WebPush] VAPID keys not configured, push notifications disabled");
+      vapidWarningLogged = true;
+    }
     return;
   }
   webpush.setVapidDetails(
-    "mailto:admin@cmms.local",
+    "mailto:" + (env.VAPID_SUBJECT_EMAIL || "admin@cmms.local"),
     publicKey,
     privateKey
   );
@@ -707,24 +791,167 @@ async function sendToSubscriptions(subscriptions, payload) {
         if (err.statusCode === 404 || err.statusCode === 410) {
           await deletePushSubscription(sub.endpoint).catch(() => {
           });
+        } else {
+          console.error("[WebPush] Failed to send notification:", err);
         }
       }
     })
   );
   return { sent, failed };
 }
-var initialized;
+var initialized, vapidWarningLogged;
 var init_webPush = __esm({
   "server/webPush.ts"() {
     "use strict";
     init_db();
+    init_config();
     initialized = false;
+    vapidWarningLogged = false;
   }
 });
 
 // server/db.ts
+var db_exports = {};
+__export(db_exports, {
+  addAssetSparePart: () => addAssetSparePart,
+  addInventoryTransaction: () => addInventoryTransaction,
+  addTicketStatusHistory: () => addTicketStatusHistory,
+  calcNextDueDate: () => calcNextDueDate,
+  calculateAssetMetrics: () => calculateAssetMetrics,
+  createAsset: () => createAsset,
+  createAssetCategory: () => createAssetCategory,
+  createAttachment: () => createAttachment,
+  createAuditLog: () => createAuditLog,
+  createBackup: () => createBackup,
+  createInspectionResult: () => createInspectionResult,
+  createInventoryItem: () => createInventoryItem,
+  createLocalUser: () => createLocalUser,
+  createNotification: () => createNotification,
+  createPMJob: () => createPMJob,
+  createPMWorkOrder: () => createPMWorkOrder,
+  createPOItems: () => createPOItems,
+  createPreventivePlan: () => createPreventivePlan,
+  createProcurementComment: () => createProcurementComment,
+  createPurchaseOrder: () => createPurchaseOrder,
+  createSection: () => createSection,
+  createSite: () => createSite,
+  createTechnician: () => createTechnician,
+  createTicket: () => createTicket,
+  createTwoFactorAuditLog: () => createTwoFactorAuditLog,
+  createTwoFactorSecret: () => createTwoFactorSecret,
+  deleteAsset: () => deleteAsset,
+  deleteAssetCategory: () => deleteAssetCategory,
+  deleteAttachment: () => deleteAttachment,
+  deleteBackup: () => deleteBackup,
+  deleteInventoryItem: () => deleteInventoryItem,
+  deletePOItem: () => deletePOItem,
+  deletePreventivePlan: () => deletePreventivePlan,
+  deletePurchaseOrder: () => deletePurchaseOrder,
+  deletePushSubscription: () => deletePushSubscription,
+  deleteSection: () => deleteSection,
+  deleteSite: () => deleteSite,
+  deleteTechnician: () => deleteTechnician,
+  deleteTicket: () => deleteTicket,
+  deleteUser: () => deleteUser,
+  disableTwoFactor: () => disableTwoFactor,
+  exportAllTablesData: () => exportAllTablesData,
+  generateAssetNumber: () => generateAssetNumber,
+  generatePlanNumber: () => generatePlanNumber,
+  generateWorkOrderNumber: () => generateWorkOrderNumber,
+  getAllAssetMetrics: () => getAllAssetMetrics,
+  getAllPOItems: () => getAllPOItems,
+  getAllPushSubscriptions: () => getAllPushSubscriptions,
+  getAllSites: () => getAllSites,
+  getAllTechnicians: () => getAllTechnicians,
+  getAllUsers: () => getAllUsers,
+  getAssetById: () => getAssetById,
+  getAssetByRfidTag: () => getAssetByRfidTag,
+  getAssetMaintenanceHistory: () => getAssetMaintenanceHistory,
+  getAssetMaintenanceStats: () => getAssetMaintenanceStats,
+  getAssetMetricsById: () => getAssetMetricsById,
+  getAssetSpareParts: () => getAssetSpareParts,
+  getAssetSparePartsWithLowStock: () => getAssetSparePartsWithLowStock,
+  getAttachmentById: () => getAttachmentById,
+  getAttachments: () => getAttachments,
+  getAuditLogs: () => getAuditLogs,
+  getAuditLogsEnhanced: () => getAuditLogsEnhanced,
+  getBackupById: () => getBackupById,
+  getBackups: () => getBackups,
+  getDashboardStats: () => getDashboardStats,
+  getDb: () => getDb,
+  getExternalTechnicianPerformance: () => getExternalTechnicianPerformance,
+  getInspectionDashboardStats: () => getInspectionDashboardStats,
+  getInspectionResultsByAsset: () => getInspectionResultsByAsset,
+  getInspectionResultsByTicket: () => getInspectionResultsByTicket,
+  getInventoryAlerts: () => getInventoryAlerts,
+  getInventoryItemById: () => getInventoryItemById,
+  getInventoryItems: () => getInventoryItems,
+  getLowStockItems: () => getLowStockItems,
+  getManagerUsers: () => getManagerUsers,
+  getNextPONumber: () => getNextPONumber,
+  getNextTicketNumber: () => getNextTicketNumber,
+  getOrCreateAssetMetrics: () => getOrCreateAssetMetrics,
+  getPMWorkOrderById: () => getPMWorkOrderById,
+  getPOItemById: () => getPOItemById,
+  getPOItems: () => getPOItems,
+  getPOItemsByDelegate: () => getPOItemsByDelegate,
+  getPOItemsByStatus: () => getPOItemsByStatus,
+  getPendingPMJobs: () => getPendingPMJobs,
+  getPreventivePlanById: () => getPreventivePlanById,
+  getProcurementComments: () => getProcurementComments,
+  getPurchaseOrderById: () => getPurchaseOrderById,
+  getPurchaseOrders: () => getPurchaseOrders,
+  getPushSubscriptionsByUser: () => getPushSubscriptionsByUser,
+  getSections: () => getSections,
+  getSiteById: () => getSiteById,
+  getTechnicianById: () => getTechnicianById,
+  getTechnicianOpenTicketCounts: () => getTechnicianOpenTicketCounts,
+  getTechnicianPerformance: () => getTechnicianPerformance,
+  getTicketById: () => getTicketById,
+  getTicketHistory: () => getTicketHistory,
+  getTickets: () => getTickets,
+  getTicketsByAsset: () => getTicketsByAsset,
+  getTwoFactorAuditLogs: () => getTwoFactorAuditLogs,
+  getTwoFactorSecret: () => getTwoFactorSecret,
+  getUnreadNotificationCount: () => getUnreadNotificationCount,
+  getUserById: () => getUserById,
+  getUserByOpenId: () => getUserByOpenId,
+  getUserByUsername: () => getUserByUsername,
+  getUserNotifications: () => getUserNotifications,
+  getUsersByRole: () => getUsersByRole,
+  isTwoFactorEnabled: () => isTwoFactorEnabled,
+  listAssetCategories: () => listAssetCategories,
+  listAssets: () => listAssets,
+  listAssetsWithRfid: () => listAssetsWithRfid,
+  listPMWorkOrders: () => listPMWorkOrders,
+  listPreventivePlans: () => listPreventivePlans,
+  markAllNotificationsRead: () => markAllNotificationsRead,
+  markNotificationRead: () => markNotificationRead,
+  removeAssetSparePart: () => removeAssetSparePart,
+  restoreFromBackup: () => restoreFromBackup,
+  savePushSubscription: () => savePushSubscription,
+  toggleUserActive: () => toggleUserActive,
+  updateAsset: () => updateAsset,
+  updateAssetCategory: () => updateAssetCategory,
+  updateAssetRfidTag: () => updateAssetRfidTag,
+  updateInventoryItem: () => updateInventoryItem,
+  updatePMJob: () => updatePMJob,
+  updatePMWorkOrder: () => updatePMWorkOrder,
+  updatePOItem: () => updatePOItem,
+  updatePreventivePlan: () => updatePreventivePlan,
+  updatePurchaseOrder: () => updatePurchaseOrder,
+  updateSection: () => updateSection,
+  updateSite: () => updateSite,
+  updateTechnician: () => updateTechnician,
+  updateTicket: () => updateTicket,
+  updateUser: () => updateUser,
+  updateUserPassword: () => updateUserPassword,
+  updateUserRole: () => updateUserRole,
+  upsertUser: () => upsertUser
+});
 import { eq, desc, asc, and, sql, count, sum, inArray, notInArray, like, or, gte, lte, lt, isNull, isNotNull, ne } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
+import { alias } from "drizzle-orm/mysql-core";
 async function getDb() {
   if (!_db && process.env.DATABASE_URL) {
     try {
@@ -809,7 +1036,18 @@ async function updateUserPassword(userId, passwordHash) {
 async function getAllUsers() {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(users).orderBy(desc(users.createdAt));
+  return db.select().from(users);
+}
+async function createProcurementComment(data) {
+  const db = await getDb();
+  if (!db) return null;
+  const result = await db.insert(procurementComments).values(data);
+  return result[0].insertId;
+}
+async function getProcurementComments(purchaseOrderId) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(procurementComments).where(eq(procurementComments.purchaseOrderId, purchaseOrderId)).orderBy(asc(procurementComments.createdAt));
 }
 async function getUsersByRole(role) {
   const db = await getDb();
@@ -867,6 +1105,12 @@ async function getAllTechnicians(activeOnly = false) {
   if (activeOnly) return db.select().from(technicians).where(eq(technicians.status, "active")).orderBy(asc(technicians.name));
   return db.select().from(technicians).orderBy(asc(technicians.name));
 }
+async function getTechnicianById(id) {
+  const db = await getDb();
+  if (!db) return null;
+  const result = await db.select().from(technicians).where(eq(technicians.id, id)).limit(1);
+  return result[0] || null;
+}
 async function createTechnician(data) {
   const db = await getDb();
   if (!db) return null;
@@ -897,9 +1141,18 @@ async function getNextTicketNumber() {
   const db = await getDb();
   if (!db) return "MT-2026-00001";
   const year = (/* @__PURE__ */ new Date()).getFullYear();
-  const result = await db.select({ cnt: count() }).from(tickets);
-  const num = (result[0]?.cnt || 0) + 1;
-  return `MT-${year}-${String(num).padStart(5, "0")}`;
+  const prefix = `MT-${year}-`;
+  const lastTicket = await db.select({ ticketNumber: tickets.ticketNumber }).from(tickets).where(like(tickets.ticketNumber, `${prefix}%`)).orderBy(desc(tickets.ticketNumber)).limit(1);
+  let nextNum = 1;
+  if (lastTicket && lastTicket.length > 0) {
+    const parts = lastTicket[0].ticketNumber.split("-");
+    const lastNumStr = parts[parts.length - 1];
+    const lastNum = parseInt(lastNumStr || "0", 10);
+    if (!isNaN(lastNum)) {
+      nextNum = lastNum + 1;
+    }
+  }
+  return `${prefix}${String(nextNum).padStart(5, "0")}`;
 }
 async function createTicket(data) {
   const db = await getDb();
@@ -911,7 +1164,13 @@ async function getTickets(filters) {
   const db = await getDb();
   if (!db) return [];
   const conditions = [];
-  if (filters?.status) conditions.push(eq(tickets.status, filters.status));
+  if (filters?.status) {
+    if (filters.status === "open") {
+      conditions.push(ne(tickets.status, "closed"));
+    } else {
+      conditions.push(eq(tickets.status, filters.status));
+    }
+  }
   if (filters?.priority) conditions.push(eq(tickets.priority, filters.priority));
   if (filters?.siteId) conditions.push(eq(tickets.siteId, filters.siteId));
   if (filters?.sectionId) conditions.push(eq(tickets.sectionId, filters.sectionId));
@@ -922,14 +1181,54 @@ async function getTickets(filters) {
   if (filters?.search) conditions.push(or(like(tickets.title, `%${filters.search}%`), like(tickets.ticketNumber, `%${filters.search}%`)));
   if (filters?.category) conditions.push(eq(tickets.category, filters.category));
   const where = conditions.length > 0 ? and(...conditions) : void 0;
-  const rows = await db.select({ ticket: tickets, technicianName: technicians.name }).from(tickets).leftJoin(technicians, eq(tickets.assignedTechnicianId, technicians.id)).where(where).orderBy(desc(tickets.createdAt));
-  return rows.map((r) => ({ ...r.ticket, assignedTechnicianName: r.technicianName ?? null }));
+  const assignedUser = alias(users, "assignedUser");
+  if (filters?.pagination) {
+    const pageLimit = Math.min(filters.pagination.limit ?? 50, 200);
+    const pageOffset = filters.pagination.offset ?? 0;
+    const [countResult, rows2] = await Promise.all([
+      db.select({ cnt: count() }).from(tickets).where(where),
+      db.select({
+        ticket: tickets,
+        technicianName: technicians.name,
+        assignedUserName: assignedUser.name
+      }).from(tickets).leftJoin(technicians, eq(tickets.assignedTechnicianId, technicians.id)).leftJoin(assignedUser, eq(tickets.assignedToId, assignedUser.id)).where(where).orderBy(desc(tickets.createdAt)).limit(pageLimit).offset(pageOffset)
+    ]);
+    return {
+      data: rows2.map((r) => ({
+        ...r.ticket,
+        assignedTechnicianName: r.technicianName ?? null,
+        assignedToUserName: r.assignedUserName ?? null
+      })),
+      total: countResult[0]?.cnt ?? 0,
+      limit: pageLimit,
+      offset: pageOffset
+    };
+  }
+  const rows = await db.select({
+    ticket: tickets,
+    technicianName: technicians.name,
+    // external technician name
+    assignedUserName: assignedUser.name
+    // internal user name
+  }).from(tickets).leftJoin(technicians, eq(tickets.assignedTechnicianId, technicians.id)).leftJoin(assignedUser, eq(tickets.assignedToId, assignedUser.id)).where(where).orderBy(desc(tickets.createdAt));
+  return rows.map((r) => ({
+    ...r.ticket,
+    assignedTechnicianName: r.technicianName ?? null,
+    // legacy external path
+    assignedToUserName: r.assignedUserName ?? null
+    // Phase 4: internal path
+  }));
 }
 async function getTicketById(id) {
   const db = await getDb();
   if (!db) return null;
   const result = await db.select().from(tickets).where(eq(tickets.id, id)).limit(1);
   return result[0] || null;
+}
+async function getTicketsByAsset(assetId) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(tickets).where(eq(tickets.assetId, assetId)).orderBy(desc(tickets.createdAt));
 }
 async function updateTicket(id, data) {
   const db = await getDb();
@@ -967,6 +1266,15 @@ async function getPurchaseOrders(filters) {
   if (filters?.status) conditions.push(eq(purchaseOrders.status, filters.status));
   if (filters?.requestedById) conditions.push(eq(purchaseOrders.requestedById, filters.requestedById));
   const where = conditions.length > 0 ? and(...conditions) : void 0;
+  if (filters?.pagination) {
+    const pageLimit = Math.min(filters.pagination.limit ?? 50, 200);
+    const pageOffset = filters.pagination.offset ?? 0;
+    const [countResult, rows] = await Promise.all([
+      db.select({ cnt: count() }).from(purchaseOrders).where(where),
+      db.select().from(purchaseOrders).where(where).orderBy(desc(purchaseOrders.createdAt)).limit(pageLimit).offset(pageOffset)
+    ]);
+    return { data: rows, total: countResult[0]?.cnt ?? 0, limit: pageLimit, offset: pageOffset };
+  }
   return db.select().from(purchaseOrders).where(where).orderBy(desc(purchaseOrders.createdAt));
 }
 async function getPurchaseOrderById(id) {
@@ -1083,6 +1391,16 @@ async function createAuditLog(data) {
   const db = await getDb();
   if (!db) return;
   await db.insert(auditLogs).values(data);
+}
+async function getAuditLogs(filters) {
+  const db = await getDb();
+  if (!db) return [];
+  const conditions = [];
+  if (filters?.entityType) conditions.push(eq(auditLogs.entityType, filters.entityType));
+  if (filters?.entityId) conditions.push(eq(auditLogs.entityId, filters.entityId));
+  if (filters?.userId) conditions.push(eq(auditLogs.userId, filters.userId));
+  const where = conditions.length > 0 ? and(...conditions) : void 0;
+  return db.select().from(auditLogs).where(where).orderBy(desc(auditLogs.createdAt)).limit(200);
 }
 async function getTechnicianPerformance(filters) {
   const db = await getDb();
@@ -1516,7 +1834,6 @@ async function restoreFromBackup(backupData) {
 async function listAssets(filters) {
   const db = await getDb();
   if (!db) return [];
-  let query = db.select().from(assets);
   const conditions = [];
   if (filters?.siteId) conditions.push(eq(assets.siteId, filters.siteId));
   if (filters?.sectionId) conditions.push(eq(assets.sectionId, filters.sectionId));
@@ -1526,8 +1843,17 @@ async function listAssets(filters) {
     like(assets.assetNumber, `%${filters.search}%`),
     like(assets.serialNumber, `%${filters.search}%`)
   ));
-  if (conditions.length > 0) return await query.where(and(...conditions)).orderBy(desc(assets.createdAt));
-  return await query.orderBy(desc(assets.createdAt));
+  const where = conditions.length > 0 ? and(...conditions) : void 0;
+  if (filters?.pagination) {
+    const pageLimit = Math.min(filters.pagination.limit ?? 50, 200);
+    const pageOffset = filters.pagination.offset ?? 0;
+    const [countResult, rows] = await Promise.all([
+      db.select({ cnt: count() }).from(assets).where(where),
+      db.select().from(assets).where(where).orderBy(desc(assets.createdAt)).limit(pageLimit).offset(pageOffset)
+    ]);
+    return { data: rows, total: countResult[0]?.cnt ?? 0, limit: pageLimit, offset: pageOffset };
+  }
+  return db.select().from(assets).where(where).orderBy(desc(assets.createdAt));
 }
 async function getAssetById(id) {
   const db = await getDb();
@@ -1689,6 +2015,18 @@ async function updateAssetRfidTag(assetId, rfidTag) {
   await db.update(assets).set({ rfidTag: rfidTag || null }).where(eq(assets.id, assetId));
   return { success: true };
 }
+async function listAssetsWithRfid() {
+  const db = await getDb();
+  if (!db) return [];
+  return await db.select({
+    id: assets.id,
+    assetNumber: assets.assetNumber,
+    name: assets.name,
+    rfidTag: assets.rfidTag,
+    status: assets.status,
+    siteId: assets.siteId
+  }).from(assets).where(isNotNull(assets.rfidTag));
+}
 async function getAssetMaintenanceHistory(assetId) {
   const db = await getDb();
   if (!db) return { tickets: [], pmPlans: [], workOrders: [] };
@@ -1748,6 +2086,25 @@ async function removeAssetSparePart(id) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
   await db.delete(assetSpareParts).where(eq(assetSpareParts.id, id));
+  return { success: true };
+}
+async function createPMJob(data) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  const result = await db.insert(pmJobs).values(data);
+  const id = result[0]?.insertId ?? null;
+  return { id };
+}
+async function getPendingPMJobs() {
+  const db = await getDb();
+  if (!db) return [];
+  const now = /* @__PURE__ */ new Date();
+  return await db.select().from(pmJobs).where(and(eq(pmJobs.status, "pending"), lte(pmJobs.dueDate, now))).orderBy(asc(pmJobs.dueDate));
+}
+async function updatePMJob(id, data) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  await db.update(pmJobs).set(data).where(eq(pmJobs.id, id));
   return { success: true };
 }
 async function getOrCreateAssetMetrics(assetId) {
@@ -1870,6 +2227,31 @@ async function getInventoryAlerts() {
     message: item.quantity === 0 ? `${item.itemName} is out of stock` : `${item.itemName} is below minimum level (${item.quantity}/${item.minQuantity} ${item.unit})`
   }));
 }
+async function createTwoFactorSecret(data) {
+  try {
+    const database = await getDb();
+    if (!database) return null;
+    const result = await database.insert(twoFactorSecrets).values({
+      userId: data.userId,
+      secret: data.secret,
+      backupCodes: data.backupCodes,
+      isEnabled: data.isEnabled,
+      enabledAt: data.enabledAt || /* @__PURE__ */ new Date()
+    }).onDuplicateKeyUpdate({
+      set: {
+        secret: data.secret,
+        backupCodes: data.backupCodes,
+        isEnabled: data.isEnabled,
+        enabledAt: data.enabledAt || /* @__PURE__ */ new Date(),
+        updatedAt: /* @__PURE__ */ new Date()
+      }
+    });
+    return result;
+  } catch (error) {
+    console.error("Error creating 2FA secret:", error);
+    throw error;
+  }
+}
 async function getTwoFactorSecret(userId) {
   try {
     const database = await getDb();
@@ -1879,6 +2261,58 @@ async function getTwoFactorSecret(userId) {
   } catch (error) {
     console.error("Error getting 2FA secret:", error);
     throw error;
+  }
+}
+async function disableTwoFactor(userId) {
+  try {
+    const database = await getDb();
+    if (!database) return null;
+    const result = await database.update(twoFactorSecrets).set({
+      isEnabled: false,
+      updatedAt: /* @__PURE__ */ new Date()
+    }).where(eq(twoFactorSecrets.userId, userId));
+    return result;
+  } catch (error) {
+    console.error("Error disabling 2FA:", error);
+    throw error;
+  }
+}
+async function createTwoFactorAuditLog(data) {
+  try {
+    const database = await getDb();
+    if (!database) return null;
+    const result = await database.insert(twoFactorAuditLogs).values({
+      userId: data.userId,
+      action: data.action,
+      ipAddress: data.ipAddress,
+      userAgent: data.userAgent,
+      success: data.success,
+      details: data.details
+    });
+    return result;
+  } catch (error) {
+    console.error("Error creating 2FA audit log:", error);
+    throw error;
+  }
+}
+async function getTwoFactorAuditLogs(userId, limit = 50) {
+  try {
+    const database = await getDb();
+    if (!database) return [];
+    const result = await database.select().from(twoFactorAuditLogs).where(eq(twoFactorAuditLogs.userId, userId)).orderBy(desc(twoFactorAuditLogs.createdAt)).limit(limit);
+    return result;
+  } catch (error) {
+    console.error("Error getting 2FA audit logs:", error);
+    throw error;
+  }
+}
+async function isTwoFactorEnabled(userId) {
+  try {
+    const secret = await getTwoFactorSecret(userId);
+    return secret?.isEnabled || false;
+  } catch (error) {
+    console.error("Error checking 2FA status:", error);
+    return false;
   }
 }
 async function savePushSubscription(data) {
@@ -1911,6 +2345,58 @@ async function getAllPOItems() {
   const db = await getDb();
   if (!db) return [];
   return db.select().from(purchaseOrderItems).orderBy(desc(purchaseOrderItems.createdAt));
+}
+async function createInspectionResult(data) {
+  const db = await getDb();
+  if (!db) return null;
+  const result = await db.insert(inspectionResults).values(data);
+  return { id: result[0].insertId };
+}
+async function getInspectionResultsByTicket(ticketId) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(inspectionResults).where(eq(inspectionResults.ticketId, ticketId));
+}
+async function getInspectionResultsByAsset(assetId) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(inspectionResults).where(eq(inspectionResults.assetId, assetId));
+}
+async function getInspectionDashboardStats() {
+  const db = await getDb();
+  if (!db) return { totalInspections: 0, mostFrequentRootCause: "-", highestSeverity: "low", mostInspectedAsset: null };
+  const [totalRow] = await db.select({ total: count() }).from(inspectionResults);
+  const totalInspections = Number(totalRow?.total ?? 0);
+  const rootCauseRows = await db.select({ rootCause: inspectionResults.rootCause, cnt: count() }).from(inspectionResults).groupBy(inspectionResults.rootCause).orderBy(desc(count())).limit(1);
+  const mostFrequentRootCause = rootCauseRows[0]?.rootCause ?? "-";
+  const severityRows = await db.select({ severity: inspectionResults.severity }).from(inspectionResults).orderBy(sql`FIELD(${inspectionResults.severity}, 'low', 'medium', 'high', 'critical') DESC`).limit(1);
+  const highestSeverity = severityRows[0]?.severity ?? "low";
+  const assetRows = await db.select({ assetId: inspectionResults.assetId, cnt: count() }).from(inspectionResults).groupBy(inspectionResults.assetId).orderBy(desc(count())).limit(1);
+  const mostInspectedAsset = assetRows[0] ? { assetId: assetRows[0].assetId, count: Number(assetRows[0].cnt) } : null;
+  return { totalInspections, mostFrequentRootCause, highestSeverity, mostInspectedAsset };
+}
+async function listAssetCategories() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(assetCategories).orderBy(asc(assetCategories.name));
+}
+async function createAssetCategory(name) {
+  const db = await getDb();
+  if (!db) return null;
+  const result = await db.insert(assetCategories).values({ name });
+  return { id: result[0].insertId, name };
+}
+async function updateAssetCategory(id, name) {
+  const db = await getDb();
+  if (!db) return null;
+  await db.update(assetCategories).set({ name }).where(eq(assetCategories.id, id));
+  return { id, name };
+}
+async function deleteAssetCategory(id) {
+  const db = await getDb();
+  if (!db) return null;
+  await db.delete(assetCategories).where(eq(assetCategories.id, id));
+  return { id };
 }
 var _db, _webPush;
 var init_db = __esm({
@@ -2251,6 +2737,7 @@ var init_twoFactorEnforcement = __esm({
 });
 
 // server/_core/index.ts
+init_config();
 import "dotenv/config";
 import express2 from "express";
 import { createServer } from "http";
@@ -2356,7 +2843,7 @@ function registerOAuthRoutes(app) {
 init_const();
 
 // server/_core/systemRouter.ts
-import { z } from "zod";
+import { z as z2 } from "zod";
 
 // server/_core/notification.ts
 init_env();
@@ -2404,16 +2891,12 @@ var validatePayload = (input) => {
 async function notifyOwner(payload) {
   const { title, content } = validatePayload(payload);
   if (!ENV.forgeApiUrl) {
-    throw new TRPCError({
-      code: "INTERNAL_SERVER_ERROR",
-      message: "Notification service URL is not configured."
-    });
+    console.warn("[Notifications] Notification service unavailable \u2014 owner notifications skipped (URL not configured).");
+    return false;
   }
   if (!ENV.forgeApiKey) {
-    throw new TRPCError({
-      code: "INTERNAL_SERVER_ERROR",
-      message: "Notification service API key is not configured."
-    });
+    console.warn("[Notifications] Notification service unavailable \u2014 owner notifications skipped (API key not configured).");
+    return false;
   }
   const endpoint = buildEndpointUrl(ENV.forgeApiUrl);
   try {
@@ -2481,16 +2964,16 @@ var adminProcedure = t.procedure.use(
 // server/_core/systemRouter.ts
 var systemRouter = router({
   health: publicProcedure.input(
-    z.object({
-      timestamp: z.number().min(0, "timestamp cannot be negative")
+    z2.object({
+      timestamp: z2.number().min(0, "timestamp cannot be negative")
     })
   ).query(() => ({
     ok: true
   })),
   notifyOwner: adminProcedure.input(
-    z.object({
-      title: z.string().min(1, "title is required"),
-      content: z.string().min(1, "content is required")
+    z2.object({
+      title: z2.string().min(1, "title is required"),
+      content: z2.string().min(1, "content is required")
     })
   ).mutation(async ({ input }) => {
     const delivered = await notifyOwner(input);
@@ -2503,7 +2986,7 @@ var systemRouter = router({
 // server/routers.ts
 init_db();
 import { TRPCError as TRPCError5 } from "@trpc/server";
-import { z as z3 } from "zod";
+import { z as z4 } from "zod";
 import { eq as eq3, and as and3, asc as asc2, gte as gte2 } from "drizzle-orm";
 
 // server/storage.ts
@@ -2742,7 +3225,7 @@ async function invokeLLM(params) {
 import { nanoid } from "nanoid";
 
 // server/routers/translation.ts
-import { z as z2 } from "zod";
+import { z as z3 } from "zod";
 import { TRPCError as TRPCError3 } from "@trpc/server";
 
 // server/translationEngine.ts
@@ -2827,13 +3310,15 @@ ${context ? `Context: ${context}` : ""}`;
     }
     throw new Error("No translation content in LLM response");
   } catch (error) {
-    console.error(`[TranslationEngine] LLM translation failed: ${error.message}`);
     throw error;
   }
 }
 async function queueTranslation(request) {
   const db = await getDb();
-  if (!db) return [];
+  if (!db) {
+    console.error("[TranslationEngine] Failed to get database connection for queueTranslation. Job aborted.");
+    return [];
+  }
   const targetLangs = request.targetLanguages || supportedLanguages.filter((l) => l !== request.sourceLanguage);
   const jobIds = [];
   for (const field of request.fields) {
@@ -2897,14 +3382,17 @@ async function queueTranslation(request) {
   }
   if (jobIds.length > 0) {
     processTranslationJobs(jobIds).catch(
-      (err) => console.error("[TranslationEngine] Background job processing error:", err)
+      (err) => console.error("[TranslationEngine] Background job processing error for jobIds:", jobIds, err)
     );
   }
   return jobIds;
 }
 async function processTranslationJobs(jobIds) {
   const db = await getDb();
-  if (!db) return;
+  if (!db) {
+    console.error("[TranslationEngine] Failed to get database connection for processTranslationJobs. Job aborted.");
+    return;
+  }
   for (const jobId of jobIds) {
     try {
       const [job] = await db.select().from(translationJobs).where(eq2(translationJobs.id, jobId)).limit(1);
@@ -3059,7 +3547,10 @@ async function getBatchTranslations(entityType, entityIds, languageCode, fieldNa
 }
 async function manualOverrideTranslation(entityType, entityId, fieldName, languageCode, translatedText, userId) {
   const db = await getDb();
-  if (!db) return;
+  if (!db) {
+    console.error("[TranslationEngine] Failed to get database connection for processTranslationJobs. Job aborted.");
+    return;
+  }
   const [existing] = await db.select().from(entityTranslations).where(
     and2(
       eq2(entityTranslations.entityType, entityType),
@@ -3118,7 +3609,10 @@ async function manualOverrideTranslation(entityType, entityId, fieldName, langua
 }
 async function getTranslationVersions(entityType, entityId, fieldName, languageCode) {
   const db = await getDb();
-  if (!db) return [];
+  if (!db) {
+    console.error("[TranslationEngine] Failed to get database connection for queueTranslation. Job aborted.");
+    return [];
+  }
   const [etRecord] = await db.select().from(entityTranslations).where(
     and2(
       eq2(entityTranslations.entityType, entityType),
@@ -3202,7 +3696,10 @@ async function getTranslationStats() {
 }
 async function getTranslationJobsList(filters) {
   const db = await getDb();
-  if (!db) return [];
+  if (!db) {
+    console.error("[TranslationEngine] Failed to get database connection for queueTranslation. Job aborted.");
+    return [];
+  }
   const conditions = [];
   if (filters?.status) conditions.push(eq2(translationJobs.status, filters.status));
   if (filters?.entityType) conditions.push(eq2(translationJobs.entityType, filters.entityType));
@@ -3211,26 +3708,29 @@ async function getTranslationJobsList(filters) {
 }
 async function updateUserLanguage(userId, language) {
   const db = await getDb();
-  if (!db) return;
+  if (!db) {
+    console.error("[TranslationEngine] Failed to get database connection for processTranslationJobs. Job aborted.");
+    return;
+  }
   const { users: users2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
   await db.update(users2).set({ preferredLanguage: language }).where(eq2(users2.id, userId));
 }
 
 // server/routers/translation.ts
-var languageEnum = z2.enum(["ar", "en", "ur"]);
+var languageEnum = z3.enum(["ar", "en", "ur"]);
 var translationRouter = router({
   /**
    * Queue translation for an entity
    */
-  queueTranslation: protectedProcedure.input(z2.object({
-    entityType: z2.string(),
-    entityId: z2.number(),
-    fields: z2.array(z2.object({
-      fieldName: z2.string(),
-      text: z2.string()
+  queueTranslation: protectedProcedure.input(z3.object({
+    entityType: z3.string(),
+    entityId: z3.number(),
+    fields: z3.array(z3.object({
+      fieldName: z3.string(),
+      text: z3.string()
     })),
     sourceLanguage: languageEnum,
-    targetLanguages: z2.array(languageEnum).optional()
+    targetLanguages: z3.array(languageEnum).optional()
   })).mutation(async ({ input, ctx }) => {
     const jobIds = await queueTranslation({
       ...input,
@@ -3241,11 +3741,11 @@ var translationRouter = router({
   /**
    * Get translations for a single entity
    */
-  getEntityTranslations: protectedProcedure.input(z2.object({
-    entityType: z2.string(),
-    entityId: z2.number(),
+  getEntityTranslations: protectedProcedure.input(z3.object({
+    entityType: z3.string(),
+    entityId: z3.number(),
     languageCode: languageEnum,
-    fieldNames: z2.array(z2.string()).optional()
+    fieldNames: z3.array(z3.string()).optional()
   })).query(async ({ input }) => {
     return getEntityTranslations(
       input.entityType,
@@ -3257,11 +3757,11 @@ var translationRouter = router({
   /**
    * Get translations for multiple entities (batch)
    */
-  getBatchTranslations: protectedProcedure.input(z2.object({
-    entityType: z2.string(),
-    entityIds: z2.array(z2.number()),
+  getBatchTranslations: protectedProcedure.input(z3.object({
+    entityType: z3.string(),
+    entityIds: z3.array(z3.number()),
     languageCode: languageEnum,
-    fieldNames: z2.array(z2.string()).optional()
+    fieldNames: z3.array(z3.string()).optional()
   })).query(async ({ input }) => {
     return getBatchTranslations(
       input.entityType,
@@ -3273,12 +3773,12 @@ var translationRouter = router({
   /**
    * Manual override - edit translation manually (marks as approved)
    */
-  manualOverride: protectedProcedure.input(z2.object({
-    entityType: z2.string(),
-    entityId: z2.number(),
-    fieldName: z2.string(),
+  manualOverride: protectedProcedure.input(z3.object({
+    entityType: z3.string(),
+    entityId: z3.number(),
+    fieldName: z3.string(),
     languageCode: languageEnum,
-    translatedText: z2.string().min(1)
+    translatedText: z3.string().min(1)
   })).mutation(async ({ input, ctx }) => {
     const allowedRoles = ["owner", "admin", "maintenance_manager"];
     if (!allowedRoles.includes(ctx.user.role)) {
@@ -3300,10 +3800,10 @@ var translationRouter = router({
   /**
    * Get translation version history
    */
-  getVersionHistory: protectedProcedure.input(z2.object({
-    entityType: z2.string(),
-    entityId: z2.number(),
-    fieldName: z2.string(),
+  getVersionHistory: protectedProcedure.input(z3.object({
+    entityType: z3.string(),
+    entityId: z3.number(),
+    fieldName: z3.string(),
     languageCode: languageEnum
   })).query(async ({ input }) => {
     return getTranslationVersions(
@@ -3316,8 +3816,8 @@ var translationRouter = router({
   /**
    * Retry failed translation jobs
    */
-  retryFailed: protectedProcedure.input(z2.object({
-    entityType: z2.string().optional()
+  retryFailed: protectedProcedure.input(z3.object({
+    entityType: z3.string().optional()
   }).optional()).mutation(async ({ input, ctx }) => {
     if (ctx.user.role !== "owner" && ctx.user.role !== "admin") {
       throw new TRPCError3({ code: "FORBIDDEN", message: "\u0641\u0642\u0637 \u0627\u0644\u0645\u0627\u0644\u0643 \u064A\u0645\u0643\u0646\u0647 \u0625\u0639\u0627\u062F\u0629 \u0627\u0644\u0645\u062D\u0627\u0648\u0644\u0629" });
@@ -3334,17 +3834,17 @@ var translationRouter = router({
   /**
    * Get translation jobs list (for admin monitoring)
    */
-  getJobs: protectedProcedure.input(z2.object({
-    status: z2.string().optional(),
-    entityType: z2.string().optional(),
-    limit: z2.number().optional()
+  getJobs: protectedProcedure.input(z3.object({
+    status: z3.string().optional(),
+    entityType: z3.string().optional(),
+    limit: z3.number().optional()
   }).optional()).query(async ({ input }) => {
     return getTranslationJobsList(input || void 0);
   }),
   /**
    * Update user preferred language
    */
-  setLanguage: protectedProcedure.input(z2.object({
+  setLanguage: protectedProcedure.input(z3.object({
     language: languageEnum
   })).mutation(async ({ input, ctx }) => {
     await updateUserLanguage(ctx.user.id, input.language);
@@ -3577,9 +4077,9 @@ var appRouter = router({
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
       return { success: true };
     }),
-    login: publicProcedure.input(z3.object({
-      username: z3.string().min(1),
-      password: z3.string().min(8, "\u0643\u0644\u0645\u0629 \u0627\u0644\u0645\u0631\u0648\u0631 \u064A\u062C\u0628 \u0623\u0646 \u062A\u0643\u0648\u0646 8 \u0623\u062D\u0631\u0641 \u0639\u0644\u0649 \u0627\u0644\u0623\u0642\u0644")
+    login: publicProcedure.input(z4.object({
+      username: z4.string().min(1),
+      password: z4.string().min(8, "\u0643\u0644\u0645\u0629 \u0627\u0644\u0645\u0631\u0648\u0631 \u064A\u062C\u0628 \u0623\u0646 \u062A\u0643\u0648\u0646 8 \u0623\u062D\u0631\u0641 \u0639\u0644\u0649 \u0627\u0644\u0623\u0642\u0644")
     })).mutation(async ({ input, ctx }) => {
       const user = await getUserByUsername(input.username);
       if (!user || !user.passwordHash) {
@@ -3606,9 +4106,9 @@ var appRouter = router({
         twoFactorEnforcementStatus
       };
     }),
-    changePassword: protectedProcedure.input(z3.object({
-      currentPassword: z3.string().optional(),
-      newPassword: z3.string().min(8, "\u0643\u0644\u0645\u0629 \u0627\u0644\u0645\u0631\u0648\u0631 \u064A\u062C\u0628 \u0623\u0646 \u062A\u0643\u0648\u0646 8 \u0623\u062D\u0631\u0641 \u0639\u0644\u0649 \u0627\u0644\u0623\u0642\u0644").regex(/(?=.*[A-Z])(?=.*\d)/, "\u064A\u062C\u0628 \u0623\u0646 \u062A\u062D\u062A\u0648\u064A \u0639\u0644\u0649 \u062D\u0631\u0641 \u0643\u0628\u064A\u0631 \u0648\u0631\u0642\u0645 \u0648\u0627\u062D\u062F \u0639\u0644\u0649 \u0627\u0644\u0623\u0642\u0644")
+    changePassword: protectedProcedure.input(z4.object({
+      currentPassword: z4.string().optional(),
+      newPassword: z4.string().min(8, "\u0643\u0644\u0645\u0629 \u0627\u0644\u0645\u0631\u0648\u0631 \u064A\u062C\u0628 \u0623\u0646 \u062A\u0643\u0648\u0646 8 \u0623\u062D\u0631\u0641 \u0639\u0644\u0649 \u0627\u0644\u0623\u0642\u0644").regex(/(?=.*[A-Z])(?=.*\d)/, "\u064A\u062C\u0628 \u0623\u0646 \u062A\u062D\u062A\u0648\u064A \u0639\u0644\u0649 \u062D\u0631\u0641 \u0643\u0628\u064A\u0631 \u0648\u0631\u0642\u0645 \u0648\u0627\u062D\u062F \u0639\u0644\u0649 \u0627\u0644\u0623\u0642\u0644")
     })).mutation(async ({ input, ctx }) => {
       if (ctx.user.passwordHash && input.currentPassword) {
         const valid = await bcrypt.compare(input.currentPassword, ctx.user.passwordHash);
@@ -3631,7 +4131,7 @@ var appRouter = router({
         // 10 minutes
       );
     }),
-    byRole: protectedProcedure.input(z3.object({ role: z3.string() })).query(async ({ input }) => {
+    byRole: protectedProcedure.input(z4.object({ role: z4.string() })).query(async ({ input }) => {
       return cacheManager.getOrCompute(
         cacheKeys.usersByRole(input.role),
         () => getUsersByRole(input.role),
@@ -3639,7 +4139,7 @@ var appRouter = router({
         // 10 minutes
       );
     }),
-    updateRole: protectedProcedure.input(z3.object({ userId: z3.number(), role: z3.string() })).mutation(async ({ input, ctx }) => {
+    updateRole: protectedProcedure.input(z4.object({ userId: z4.number(), role: z4.string() })).mutation(async ({ input, ctx }) => {
       if (ctx.user.role !== "owner" && ctx.user.role !== "admin") {
         throw new TRPCError5({ code: "FORBIDDEN", message: "\u0641\u0642\u0637 \u0627\u0644\u0645\u0627\u0644\u0643 \u064A\u0645\u0643\u0646\u0647 \u062A\u063A\u064A\u064A\u0631 \u0627\u0644\u0623\u062F\u0648\u0627\u0631" });
       }
@@ -3649,13 +4149,13 @@ var appRouter = router({
       invalidateCache.users();
       return { success: true };
     }),
-    update: protectedProcedure.input(z3.object({
-      id: z3.number(),
-      name: z3.string().optional(),
-      email: z3.string().optional(),
-      role: z3.string().optional(),
-      phone: z3.string().optional(),
-      department: z3.string().optional()
+    update: protectedProcedure.input(z4.object({
+      id: z4.number(),
+      name: z4.string().optional(),
+      email: z4.string().optional(),
+      role: z4.string().optional(),
+      phone: z4.string().optional(),
+      department: z4.string().optional()
     })).mutation(async ({ input, ctx }) => {
       if (ctx.user.role !== "owner" && ctx.user.role !== "admin") {
         throw new TRPCError5({ code: "FORBIDDEN", message: "\u0641\u0642\u0637 \u0627\u0644\u0645\u0627\u0644\u0643 \u064A\u0645\u0643\u0646\u0647 \u062A\u0639\u062F\u064A\u0644 \u0627\u0644\u0645\u0633\u062A\u062E\u062F\u0645\u064A\u0646" });
@@ -3668,14 +4168,14 @@ var appRouter = router({
       invalidateCache.users();
       return { success: true };
     }),
-    create: protectedProcedure.input(z3.object({
-      username: z3.string().min(2),
-      password: z3.string().min(8, "\u0643\u0644\u0645\u0629 \u0627\u0644\u0645\u0631\u0648\u0631 \u064A\u062C\u0628 \u0623\u0646 \u062A\u0643\u0648\u0646 8 \u0623\u062D\u0631\u0641 \u0639\u0644\u0649 \u0627\u0644\u0623\u0642\u0644").regex(/(?=.*[A-Z])(?=.*\d)/, "\u064A\u062C\u0628 \u0623\u0646 \u062A\u062D\u062A\u0648\u064A \u0639\u0644\u0649 \u062D\u0631\u0641 \u0643\u0628\u064A\u0631 \u0648\u0631\u0642\u0645 \u0648\u0627\u062F \u0639\u0644\u0649 \u0627\u0644\u0623\u0642\u0644"),
-      name: z3.string().min(1),
-      role: z3.string(),
-      email: z3.string().optional(),
-      phone: z3.string().optional(),
-      department: z3.string().optional()
+    create: protectedProcedure.input(z4.object({
+      username: z4.string().min(2),
+      password: z4.string().min(8, "\u0643\u0644\u0645\u0629 \u0627\u0644\u0645\u0631\u0648\u0631 \u064A\u062C\u0628 \u0623\u0646 \u062A\u0643\u0648\u0646 8 \u0623\u062D\u0631\u0641 \u0639\u0644\u0649 \u0627\u0644\u0623\u0642\u0644").regex(/(?=.*[A-Z])(?=.*\d)/, "\u064A\u062C\u0628 \u0623\u0646 \u062A\u062D\u062A\u0648\u064A \u0639\u0644\u0649 \u062D\u0631\u0641 \u0643\u0628\u064A\u0631 \u0648\u0631\u0642\u0645 \u0648\u0627\u062F \u0639\u0644\u0649 \u0627\u0644\u0623\u0642\u0644"),
+      name: z4.string().min(1),
+      role: z4.string(),
+      email: z4.string().optional(),
+      phone: z4.string().optional(),
+      department: z4.string().optional()
     })).mutation(async ({ input, ctx }) => {
       if (ctx.user.role !== "owner" && ctx.user.role !== "admin") {
         throw new TRPCError5({ code: "FORBIDDEN", message: "\u0641\u0642\u0637 \u0627\u0644\u0645\u0627\u0644\u0643 \u064A\u0645\u0643\u0646\u0647 \u0625\u0646\u0634\u0627\u0621 \u0645\u0633\u062A\u062E\u062F\u0645\u064A\u0646" });
@@ -3688,9 +4188,9 @@ var appRouter = router({
       invalidateCache.users();
       return { success: true, id };
     }),
-    resetPassword: protectedProcedure.input(z3.object({
-      userId: z3.number(),
-      newPassword: z3.string().min(8, "\u0643\u0644\u0645\u0629 \u0627\u0644\u0645\u0631\u0648\u0631 \u064A\u062C\u0628 \u0623\u0646 \u062A\u0643\u0648\u0646 8 \u0623\u062D\u0631\u0641 \u0639\u0644\u0649 \u0627\u0644\u0623\u0642\u0644").regex(/(?=.*[A-Z])(?=.*\d)/, "\u064A\u062C\u0628 \u0623\u0646 \u062A\u062D\u062A\u0648\u064A \u0639\u0644\u0649 \u062D\u0631\u0641 \u0643\u0628\u064A\u0631 \u0648\u0631\u0642\u0645 \u0648\u0627\u062D\u062F \u0639\u0644\u0649 \u0627\u0644\u0623\u0642\u0644")
+    resetPassword: protectedProcedure.input(z4.object({
+      userId: z4.number(),
+      newPassword: z4.string().min(8, "\u0643\u0644\u0645\u0629 \u0627\u0644\u0645\u0631\u0648\u0631 \u064A\u062C\u0628 \u0623\u0646 \u062A\u0643\u0648\u0646 8 \u0623\u062D\u0631\u0641 \u0639\u0644\u0649 \u0627\u0644\u0623\u0642\u0644").regex(/(?=.*[A-Z])(?=.*\d)/, "\u064A\u062C\u0628 \u0623\u0646 \u062A\u062D\u062A\u0648\u064A \u0639\u0644\u0649 \u062D\u0631\u0641 \u0643\u0628\u064A\u0631 \u0648\u0631\u0642\u0645 \u0648\u0627\u062D\u062F \u0639\u0644\u0649 \u0627\u0644\u0623\u0642\u0644")
     })).mutation(async ({ input, ctx }) => {
       if (ctx.user.role !== "owner" && ctx.user.role !== "admin") {
         throw new TRPCError5({ code: "FORBIDDEN", message: "\u0644\u064A\u0633 \u0644\u062F\u064A\u0643 \u0635\u0644\u0627\u062D\u064A\u0629" });
@@ -3700,9 +4200,9 @@ var appRouter = router({
       await createAuditLog({ userId: ctx.user.id, action: "reset_password", entityType: "user", entityId: input.userId });
       return { success: true };
     }),
-    delete: protectedProcedure.input(z3.object({
-      id: z3.number(),
-      confirmPassword: z3.string().min(1, "\u0643\u0644\u0645\u0629 \u0627\u0644\u0645\u0631\u0648\u0631 \u0645\u0637\u0644\u0648\u0628\u0629 \u0644\u0644\u062A\u0623\u0643\u064A\u062F")
+    delete: protectedProcedure.input(z4.object({
+      id: z4.number(),
+      confirmPassword: z4.string().min(1, "\u0643\u0644\u0645\u0629 \u0627\u0644\u0645\u0631\u0648\u0631 \u0645\u0637\u0644\u0648\u0628\u0629 \u0644\u0644\u062A\u0623\u0643\u064A\u062F")
     })).mutation(async ({ input, ctx }) => {
       if (ctx.user.role !== "owner" && ctx.user.role !== "admin") {
         throw new TRPCError5({ code: "FORBIDDEN", message: "\u0641\u0642\u0637 \u0627\u0644\u0645\u0627\u0644\u0643 \u064A\u0645\u0643\u0646\u0647 \u062D\u0630\u0641 \u0627\u0644\u0645\u0633\u062A\u062E\u062F\u0645\u064A\u0646" });
@@ -3722,9 +4222,9 @@ var appRouter = router({
       invalidateCache.users();
       return { success: true };
     }),
-    toggleActive: protectedProcedure.input(z3.object({
-      id: z3.number(),
-      isActive: z3.boolean()
+    toggleActive: protectedProcedure.input(z4.object({
+      id: z4.number(),
+      isActive: z4.boolean()
     })).mutation(async ({ input, ctx }) => {
       if (ctx.user.role !== "owner" && ctx.user.role !== "admin") {
         throw new TRPCError5({ code: "FORBIDDEN", message: "\u0641\u0642\u0637 \u0627\u0644\u0645\u0627\u0644\u0643 \u064A\u0645\u0643\u0646\u0647 \u062A\u0639\u0637\u064A\u0644/\u062A\u0641\u0639\u064A\u0644 \u0627\u0644\u0645\u0633\u062A\u062E\u062F\u0645\u064A\u0646" });
@@ -3734,6 +4234,35 @@ var appRouter = router({
       if (user.role === "owner") throw new TRPCError5({ code: "FORBIDDEN", message: "\u0644\u0627 \u064A\u0645\u0643\u0646 \u062A\u0639\u0637\u064A\u0644 \u0627\u0644\u0645\u0627\u0644\u0643" });
       await toggleUserActive(input.id, input.isActive);
       await createAuditLog({ userId: ctx.user.id, action: input.isActive ? "activate_user" : "deactivate_user", entityType: "user", entityId: input.id });
+      invalidateCache.users();
+      return { success: true };
+    }),
+    // ── Phase 1: Unified technician query (preparation layer) ────────────────
+    // Returns users with role='technician' including specialty fields.
+    // ADDITIVE — legacy technicians.list endpoint is NOT removed.
+    // Future phases can switch dropdowns to use this endpoint instead.
+    listTechnicians: protectedProcedure.query(async () => {
+      return cacheManager.getOrCompute(
+        cacheKeys.usersByRole("technician"),
+        () => getUsersByRole("technician"),
+        600
+        // 10 minutes
+      );
+    }),
+    // ── Phase 1: Update specialty fields on a user ───────────────────────
+    // Allows setting specialty/trade on users with role='technician'.
+    // ADDITIVE — does not affect any existing update logic.
+    updateSpecialty: protectedProcedure.input(z4.object({
+      userId: z4.number(),
+      specialty: z4.string().optional(),
+      specialtyEn: z4.string().optional(),
+      specialtyUr: z4.string().optional()
+    })).mutation(async ({ input, ctx }) => {
+      if (ctx.user.role !== "owner" && ctx.user.role !== "admin") {
+        throw new TRPCError5({ code: "FORBIDDEN", message: "\u0641\u0642\u0637 \u0627\u0644\u0645\u0627\u0644\u0643 \u064A\u0645\u0643\u0646\u0647 \u062A\u0639\u062F\u064A\u0644 \u0627\u0644\u062A\u062E\u0635\u0635" });
+      }
+      const { userId, ...specialtyData } = input;
+      await updateUser(userId, specialtyData);
       invalidateCache.users();
       return { success: true };
     })
@@ -3750,7 +4279,7 @@ var appRouter = router({
         // 10 minutes
       );
     }),
-    create: protectedProcedure.input(z3.object({ name: z3.string().min(1), address: z3.string().optional(), description: z3.string().optional() })).mutation(async ({ input, ctx }) => {
+    create: protectedProcedure.input(z4.object({ name: z4.string().min(1), address: z4.string().optional(), description: z4.string().optional() })).mutation(async ({ input, ctx }) => {
       let nameEn;
       let nameUr;
       try {
@@ -3764,11 +4293,11 @@ var appRouter = router({
       invalidateCache.sites();
       return { id };
     }),
-    update: protectedProcedure.input(z3.object({
-      id: z3.number(),
-      name: z3.string().min(1).optional(),
-      address: z3.string().optional(),
-      description: z3.string().optional()
+    update: protectedProcedure.input(z4.object({
+      id: z4.number(),
+      name: z4.string().min(1).optional(),
+      address: z4.string().optional(),
+      description: z4.string().optional()
     })).mutation(async ({ input, ctx }) => {
       const oldSite = await getSiteById(input.id);
       if (!oldSite) throw new TRPCError5({ code: "NOT_FOUND", message: "\u0627\u0644\u0645\u0648\u0642\u0639 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F" });
@@ -3787,7 +4316,7 @@ var appRouter = router({
       invalidateCache.sites();
       return { success: true };
     }),
-    delete: protectedProcedure.input(z3.object({ id: z3.number() })).mutation(async ({ input, ctx }) => {
+    delete: protectedProcedure.input(z4.object({ id: z4.number() })).mutation(async ({ input, ctx }) => {
       const site = await getSiteById(input.id);
       if (!site) throw new TRPCError5({ code: "NOT_FOUND", message: "\u0627\u0644\u0645\u0648\u0642\u0639 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F" });
       await deleteSite(input.id);
@@ -3800,13 +4329,13 @@ var appRouter = router({
   // SECTIONS
   // ============================================================
   sections: router({
-    list: protectedProcedure.input(z3.object({ siteId: z3.number().optional() }).optional()).query(async ({ input }) => {
+    list: protectedProcedure.input(z4.object({ siteId: z4.number().optional() }).optional()).query(async ({ input }) => {
       return getSections(input?.siteId);
     }),
-    create: protectedProcedure.input(z3.object({
-      name: z3.string().min(1),
-      siteId: z3.number(),
-      description: z3.string().optional()
+    create: protectedProcedure.input(z4.object({
+      name: z4.string().min(1),
+      siteId: z4.number(),
+      description: z4.string().optional()
     })).mutation(async ({ input, ctx }) => {
       let sectionNameEn;
       let sectionNameUr;
@@ -3820,11 +4349,11 @@ var appRouter = router({
       await createAuditLog({ userId: ctx.user.id, action: "create_section", entityType: "section", entityId: id, newValues: input });
       return { id };
     }),
-    update: protectedProcedure.input(z3.object({
-      id: z3.number(),
-      name: z3.string().min(1).optional(),
-      description: z3.string().optional(),
-      isActive: z3.boolean().optional()
+    update: protectedProcedure.input(z4.object({
+      id: z4.number(),
+      name: z4.string().min(1).optional(),
+      description: z4.string().optional(),
+      isActive: z4.boolean().optional()
     })).mutation(async ({ input, ctx }) => {
       const { id, ...updateData } = input;
       let sectionExtraFields = {};
@@ -3840,7 +4369,7 @@ var appRouter = router({
       await createAuditLog({ userId: ctx.user.id, action: "update_section", entityType: "section", entityId: id, newValues: updateData });
       return { success: true };
     }),
-    delete: protectedProcedure.input(z3.object({ id: z3.number() })).mutation(async ({ input, ctx }) => {
+    delete: protectedProcedure.input(z4.object({ id: z4.number() })).mutation(async ({ input, ctx }) => {
       await deleteSection(input.id);
       await createAuditLog({ userId: ctx.user.id, action: "delete_section", entityType: "section", entityId: input.id });
       return { success: true };
@@ -3850,12 +4379,12 @@ var appRouter = router({
   // TECHNICIANS
   // ============================================================
   technicians: router({
-    list: protectedProcedure.input(z3.object({ activeOnly: z3.boolean().optional() }).optional()).query(async ({ input }) => {
+    list: protectedProcedure.input(z4.object({ activeOnly: z4.boolean().optional() }).optional()).query(async ({ input }) => {
       return getAllTechnicians(input?.activeOnly ?? false);
     }),
-    create: protectedProcedure.input(z3.object({
-      name: z3.string().min(1),
-      specialty: z3.string().optional()
+    create: protectedProcedure.input(z4.object({
+      name: z4.string().min(1),
+      specialty: z4.string().optional()
     })).mutation(async ({ input, ctx }) => {
       let techNameEn;
       let techNameUr;
@@ -3875,11 +4404,11 @@ var appRouter = router({
       await createAuditLog({ userId: ctx.user.id, action: "create_technician", entityType: "technician", entityId: id, newValues: input });
       return { id };
     }),
-    update: protectedProcedure.input(z3.object({
-      id: z3.number(),
-      name: z3.string().min(1).optional(),
-      specialty: z3.string().optional(),
-      status: z3.enum(["active", "inactive"]).optional()
+    update: protectedProcedure.input(z4.object({
+      id: z4.number(),
+      name: z4.string().min(1).optional(),
+      specialty: z4.string().optional(),
+      status: z4.enum(["active", "inactive"]).optional()
     })).mutation(async ({ input, ctx }) => {
       const { id, ...updateData } = input;
       let techExtraFields = {};
@@ -3904,7 +4433,7 @@ var appRouter = router({
       await createAuditLog({ userId: ctx.user.id, action: "update_technician", entityType: "technician", entityId: id, newValues: updateData });
       return { success: true };
     }),
-    delete: protectedProcedure.input(z3.object({ id: z3.number() })).mutation(async ({ input, ctx }) => {
+    delete: protectedProcedure.input(z4.object({ id: z4.number() })).mutation(async ({ input, ctx }) => {
       await deleteTechnician(input.id);
       await createAuditLog({ userId: ctx.user.id, action: "delete_technician", entityType: "technician", entityId: input.id });
       return { success: true };
@@ -3917,37 +4446,47 @@ var appRouter = router({
   // TICKETS
   // ============================================================
   tickets: router({
-    list: protectedProcedure.input(z3.object({
-      status: z3.string().optional(),
-      priority: z3.string().optional(),
-      siteId: z3.number().optional(),
-      sectionId: z3.number().optional(),
-      assetId: z3.number().optional(),
-      search: z3.string().optional(),
-      category: z3.string().optional(),
-      assignedTechnicianId: z3.number().optional()
+    list: protectedProcedure.input(z4.object({
+      status: z4.string().optional(),
+      priority: z4.string().optional(),
+      siteId: z4.number().optional(),
+      sectionId: z4.number().optional(),
+      assetId: z4.number().optional(),
+      search: z4.string().optional(),
+      category: z4.string().optional(),
+      assignedTechnicianId: z4.number().optional(),
+      assignedToId: z4.number().optional(),
+      // Phase 2: filter by user-based assignment
+      // Stage 0.5 Phase 2: pagination — only active when page is explicitly provided
+      page: z4.number().int().min(1).optional(),
+      pageSize: z4.number().int().min(1).max(200).optional()
     }).optional()).query(async ({ input, ctx }) => {
       const role = ctx.user.role;
-      let filters = input || {};
+      const { page, pageSize, ...rest } = input || {};
+      let filters = { ...rest };
       if (role === "operator") filters.reportedById = ctx.user.id;
       else if (role === "technician") filters.assignedToId = ctx.user.id;
-      return getTickets(filters);
+      const resolvedPage = page ?? 1;
+      const resolvedPageSize = pageSize ?? 1e4;
+      filters.pagination = { limit: resolvedPageSize, offset: (resolvedPage - 1) * resolvedPageSize };
+      const result = await getTickets(filters);
+      return { data: result.data, total: result.total, page: resolvedPage, pageSize: resolvedPageSize };
     }),
-    getById: protectedProcedure.input(z3.object({ id: z3.number() })).query(async ({ input }) => {
+    getById: protectedProcedure.input(z4.object({ id: z4.number() })).query(async ({ input }) => {
       const ticket = await getTicketById(input.id);
       if (!ticket) throw new TRPCError5({ code: "NOT_FOUND", message: "\u0627\u0644\u0628\u0644\u0627\u063A \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F" });
       return ticket;
     }),
-    create: protectedProcedure.input(z3.object({
-      title: z3.string().min(1),
-      description: z3.string().optional(),
-      priority: z3.string().default("medium"),
-      category: z3.string().default("general"),
-      siteId: z3.number().optional(),
-      sectionId: z3.number().optional(),
-      assetId: z3.number().optional(),
-      locationDetail: z3.string().optional(),
-      beforePhotoUrl: z3.string().optional()
+    create: protectedProcedure.input(z4.object({
+      title: z4.string().min(1),
+      description: z4.string().optional(),
+      priority: z4.string().default("medium"),
+      category: z4.string().default("general"),
+      siteId: z4.number().optional(),
+      sectionId: z4.number().optional(),
+      assetId: z4.number().optional(),
+      locationDetail: z4.string().optional(),
+      beforePhotoUrl: z4.string().optional()
     })).mutation(async ({ input, ctx }) => {
       const ticketNumber = await getNextTicketNumber();
       const fieldsToTranslate = {};
@@ -3986,7 +4525,7 @@ var appRouter = router({
       }
       return { id, ticketNumber };
     }),
-    approve: managerProcedure.input(z3.object({ id: z3.number() })).mutation(async ({ input, ctx }) => {
+    approve: managerProcedure.input(z4.object({ id: z4.number() })).mutation(async ({ input, ctx }) => {
       const ticket = await getTicketById(input.id);
       if (!ticket) throw new TRPCError5({ code: "NOT_FOUND" });
       await updateTicket(input.id, { status: "approved", approvedById: ctx.user.id });
@@ -3997,35 +4536,45 @@ var appRouter = router({
       }
       return { success: true };
     }),
-    assign: managerProcedure.input(z3.object({
-      id: z3.number(),
-      technicianId: z3.number().optional(),
+    // Reassign Technician (fallback for manager to reassign at any point after triage)
+    assign: managerProcedure.input(z4.object({
+      id: z4.number(),
+      technicianId: z4.number().optional(),
       // System user technician
-      externalTechnicianId: z3.number().optional()
+      externalTechnicianId: z4.number().optional()
       // External technician (no account)
     })).mutation(async ({ input, ctx }) => {
       const ticket = await getTicketById(input.id);
       if (!ticket) throw new TRPCError5({ code: "NOT_FOUND" });
       if (!input.technicianId && !input.externalTechnicianId) {
-        throw new TRPCError5({ code: "BAD_REQUEST", message: "\u064A\u062C\u0628 \u062A\u062D\u062F\u064A\u062F \u0641\u0646\u064A \u0644\u0644\u0625\u0633\u0646\u0627\u062F" });
+        throw new TRPCError5({ code: "BAD_REQUEST", message: "\u064A\u062C\u0628 \u062A\u062D\u062F\u064A\u062F \u0641\u0646\u064A \u0644\u0625\u0639\u0627\u062F\u0629 \u0627\u0644\u0625\u0633\u0646\u0627\u062F" });
+      }
+      const reassignableStatuses = ["under_inspection", "work_approved", "assigned", "in_progress", "needs_purchase", "purchase_pending_estimate", "purchase_pending_accounting", "purchase_pending_management", "purchase_approved", "purchased", "received_warehouse"];
+      if (!reassignableStatuses.includes(ticket.status)) {
+        throw new TRPCError5({ code: "BAD_REQUEST", message: `\u0644\u0627 \u064A\u0645\u0643\u0646 \u0625\u0639\u0627\u062F\u0629 \u0627\u0644\u0625\u0633\u0646\u0627\u062F \u0641\u064A \u0627\u0644\u062D\u0627\u0644\u0629: ${ticket.status}` });
       }
       const updateData = {
-        status: "assigned",
         assignedAt: /* @__PURE__ */ new Date()
       };
-      if (input.technicianId) updateData.assignedToId = input.technicianId;
-      if (input.externalTechnicianId) updateData.assignedTechnicianId = input.externalTechnicianId;
+      if (input.technicianId) {
+        updateData.assignedToId = input.technicianId;
+        updateData.assignedTechnicianId = null;
+      }
+      if (input.externalTechnicianId) {
+        updateData.assignedTechnicianId = input.externalTechnicianId;
+        updateData.assignedToId = null;
+      }
       await updateTicket(input.id, updateData);
-      await addTicketStatusHistory({ ticketId: input.id, fromStatus: ticket.status, toStatus: "assigned", changedById: ctx.user.id });
+      await addTicketStatusHistory({ ticketId: input.id, fromStatus: ticket.status, toStatus: ticket.status, changedById: ctx.user.id, notes: "\u0625\u0639\u0627\u062F\u0629 \u0625\u0633\u0646\u0627\u062F \u0627\u0644\u0641\u0646\u064A" });
       if (input.technicianId) {
         await createNotification({ userId: input.technicianId, title: "\u0628\u0644\u0627\u063A \u0645\u064F\u0633\u0646\u062F \u0625\u0644\u064A\u0643", message: `\u062A\u0645 \u0625\u0633\u0646\u0627\u062F \u0627\u0644\u0628\u0644\u0627\u063A ${ticket.ticketNumber} \u0625\u0644\u064A\u0643`, type: "info", relatedTicketId: input.id });
       }
       return { success: true };
     }),
-    startRepair: protectedProcedure.input(z3.object({ id: z3.number() })).mutation(async ({ input, ctx }) => {
+    startRepair: protectedProcedure.input(z4.object({ id: z4.number() })).mutation(async ({ input, ctx }) => {
       const ticket = await getTicketById(input.id);
       if (!ticket) throw new TRPCError5({ code: "NOT_FOUND" });
-      const validStatuses = ["assigned", "in_progress", "repaired", "purchase_approved", "purchased", "partial_purchase"];
+      const validStatuses = ["assigned", "in_progress", "repaired", "purchase_approved", "purchased", "partial_purchase", "received_warehouse"];
       if (!validStatuses.includes(ticket.status)) {
         throw new TRPCError5({ code: "BAD_REQUEST", message: `\u0644\u0627 \u064A\u0645\u0643\u0646 \u0628\u062F\u0621 \u0627\u0644\u062A\u0646\u0641\u064A\u0630 \u0641\u064A \u0627\u0644\u062D\u0627\u0644\u0629 \u0627\u0644\u062D\u0627\u0644\u064A\u0629: ${ticket.status}` });
       }
@@ -4037,11 +4586,11 @@ var appRouter = router({
       }
       return { success: true };
     }),
-    completeRepair: protectedProcedure.input(z3.object({
-      id: z3.number(),
-      afterPhotoUrl: z3.string().min(1, "\u0635\u0648\u0631\u0629 \u0628\u0639\u062F \u0627\u0644\u0625\u0635\u0644\u0627\u062D \u0645\u0637\u0644\u0648\u0628\u0629"),
-      repairNotes: z3.string().optional(),
-      materialsUsed: z3.string().optional()
+    completeRepair: protectedProcedure.input(z4.object({
+      id: z4.number(),
+      afterPhotoUrl: z4.string().min(1, "\u0635\u0648\u0631\u0629 \u0628\u0639\u062F \u0627\u0644\u0625\u0635\u0644\u0627\u062D \u0645\u0637\u0644\u0648\u0628\u0629"),
+      repairNotes: z4.string().optional(),
+      materialsUsed: z4.string().optional()
     })).mutation(async ({ input, ctx }) => {
       const ticket = await getTicketById(input.id);
       if (!ticket) throw new TRPCError5({ code: "NOT_FOUND" });
@@ -4070,7 +4619,7 @@ var appRouter = router({
       }
       return { success: true };
     }),
-    close: managerProcedure.input(z3.object({ id: z3.number() })).mutation(async ({ input, ctx }) => {
+    close: managerProcedure.input(z4.object({ id: z4.number() })).mutation(async ({ input, ctx }) => {
       const ticket = await getTicketById(input.id);
       if (!ticket) throw new TRPCError5({ code: "NOT_FOUND" });
       await updateTicket(input.id, { status: "closed", closedAt: /* @__PURE__ */ new Date() });
@@ -4087,14 +4636,14 @@ var appRouter = router({
     // ❌ REMOVED: updateStatus (was allowing any status without validation)
     // ✅ REPLACED WITH: Specific procedures for each valid transition
     // Transition: new → pending_triage (Operator creates ticket)
-    createTicket: protectedProcedure.input(z3.object({
-      title: z3.string(),
-      description: z3.string().optional(),
-      priority: z3.enum(["low", "medium", "high", "critical"]),
-      category: z3.enum(["electrical", "plumbing", "hvac", "structural", "mechanical", "general", "safety", "cleaning"]),
-      siteId: z3.number().optional(),
-      assetId: z3.number().optional(),
-      locationDetail: z3.string().optional()
+    createTicket: protectedProcedure.input(z4.object({
+      title: z4.string(),
+      description: z4.string().optional(),
+      priority: z4.enum(["low", "medium", "high", "critical"]),
+      category: z4.enum(["electrical", "plumbing", "hvac", "structural", "mechanical", "general", "safety", "cleaning"]),
+      siteId: z4.number().optional(),
+      assetId: z4.number().optional(),
+      locationDetail: z4.string().optional()
     })).mutation(async ({ input, ctx }) => {
       const ticketNumber = `TK-${Date.now()}`;
       const ticket = await createTicket({
@@ -4114,10 +4663,10 @@ var appRouter = router({
       return ticket;
     }),
     // Transition: pending_triage → under_inspection (Manager assigns for inspection)
-    assignForInspection: managerProcedure.input(z3.object({
-      id: z3.number(),
-      assignedToId: z3.number(),
-      triageNotes: z3.string().optional()
+    assignForInspection: managerProcedure.input(z4.object({
+      id: z4.number(),
+      assignedToId: z4.number(),
+      triageNotes: z4.string().optional()
     })).mutation(async ({ input, ctx }) => {
       const ticket = await getTicketById(input.id);
       if (!ticket) throw new TRPCError5({ code: "NOT_FOUND" });
@@ -4134,33 +4683,36 @@ var appRouter = router({
     // Transition: ready_for_closure → closed (Supervisor closes)
     // Already exists as closeBySupervisor - no change needed
     // ========== PATH B TRANSITIONS ==========
-    // Transition: work_approved → assigned (Manager assigns technician)
-    assignTechnician: managerProcedure.input(z3.object({
-      id: z3.number(),
-      assignedToId: z3.number()
+    // Transition: work_approved → assigned (Manager assigns technician - or auto-advances if already assigned at triage)
+    assignTechnician: managerProcedure.input(z4.object({
+      id: z4.number(),
+      assignedToId: z4.number()
     })).mutation(async ({ input, ctx }) => {
       const ticket = await getTicketById(input.id);
       if (!ticket) throw new TRPCError5({ code: "NOT_FOUND" });
       if (ticket.status !== "work_approved") throw new TRPCError5({ code: "BAD_REQUEST", message: "\u0627\u0644\u0628\u0644\u0627\u063A \u064A\u062C\u0628 \u0623\u0646 \u064A\u0643\u0648\u0646 \u0645\u0639\u062A\u0645\u062F\u0627\u064B" });
       if (ticket.maintenancePath !== "B") throw new TRPCError5({ code: "BAD_REQUEST", message: "\u0647\u0630\u0627 \u0627\u0644\u0625\u062C\u0631\u0627\u0621 \u0644\u0644\u0645\u0633\u0627\u0631 B \u0641\u0642\u0637" });
-      await updateTicket(input.id, { status: "assigned", assignedToId: input.assignedToId });
+      await updateTicket(input.id, { status: "assigned", assignedToId: input.assignedToId, assignedAt: /* @__PURE__ */ new Date() });
       await addTicketStatusHistory({ ticketId: input.id, fromStatus: "work_approved", toStatus: "assigned", changedById: ctx.user.id });
       return { success: true };
     }),
-    // Transition: assigned → in_progress (Technician starts work)
-    startWork: protectedProcedure.input(z3.object({ id: z3.number() })).mutation(async ({ input, ctx }) => {
+    // Transition: assigned/work_approved → in_progress (Technician starts work)
+    // Accepts work_approved when technician was pre-assigned at triage
+    startWork: protectedProcedure.input(z4.object({ id: z4.number() })).mutation(async ({ input, ctx }) => {
       const ticket = await getTicketById(input.id);
       if (!ticket) throw new TRPCError5({ code: "NOT_FOUND" });
-      if (ticket.status !== "assigned") throw new TRPCError5({ code: "BAD_REQUEST", message: "\u0627\u0644\u0628\u0644\u0627\u063A \u064A\u062C\u0628 \u0623\u0646 \u064A\u0643\u0648\u0646 \u0645\u0633\u0646\u062F\u0627\u064B" });
+      if (ticket.status !== "assigned" && ticket.status !== "work_approved") {
+        throw new TRPCError5({ code: "BAD_REQUEST", message: "\u0627\u0644\u0628\u0644\u0627\u063A \u064A\u062C\u0628 \u0623\u0646 \u064A\u0643\u0648\u0646 \u0645\u0633\u0646\u062F\u0627\u064B \u0623\u0648 \u0645\u0639\u062A\u0645\u062F\u0627\u064B" });
+      }
       if (ticket.maintenancePath !== "B") throw new TRPCError5({ code: "BAD_REQUEST", message: "\u0647\u0630\u0627 \u0627\u0644\u0625\u062C\u0631\u0627\u0621 \u0644\u0644\u0645\u0633\u0627\u0631 B \u0641\u0642\u0637" });
       await updateTicket(input.id, { status: "in_progress" });
-      await addTicketStatusHistory({ ticketId: input.id, fromStatus: "assigned", toStatus: "in_progress", changedById: ctx.user.id });
+      await addTicketStatusHistory({ ticketId: input.id, fromStatus: ticket.status, toStatus: "in_progress", changedById: ctx.user.id });
       return { success: true };
     }),
     // Transition: in_progress → needs_purchase (Technician identifies need)
-    requestPurchase: protectedProcedure.input(z3.object({
-      id: z3.number(),
-      materialsNeeded: z3.string()
+    requestPurchase: protectedProcedure.input(z4.object({
+      id: z4.number(),
+      materialsNeeded: z4.string()
     })).mutation(async ({ input, ctx }) => {
       const ticket = await getTicketById(input.id);
       if (!ticket) throw new TRPCError5({ code: "NOT_FOUND" });
@@ -4171,10 +4723,10 @@ var appRouter = router({
       return { success: true };
     }),
     // Transition: needs_purchase → purchase_pending_estimate (Purchase manager gets estimate)
-    submitEstimate: managerProcedure.input(z3.object({
-      id: z3.number(),
-      estimatedCost: z3.number(),
-      estimateNotes: z3.string().optional()
+    submitEstimate: managerProcedure.input(z4.object({
+      id: z4.number(),
+      estimatedCost: z4.number(),
+      estimateNotes: z4.string().optional()
     })).mutation(async ({ input, ctx }) => {
       const ticket = await getTicketById(input.id);
       if (!ticket) throw new TRPCError5({ code: "NOT_FOUND" });
@@ -4185,7 +4737,7 @@ var appRouter = router({
       return { success: true };
     }),
     // Transition: purchase_pending_estimate → purchase_pending_accounting (Accountant reviews)
-    submitToAccounting: accountantProcedure.input(z3.object({ id: z3.number() })).mutation(async ({ input, ctx }) => {
+    submitToAccounting: accountantProcedure.input(z4.object({ id: z4.number() })).mutation(async ({ input, ctx }) => {
       const ticket = await getTicketById(input.id);
       if (!ticket) throw new TRPCError5({ code: "NOT_FOUND" });
       if (ticket.status !== "purchase_pending_estimate") throw new TRPCError5({ code: "BAD_REQUEST", message: "\u0627\u0644\u0628\u0644\u0627\u063A \u064A\u062C\u0628 \u0623\u0646 \u064A\u0643\u0648\u0646 \u0628\u0627\u0646\u062A\u0638\u0627\u0631 \u0627\u0644\u062A\u0642\u062F\u064A\u0631" });
@@ -4195,7 +4747,7 @@ var appRouter = router({
       return { success: true };
     }),
     // Transition: purchase_pending_accounting → purchase_pending_management (Senior management approval)
-    submitToManagement: managementProcedure.input(z3.object({ id: z3.number() })).mutation(async ({ input, ctx }) => {
+    submitToManagement: managementProcedure.input(z4.object({ id: z4.number() })).mutation(async ({ input, ctx }) => {
       const ticket = await getTicketById(input.id);
       if (!ticket) throw new TRPCError5({ code: "NOT_FOUND" });
       if (ticket.status !== "purchase_pending_accounting") throw new TRPCError5({ code: "BAD_REQUEST", message: "\u0627\u0644\u0628\u0644\u0627\u063A \u064A\u062C\u0628 \u0623\u0646 \u064A\u0643\u0648\u0646 \u0628\u0627\u0646\u062A\u0638\u0627\u0631 \u0627\u0644\u0645\u062D\u0627\u0633\u0628\u0629" });
@@ -4205,7 +4757,7 @@ var appRouter = router({
       return { success: true };
     }),
     // Transition: purchase_pending_management → purchase_approved (Management approves)
-    approvePurchase: managementProcedure.input(z3.object({ id: z3.number() })).mutation(async ({ input, ctx }) => {
+    approvePurchase: managementProcedure.input(z4.object({ id: z4.number() })).mutation(async ({ input, ctx }) => {
       const ticket = await getTicketById(input.id);
       if (!ticket) throw new TRPCError5({ code: "NOT_FOUND" });
       if (ticket.status !== "purchase_pending_management") throw new TRPCError5({ code: "BAD_REQUEST", message: "\u0627\u0644\u0628\u0644\u0627\u063A \u064A\u062C\u0628 \u0623\u0646 \u064A\u0643\u0648\u0646 \u0628\u0627\u0646\u062A\u0638\u0627\u0631 \u0627\u0644\u0645\u0648\u0627\u0641\u0642\u0629 \u0627\u0644\u0625\u062F\u0627\u0631\u064A\u0629" });
@@ -4215,9 +4767,9 @@ var appRouter = router({
       return { success: true };
     }),
     // Transition: purchase_approved → partial_purchase or purchased (Purchase manager executes)
-    executePurchase: managerProcedure.input(z3.object({
-      id: z3.number(),
-      isPartial: z3.boolean().default(false)
+    executePurchase: managerProcedure.input(z4.object({
+      id: z4.number(),
+      isPartial: z4.boolean().default(false)
     })).mutation(async ({ input, ctx }) => {
       const ticket = await getTicketById(input.id);
       if (!ticket) throw new TRPCError5({ code: "NOT_FOUND" });
@@ -4229,7 +4781,7 @@ var appRouter = router({
       return { success: true };
     }),
     // Transition: partial_purchase → purchased (Final purchase)
-    completePurchase: managerProcedure.input(z3.object({ id: z3.number() })).mutation(async ({ input, ctx }) => {
+    completePurchase: managerProcedure.input(z4.object({ id: z4.number() })).mutation(async ({ input, ctx }) => {
       const ticket = await getTicketById(input.id);
       if (!ticket) throw new TRPCError5({ code: "NOT_FOUND" });
       if (ticket.status !== "partial_purchase") throw new TRPCError5({ code: "BAD_REQUEST", message: "\u0627\u0644\u0628\u0644\u0627\u063A \u064A\u062C\u0628 \u0623\u0646 \u064A\u0643\u0648\u0646 \u0628\u0634\u0631\u0627\u0621 \u062C\u0632\u0626\u064A" });
@@ -4239,7 +4791,7 @@ var appRouter = router({
       return { success: true };
     }),
     // Transition: purchased → received_warehouse (Warehouse receives)
-    receiveInWarehouse: warehouseProcedure.input(z3.object({ id: z3.number() })).mutation(async ({ input, ctx }) => {
+    receiveInWarehouse: warehouseProcedure.input(z4.object({ id: z4.number() })).mutation(async ({ input, ctx }) => {
       const ticket = await getTicketById(input.id);
       if (!ticket) throw new TRPCError5({ code: "NOT_FOUND" });
       if (ticket.status !== "purchased") throw new TRPCError5({ code: "BAD_REQUEST", message: "\u0627\u0644\u0628\u0644\u0627\u063A \u064A\u062C\u0628 \u0623\u0646 \u064A\u0643\u0648\u0646 \u0645\u0634\u062A\u0631\u0627\u064B" });
@@ -4249,15 +4801,15 @@ var appRouter = router({
       return { success: true };
     }),
     // Transition: received_warehouse → ready_for_closure (Technician completes with parts)
-    completeWithParts: protectedProcedure.input(z3.object({
-      id: z3.number(),
-      afterPhotoUrl: z3.string().optional(),
-      repairNotes: z3.string().optional()
+    completeWithParts: protectedProcedure.input(z4.object({
+      id: z4.number(),
+      afterPhotoUrl: z4.string().optional(),
+      repairNotes: z4.string().optional()
     })).mutation(async ({ input, ctx }) => {
       const ticket = await getTicketById(input.id);
       if (!ticket) throw new TRPCError5({ code: "NOT_FOUND" });
       if (ticket.status !== "received_warehouse") throw new TRPCError5({ code: "BAD_REQUEST", message: "\u0627\u0644\u0628\u0644\u0627\u063A \u064A\u062C\u0628 \u0623\u0646 \u064A\u0643\u0648\u0646 \u0645\u0633\u062A\u0644\u0645\u0627\u064B \u0645\u0646 \u0627\u0644\u0645\u0633\u062A\u0648\u062F\u0639" });
-      if (ticket.maintenancePath !== "B") throw new TRPCError5({ code: "BAD_REQUEST", message: "\u0647\u0630\u0627 \u0627\u0644\u0625\u062C\u0631\u0627\u0621 \u0644\u0644\u0645\u0633\u0627\u0631 B \u0641\u0642\u0637" });
+      if (ticket.maintenancePath !== "B" && ticket.maintenancePath !== "C") throw new TRPCError5({ code: "BAD_REQUEST", message: "\u0647\u0630\u0627 \u0627\u0644\u0625\u062C\u0631\u0627\u0621 \u0644\u0644\u0645\u0633\u0627\u0631 B \u0623\u0648 C \u0641\u0642\u0637" });
       await updateTicket(input.id, { status: "ready_for_closure", afterPhotoUrl: input.afterPhotoUrl, repairNotes: input.repairNotes });
       await addTicketStatusHistory({ ticketId: input.id, fromStatus: "received_warehouse", toStatus: "ready_for_closure", changedById: ctx.user.id });
       return { success: true };
@@ -4266,7 +4818,7 @@ var appRouter = router({
     // Transitions already exist: approveGateExit, markExternalRepairDone, approveGateEntry
     // ========== FINAL TRANSITIONS (All Paths) ==========
     // Transition: ready_for_closure → repaired (Verification)
-    markRepaired: managerProcedure.input(z3.object({ id: z3.number() })).mutation(async ({ input, ctx }) => {
+    markRepaired: managerProcedure.input(z4.object({ id: z4.number() })).mutation(async ({ input, ctx }) => {
       const ticket = await getTicketById(input.id);
       if (!ticket) throw new TRPCError5({ code: "NOT_FOUND" });
       if (ticket.status !== "ready_for_closure") throw new TRPCError5({ code: "BAD_REQUEST", message: "\u0627\u0644\u0628\u0644\u0627\u063A \u064A\u062C\u0628 \u0623\u0646 \u064A\u0643\u0648\u0646 \u062C\u0627\u0647\u0632\u0627\u064B \u0644\u0644\u0625\u063A\u0644\u0627\u0642" });
@@ -4275,7 +4827,7 @@ var appRouter = router({
       return { success: true };
     }),
     // Transition: repaired → verified (Final verification)
-    markVerified: supervisorProcedure.input(z3.object({ id: z3.number() })).mutation(async ({ input, ctx }) => {
+    markVerified: supervisorProcedure.input(z4.object({ id: z4.number() })).mutation(async ({ input, ctx }) => {
       const ticket = await getTicketById(input.id);
       if (!ticket) throw new TRPCError5({ code: "NOT_FOUND" });
       if (ticket.status !== "repaired") throw new TRPCError5({ code: "BAD_REQUEST", message: "\u0627\u0644\u0628\u0644\u0627\u063A \u064A\u062C\u0628 \u0623\u0646 \u064A\u0643\u0648\u0646 \u0645\u0635\u0644\u062D\u0627\u064B" });
@@ -4284,23 +4836,29 @@ var appRouter = router({
       return { success: true };
     }),
     // Transition: verified → closed (Final closure)
-    finalClose: supervisorProcedure.input(z3.object({ id: z3.number() })).mutation(async ({ input, ctx }) => {
+    finalClose: supervisorProcedure.input(z4.object({ id: z4.number() })).mutation(async ({ input, ctx }) => {
       const ticket = await getTicketById(input.id);
       if (!ticket) throw new TRPCError5({ code: "NOT_FOUND" });
       if (ticket.status !== "verified") throw new TRPCError5({ code: "BAD_REQUEST", message: "\u0627\u0644\u0628\u0644\u0627\u063A \u064A\u062C\u0628 \u0623\u0646 \u064A\u0643\u0648\u0646 \u0645\u064F\u062A\u062D\u0642\u0642 \u0645\u0646\u0647" });
       await updateTicket(input.id, { status: "closed", closedAt: /* @__PURE__ */ new Date() });
       await addTicketStatusHistory({ ticketId: input.id, fromStatus: "verified", toStatus: "closed", changedById: ctx.user.id });
       await createAuditLog({ userId: ctx.user.id, action: "close_ticket", entityType: "ticket", entityId: input.id });
+      if (ticket.reportedById) {
+        await createNotification({ userId: ticket.reportedById, title: "\u{1F512} \u062A\u0645 \u0625\u063A\u0644\u0627\u0642 \u0628\u0644\u0627\u063A\u0643", message: `\u062A\u0645 \u0625\u063A\u0644\u0627\u0642 \u0627\u0644\u0628\u0644\u0627\u063A ${ticket.ticketNumber} \u0628\u0646\u062C\u0627\u062D`, type: "success", relatedTicketId: input.id });
+      }
+      if (ticket.assignedToId && ticket.assignedToId !== ticket.reportedById) {
+        await createNotification({ userId: ticket.assignedToId, title: "\u{1F512} \u062A\u0645 \u0625\u063A\u0644\u0627\u0642 \u0627\u0644\u0628\u0644\u0627\u063A", message: `\u062A\u0645 \u0625\u063A\u0644\u0627\u0642 \u0627\u0644\u0628\u0644\u0627\u063A ${ticket.ticketNumber} \u0627\u0644\u0630\u064A \u0643\u0646\u062A \u0645\u0633\u0624\u0648\u0644\u0627\u064B \u0639\u0646\u0647`, type: "success", relatedTicketId: input.id });
+      }
       return { success: true };
     }),
-    update: protectedProcedure.input(z3.object({
-      id: z3.number(),
-      title: z3.string().optional(),
-      description: z3.string().optional(),
-      priority: z3.string().optional(),
-      category: z3.string().optional(),
-      siteId: z3.number().optional(),
-      locationDetail: z3.string().optional()
+    update: protectedProcedure.input(z4.object({
+      id: z4.number(),
+      title: z4.string().optional(),
+      description: z4.string().optional(),
+      priority: z4.string().optional(),
+      category: z4.string().optional(),
+      siteId: z4.number().optional(),
+      locationDetail: z4.string().optional()
     })).mutation(async ({ input, ctx }) => {
       const ticket = await getTicketById(input.id);
       if (!ticket) throw new TRPCError5({ code: "NOT_FOUND", message: "\u0627\u0644\u0628\u0644\u0627\u063A \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F" });
@@ -4366,7 +4924,7 @@ var appRouter = router({
       }
       return { success: true };
     }),
-    delete: protectedProcedure.input(z3.object({ id: z3.number() })).mutation(async ({ input, ctx }) => {
+    delete: protectedProcedure.input(z4.object({ id: z4.number() })).mutation(async ({ input, ctx }) => {
       const ticket = await getTicketById(input.id);
       if (!ticket) throw new TRPCError5({ code: "NOT_FOUND", message: "\u0627\u0644\u0628\u0644\u0627\u063A \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F" });
       if (!["owner", "admin", "maintenance_manager"].includes(ctx.user.role)) {
@@ -4382,14 +4940,14 @@ var appRouter = router({
       }
       return { success: true };
     }),
-    history: protectedProcedure.input(z3.object({ ticketId: z3.number() })).query(async ({ input }) => {
+    history: protectedProcedure.input(z4.object({ ticketId: z4.number() })).query(async ({ input }) => {
       return getTicketHistory(input.ticketId);
     }),
     // =============================================
     // NEW WORKFLOW PROCEDURES
     // =============================================
     // 1. Submit for Triage (after creation, ticket goes to supervisor)
-    submitForTriage: protectedProcedure.input(z3.object({ id: z3.number() })).mutation(async ({ input, ctx }) => {
+    submitForTriage: protectedProcedure.input(z4.object({ id: z4.number() })).mutation(async ({ input, ctx }) => {
       const ticket = await getTicketById(input.id);
       if (!ticket) throw new TRPCError5({ code: "NOT_FOUND" });
       await updateTicket(input.id, { status: "pending_triage" });
@@ -4401,12 +4959,12 @@ var appRouter = router({
       return { success: true };
     }),
     // 2. Triage by Supervisor (Eng. Khaled)
-    triage: supervisorProcedure.input(z3.object({
-      id: z3.number(),
-      ticketType: z3.enum(["internal", "external", "procurement"]),
-      priority: z3.string().optional(),
-      triageNotes: z3.string().optional(),
-      assignedToId: z3.number().optional()
+    triage: supervisorProcedure.input(z4.object({
+      id: z4.number(),
+      ticketType: z4.enum(["internal", "external", "procurement"]),
+      priority: z4.string().optional(),
+      triageNotes: z4.string().optional(),
+      assignedToId: z4.number().optional()
       // Assign inspection team
     })).mutation(async ({ input, ctx }) => {
       const ticket = await getTicketById(input.id);
@@ -4429,17 +4987,20 @@ var appRouter = router({
       return { success: true };
     }),
     // 2b. Triage Ticket (Supervisor moves ticket from pending_triage to under_inspection)
-    triageTicket: supervisorProcedure.input(z3.object({
-      id: z3.number(),
-      assignedToId: z3.number().optional()
+    triageTicket: supervisorProcedure.input(z4.object({
+      id: z4.number(),
+      assignedToId: z4.number().optional()
     })).mutation(async ({ input, ctx }) => {
       const ticket = await getTicketById(input.id);
       if (!ticket) throw new TRPCError5({ code: "NOT_FOUND" });
       if (ticket.status !== "pending_triage") throw new TRPCError5({ code: "BAD_REQUEST", message: "\u0627\u0644\u0628\u0644\u0627\u063A \u0644\u064A\u0633 \u0641\u064A \u0645\u0631\u062D\u0644\u0629 \u0627\u0644\u0641\u0631\u0632" });
       const updateData = { status: "under_inspection", supervisorId: ctx.user.id };
-      if (input.assignedToId) updateData.assignedToId = input.assignedToId;
+      if (input.assignedToId) {
+        updateData.assignedToId = input.assignedToId;
+        updateData.assignedAt = /* @__PURE__ */ new Date();
+      }
       await updateTicket(input.id, updateData);
-      await addTicketStatusHistory({ ticketId: input.id, fromStatus: ticket.status, toStatus: "under_inspection", changedById: ctx.user.id, notes: input.assignedToId ? `\u062A\u0645 \u0646\u0642\u0644 \u0627\u0644\u0628\u0644\u0627\u063A \u0644\u0645\u0631\u062D\u0644\u0629 \u0627\u0644\u0641\u062D\u0635 \u0648\u062A\u0639\u064A\u064A\u0646\u0647 \u0644\u0644\u0641\u0646\u064A` : "\u062A\u0645 \u0646\u0642\u0644 \u0627\u0644\u0628\u0644\u0627\u063A \u0644\u0645\u0631\u062D\u0644\u0629 \u0627\u0644\u0641\u062D\u0635" });
+      await addTicketStatusHistory({ ticketId: input.id, fromStatus: ticket.status, toStatus: "under_inspection", changedById: ctx.user.id, notes: input.assignedToId ? `\u062A\u0645 \u0646\u0642\u0644 \u0627\u0644\u0628\u0644\u0627\u063A \u0644\u0645\u0631\u062D\u0644\u0629 \u0627\u0644\u0641\u062D\u0635 \u0648\u062A\u0639\u064A\u064A\u0646 \u0627\u0644\u0641\u0646\u064A` : "\u062A\u0645 \u0646\u0642\u0644 \u0627\u0644\u0628\u0644\u0627\u063A \u0644\u0645\u0631\u062D\u0644\u0629 \u0627\u0644\u0641\u062D\u0635" });
       const managers = await getManagerUsers();
       for (const mgr of managers) {
         await createNotification({ userId: mgr.id, title: "\u0628\u0644\u0627\u063A \u0642\u064A\u062F \u0627\u0644\u0641\u062D\u0635", message: `\u0627\u0644\u0628\u0644\u0627\u063A ${ticket.ticketNumber} \u0627\u0644\u0622\u0646 \u0642\u064A\u062F \u0627\u0644\u0641\u062D\u0635 \u0645\u0646 \u0642\u0628\u0644 \u0627\u0644\u0645\u0634\u0631\u0641`, type: "info", relatedTicketId: input.id });
@@ -4450,14 +5011,18 @@ var appRouter = router({
       return { success: true };
     }),
     // 2c. Inspect Ticket (Supervisor completes inspection and prepares for approval)
-    inspectTicket: supervisorProcedure.input(z3.object({
-      id: z3.number(),
-      inspectionNotes: z3.string()
+    inspectTicket: supervisorProcedure.input(z4.object({
+      id: z4.number(),
+      inspectionNotes: z4.string()
     })).mutation(async ({ input, ctx }) => {
       const ticket = await getTicketById(input.id);
       if (!ticket) throw new TRPCError5({ code: "NOT_FOUND" });
       if (ticket.status !== "under_inspection") throw new TRPCError5({ code: "BAD_REQUEST", message: "\u0627\u0644\u0628\u0644\u0627\u063A \u0644\u064A\u0633 \u0641\u064A \u0645\u0631\u062D\u0644\u0629 \u0627\u0644\u0641\u062D\u0635" });
-      await updateTicket(input.id, { inspectionNotes: input.inspectionNotes });
+      const _ddb = await getDb();
+      await _ddb.transaction(async () => {
+        await updateTicket(input.id, { inspectionNotes: input.inspectionNotes });
+        await createInspectionResult({ ticketId: input.id, assetId: ticket.assetId ?? void 0, inspectorId: ctx.user.id, inspectionType: "triage", severity: "medium", rootCause: input.inspectionNotes, findings: input.inspectionNotes, recommendedAction: input.inspectionNotes });
+      });
       await addTicketStatusHistory({ ticketId: input.id, fromStatus: ticket.status, toStatus: "under_inspection", changedById: ctx.user.id, notes: `\u0645\u0644\u0627\u062D\u0638\u0627\u062A \u0627\u0644\u0641\u062D\u0635: ${input.inspectionNotes}` });
       const managers = await getManagerUsers();
       for (const mgr of managers) {
@@ -4466,11 +5031,11 @@ var appRouter = router({
       return { success: true };
     }),
     // 3. Work Approval by Maintenance Manager (Abdel Fattah) + Path Selection
-    approveWork: managerProcedure.input(z3.object({
-      id: z3.number(),
-      maintenancePath: z3.enum(["A", "B", "C"]),
-      inspectionNotes: z3.string().optional(),
-      justification: z3.string().optional()
+    approveWork: managerProcedure.input(z4.object({
+      id: z4.number(),
+      maintenancePath: z4.enum(["A", "B", "C"]),
+      inspectionNotes: z4.string().optional(),
+      justification: z4.string().optional()
       // Required for Path C
     })).mutation(async ({ input, ctx }) => {
       const ticket = await getTicketById(input.id);
@@ -4505,10 +5070,10 @@ var appRouter = router({
       return { success: true };
     }),
     // 4. Mark Ready for Closure (Path A - after technician completes repair)
-    markReadyForClosure: protectedProcedure.input(z3.object({
-      id: z3.number(),
-      afterPhotoUrl: z3.string().optional(),
-      repairNotes: z3.string().optional()
+    markReadyForClosure: protectedProcedure.input(z4.object({
+      id: z4.number(),
+      afterPhotoUrl: z4.string().optional(),
+      repairNotes: z4.string().optional()
     })).mutation(async ({ input, ctx }) => {
       const ticket = await getTicketById(input.id);
       if (!ticket) throw new TRPCError5({ code: "NOT_FOUND" });
@@ -4522,7 +5087,7 @@ var appRouter = router({
       return { success: true };
     }),
     // 5. Supervisor closes ticket (Path A)
-    closeBySupervisor: supervisorProcedure.input(z3.object({ id: z3.number() })).mutation(async ({ input, ctx }) => {
+    closeBySupervisor: supervisorProcedure.input(z4.object({ id: z4.number() })).mutation(async ({ input, ctx }) => {
       const ticket = await getTicketById(input.id);
       if (!ticket) throw new TRPCError5({ code: "NOT_FOUND" });
       if (ticket.status !== "ready_for_closure") throw new TRPCError5({ code: "BAD_REQUEST", message: "\u0627\u0644\u0628\u0644\u0627\u063A \u0644\u064A\u0633 \u062C\u0627\u0647\u0632\u0627\u064B \u0644\u0644\u0625\u063A\u0644\u0627\u0642" });
@@ -4542,7 +5107,7 @@ var appRouter = router({
       return { success: true };
     }),
     // 6. Gate Exit Approval (Path C - asset leaves for external repair)
-    approveGateExit: gateSecurityProcedure.input(z3.object({ id: z3.number() })).mutation(async ({ input, ctx }) => {
+    approveGateExit: gateSecurityProcedure.input(z4.object({ id: z4.number() })).mutation(async ({ input, ctx }) => {
       const ticket = await getTicketById(input.id);
       if (!ticket) throw new TRPCError5({ code: "NOT_FOUND" });
       if (ticket.maintenancePath !== "C") throw new TRPCError5({ code: "BAD_REQUEST", message: "\u0647\u0630\u0627 \u0627\u0644\u0625\u062C\u0631\u0627\u0621 \u0644\u0644\u0645\u0633\u0627\u0631 C \u0641\u0642\u0637" });
@@ -4552,9 +5117,9 @@ var appRouter = router({
       return { success: true };
     }),
     // 7. Mark External Repair Completed (Delegate)
-    markExternalRepairDone: delegateProcedure.input(z3.object({
-      id: z3.number(),
-      repairNotes: z3.string().optional()
+    markExternalRepairDone: delegateProcedure.input(z4.object({
+      id: z4.number(),
+      repairNotes: z4.string().optional()
     })).mutation(async ({ input, ctx }) => {
       const ticket = await getTicketById(input.id);
       if (!ticket) throw new TRPCError5({ code: "NOT_FOUND" });
@@ -4568,16 +5133,20 @@ var appRouter = router({
       return { success: true };
     }),
     // 8. Gate Entry Approval (Path C - asset returns after external repair)
-    approveGateEntry: gateSecurityProcedure.input(z3.object({ id: z3.number() })).mutation(async ({ input, ctx }) => {
+    approveGateEntry: gateSecurityProcedure.input(z4.object({ id: z4.number() })).mutation(async ({ input, ctx }) => {
       const ticket = await getTicketById(input.id);
       if (!ticket) throw new TRPCError5({ code: "NOT_FOUND" });
       if (ticket.maintenancePath !== "C") throw new TRPCError5({ code: "BAD_REQUEST", message: "\u0647\u0630\u0627 \u0627\u0644\u0625\u062C\u0631\u0627\u0621 \u0644\u0644\u0645\u0633\u0627\u0631 C \u0641\u0642\u0637" });
-      await updateTicket(input.id, { status: "ready_for_closure", gateEntryApprovedById: ctx.user.id, gateEntryApprovedAt: /* @__PURE__ */ new Date() });
-      await addTicketStatusHistory({ ticketId: input.id, fromStatus: ticket.status, toStatus: "ready_for_closure", changedById: ctx.user.id, notes: "\u062A\u0645\u062A \u0627\u0644\u0645\u0648\u0627\u0641\u0642\u0629 \u0639\u0644\u0649 \u062F\u062E\u0648\u0644 \u0627\u0644\u0623\u0635\u0644 - \u062C\u0627\u0647\u0632 \u0644\u0644\u0625\u063A\u0644\u0627\u0642" });
+      await updateTicket(input.id, { status: "received_warehouse", gateEntryApprovedById: ctx.user.id, gateEntryApprovedAt: /* @__PURE__ */ new Date() });
+      await addTicketStatusHistory({ ticketId: input.id, fromStatus: ticket.status, toStatus: "received_warehouse", changedById: ctx.user.id, notes: "\u062A\u0645\u062A \u0627\u0644\u0645\u0648\u0627\u0641\u0642\u0629 \u0639\u0644\u0649 \u062F\u062E\u0648\u0644 \u0627\u0644\u0623\u0635\u0644 - \u0628\u0627\u0646\u062A\u0638\u0627\u0631 \u0627\u0633\u062A\u0644\u0627\u0645 \u0627\u0644\u0645\u0633\u062A\u0648\u062F\u0639" });
       await createAuditLog({ userId: ctx.user.id, action: "gate_entry_approved", entityType: "ticket", entityId: input.id });
-      const managers = await getManagerUsers();
-      for (const mgr of managers) {
-        await createNotification({ userId: mgr.id, title: "\u0623\u0635\u0644 \u0639\u0627\u062F \u0628\u0639\u062F \u0627\u0644\u0625\u0635\u0644\u0627\u062D", message: `\u0627\u0644\u0628\u0644\u0627\u063A ${ticket.ticketNumber} - \u0627\u0644\u0623\u0635\u0644 \u0639\u0627\u062F \u0628\u0639\u062F \u0627\u0644\u0625\u0635\u0644\u0627\u062D \u0627\u0644\u062E\u0627\u0631\u062C\u064A \u0648\u062C\u0627\u0647\u0632 \u0644\u0644\u0625\u063A\u0644\u0627\u0642`, type: "success", relatedTicketId: input.id });
+      const warehouseUsersGE = await getUsersByRole("warehouse");
+      for (const w of warehouseUsersGE) {
+        await createNotification({ userId: w.id, title: "\u{1F4E6} \u0623\u0635\u0644 \u0639\u0627\u062F \u0645\u0646 \u0627\u0644\u0625\u0635\u0644\u0627\u062D \u0627\u0644\u062E\u0627\u0631\u062C\u064A", message: `\u0627\u0644\u0628\u0644\u0627\u063A ${ticket.ticketNumber} - \u0627\u0644\u0623\u0635\u0644 \u0639\u0627\u062F \u0648\u064A\u062D\u062A\u0627\u062C \u0627\u0633\u062A\u0644\u0627\u0645 \u0641\u064A \u0627\u0644\u0645\u0633\u062A\u0648\u062F\u0639`, type: "info", relatedTicketId: input.id });
+      }
+      const managersGE = await getManagerUsers();
+      for (const mgr of managersGE) {
+        await createNotification({ userId: mgr.id, title: "\u{1F4E6} \u0623\u0635\u0644 \u0639\u0627\u062F \u0645\u0646 \u0627\u0644\u0625\u0635\u0644\u0627\u062D \u0627\u0644\u062E\u0627\u0631\u062C\u064A", message: `\u0627\u0644\u0628\u0644\u0627\u063A ${ticket.ticketNumber} - \u0627\u0644\u0623\u0635\u0644 \u0639\u0627\u062F \u0628\u0639\u062F \u0627\u0644\u0625\u0635\u0644\u0627\u062D \u0648\u0628\u0627\u0646\u062A\u0638\u0627\u0631 \u0627\u0633\u062A\u0644\u0627\u0645 \u0627\u0644\u0645\u0633\u062A\u0648\u062F\u0639`, type: "info", relatedTicketId: input.id });
       }
       return { success: true };
     }),
@@ -4591,8 +5160,8 @@ var appRouter = router({
   // ============================================================
   nfc: router({
     // Scan an NFC/RFID tag and return asset + location info
-    scanTag: protectedProcedure.input(z3.object({
-      rfidTag: z3.string().min(1, "\u064A\u062C\u0628 \u062A\u0648\u0641\u064A\u0631 \u0631\u0642\u0645 \u0627\u0644\u0631\u0642\u0627\u0642\u0629")
+    scanTag: protectedProcedure.input(z4.object({
+      rfidTag: z4.string().min(1, "\u064A\u062C\u0628 \u062A\u0648\u0641\u064A\u0631 \u0631\u0642\u0645 \u0627\u0644\u0631\u0642\u0627\u0642\u0629")
     })).mutation(async ({ input }) => {
       const asset = await getAssetByRfidTag(input.rfidTag);
       if (!asset) {
@@ -4630,8 +5199,8 @@ var appRouter = router({
       };
     }),
     // Lookup asset by tag without mutation (for QR code or manual entry)
-    lookupTag: protectedProcedure.input(z3.object({
-      rfidTag: z3.string().min(1)
+    lookupTag: protectedProcedure.input(z4.object({
+      rfidTag: z4.string().min(1)
     })).query(async ({ input }) => {
       const asset = await getAssetByRfidTag(input.rfidTag);
       if (!asset) return null;
@@ -4653,35 +5222,132 @@ var appRouter = router({
   // PURCHASE ORDERS
   // ============================================================
   purchaseOrders: router({
-    list: protectedProcedure.input(z3.object({ status: z3.string().optional() }).optional()).query(async ({ input, ctx }) => {
+    list: protectedProcedure.input(z4.object({
+      status: z4.string().optional(),
+      // Stage 0.5 Phase 2: pagination — only active when page is explicitly provided
+      page: z4.number().int().min(1).optional(),
+      pageSize: z4.number().int().min(1).max(200).optional()
+    }).optional()).query(async ({ input, ctx }) => {
       const role = ctx.user.role;
-      let filters = input || {};
+      const { page, pageSize, status } = input || {};
+      const filters = status ? { status } : {};
       if (role === "delegate") {
         const items = await getPOItemsByDelegate(ctx.user.id);
         const poIds = Array.from(new Set(items.map((i) => i.purchaseOrderId)));
-        if (poIds.length === 0) return [];
-        const allPOs = await getPurchaseOrders(filters);
-        return allPOs.filter((po) => poIds.includes(po.id));
+        if (poIds.length === 0) {
+          const resolvedPage3 = page ?? 1;
+          return { data: [], total: 0, page: resolvedPage3, pageSize: pageSize ?? 1e4 };
+        }
+        const allPOs = await getPurchaseOrders({ status: filters.status });
+        const delegatePOs = allPOs.filter((po) => poIds.includes(po.id));
+        const resolvedPage2 = page ?? 1;
+        const resolvedPageSize2 = pageSize ?? 1e4;
+        const offset = (resolvedPage2 - 1) * resolvedPageSize2;
+        return { data: delegatePOs.slice(offset, offset + resolvedPageSize2), total: delegatePOs.length, page: resolvedPage2, pageSize: resolvedPageSize2 };
       }
-      return getPurchaseOrders(filters);
+      const resolvedPage = page ?? 1;
+      const resolvedPageSize = pageSize ?? 1e4;
+      filters.pagination = { limit: resolvedPageSize, offset: (resolvedPage - 1) * resolvedPageSize };
+      const result = await getPurchaseOrders(filters);
+      return { data: result.data, total: result.total, page: resolvedPage, pageSize: resolvedPageSize };
     }),
-    getById: protectedProcedure.input(z3.object({ id: z3.number() })).query(async ({ input }) => {
+    getById: protectedProcedure.input(z4.object({ id: z4.number() })).query(async ({ input }) => {
       const po = await getPurchaseOrderById(input.id);
       if (!po) throw new TRPCError5({ code: "NOT_FOUND", message: "\u0637\u0644\u0628 \u0627\u0644\u0634\u0631\u0627\u0621 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F" });
       const items = await getPOItems(input.id);
-      return { ...po, items };
+      const comments = await getProcurementComments(input.id);
+      return { ...po, items, comments };
     }),
-    create: protectedProcedure.input(z3.object({
-      ticketId: z3.number().optional(),
-      notes: z3.string().optional(),
-      items: z3.array(z3.object({
-        itemName: z3.string().min(1),
-        description: z3.string().optional(),
-        quantity: z3.number().min(1),
-        unit: z3.string().optional(),
-        photoUrl: z3.string().optional(),
-        notes: z3.string().optional(),
-        delegateId: z3.number().optional()
+    requestRevision: delegateProcedure.input(z4.object({
+      id: z4.number(),
+      note: z4.string().min(5, "\u064A\u062C\u0628 \u0643\u062A\u0627\u0628\u0629 \u0633\u0628\u0628 \u0637\u0644\u0628 \u0627\u0644\u0645\u0631\u0627\u062C\u0639\u0629 (\u0628\u062D\u062F \u0623\u062F\u0646\u0649 5 \u0623\u062D\u0631\u0641)")
+    })).mutation(async ({ input, ctx }) => {
+      const po = await getPurchaseOrderById(input.id);
+      if (!po) throw new TRPCError5({ code: "NOT_FOUND" });
+      await updatePurchaseOrder(input.id, {
+        status: "revision_needed",
+        accountingApprovedById: null,
+        accountingApprovedAt: null,
+        managementApprovedById: null,
+        managementApprovedAt: null,
+        totalEstimatedCost: null
+      });
+      const items = await getPOItems(input.id);
+      for (const item of items) {
+        await updatePOItem(item.id, { status: "pending", estimatedUnitCost: null, estimatedTotalCost: null });
+      }
+      await createProcurementComment({
+        purchaseOrderId: input.id,
+        userId: ctx.user.id,
+        userName: ctx.user.name || "User",
+        userRole: ctx.user.role,
+        actionType: "return_for_revision",
+        note: input.note
+      });
+      await createNotification({
+        userId: po.requestedById,
+        title: "\u26A0\uFE0F \u0637\u0644\u0628 \u0645\u0631\u0627\u062C\u0639\u0629 \u0644\u0637\u0644\u0628 \u0634\u0631\u0627\u0621",
+        message: `\u0642\u0627\u0645 \u0627\u0644\u0645\u0646\u062F\u0648\u0628 ${ctx.user.name} \u0628\u0625\u0639\u0627\u062F\u0629 \u0637\u0644\u0628 \u0627\u0644\u0634\u0631\u0627\u0621 #${po.poNumber} \u0644\u0644\u0645\u0631\u0627\u062C\u0639\u0629: ${input.note}`,
+        type: "warning",
+        relatedPOId: input.id
+      });
+      await createAuditLog({ userId: ctx.user.id, action: "request_revision", entityType: "purchase_order", entityId: input.id, newValues: { status: "revision_needed", note: input.note } });
+      return { success: true };
+    }),
+    resubmit: protectedProcedure.input(z4.object({
+      id: z4.number(),
+      note: z4.string().optional()
+    })).mutation(async ({ input, ctx }) => {
+      const po = await getPurchaseOrderById(input.id);
+      if (!po) throw new TRPCError5({ code: "NOT_FOUND" });
+      if (po.requestedById !== ctx.user.id) throw new TRPCError5({ code: "FORBIDDEN", message: "\u0641\u0642\u0637 \u0645\u0646\u0634\u0626 \u0627\u0644\u0637\u0644\u0628 \u064A\u0645\u0643\u0646\u0647 \u0625\u0639\u0627\u062F\u0629 \u0627\u0644\u062A\u0642\u062F\u064A\u0645" });
+      if (po.status !== "revision_needed") throw new TRPCError5({ code: "BAD_REQUEST", message: "\u0627\u0644\u0637\u0644\u0628 \u0644\u064A\u0633 \u0641\u064A \u062D\u0627\u0644\u0629 \u0645\u0631\u0627\u062C\u0639\u0629" });
+      await updatePurchaseOrder(input.id, { status: "pending_review" });
+      await createProcurementComment({
+        purchaseOrderId: input.id,
+        userId: ctx.user.id,
+        userName: ctx.user.name || "User",
+        userRole: ctx.user.role,
+        actionType: "resubmitted",
+        note: input.note || "\u062A\u0645 \u062A\u0639\u062F\u064A\u0644 \u0627\u0644\u0637\u0644\u0628 \u0648\u0625\u0639\u0627\u062F\u0629 \u0627\u0644\u062A\u0642\u062F\u064A\u0645"
+      });
+      await createAuditLog({ userId: ctx.user.id, action: "resubmit_po", entityType: "purchase_order", entityId: input.id });
+      return { success: true };
+    }),
+    close: protectedProcedure.input(z4.object({
+      id: z4.number(),
+      note: z4.string().optional()
+    })).mutation(async ({ input, ctx }) => {
+      const po = await getPurchaseOrderById(input.id);
+      if (!po) throw new TRPCError5({ code: "NOT_FOUND" });
+      if (po.requestedById !== ctx.user.id && !["admin", "owner"].includes(ctx.user.role)) {
+        throw new TRPCError5({ code: "FORBIDDEN", message: "\u0644\u064A\u0633 \u0644\u062F\u064A\u0643 \u0635\u0644\u0627\u062D\u064A\u0629 \u0644\u0625\u063A\u0644\u0627\u0642 \u0647\u0630\u0627 \u0627\u0644\u0637\u0644\u0628" });
+      }
+      await updatePurchaseOrder(input.id, { status: "closed" });
+      if (input.note) {
+        await createProcurementComment({
+          purchaseOrderId: input.id,
+          userId: ctx.user.id,
+          userName: ctx.user.name || "User",
+          userRole: ctx.user.role,
+          actionType: "closed",
+          note: `\u0625\u063A\u0644\u0627\u0642 \u0627\u0644\u0637\u0644\u0628: ${input.note}`
+        });
+      }
+      await createAuditLog({ userId: ctx.user.id, action: "close_po", entityType: "purchase_order", entityId: input.id });
+      return { success: true };
+    }),
+    create: protectedProcedure.input(z4.object({
+      ticketId: z4.number().optional(),
+      notes: z4.string().optional(),
+      items: z4.array(z4.object({
+        itemName: z4.string().min(1),
+        description: z4.string().optional(),
+        quantity: z4.number().min(1),
+        unit: z4.string().optional(),
+        photoUrl: z4.string().optional(),
+        notes: z4.string().optional(),
+        delegateId: z4.number().optional()
       }))
     })).mutation(async ({ input, ctx }) => {
       if (input.items.length === 0) {
@@ -4695,28 +5361,24 @@ var appRouter = router({
         poNumber,
         ticketId: input.ticketId,
         requestedById: ctx.user.id,
-        status: "pending_estimate",
+        status: "pending_review",
         notes: input.notes
       });
       const itemsData = input.items.map((item) => ({ ...item, purchaseOrderId: poId, status: "pending" }));
       await createPOItems(itemsData);
       if (input.ticketId) {
         const ticket = await getTicketById(input.ticketId);
-        if (ticket) {
+        if (ticket && ticket.maintenancePath !== "C") {
           await updateTicket(input.ticketId, { status: "needs_purchase" });
           await addTicketStatusHistory({ ticketId: input.ticketId, fromStatus: ticket.status, toStatus: "needs_purchase", changedById: ctx.user.id });
         }
       }
-      const delegateIds = Array.from(new Set(input.items.filter((i) => i.delegateId).map((i) => i.delegateId)));
-      for (const dId of delegateIds) {
-        await createNotification({ userId: dId, title: "\u0637\u0644\u0628 \u0634\u0631\u0627\u0621 \u062C\u062F\u064A\u062F", message: `\u062A\u0645 \u062A\u062E\u0635\u064A\u0635 \u0623\u0635\u0646\u0627\u0641 \u0644\u0643 \u0641\u064A \u0637\u0644\u0628 \u0627\u0644\u0634\u0631\u0627\u0621 ${poNumber}`, type: "info", relatedPOId: poId });
-      }
       await createAuditLog({ userId: ctx.user.id, action: "create_po", entityType: "purchase_order", entityId: poId });
       return { id: poId, poNumber };
     }),
-    update: protectedProcedure.input(z3.object({
-      id: z3.number(),
-      notes: z3.string().optional()
+    update: protectedProcedure.input(z4.object({
+      id: z4.number(),
+      notes: z4.string().optional()
     })).mutation(async ({ input, ctx }) => {
       const po = await getPurchaseOrderById(input.id);
       if (!po) throw new TRPCError5({ code: "NOT_FOUND", message: "\u0637\u0644\u0628 \u0627\u0644\u0634\u0631\u0627\u0621 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F" });
@@ -4734,7 +5396,7 @@ var appRouter = router({
       }
       return { success: true };
     }),
-    delete: protectedProcedure.input(z3.object({ id: z3.number() })).mutation(async ({ input, ctx }) => {
+    delete: protectedProcedure.input(z4.object({ id: z4.number() })).mutation(async ({ input, ctx }) => {
       const po = await getPurchaseOrderById(input.id);
       if (!po) throw new TRPCError5({ code: "NOT_FOUND", message: "\u0637\u0644\u0628 \u0627\u0644\u0634\u0631\u0627\u0621 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F" });
       if (!["owner", "admin", "maintenance_manager", "purchase_manager"].includes(ctx.user.role)) {
@@ -4753,18 +5415,24 @@ var appRouter = router({
       }
       return { success: true };
     }),
-    editItem: protectedProcedure.input(z3.object({
-      id: z3.number(),
-      purchaseOrderId: z3.number(),
-      itemName: z3.string().optional(),
-      description: z3.string().optional(),
-      quantity: z3.number().optional(),
-      estimatedUnitCost: z3.string().optional()
+    editItem: protectedProcedure.input(z4.object({
+      id: z4.number(),
+      purchaseOrderId: z4.number(),
+      itemName: z4.string().optional(),
+      description: z4.string().optional(),
+      quantity: z4.number().optional(),
+      unit: z4.string().optional(),
+      photoUrl: z4.string().optional(),
+      notes: z4.string().optional(),
+      estimatedUnitCost: z4.string().optional()
     })).mutation(async ({ input, ctx }) => {
       const po = await getPurchaseOrderById(input.purchaseOrderId);
       if (!po) throw new TRPCError5({ code: "NOT_FOUND" });
-      if (!["pending_estimate", "pending_accounting", "draft"].includes(po.status)) {
+      if (!["pending_estimate", "pending_accounting", "draft", "revision_needed"].includes(po.status)) {
         throw new TRPCError5({ code: "BAD_REQUEST", message: "\u0644\u0627 \u064A\u0645\u0643\u0646 \u062A\u0639\u062F\u064A\u0644 \u0635\u0646\u0641 \u0641\u064A \u0637\u0644\u0628 \u0645\u0639\u062A\u0645\u062F \u0623\u0648 \u0645\u0645\u0648\u0644" });
+      }
+      if (po.status === "revision_needed" && po.requestedById !== ctx.user.id) {
+        throw new TRPCError5({ code: "FORBIDDEN", message: "\u0641\u0642\u0637 \u0645\u0646\u0634\u0626 \u0627\u0644\u0637\u0644\u0628 \u064A\u0645\u0643\u0646\u0647 \u062A\u0639\u062F\u064A\u0644 \u0627\u0644\u0623\u0635\u0646\u0627\u0641 \u0639\u0646\u062F \u0637\u0644\u0628 \u0627\u0644\u0645\u0631\u0627\u062C\u0639\u0629" });
       }
       const oldItem = await getPOItemById(input.id);
       if (!oldItem) throw new TRPCError5({ code: "NOT_FOUND" });
@@ -4772,6 +5440,9 @@ var appRouter = router({
       if (input.itemName !== void 0) updates.itemName = input.itemName;
       if (input.description !== void 0) updates.description = input.description;
       if (input.quantity !== void 0) updates.quantity = input.quantity;
+      if (input.unit !== void 0) updates.unit = input.unit;
+      if (input.photoUrl !== void 0) updates.photoUrl = input.photoUrl;
+      if (input.notes !== void 0) updates.notes = input.notes;
       if (input.estimatedUnitCost !== void 0) {
         updates.estimatedUnitCost = input.estimatedUnitCost;
         updates.estimatedTotalCost = String(parseFloat(input.estimatedUnitCost) * (input.quantity || oldItem.quantity));
@@ -4784,12 +5455,12 @@ var appRouter = router({
         action: "update",
         entityType: "purchase_order_item",
         entityId: input.id,
-        oldValues: { itemName: oldItem.itemName, description: oldItem.description, quantity: oldItem.quantity, estimatedUnitCost: oldItem.estimatedUnitCost },
+        oldValues: { itemName: oldItem.itemName, description: oldItem.description, quantity: oldItem.quantity, unit: oldItem.unit, estimatedUnitCost: oldItem.estimatedUnitCost, photoUrl: oldItem.photoUrl, notes: oldItem.notes },
         newValues: updates
       });
       return { success: true };
     }),
-    deleteItem: protectedProcedure.input(z3.object({ id: z3.number(), purchaseOrderId: z3.number() })).mutation(async ({ input, ctx }) => {
+    deleteItem: protectedProcedure.input(z4.object({ id: z4.number(), purchaseOrderId: z4.number() })).mutation(async ({ input, ctx }) => {
       const po = await getPurchaseOrderById(input.purchaseOrderId);
       if (!po) throw new TRPCError5({ code: "NOT_FOUND" });
       if (!["pending_estimate", "pending_accounting"].includes(po.status)) {
@@ -4801,23 +5472,26 @@ var appRouter = router({
       return { success: true };
     }),
     // Delegate estimates cost
-    estimateCost: delegateProcedure.input(z3.object({
-      purchaseOrderId: z3.number(),
-      items: z3.array(z3.object({
-        id: z3.number(),
-        estimatedUnitCost: z3.string()
+    estimateCost: delegateProcedure.input(z4.object({
+      purchaseOrderId: z4.number(),
+      items: z4.array(z4.object({
+        id: z4.number(),
+        estimatedUnitCost: z4.string()
       }))
     })).mutation(async ({ input, ctx }) => {
       let totalEstimated = 0;
       for (const item of input.items) {
         const cost = parseFloat(item.estimatedUnitCost);
         const poItem = (await getPOItems(input.purchaseOrderId)).find((i) => i.id === item.id);
+        if (!poItem?.delegateId) {
+          throw new TRPCError5({ code: "BAD_REQUEST", message: `\u0627\u0644\u0635\u0646\u0641 "${poItem?.itemName || item.id}" \u0644\u0627 \u064A\u0645\u0643\u0646 \u062A\u0633\u0639\u064A\u0631\u0647 \u0642\u0628\u0644 \u062A\u0639\u064A\u064A\u0646 \u0645\u0646\u062F\u0648\u0628 \u0644\u0647` });
+        }
         const totalCost = cost * (poItem?.quantity || 1);
         totalEstimated += totalCost;
         await updatePOItem(item.id, { estimatedUnitCost: item.estimatedUnitCost, estimatedTotalCost: String(totalCost), status: "estimated" });
       }
       const allItems = await getPOItems(input.purchaseOrderId);
-      const allEstimated = allItems.every((i) => i.status !== "pending");
+      const allEstimated = allItems.every((i) => i.status === "estimated" || i.status === "rejected");
       if (allEstimated) {
         await updatePurchaseOrder(input.purchaseOrderId, { status: "pending_accounting", totalEstimatedCost: String(totalEstimated) });
         const accountants = await getUsersByRole("accountant");
@@ -4828,10 +5502,10 @@ var appRouter = router({
       return { success: true };
     }),
     // Accounting approval
-    approveAccounting: accountantProcedure.input(z3.object({
-      id: z3.number(),
-      notes: z3.string().optional(),
-      custodyAmount: z3.string().optional()
+    approveAccounting: accountantProcedure.input(z4.object({
+      id: z4.number(),
+      notes: z4.string().optional(),
+      custodyAmount: z4.string().optional()
     })).mutation(async ({ input, ctx }) => {
       await updatePurchaseOrder(input.id, { status: "pending_management", accountingApprovedById: ctx.user.id, accountingApprovedAt: /* @__PURE__ */ new Date(), accountingNotes: input.notes, custodyAmount: input.custodyAmount || null });
       const mgmt = await getUsersByRole("senior_management");
@@ -4844,17 +5518,20 @@ var appRouter = router({
       return { success: true };
     }),
     // Management approval
-    approveManagement: managementProcedure.input(z3.object({
-      id: z3.number(),
-      notes: z3.string().optional()
+    approveManagement: managementProcedure.input(z4.object({
+      id: z4.number(),
+      notes: z4.string().optional()
     })).mutation(async ({ input, ctx }) => {
       const po = await getPurchaseOrderById(input.id);
       await updatePurchaseOrder(input.id, { status: "approved", managementApprovedById: ctx.user.id, managementApprovedAt: /* @__PURE__ */ new Date(), managementNotes: input.notes });
       const items = await getPOItems(input.id);
       for (const item of items) {
-        await updatePOItem(item.id, { status: "approved" });
+        if (item.status !== "rejected") {
+          await updatePOItem(item.id, { status: "approved" });
+        }
       }
-      const delegateIds = Array.from(new Set(items.filter((i) => i.delegateId).map((i) => i.delegateId)));
+      const approvedItemsForNotif = items.filter((i) => i.status !== "rejected");
+      const delegateIds = Array.from(new Set(approvedItemsForNotif.filter((i) => i.delegateId).map((i) => i.delegateId)));
       for (const dId of delegateIds) {
         const delegateItems = items.filter((i) => i.delegateId === dId);
         const itemNames = delegateItems.map((i) => i.itemName).join("\u060C ");
@@ -4880,16 +5557,30 @@ var appRouter = router({
         }
       }
       if (po?.ticketId) {
-        await updateTicket(po.ticketId, { status: "purchase_approved" });
-        await addTicketStatusHistory({ ticketId: po.ticketId, fromStatus: "purchase_pending_management", toStatus: "purchase_approved", changedById: ctx.user.id });
+        const ticketForPath = await getTicketById(po.ticketId);
+        if (ticketForPath?.maintenancePath === "C") {
+          const gateUsers = await getUsersByRole("gate_security");
+          for (const g of gateUsers) {
+            await createNotification({
+              userId: g.id,
+              title: "\u{1F6AA} \u0623\u0635\u0644 \u0628\u0627\u0646\u062A\u0638\u0627\u0631 \u0627\u0644\u0645\u0648\u0627\u0641\u0642\u0629 \u0639\u0644\u0649 \u0627\u0644\u062E\u0631\u0648\u062C",
+              message: `\u0627\u0644\u0628\u0644\u0627\u063A ${ticketForPath.ticketNumber} - \u062A\u0645\u062A \u0627\u0644\u0645\u0648\u0627\u0641\u0642\u0629 \u0639\u0644\u0649 \u062A\u0643\u0644\u0641\u0629 \u0627\u0644\u0625\u0635\u0644\u0627\u062D\u060C \u0627\u0644\u0623\u0635\u0644 \u062C\u0627\u0647\u0632 \u0644\u0644\u062E\u0631\u0648\u062C`,
+              type: "info",
+              relatedTicketId: po.ticketId
+            });
+          }
+        } else {
+          await updateTicket(po.ticketId, { status: "purchase_approved" });
+          await addTicketStatusHistory({ ticketId: po.ticketId, fromStatus: "purchase_pending_management", toStatus: "purchase_approved", changedById: ctx.user.id });
+        }
       }
       await createAuditLog({ userId: ctx.user.id, action: "approve_management", entityType: "purchase_order", entityId: input.id });
       return { success: true };
     }),
     // Reject PO
-    reject: protectedProcedure.input(z3.object({
-      id: z3.number(),
-      reason: z3.string().min(1)
+    reject: protectedProcedure.input(z4.object({
+      id: z4.number(),
+      reason: z4.string().min(1)
     })).mutation(async ({ input, ctx }) => {
       const poReject = await getPurchaseOrderById(input.id);
       await updatePurchaseOrder(input.id, { status: "rejected", rejectedById: ctx.user.id, rejectedAt: /* @__PURE__ */ new Date(), rejectionReason: input.reason });
@@ -4904,11 +5595,84 @@ var appRouter = router({
       }
       return { success: true };
     }),
+    // ============ مرحلة المراجعة: اعتماد/رفض الأصناف وتعيين المندوبين ============
+    reviewItems: managerProcedure.input(z4.object({
+      poId: z4.number(),
+      items: z4.array(z4.object({
+        id: z4.number(),
+        action: z4.enum(["approve", "reject"]),
+        delegateId: z4.number().optional(),
+        rejectionReason: z4.string().optional()
+      }))
+    })).mutation(async ({ input, ctx }) => {
+      const po = await getPurchaseOrderById(input.poId);
+      if (!po) throw new TRPCError5({ code: "NOT_FOUND", message: "\u0637\u0644\u0628 \u0627\u0644\u0634\u0631\u0627\u0621 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F" });
+      if (po.status !== "pending_review") {
+        throw new TRPCError5({ code: "BAD_REQUEST", message: "\u0637\u0644\u0628 \u0627\u0644\u0634\u0631\u0627\u0621 \u0644\u064A\u0633 \u0641\u064A \u0645\u0631\u062D\u0644\u0629 \u0627\u0644\u0645\u0631\u0627\u062C\u0639\u0629" });
+      }
+      const dbItems = await getPOItems(input.poId);
+      if (input.items.length !== dbItems.length) {
+        throw new TRPCError5({ code: "BAD_REQUEST", message: `\u064A\u062C\u0628 \u0645\u0631\u0627\u062C\u0639\u0629 \u062C\u0645\u064A\u0639 \u0627\u0644\u0623\u0635\u0646\u0627\u0641 (${dbItems.length} \u0635\u0646\u0641). \u062A\u0645 \u0625\u0631\u0633\u0627\u0644 ${input.items.length} \u0641\u0642\u0637` });
+      }
+      const dbItemIds = new Set(dbItems.map((i) => i.id));
+      for (const reviewItem of input.items) {
+        if (!dbItemIds.has(reviewItem.id)) {
+          throw new TRPCError5({ code: "BAD_REQUEST", message: `\u0627\u0644\u0635\u0646\u0641 \u0631\u0642\u0645 ${reviewItem.id} \u0644\u0627 \u064A\u0646\u062A\u0645\u064A \u0644\u0637\u0644\u0628 \u0627\u0644\u0634\u0631\u0627\u0621 \u0647\u0630\u0627` });
+        }
+      }
+      for (const reviewItem of input.items) {
+        if (reviewItem.action === "approve" && !reviewItem.delegateId) {
+          throw new TRPCError5({ code: "BAD_REQUEST", message: `\u0627\u0644\u0635\u0646\u0641 \u0631\u0642\u0645 ${reviewItem.id}: \u064A\u062C\u0628 \u062A\u0639\u064A\u064A\u0646 \u0645\u0646\u062F\u0648\u0628 \u0644\u0644\u0623\u0635\u0646\u0627\u0641 \u0627\u0644\u0645\u0639\u062A\u0645\u062F\u0629` });
+        }
+        if (reviewItem.action === "reject" && !reviewItem.rejectionReason) {
+          throw new TRPCError5({ code: "BAD_REQUEST", message: `\u0627\u0644\u0635\u0646\u0641 \u0631\u0642\u0645 ${reviewItem.id}: \u064A\u062C\u0628 \u0625\u062F\u062E\u0627\u0644 \u0633\u0628\u0628 \u0631\u0641\u0636 \u0627\u0644\u0623\u0635\u0646\u0627\u0641 \u0627\u0644\u0645\u0631\u0641\u0648\u0636\u0629` });
+        }
+      }
+      for (const reviewItem of input.items) {
+        if (reviewItem.action === "approve") {
+          await updatePOItem(reviewItem.id, {
+            status: "pending",
+            delegateId: reviewItem.delegateId,
+            rejectionReason: null
+          });
+        } else {
+          await updatePOItem(reviewItem.id, {
+            status: "rejected",
+            rejectionReason: reviewItem.rejectionReason
+          });
+        }
+      }
+      const allItems = await getPOItems(input.poId);
+      const hasApproved = allItems.some((i) => i.status === "pending");
+      const allRejected = allItems.every((i) => i.status === "rejected");
+      if (allRejected) {
+        await updatePurchaseOrder(input.poId, { status: "rejected", rejectedById: ctx.user.id, rejectedAt: /* @__PURE__ */ new Date(), rejectionReason: "\u062A\u0645 \u0631\u0641\u0636 \u062C\u0645\u064A\u0639 \u0627\u0644\u0623\u0635\u0646\u0627\u0641" });
+        if (po.requestedById && po.requestedById !== ctx.user.id) {
+          await createNotification({ userId: po.requestedById, title: "\u274C \u062A\u0645 \u0631\u0641\u0636 \u062C\u0645\u064A\u0639 \u0623\u0635\u0646\u0627\u0641 \u0637\u0644\u0628 \u0627\u0644\u0634\u0631\u0627\u0621", message: `\u062A\u0645 \u0631\u0641\u0636 \u062C\u0645\u064A\u0639 \u0623\u0635\u0646\u0627\u0641 \u0637\u0644\u0628 \u0627\u0644\u0634\u0631\u0627\u0621 \u0631\u0642\u0645 ${po.poNumber}.`, type: "critical", relatedPOId: input.poId });
+        }
+      } else if (hasApproved) {
+        await updatePurchaseOrder(input.poId, { status: "pending_estimate" });
+        const approvedItems = allItems.filter((i) => i.status === "pending" && i.delegateId);
+        const delegateIds = Array.from(new Set(approvedItems.map((i) => i.delegateId)));
+        for (const dId of delegateIds) {
+          const delegateItems = approvedItems.filter((i) => i.delegateId === dId);
+          const itemNames = delegateItems.map((i) => i.itemName).join("\u060C ");
+          await createNotification({ userId: dId, title: "\u0637\u0644\u0628 \u0634\u0631\u0627\u0621 \u062C\u062F\u064A\u062F \u2014 \u0627\u0628\u062F\u0623 \u0627\u0644\u062A\u0633\u0639\u064A\u0631", message: `\u062A\u0645 \u062A\u062E\u0635\u064A\u0635 \u0627\u0644\u0623\u0635\u0646\u0627\u0641 \u0627\u0644\u062A\u0627\u0644\u064A\u0629 \u0644\u0643 \u0641\u064A \u0637\u0644\u0628 \u0627\u0644\u0634\u0631\u0627\u0621 ${po.poNumber}: ${itemNames}`, type: "info", relatedPOId: input.poId });
+        }
+        const rejectedItems = allItems.filter((i) => i.status === "rejected");
+        if (rejectedItems.length > 0 && po.requestedById && po.requestedById !== ctx.user.id) {
+          const rejectedNames = rejectedItems.map((i) => i.itemName).join("\u060C ");
+          await createNotification({ userId: po.requestedById, title: "\u26A0\uFE0F \u0628\u0639\u0636 \u0623\u0635\u0646\u0627\u0641 \u0637\u0644\u0628 \u0627\u0644\u0634\u0631\u0627\u0621 \u0645\u0631\u0641\u0648\u0636\u0629", message: `\u062A\u0645 \u0631\u0641\u0636 \u0627\u0644\u0623\u0635\u0646\u0627\u0641 \u0627\u0644\u062A\u0627\u0644\u064A\u0629 \u0645\u0646 \u0637\u0644\u0628 \u0627\u0644\u0634\u0631\u0627\u0621 ${po.poNumber}: ${rejectedNames}`, type: "warning", relatedPOId: input.poId });
+        }
+      }
+      await createAuditLog({ userId: ctx.user.id, action: "review_po_items", entityType: "purchase_order", entityId: input.poId });
+      return { success: true };
+    }),
     // ============ المرحلة 1: المندوب يؤكد شراء صنف ============
-    confirmItemPurchase: delegateProcedure.input(z3.object({
-      itemId: z3.number(),
-      purchasedPhotoUrl: z3.string().min(1, "\u0635\u0648\u0631\u0629 \u0627\u0644\u0635\u0646\u0641 \u0627\u0644\u0645\u0634\u062A\u0631\u0649 \u0645\u0637\u0644\u0648\u0628\u0629"),
-      invoicePhotoUrl: z3.string().min(1, "\u0635\u0648\u0631\u0629 \u0627\u0644\u0641\u0627\u062A\u0648\u0631\u0629 \u0645\u0637\u0644\u0648\u0628\u0629")
+    confirmItemPurchase: delegateProcedure.input(z4.object({
+      itemId: z4.number(),
+      purchasedPhotoUrl: z4.string().min(1, "\u0635\u0648\u0631\u0629 \u0627\u0644\u0635\u0646\u0641 \u0627\u0644\u0645\u0634\u062A\u0631\u0649 \u0645\u0637\u0644\u0648\u0628\u0629"),
+      invoicePhotoUrl: z4.string().min(1, "\u0635\u0648\u0631\u0629 \u0627\u0644\u0641\u0627\u062A\u0648\u0631\u0629 \u0645\u0637\u0644\u0648\u0628\u0629")
     })).mutation(async ({ input, ctx }) => {
       const isAdminOrOwner = ctx.user.role === "admin" || ctx.user.role === "owner";
       let item;
@@ -4931,17 +5695,18 @@ var appRouter = router({
       });
       const poItems = await getPOItems(item.purchaseOrderId);
       const purchasedOrLater = poItems.filter((i) => ["purchased", "delivered_to_warehouse", "delivered_to_requester"].includes(i.status));
+      const poForPath = await getPurchaseOrderById(item.purchaseOrderId);
+      const ticketForPath = poForPath?.ticketId ? await getTicketById(poForPath.ticketId) : null;
+      const isPathC = ticketForPath?.maintenancePath === "C";
       if (purchasedOrLater.length === poItems.length) {
         await updatePurchaseOrder(item.purchaseOrderId, { status: "purchased" });
-        const po2 = await getPurchaseOrderById(item.purchaseOrderId);
-        if (po2?.ticketId) {
-          await updateTicket(po2.ticketId, { status: "purchased" });
+        if (poForPath?.ticketId && !isPathC) {
+          await updateTicket(poForPath.ticketId, { status: "purchased" });
         }
       } else if (purchasedOrLater.length > 0) {
         await updatePurchaseOrder(item.purchaseOrderId, { status: "partial_purchase" });
-        const po2 = await getPurchaseOrderById(item.purchaseOrderId);
-        if (po2?.ticketId) {
-          await updateTicket(po2.ticketId, { status: "partial_purchase" });
+        if (poForPath?.ticketId && !isPathC) {
+          await updateTicket(poForPath.ticketId, { status: "partial_purchase" });
         }
       }
       const warehouseUsers = await getUsersByRole("warehouse");
@@ -4970,12 +5735,12 @@ var appRouter = router({
       return { success: true };
     }),
     // ============ المرحلة 2: المستودع يؤكد التوريد ============
-    confirmDeliveryToWarehouse: warehouseProcedure.input(z3.object({
-      itemId: z3.number(),
-      supplierName: z3.string().min(1, "\u0627\u0633\u0645 \u0627\u0644\u0645\u0648\u0631\u062F \u0645\u0637\u0644\u0648\u0628"),
-      supplierItemName: z3.string().optional(),
-      actualUnitCost: z3.string().min(1, "\u062A\u0643\u0644\u0641\u0629 \u0627\u0644\u0635\u0646\u0641 \u0645\u0637\u0644\u0648\u0628\u0629"),
-      warehousePhotoUrl: z3.string().min(1, "\u0635\u0648\u0631\u0629 \u0627\u0644\u0635\u0646\u0641 \u0645\u0637\u0644\u0648\u0628\u0629")
+    confirmDeliveryToWarehouse: warehouseProcedure.input(z4.object({
+      itemId: z4.number(),
+      supplierName: z4.string().min(1, "\u0627\u0633\u0645 \u0627\u0644\u0645\u0648\u0631\u062F \u0645\u0637\u0644\u0648\u0628"),
+      supplierItemName: z4.string().optional(),
+      actualUnitCost: z4.string().min(1, "\u062A\u0643\u0644\u0641\u0629 \u0627\u0644\u0635\u0646\u0641 \u0645\u0637\u0644\u0648\u0628\u0629"),
+      warehousePhotoUrl: z4.string().min(1, "\u0635\u0648\u0631\u0629 \u0627\u0644\u0635\u0646\u0641 \u0645\u0637\u0644\u0648\u0628\u0629")
     })).mutation(async ({ input, ctx }) => {
       const item = await getPOItemById(input.itemId);
       if (!item) throw new TRPCError5({ code: "NOT_FOUND", message: "\u0627\u0644\u0635\u0646\u0641 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F" });
@@ -4998,9 +5763,12 @@ var appRouter = router({
       if (allInWarehouse) {
         const totalActual = allItems.reduce((sum2, i) => sum2 + parseFloat(i.actualTotalCost || "0"), 0);
         await updatePurchaseOrder(item.purchaseOrderId, { status: "received", totalActualCost: String(totalActual) });
-        const po = await getPurchaseOrderById(item.purchaseOrderId);
-        if (po?.ticketId) {
-          await updateTicket(po.ticketId, { status: "received_warehouse" });
+        const poWH = await getPurchaseOrderById(item.purchaseOrderId);
+        if (poWH?.ticketId) {
+          const ticketWH = await getTicketById(poWH.ticketId);
+          if (ticketWH && ticketWH.maintenancePath !== "C") {
+            await updateTicket(poWH.ticketId, { status: "received_warehouse" });
+          }
         }
       }
       const poForNotif = await getPurchaseOrderById(item.purchaseOrderId);
@@ -5018,9 +5786,9 @@ var appRouter = router({
       return { success: true };
     }),
     // ============ المرحلة 3: المستودع يسلم الصنف للفني/المسؤول ============
-    confirmDeliveryToRequester: warehouseProcedure.input(z3.object({
-      itemId: z3.number(),
-      deliveredToId: z3.number().optional()
+    confirmDeliveryToRequester: warehouseProcedure.input(z4.object({
+      itemId: z4.number(),
+      deliveredToId: z4.number().optional()
     })).mutation(async ({ input, ctx }) => {
       const item = await getPOItemById(input.itemId);
       if (!item) throw new TRPCError5({ code: "NOT_FOUND", message: "\u0627\u0644\u0635\u0646\u0641 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F" });
@@ -5040,7 +5808,7 @@ var appRouter = router({
         const po = await getPurchaseOrderById(item.purchaseOrderId);
         if (po?.ticketId) {
           const ticket = await getTicketById(po.ticketId);
-          if (ticket && !["received_warehouse", "ready_for_closure", "repaired", "verified", "closed"].includes(ticket.status)) {
+          if (ticket && ticket.maintenancePath !== "C" && !["received_warehouse", "ready_for_closure", "repaired", "verified", "closed"].includes(ticket.status)) {
             await updateTicket(po.ticketId, { status: "received_warehouse" });
             await addTicketStatusHistory({ ticketId: po.ticketId, fromStatus: ticket.status, toStatus: "received_warehouse", changedById: ctx.user.id, notes: "\u062A\u0645 \u062A\u0633\u0644\u064A\u0645 \u062C\u0645\u064A\u0639 \u0627\u0644\u0645\u0648\u0627\u062F \u0644\u0644\u0641\u0646\u064A - \u0628\u0627\u0646\u062A\u0638\u0627\u0631 \u0625\u062A\u0645\u0627\u0645 \u0627\u0644\u0639\u0645\u0644" });
             if (ticket.assignedToId) {
@@ -5076,11 +5844,20 @@ var appRouter = router({
       }
       return [];
     }),
-    // Get items pending delivery to requester
+    // Get items pending delivery to technician
     pendingDeliveryItems: protectedProcedure.query(async ({ ctx }) => {
       const isAdminOrOwner = ctx.user.role === "admin" || ctx.user.role === "owner";
       if (isAdminOrOwner || ctx.user.role === "warehouse") {
-        return getPOItemsByStatus("delivered_to_warehouse");
+        const items = await getPOItemsByStatus("delivered_to_warehouse");
+        const enriched = await Promise.all(items.map(async (item) => {
+          const po = await getPurchaseOrderById(item.purchaseOrderId);
+          if (po?.ticketId) {
+            const ticket = await getTicketById(po.ticketId);
+            return { ...item, ticketAssignedToId: ticket?.assignedToId ?? null };
+          }
+          return { ...item, ticketAssignedToId: null };
+        }));
+        return enriched;
       }
       return [];
     }),
@@ -5100,27 +5877,27 @@ var appRouter = router({
     list: protectedProcedure.query(async () => {
       return getInventoryItems();
     }),
-    create: warehouseProcedure.input(z3.object({
-      itemName: z3.string().min(1),
-      description: z3.string().optional(),
-      quantity: z3.number().default(0),
-      unit: z3.string().optional(),
-      minQuantity: z3.number().optional(),
-      location: z3.string().optional(),
-      siteId: z3.number().optional()
+    create: warehouseProcedure.input(z4.object({
+      itemName: z4.string().min(1),
+      description: z4.string().optional(),
+      quantity: z4.number().default(0),
+      unit: z4.string().optional(),
+      minQuantity: z4.number().optional(),
+      location: z4.string().optional(),
+      siteId: z4.number().optional()
     })).mutation(async ({ input, ctx }) => {
       const id = await createInventoryItem(input);
       await createAuditLog({ userId: ctx.user.id, action: "create_inventory", entityType: "inventory", entityId: id });
       return { id };
     }),
-    update: warehouseProcedure.input(z3.object({
-      id: z3.number(),
-      itemName: z3.string().optional(),
-      description: z3.string().optional(),
-      unit: z3.string().optional(),
-      minQuantity: z3.number().optional(),
-      location: z3.string().optional(),
-      siteId: z3.number().optional()
+    update: warehouseProcedure.input(z4.object({
+      id: z4.number(),
+      itemName: z4.string().optional(),
+      description: z4.string().optional(),
+      unit: z4.string().optional(),
+      minQuantity: z4.number().optional(),
+      location: z4.string().optional(),
+      siteId: z4.number().optional()
     })).mutation(async ({ input, ctx }) => {
       const item = await getInventoryItemById(input.id);
       if (!item) throw new TRPCError5({ code: "NOT_FOUND", message: "\u0627\u0644\u0635\u0646\u0641 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F" });
@@ -5130,19 +5907,19 @@ var appRouter = router({
       await createAuditLog({ userId: ctx.user.id, action: "update_inventory", entityType: "inventory", entityId: id, oldValues, newValues: updateData });
       return { success: true };
     }),
-    delete: warehouseProcedure.input(z3.object({ id: z3.number() })).mutation(async ({ input, ctx }) => {
+    delete: warehouseProcedure.input(z4.object({ id: z4.number() })).mutation(async ({ input, ctx }) => {
       const item = await getInventoryItemById(input.id);
       if (!item) throw new TRPCError5({ code: "NOT_FOUND", message: "\u0627\u0644\u0635\u0646\u0641 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F" });
       await deleteInventoryItem(input.id);
       await createAuditLog({ userId: ctx.user.id, action: "delete_inventory", entityType: "inventory", entityId: input.id, oldValues: { itemName: item.itemName, quantity: item.quantity } });
       return { success: true };
     }),
-    addTransaction: protectedProcedure.input(z3.object({
-      inventoryId: z3.number(),
-      type: z3.enum(["in", "out"]),
-      quantity: z3.number().min(1),
-      reason: z3.string().optional(),
-      ticketId: z3.number().optional()
+    addTransaction: protectedProcedure.input(z4.object({
+      inventoryId: z4.number(),
+      type: z4.enum(["in", "out"]),
+      quantity: z4.number().min(1),
+      reason: z4.string().optional(),
+      ticketId: z4.number().optional()
     })).mutation(async ({ input, ctx }) => {
       await addInventoryTransaction({ ...input, performedById: ctx.user.id });
       return { success: true };
@@ -5158,7 +5935,7 @@ var appRouter = router({
     unreadCount: protectedProcedure.query(async ({ ctx }) => {
       return getUnreadNotificationCount(ctx.user.id);
     }),
-    markRead: protectedProcedure.input(z3.object({ id: z3.number() })).mutation(async ({ input, ctx }) => {
+    markRead: protectedProcedure.input(z4.object({ id: z4.number() })).mutation(async ({ input, ctx }) => {
       await markNotificationRead(input.id, ctx.user.id);
       return { success: true };
     }),
@@ -5171,11 +5948,11 @@ var appRouter = router({
   // FILE UPLOAD
   // ============================================================
   upload: router({
-    getPresignedUrl: protectedProcedure.input(z3.object({
-      fileName: z3.string(),
-      contentType: z3.string(),
-      entityType: z3.string(),
-      entityId: z3.number().optional()
+    getPresignedUrl: protectedProcedure.input(z4.object({
+      fileName: z4.string(),
+      contentType: z4.string(),
+      entityType: z4.string(),
+      entityId: z4.number().optional()
     })).mutation(async ({ input, ctx }) => {
       const fileKey = `cmms/${input.entityType}/${Date.now()}-${nanoid(8)}-${input.fileName}`;
       return { fileKey, uploadUrl: `/api/upload` };
@@ -5185,20 +5962,20 @@ var appRouter = router({
   // ATTACHMENTS
   // ============================================================
   attachments: router({
-    list: protectedProcedure.input(z3.object({
-      entityType: z3.string(),
-      entityId: z3.number()
+    list: protectedProcedure.input(z4.object({
+      entityType: z4.string(),
+      entityId: z4.number()
     })).query(async ({ input }) => {
       return getAttachments(input.entityType, input.entityId);
     }),
-    add: protectedProcedure.input(z3.object({
-      entityType: z3.string(),
-      entityId: z3.number(),
-      fileName: z3.string(),
-      fileUrl: z3.string(),
-      fileKey: z3.string(),
-      mimeType: z3.string().optional(),
-      fileSize: z3.number().optional()
+    add: protectedProcedure.input(z4.object({
+      entityType: z4.string(),
+      entityId: z4.number(),
+      fileName: z4.string(),
+      fileUrl: z4.string(),
+      fileKey: z4.string(),
+      mimeType: z4.string().optional(),
+      fileSize: z4.number().optional()
     })).mutation(async ({ input, ctx }) => {
       const id = await createAttachment({
         entityType: input.entityType,
@@ -5219,7 +5996,7 @@ var appRouter = router({
       });
       return { id };
     }),
-    delete: protectedProcedure.input(z3.object({ id: z3.number() })).mutation(async ({ input, ctx }) => {
+    delete: protectedProcedure.input(z4.object({ id: z4.number() })).mutation(async ({ input, ctx }) => {
       const attachment = await getAttachmentById(input.id);
       if (!attachment) throw new TRPCError5({ code: "NOT_FOUND", message: "\u0627\u0644\u0645\u0631\u0641\u0642 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F" });
       const canDelete = ["owner", "admin", "maintenance_manager"].includes(ctx.user.role) || attachment.uploadedById === ctx.user.id;
@@ -5321,13 +6098,13 @@ var appRouter = router({
       });
       return Object.entries(monthly).map(([month, data]) => ({ month, ...data })).sort((a, b) => a.month.localeCompare(b.month));
     }),
-    technicianPerformance: protectedProcedure.input(z3.object({
-      period: z3.enum(["week", "month", "quarter", "year", "all", "custom"]).default("all"),
-      dateFrom: z3.string().optional(),
-      dateTo: z3.string().optional(),
-      siteId: z3.number().optional(),
-      sectionId: z3.number().optional(),
-      technicianName: z3.string().optional()
+    technicianPerformance: protectedProcedure.input(z4.object({
+      period: z4.enum(["week", "month", "quarter", "year", "all", "custom"]).default("all"),
+      dateFrom: z4.string().optional(),
+      dateTo: z4.string().optional(),
+      siteId: z4.number().optional(),
+      sectionId: z4.number().optional(),
+      technicianName: z4.string().optional()
     }).optional()).query(async ({ input }) => {
       const period = input?.period || "all";
       let dateFrom;
@@ -5361,10 +6138,10 @@ var appRouter = router({
         technicianName: input?.technicianName
       });
     }),
-    externalTechnicianPerformance: protectedProcedure.input(z3.object({
-      period: z3.enum(["week", "month", "quarter", "year", "all", "custom"]).default("all"),
-      dateFrom: z3.string().optional(),
-      dateTo: z3.string().optional()
+    externalTechnicianPerformance: protectedProcedure.input(z4.object({
+      period: z4.enum(["week", "month", "quarter", "year", "all", "custom"]).default("all"),
+      dateFrom: z4.string().optional(),
+      dateTo: z4.string().optional()
     }).optional()).query(async ({ input }) => {
       const period = input?.period || "all";
       let dateFrom;
@@ -5394,15 +6171,16 @@ var appRouter = router({
       return getExternalTechnicianPerformance(period === "all" ? void 0 : { dateFrom, dateTo });
     }),
     // ── تقرير دورة الشراء ─────────────────────────────────────────────────────
-    purchaseCycleReport: protectedProcedure.input(z3.object({
-      dateFrom: z3.string().optional(),
-      dateTo: z3.string().optional(),
-      poId: z3.number().optional()
+    purchaseCycleReport: protectedProcedure.input(z4.object({
+      dateFrom: z4.string().optional(),
+      dateTo: z4.string().optional(),
+      poId: z4.number().optional()
     }).optional()).query(async ({ input }) => {
-      const [allPOs, allUsers, allItems] = await Promise.all([
+      const [allPOs, allUsers, allItems, allTickets] = await Promise.all([
         getPurchaseOrders(),
         getAllUsers(),
-        getAllPOItems()
+        getAllPOItems(),
+        getTickets()
       ]);
       let pos = allPOs;
       if (input?.dateFrom) {
@@ -5420,6 +6198,7 @@ var appRouter = router({
       const msToHours = (ms) => Math.round(ms / 36e5 * 10) / 10;
       const result = pos.map((po) => {
         const items = allItems.filter((i) => i.purchaseOrderId === po.id);
+        const ticket = po.ticketId ? allTickets.find((t3) => t3.id === po.ticketId) : null;
         const requestedBy = allUsers.find((u) => u.id === po.requestedById)?.name || "\u063A\u064A\u0631 \u0645\u0639\u0631\u0648\u0641";
         const accountingApprovedBy = allUsers.find((u) => u.id === po.accountingApprovedById)?.name;
         const managementApprovedBy = allUsers.find((u) => u.id === po.managementApprovedById)?.name;
@@ -5470,6 +6249,7 @@ var appRouter = router({
           requestedBy,
           createdAt: new Date(po.createdAt),
           ticketId: po.ticketId,
+          ticketNumber: ticket?.ticketNumber || null,
           custodyAmount: po.custodyAmount ? parseFloat(po.custodyAmount) : null,
           poPhases,
           items: itemsReport,
@@ -5487,11 +6267,11 @@ var appRouter = router({
       return { pos: result, avgTotalHours, phaseAvgs, total: result.length };
     }),
     // ── تقرير دورة الصيانة ────────────────────────────────────────────────────
-    maintenanceCycleReport: protectedProcedure.input(z3.object({
-      dateFrom: z3.string().optional(),
-      dateTo: z3.string().optional(),
-      ticketId: z3.number().optional(),
-      status: z3.string().optional()
+    maintenanceCycleReport: protectedProcedure.input(z4.object({
+      dateFrom: z4.string().optional(),
+      dateTo: z4.string().optional(),
+      ticketId: z4.number().optional(),
+      status: z4.string().optional()
     }).optional()).query(async ({ input }) => {
       const [allTickets, allUsers, allSites] = await Promise.all([
         getTickets(),
@@ -5600,10 +6380,10 @@ var appRouter = router({
       }).filter((p) => p.avgHours !== null).sort((a, b) => (b.avgHours || 0) - (a.avgHours || 0));
       return { tickets: result, avgTotalHours, avgTotalDays: avgTotalHours ? Math.round(avgTotalHours / 24 * 10) / 10 : null, phaseAvgs, total: result.length, closedCount: closedTickets.length };
     }),
-    sectionReport: protectedProcedure.input(z3.object({
-      siteId: z3.number().optional(),
-      dateFrom: z3.string().optional(),
-      dateTo: z3.string().optional()
+    sectionReport: protectedProcedure.input(z4.object({
+      siteId: z4.number().optional(),
+      dateFrom: z4.string().optional(),
+      dateTo: z4.string().optional()
     }).optional()).query(async ({ input }) => {
       const allSections = await getSections();
       const allTickets = await getTickets({});
@@ -5668,11 +6448,11 @@ var appRouter = router({
       return { sections: sectionStats, unassignedTickets: unassigned.length, totalTickets: filteredTickets.length };
     }),
     // تقرير التكاليف البصري: حسب القسم والموقع مع فلاتر زمنية
-    costReport: protectedProcedure.input(z3.object({
-      groupBy: z3.enum(["section", "site"]).default("site"),
-      period: z3.enum(["month", "quarter", "year", "all", "custom"]).default("all"),
-      dateFrom: z3.string().optional(),
-      dateTo: z3.string().optional()
+    costReport: protectedProcedure.input(z4.object({
+      groupBy: z4.enum(["section", "site"]).default("site"),
+      period: z4.enum(["month", "quarter", "year", "all", "custom"]).default("all"),
+      dateFrom: z4.string().optional(),
+      dateTo: z4.string().optional()
     }).optional()).query(async ({ input }) => {
       const groupBy = input?.groupBy ?? "site";
       const period = input?.period ?? "all";
@@ -5776,8 +6556,8 @@ var appRouter = router({
       return { groups, grandTotal: Math.round(grandTotal * 100) / 100, monthlyTrend, groupBy, totalTicketsNoCost };
     }),
     // تقرير أداء الفني الشهري: فحوصات + معدل اكتشاف الأعطال
-    technicianMonthlyReport: protectedProcedure.input(z3.object({
-      monthsBack: z3.number().min(1).max(12).default(6)
+    technicianMonthlyReport: protectedProcedure.input(z4.object({
+      monthsBack: z4.number().min(1).max(12).default(6)
     }).optional()).query(async () => {
       const ddb = await getDb();
       if (!ddb) return { technicians: [], months: [] };
@@ -5845,11 +6625,11 @@ var appRouter = router({
   // AI INSIGHTS
   // ============================================================
   ai: router({
-    analyze: protectedProcedure.input(z3.object({
-      question: z3.string(),
-      conversationHistory: z3.array(z3.object({
-        role: z3.enum(["user", "assistant"]),
-        content: z3.string()
+    analyze: protectedProcedure.input(z4.object({
+      question: z4.string(),
+      conversationHistory: z4.array(z4.object({
+        role: z4.enum(["user", "assistant"]),
+        content: z4.string()
       })).optional()
     })).mutation(async ({ input, ctx }) => {
       const [tickets2, pos, inventoryItems, allUsers, allSites, stats, recentAudit] = await Promise.all([
@@ -6006,8 +6786,8 @@ ${dbContext}` },
       if (!["owner", "admin"].includes(ctx.user.role)) throw new TRPCError5({ code: "FORBIDDEN", message: "\u0644\u064A\u0633 \u0644\u062F\u064A\u0643 \u0635\u0644\u0627\u062D\u064A\u0629" });
       return getBackups();
     }),
-    create: protectedProcedure.input(z3.object({
-      description: z3.string().optional()
+    create: protectedProcedure.input(z4.object({
+      description: z4.string().optional()
     }).optional()).mutation(async ({ input, ctx }) => {
       if (!["owner", "admin"].includes(ctx.user.role)) throw new TRPCError5({ code: "FORBIDDEN", message: "\u0644\u064A\u0633 \u0644\u062F\u064A\u0643 \u0635\u0644\u0627\u062D\u064A\u0629" });
       const exportResult = await exportAllTablesData();
@@ -6037,8 +6817,8 @@ ${dbContext}` },
       });
       return { id, name: backupName, tablesCount: exportResult.tablesCount, recordsCount: exportResult.recordsCount, fileUrl: url };
     }),
-    restore: protectedProcedure.input(z3.object({
-      id: z3.number()
+    restore: protectedProcedure.input(z4.object({
+      id: z4.number()
     })).mutation(async ({ input, ctx }) => {
       if (!["owner", "admin"].includes(ctx.user.role)) throw new TRPCError5({ code: "FORBIDDEN", message: "\u0644\u064A\u0633 \u0644\u062F\u064A\u0643 \u0635\u0644\u0627\u062D\u064A\u0629" });
       const backup = await getBackupById(input.id);
@@ -6056,7 +6836,7 @@ ${dbContext}` },
       });
       return { success: true, name: backup.name };
     }),
-    delete: protectedProcedure.input(z3.object({ id: z3.number() })).mutation(async ({ input, ctx }) => {
+    delete: protectedProcedure.input(z4.object({ id: z4.number() })).mutation(async ({ input, ctx }) => {
       if (!["owner", "admin"].includes(ctx.user.role)) throw new TRPCError5({ code: "FORBIDDEN", message: "\u0644\u064A\u0633 \u0644\u062F\u064A\u0643 \u0635\u0644\u0627\u062D\u064A\u0629" });
       const backup = await getBackupById(input.id);
       if (!backup) throw new TRPCError5({ code: "NOT_FOUND", message: "\u0627\u0644\u0646\u0633\u062E\u0629 \u0627\u0644\u0627\u062D\u062A\u064A\u0627\u0637\u064A\u0629 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F\u0629" });
@@ -6075,14 +6855,14 @@ ${dbContext}` },
   // AUDIT LOGS
   // ============================================================
   audit: router({
-    list: protectedProcedure.input(z3.object({
-      entityType: z3.string().optional(),
-      entityId: z3.number().optional(),
-      userId: z3.number().optional(),
-      action: z3.string().optional(),
-      dateFrom: z3.string().optional(),
-      dateTo: z3.string().optional(),
-      limit: z3.number().optional()
+    list: protectedProcedure.input(z4.object({
+      entityType: z4.string().optional(),
+      entityId: z4.number().optional(),
+      userId: z4.number().optional(),
+      action: z4.string().optional(),
+      dateFrom: z4.string().optional(),
+      dateTo: z4.string().optional(),
+      limit: z4.number().optional()
     }).optional()).query(async ({ input }) => {
       const filters = {};
       if (input?.entityType) filters.entityType = input.entityType;
@@ -6107,37 +6887,46 @@ ${dbContext}` },
   // ASSETS - إدارة الأصول
   // ============================================================
   assets: router({
-    list: protectedProcedure.input(z3.object({
-      siteId: z3.number().optional(),
-      sectionId: z3.number().optional(),
-      status: z3.string().optional(),
-      search: z3.string().optional()
+    list: protectedProcedure.input(z4.object({
+      siteId: z4.number().optional(),
+      sectionId: z4.number().optional(),
+      status: z4.string().optional(),
+      search: z4.string().optional(),
+      // Stage 0.5 Phase 2: pagination — only active when page is explicitly provided
+      page: z4.number().int().min(1).optional(),
+      pageSize: z4.number().int().min(1).max(200).optional()
     }).optional()).query(async ({ input }) => {
-      return listAssets(input ?? {});
+      const { page, pageSize, ...filters } = input || {};
+      const resolvedPage = page ?? 1;
+      const resolvedPageSize = pageSize ?? 1e4;
+      const filtersWithPagination = { ...filters, pagination: { limit: resolvedPageSize, offset: (resolvedPage - 1) * resolvedPageSize } };
+      const result = await listAssets(filtersWithPagination);
+      return { data: result.data, total: result.total, page: resolvedPage, pageSize: resolvedPageSize };
     }),
-    getById: protectedProcedure.input(z3.object({ id: z3.number() })).query(async ({ input }) => {
+    getById: protectedProcedure.input(z4.object({ id: z4.number() })).query(async ({ input }) => {
       const asset = await getAssetById(input.id);
       if (!asset) throw new TRPCError5({ code: "NOT_FOUND", message: "\u0627\u0644\u0623\u0635\u0644 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F" });
       return asset;
     }),
-    create: managerProcedure.input(z3.object({
-      name: z3.string().min(1),
-      description: z3.string().optional(),
-      category: z3.string().optional(),
-      brand: z3.string().optional(),
-      model: z3.string().optional(),
-      serialNumber: z3.string().optional(),
-      siteId: z3.number().optional(),
-      sectionId: z3.number().optional(),
-      locationDetail: z3.string().optional(),
-      status: z3.enum(["active", "inactive", "under_maintenance", "disposed"]).optional(),
-      purchaseDate: z3.string().optional(),
-      purchaseCost: z3.string().optional(),
-      warrantyExpiry: z3.string().optional(),
-      warrantyNotes: z3.string().optional(),
-      photoUrl: z3.string().optional(),
-      notes: z3.string().optional(),
-      rfidTag: z3.string().optional()
+    create: managerProcedure.input(z4.object({
+      name: z4.string().min(1),
+      description: z4.string().optional(),
+      category: z4.string().optional(),
+      brand: z4.string().optional(),
+      model: z4.string().optional(),
+      serialNumber: z4.string().optional(),
+      siteId: z4.number().optional(),
+      sectionId: z4.number().optional(),
+      locationDetail: z4.string().optional(),
+      status: z4.enum(["active", "inactive", "under_maintenance", "disposed"]).optional(),
+      purchaseDate: z4.string().optional(),
+      purchaseCost: z4.string().optional(),
+      warrantyExpiry: z4.string().optional(),
+      warrantyNotes: z4.string().optional(),
+      photoUrl: z4.string().optional(),
+      notes: z4.string().optional(),
+      rfidTag: z4.string().optional(),
+      categoryId: z4.number().optional()
     })).mutation(async ({ input, ctx }) => {
       const assetNumber = await generateAssetNumber();
       let assetTranslation = {};
@@ -6189,25 +6978,26 @@ ${dbContext}` },
       }
       return result;
     }),
-    update: managerProcedure.input(z3.object({
-      id: z3.number(),
-      name: z3.string().optional(),
-      description: z3.string().optional(),
-      category: z3.string().optional(),
-      brand: z3.string().optional(),
-      model: z3.string().optional(),
-      serialNumber: z3.string().optional(),
-      siteId: z3.number().optional(),
-      sectionId: z3.number().optional(),
-      locationDetail: z3.string().optional(),
-      status: z3.enum(["active", "inactive", "under_maintenance", "disposed"]).optional(),
-      purchaseDate: z3.string().optional(),
-      purchaseCost: z3.string().optional(),
-      warrantyExpiry: z3.string().optional(),
-      warrantyNotes: z3.string().optional(),
-      photoUrl: z3.string().optional(),
-      notes: z3.string().optional(),
-      rfidTag: z3.string().optional()
+    update: managerProcedure.input(z4.object({
+      id: z4.number(),
+      name: z4.string().optional(),
+      description: z4.string().optional(),
+      category: z4.string().optional(),
+      brand: z4.string().optional(),
+      model: z4.string().optional(),
+      serialNumber: z4.string().optional(),
+      siteId: z4.number().optional(),
+      sectionId: z4.number().optional(),
+      locationDetail: z4.string().optional(),
+      status: z4.enum(["active", "inactive", "under_maintenance", "disposed"]).optional(),
+      purchaseDate: z4.string().optional(),
+      purchaseCost: z4.string().optional(),
+      warrantyExpiry: z4.string().optional(),
+      warrantyNotes: z4.string().optional(),
+      photoUrl: z4.string().optional(),
+      notes: z4.string().optional(),
+      rfidTag: z4.string().optional(),
+      categoryId: z4.number().optional()
     })).mutation(async ({ input }) => {
       const { id, ...data } = input;
       let assetTranslation = {};
@@ -6271,73 +7061,73 @@ ${dbContext}` },
         warrantyExpiry: data.warrantyExpiry ? new Date(data.warrantyExpiry) : void 0
       });
     }),
-    delete: managerProcedure.input(z3.object({ id: z3.number() })).mutation(async ({ input }) => {
+    delete: managerProcedure.input(z4.object({ id: z4.number() })).mutation(async ({ input }) => {
       return deleteAsset(input.id);
     }),
     // ============================================================
     // RFID - تقنية تحديد الموقع بالترددات الراديوية
     // ============================================================
-    getByRfid: protectedProcedure.input(z3.object({
-      rfidTag: z3.string().min(1)
+    getByRfid: protectedProcedure.input(z4.object({
+      rfidTag: z4.string().min(1)
     })).query(async ({ input }) => {
       const asset = await getAssetByRfidTag(input.rfidTag);
       if (!asset) throw new TRPCError5({ code: "NOT_FOUND", message: "\u0627\u0644\u0623\u0635\u0644 \u0628\u0647\u0630\u0627 \u0627\u0644\u0640 RFID \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F" });
       return asset;
     }),
-    updateRfid: managerProcedure.input(z3.object({
-      id: z3.number(),
-      rfidTag: z3.string().min(1)
+    updateRfid: managerProcedure.input(z4.object({
+      id: z4.number(),
+      rfidTag: z4.string().min(1)
     })).mutation(async ({ input }) => {
       return updateAssetRfidTag(input.id, input.rfidTag);
     }),
-    linkRfidTag: protectedProcedure.input(z3.object({
-      assetId: z3.number(),
-      rfidTag: z3.string().min(1)
+    linkRfidTag: protectedProcedure.input(z4.object({
+      assetId: z4.number(),
+      rfidTag: z4.string().min(1)
     })).mutation(async ({ input }) => {
       const asset = await getAssetById(input.assetId);
       if (!asset) throw new TRPCError5({ code: "NOT_FOUND", message: "\u0627\u0644\u0623\u0635\u0644 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F" });
       return updateAssetRfidTag(input.assetId, input.rfidTag);
     }),
-    getMaintenanceHistory: protectedProcedure.input(z3.object({
-      id: z3.number()
+    getMaintenanceHistory: protectedProcedure.input(z4.object({
+      id: z4.number()
     })).query(async ({ input }) => {
       const asset = await getAssetById(input.id);
       if (!asset) throw new TRPCError5({ code: "NOT_FOUND", message: "\u0627\u0644\u0623\u0635\u0644 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F" });
       return getAssetMaintenanceHistory(input.id);
     }),
-    getMaintenanceStats: protectedProcedure.input(z3.object({
-      id: z3.number()
+    getMaintenanceStats: protectedProcedure.input(z4.object({
+      id: z4.number()
     })).query(async ({ input }) => {
       const asset = await getAssetById(input.id);
       if (!asset) throw new TRPCError5({ code: "NOT_FOUND", message: "\u0627\u0644\u0623\u0635\u0644 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F" });
       return getAssetMaintenanceStats(input.id);
     }),
-    addSparePart: managerProcedure.input(z3.object({
-      assetId: z3.number(),
-      inventoryItemId: z3.number(),
-      minStockLevel: z3.number().optional(),
-      preferredQuantity: z3.number().optional(),
-      notes: z3.string().optional()
+    addSparePart: managerProcedure.input(z4.object({
+      assetId: z4.number(),
+      inventoryItemId: z4.number(),
+      minStockLevel: z4.number().optional(),
+      preferredQuantity: z4.number().optional(),
+      notes: z4.string().optional()
     })).mutation(async ({ input }) => {
       return addAssetSparePart(input);
     }),
-    getSpareParts: protectedProcedure.input(z3.object({
-      assetId: z3.number()
+    getSpareParts: protectedProcedure.input(z4.object({
+      assetId: z4.number()
     })).query(async ({ input }) => {
       return getAssetSpareParts(input.assetId);
     }),
-    removeSparePart: managerProcedure.input(z3.object({
-      id: z3.number()
+    removeSparePart: managerProcedure.input(z4.object({
+      id: z4.number()
     })).mutation(async ({ input }) => {
       return removeAssetSparePart(input.id);
     }),
-    getMetrics: protectedProcedure.input(z3.object({
-      assetId: z3.number()
+    getMetrics: protectedProcedure.input(z4.object({
+      assetId: z4.number()
     })).query(async ({ input }) => {
       return getAssetMetricsById(input.assetId);
     }),
-    calculateMetrics: managerProcedure.input(z3.object({
-      assetId: z3.number()
+    calculateMetrics: managerProcedure.input(z4.object({
+      assetId: z4.number()
     })).mutation(async ({ input }) => {
       return calculateAssetMetrics(input.assetId);
     }),
@@ -6347,8 +7137,8 @@ ${dbContext}` },
     getLowStockAlerts: managerProcedure.query(async () => {
       return getInventoryAlerts();
     }),
-    getAssetSparePartsWithLowStock: protectedProcedure.input(z3.object({
-      assetId: z3.number()
+    getAssetSparePartsWithLowStock: protectedProcedure.input(z4.object({
+      assetId: z4.number()
     })).query(async ({ input }) => {
       return getAssetSparePartsWithLowStock(input.assetId);
     })
@@ -6357,29 +7147,29 @@ ${dbContext}` },
   // PREVENTIVE MAINTENANCE - الصيانة الوقائية
   // ============================================================
   preventive: router({
-    listPlans: protectedProcedure.input(z3.object({
-      assetId: z3.number().optional(),
-      siteId: z3.number().optional(),
-      isActive: z3.boolean().optional()
+    listPlans: protectedProcedure.input(z4.object({
+      assetId: z4.number().optional(),
+      siteId: z4.number().optional(),
+      isActive: z4.boolean().optional()
     }).optional()).query(async ({ input }) => {
       return listPreventivePlans(input ?? {});
     }),
-    getPlanById: protectedProcedure.input(z3.object({ id: z3.number() })).query(async ({ input }) => {
+    getPlanById: protectedProcedure.input(z4.object({ id: z4.number() })).query(async ({ input }) => {
       const plan = await getPreventivePlanById(input.id);
       if (!plan) throw new TRPCError5({ code: "NOT_FOUND", message: "\u0627\u0644\u062E\u0637\u0629 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F\u0629" });
       return plan;
     }),
-    createPlan: managerProcedure.input(z3.object({
-      title: z3.string().min(1),
-      description: z3.string().optional(),
-      assetId: z3.number().optional(),
-      siteId: z3.number().optional(),
-      frequency: z3.enum(["daily", "weekly", "monthly", "quarterly", "biannual", "annual"]),
-      frequencyValue: z3.number().default(1),
-      estimatedDurationMinutes: z3.number().optional(),
-      assignedToId: z3.number().optional(),
-      checklist: z3.array(z3.object({ id: z3.string(), text: z3.string(), required: z3.boolean().optional() })).optional(),
-      nextDueDate: z3.string().optional()
+    createPlan: managerProcedure.input(z4.object({
+      title: z4.string().min(1),
+      description: z4.string().optional(),
+      assetId: z4.number().optional(),
+      siteId: z4.number().optional(),
+      frequency: z4.enum(["daily", "weekly", "monthly", "quarterly", "biannual", "annual"]),
+      frequencyValue: z4.number().default(1),
+      estimatedDurationMinutes: z4.number().optional(),
+      assignedToId: z4.number().optional(),
+      checklist: z4.array(z4.object({ id: z4.string(), text: z4.string(), required: z4.boolean().optional() })).optional(),
+      nextDueDate: z4.string().optional()
     })).mutation(async ({ input, ctx }) => {
       const planNumber = await generatePlanNumber();
       const nextDue = input.nextDueDate ? new Date(input.nextDueDate) : calcNextDueDate(/* @__PURE__ */ new Date(), input.frequency, input.frequencyValue);
@@ -6392,19 +7182,19 @@ ${dbContext}` },
       });
       return result;
     }),
-    updatePlan: managerProcedure.input(z3.object({
-      id: z3.number(),
-      title: z3.string().optional(),
-      description: z3.string().optional(),
-      assetId: z3.number().optional(),
-      siteId: z3.number().optional(),
-      frequency: z3.enum(["daily", "weekly", "monthly", "quarterly", "biannual", "annual"]).optional(),
-      frequencyValue: z3.number().optional(),
-      estimatedDurationMinutes: z3.number().optional(),
-      assignedToId: z3.number().optional(),
-      checklist: z3.array(z3.object({ id: z3.string(), text: z3.string(), required: z3.boolean().optional() })).optional(),
-      isActive: z3.boolean().optional(),
-      nextDueDate: z3.string().optional()
+    updatePlan: managerProcedure.input(z4.object({
+      id: z4.number(),
+      title: z4.string().optional(),
+      description: z4.string().optional(),
+      assetId: z4.number().optional(),
+      siteId: z4.number().optional(),
+      frequency: z4.enum(["daily", "weekly", "monthly", "quarterly", "biannual", "annual"]).optional(),
+      frequencyValue: z4.number().optional(),
+      estimatedDurationMinutes: z4.number().optional(),
+      assignedToId: z4.number().optional(),
+      checklist: z4.array(z4.object({ id: z4.string(), text: z4.string(), required: z4.boolean().optional() })).optional(),
+      isActive: z4.boolean().optional(),
+      nextDueDate: z4.string().optional()
     })).mutation(async ({ input }) => {
       const { id, ...data } = input;
       return updatePreventivePlan(id, {
@@ -6412,26 +7202,26 @@ ${dbContext}` },
         nextDueDate: data.nextDueDate ? new Date(data.nextDueDate) : void 0
       });
     }),
-    deletePlan: managerProcedure.input(z3.object({ id: z3.number() })).mutation(async ({ input }) => {
+    deletePlan: managerProcedure.input(z4.object({ id: z4.number() })).mutation(async ({ input }) => {
       return deletePreventivePlan(input.id);
     }),
     // Work Orders
-    listWorkOrders: protectedProcedure.input(z3.object({
-      planId: z3.number().optional(),
-      assetId: z3.number().optional(),
-      status: z3.string().optional(),
-      assignedToId: z3.number().optional()
+    listWorkOrders: protectedProcedure.input(z4.object({
+      planId: z4.number().optional(),
+      assetId: z4.number().optional(),
+      status: z4.string().optional(),
+      assignedToId: z4.number().optional()
     }).optional()).query(async ({ input }) => {
       return listPMWorkOrders(input ?? {});
     }),
-    getWorkOrderById: protectedProcedure.input(z3.object({ id: z3.number() })).query(async ({ input }) => {
+    getWorkOrderById: protectedProcedure.input(z4.object({ id: z4.number() })).query(async ({ input }) => {
       const wo = await getPMWorkOrderById(input.id);
       if (!wo) throw new TRPCError5({ code: "NOT_FOUND", message: "\u0623\u0645\u0631 \u0627\u0644\u0639\u0645\u0644 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F" });
       return wo;
     }),
-    generateWorkOrder: managerProcedure.input(z3.object({
-      planId: z3.number(),
-      scheduledDate: z3.string()
+    generateWorkOrder: managerProcedure.input(z4.object({
+      planId: z4.number(),
+      scheduledDate: z4.string()
     })).mutation(async ({ input }) => {
       const plan = await getPreventivePlanById(input.planId);
       if (!plan) throw new TRPCError5({ code: "NOT_FOUND", message: "\u0627\u0644\u062E\u0637\u0629 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F\u0629" });
@@ -6466,14 +7256,14 @@ ${dbContext}` },
       }
       return result;
     }),
-    updateWorkOrder: protectedProcedure.input(z3.object({
-      id: z3.number(),
-      status: z3.enum(["scheduled", "in_progress", "completed", "overdue", "cancelled"]).optional(),
+    updateWorkOrder: protectedProcedure.input(z4.object({
+      id: z4.number(),
+      status: z4.enum(["scheduled", "in_progress", "completed", "overdue", "cancelled"]).optional(),
       // Accept null (from DB) and normalize to [] to prevent validation errors
-      checklistResults: z3.array(z3.object({ id: z3.string(), text: z3.string(), done: z3.boolean(), notes: z3.string().optional() })).nullish().transform((v) => v ?? []),
-      technicianNotes: z3.string().nullish().transform((v) => v ?? void 0),
-      completionPhotoUrl: z3.string().nullish().transform((v) => v ?? void 0),
-      completedDate: z3.string().nullish().transform((v) => v ?? void 0)
+      checklistResults: z4.array(z4.object({ id: z4.string(), text: z4.string(), done: z4.boolean(), notes: z4.string().optional() })).nullish().transform((v) => v ?? []),
+      technicianNotes: z4.string().nullish().transform((v) => v ?? void 0),
+      completionPhotoUrl: z4.string().nullish().transform((v) => v ?? void 0),
+      completedDate: z4.string().nullish().transform((v) => v ?? void 0)
     })).mutation(async ({ input }) => {
       const { id, ...data } = input;
       let woTranslation = {};
@@ -6498,11 +7288,11 @@ ${dbContext}` },
     }),
     // ─── AI Predictive Analysis ──────────────────────────────────────────
     // Analyze a fault image and return diagnosis + recommendations
-    analyzeFaultImage: protectedProcedure.input(z3.object({
-      imageUrl: z3.string().url(),
-      assetName: z3.string().optional(),
-      assetCategory: z3.string().optional(),
-      description: z3.string().optional()
+    analyzeFaultImage: protectedProcedure.input(z4.object({
+      imageUrl: z4.string().url(),
+      assetName: z4.string().optional(),
+      assetCategory: z4.string().optional(),
+      description: z4.string().optional()
     })).mutation(async ({ input }) => {
       const systemPrompt = `\u0623\u0646\u062A \u062E\u0628\u064A\u0631 \u0647\u0646\u062F\u0633\u064A \u0645\u062A\u062E\u0635\u0635 \u0641\u064A \u062A\u0634\u062E\u064A\u0635 \u0623\u0639\u0637\u0627\u0644 \u0627\u0644\u0645\u0639\u062F\u0627\u062A \u0648\u0627\u0644\u0623\u0635\u0648\u0644. 
 \u0639\u0646\u062F \u062A\u062D\u0644\u064A\u0644 \u0635\u0648\u0631\u0629 \u0627\u0644\u0639\u0637\u0644\u060C \u0642\u062F\u0645:
@@ -6616,11 +7406,11 @@ ${JSON.stringify(assetSummaries, null, 2)}
       return JSON.parse(content);
     }),
     // ─── Checklist Items (New Structured System) ──────────────────────────
-    addChecklistItem: managerProcedure.input(z3.object({
-      planId: z3.number(),
-      text: z3.string().min(1),
-      orderIndex: z3.number().optional(),
-      isRequired: z3.boolean().default(true)
+    addChecklistItem: managerProcedure.input(z4.object({
+      planId: z4.number(),
+      text: z4.string().min(1),
+      orderIndex: z4.number().optional(),
+      isRequired: z4.boolean().default(true)
     })).mutation(async ({ input }) => {
       const ddb = await getDb();
       if (!ddb) throw new TRPCError5({ code: "INTERNAL_SERVER_ERROR", message: "\u062E\u0637\u0623 \u0641\u064A \u0642\u0627\u0639\u062F\u0629 \u0627\u0644\u0628\u064A\u0627\u0646\u0627\u062A" });
@@ -6633,11 +7423,11 @@ ${JSON.stringify(assetSummaries, null, 2)}
       });
       return { id: Number(result[0].insertId), ...input };
     }),
-    updateChecklistItem: managerProcedure.input(z3.object({
-      id: z3.number(),
-      text: z3.string().optional(),
-      orderIndex: z3.number().optional(),
-      isRequired: z3.boolean().optional()
+    updateChecklistItem: managerProcedure.input(z4.object({
+      id: z4.number(),
+      text: z4.string().optional(),
+      orderIndex: z4.number().optional(),
+      isRequired: z4.boolean().optional()
     })).mutation(async ({ input }) => {
       const ddb = await getDb();
       if (!ddb) throw new TRPCError5({ code: "INTERNAL_SERVER_ERROR", message: "\u062E\u0637\u0623 \u0641\u064A \u0642\u0627\u0639\u062F\u0629 \u0627\u0644\u0628\u064A\u0627\u0646\u0627\u062A" });
@@ -6646,21 +7436,21 @@ ${JSON.stringify(assetSummaries, null, 2)}
       await ddb.update(pmChecklistItems2).set(data).where(eq3(pmChecklistItems2.id, id));
       return { success: true };
     }),
-    deleteChecklistItem: managerProcedure.input(z3.object({ id: z3.number() })).mutation(async ({ input }) => {
+    deleteChecklistItem: managerProcedure.input(z4.object({ id: z4.number() })).mutation(async ({ input }) => {
       const ddb = await getDb();
       if (!ddb) throw new TRPCError5({ code: "INTERNAL_SERVER_ERROR", message: "\u062E\u0637\u0623 \u0641\u064A \u0642\u0627\u0639\u062F\u0629 \u0627\u0644\u0628\u064A\u0627\u0646\u0627\u062A" });
       const { pmChecklistItems: pmChecklistItems2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
       await ddb.delete(pmChecklistItems2).where(eq3(pmChecklistItems2.id, input.id));
       return { success: true };
     }),
-    getChecklistItems: protectedProcedure.input(z3.object({ planId: z3.number() })).query(async ({ input }) => {
+    getChecklistItems: protectedProcedure.input(z4.object({ planId: z4.number() })).query(async ({ input }) => {
       const ddb = await getDb();
       if (!ddb) return [];
       const { pmChecklistItems: pmChecklistItems2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
       return ddb.select().from(pmChecklistItems2).where(eq3(pmChecklistItems2.planId, input.planId)).orderBy(asc2(pmChecklistItems2.orderIndex));
     }),
-    reorderChecklistItems: managerProcedure.input(z3.object({
-      items: z3.array(z3.object({ id: z3.number(), orderIndex: z3.number() }))
+    reorderChecklistItems: managerProcedure.input(z4.object({
+      items: z4.array(z4.object({ id: z4.number(), orderIndex: z4.number() }))
     })).mutation(async ({ input }) => {
       const ddb = await getDb();
       if (!ddb) throw new TRPCError5({ code: "INTERNAL_SERVER_ERROR", message: "\u062E\u0637\u0623 \u0641\u064A \u0642\u0627\u0639\u062F\u0629 \u0627\u0644\u0628\u064A\u0627\u0646\u0627\u062A" });
@@ -6671,8 +7461,8 @@ ${JSON.stringify(assetSummaries, null, 2)}
       return { success: true };
     }),
     // ─── Execution Session ────────────────────────────────────────────────
-    startExecution: protectedProcedure.input(z3.object({
-      workOrderId: z3.number()
+    startExecution: protectedProcedure.input(z4.object({
+      workOrderId: z4.number()
     })).mutation(async ({ input, ctx }) => {
       const ddb = await getDb();
       if (!ddb) throw new TRPCError5({ code: "INTERNAL_SERVER_ERROR", message: "\u062E\u0637\u0623 \u0641\u064A \u0642\u0627\u0639\u062F\u0629 \u0627\u0644\u0628\u064A\u0627\u0646\u0627\u062A" });
@@ -6693,12 +7483,12 @@ ${JSON.stringify(assetSummaries, null, 2)}
       const session = await ddb.select().from(pmExecutionSessions2).where(eq3(pmExecutionSessions2.workOrderId, input.workOrderId));
       return { session: session[0], items, workOrder: wo };
     }),
-    submitItemResult: protectedProcedure.input(z3.object({
-      workOrderId: z3.number(),
-      checklistItemId: z3.number(),
-      status: z3.enum(["ok", "fixed", "issue"]),
-      fixNotes: z3.string().optional(),
-      photoUrl: z3.string().optional()
+    submitItemResult: protectedProcedure.input(z4.object({
+      workOrderId: z4.number(),
+      checklistItemId: z4.number(),
+      status: z4.enum(["ok", "fixed", "issue"]),
+      fixNotes: z4.string().optional(),
+      photoUrl: z4.string().optional()
     })).mutation(async ({ input, ctx }) => {
       const ddb = await getDb();
       if (!ddb) throw new TRPCError5({ code: "INTERNAL_SERVER_ERROR", message: "\u062E\u0637\u0623 \u0641\u064A \u0642\u0627\u0639\u062F\u0629 \u0627\u0644\u0628\u064A\u0627\u0646\u0627\u062A" });
@@ -6726,7 +7516,7 @@ ${JSON.stringify(assetSummaries, null, 2)}
       await ddb.update(pmExecutionSessions2).set({ okCount, fixedCount, issueCount }).where(eq7(pmExecutionSessions2.workOrderId, input.workOrderId));
       return { success: true, completedCount: allResults.length };
     }),
-    getExecutionProgress: protectedProcedure.input(z3.object({ workOrderId: z3.number() })).query(async ({ input }) => {
+    getExecutionProgress: protectedProcedure.input(z4.object({ workOrderId: z4.number() })).query(async ({ input }) => {
       const ddb = await getDb();
       if (!ddb) throw new TRPCError5({ code: "INTERNAL_SERVER_ERROR", message: "\u062E\u0637\u0623 \u0641\u064A \u0642\u0627\u0639\u062F\u0629 \u0627\u0644\u0628\u064A\u0627\u0646\u0627\u062A" });
       const { pmExecutionResults: pmExecutionResults2, pmExecutionSessions: pmExecutionSessions2, pmChecklistItems: pmChecklistItems2, pmWorkOrders: pmWorkOrders2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
@@ -6745,9 +7535,9 @@ ${JSON.stringify(assetSummaries, null, 2)}
         completedItems: results.length
       };
     }),
-    completeExecution: protectedProcedure.input(z3.object({
-      workOrderId: z3.number(),
-      generalNotes: z3.string().optional()
+    completeExecution: protectedProcedure.input(z4.object({
+      workOrderId: z4.number(),
+      generalNotes: z4.string().optional()
     })).mutation(async ({ input, ctx }) => {
       const ddb = await getDb();
       if (!ddb) throw new TRPCError5({ code: "INTERNAL_SERVER_ERROR", message: "\u062E\u0637\u0623 \u0641\u064A \u0642\u0627\u0639\u062F\u0629 \u0627\u0644\u0628\u064A\u0627\u0646\u0627\u062A" });
@@ -6804,12 +7594,12 @@ ${JSON.stringify(assetSummaries, null, 2)}
       }
       return { success: true, issueCount, fixedCount, okCount };
     }),
-    createIssueTicket: protectedProcedure.input(z3.object({
-      workOrderId: z3.number(),
-      checklistItemId: z3.number(),
-      assetId: z3.number().optional(),
-      siteId: z3.number().optional(),
-      description: z3.string()
+    createIssueTicket: protectedProcedure.input(z4.object({
+      workOrderId: z4.number(),
+      checklistItemId: z4.number(),
+      assetId: z4.number().optional(),
+      siteId: z4.number().optional(),
+      description: z4.string()
     })).mutation(async ({ input, ctx }) => {
       const ddb = await getDb();
       if (!ddb) throw new TRPCError5({ code: "INTERNAL_SERVER_ERROR", message: "\u062E\u0637\u0623 \u0641\u064A \u0642\u0627\u0639\u062F\u0629 \u0627\u0644\u0628\u064A\u0627\u0646\u0627\u062A" });
@@ -6838,9 +7628,9 @@ ${JSON.stringify(assetSummaries, null, 2)}
       return { ticketId, ticketNumber };
     }),
     // ─── Detection Rate Report ────────────────────────────────────────────
-    getDetectionRateReport: protectedProcedure.input(z3.object({
-      dateFrom: z3.string().optional(),
-      dateTo: z3.string().optional()
+    getDetectionRateReport: protectedProcedure.input(z4.object({
+      dateFrom: z4.string().optional(),
+      dateTo: z4.string().optional()
     }).optional()).query(async ({ input }) => {
       const ddb = await getDb();
       if (!ddb) throw new TRPCError5({ code: "INTERNAL_SERVER_ERROR", message: "\u062E\u0637\u0623 \u0641\u064A \u0642\u0627\u0639\u062F\u0629 \u0627\u0644\u0628\u064A\u0627\u0646\u0627\u062A" });
@@ -6888,9 +7678,9 @@ ${JSON.stringify(assetSummaries, null, 2)}
       };
     }),
     // ─── Asset Inspection History ─────────────────────────────────────────
-    getAssetInspectionHistory: protectedProcedure.input(z3.object({
-      assetId: z3.number(),
-      limit: z3.number().optional().default(10)
+    getAssetInspectionHistory: protectedProcedure.input(z4.object({
+      assetId: z4.number(),
+      limit: z4.number().optional().default(10)
     })).query(async ({ input }) => {
       const ddb = await getDb();
       if (!ddb) throw new TRPCError5({ code: "INTERNAL_SERVER_ERROR", message: "\u062E\u0637\u0623 \u0641\u064A \u0642\u0627\u0639\u062F\u0629 \u0627\u0644\u0628\u064A\u0627\u0646\u0627\u062A" });
@@ -6920,9 +7710,9 @@ ${JSON.stringify(assetSummaries, null, 2)}
       return sessions;
     }),
     // ─── PM Report ────────────────────────────────────────────────────────
-    getReport: protectedProcedure.input(z3.object({
-      dateFrom: z3.string().optional(),
-      dateTo: z3.string().optional()
+    getReport: protectedProcedure.input(z4.object({
+      dateFrom: z4.string().optional(),
+      dateTo: z4.string().optional()
     }).optional()).query(async ({ input }) => {
       const plans = await listPreventivePlans();
       const workOrders = await listPMWorkOrders();
@@ -7163,11 +7953,11 @@ ${JSON.stringify(assetSummaries, null, 2)}
     getVapidPublicKey: publicProcedure.query(() => {
       return { publicKey: process.env.VAPID_PUBLIC_KEY || "" };
     }),
-    subscribe: protectedProcedure.input(z3.object({
-      endpoint: z3.string().url(),
-      p256dh: z3.string(),
-      auth: z3.string(),
-      userAgent: z3.string().optional()
+    subscribe: protectedProcedure.input(z4.object({
+      endpoint: z4.string().url(),
+      p256dh: z4.string(),
+      auth: z4.string(),
+      userAgent: z4.string().optional()
     })).mutation(async ({ input, ctx }) => {
       await savePushSubscription({
         userId: ctx.user.id,
@@ -7178,8 +7968,8 @@ ${JSON.stringify(assetSummaries, null, 2)}
       });
       return { success: true };
     }),
-    unsubscribe: protectedProcedure.input(z3.object({
-      endpoint: z3.string()
+    unsubscribe: protectedProcedure.input(z4.object({
+      endpoint: z4.string()
     })).mutation(async ({ input }) => {
       await deletePushSubscription(input.endpoint);
       return { success: true };
@@ -7187,6 +7977,59 @@ ${JSON.stringify(assetSummaries, null, 2)}
     getStatus: protectedProcedure.query(async ({ ctx }) => {
       const subs = await getPushSubscriptionsByUser(ctx.user.id);
       return { subscribed: subs.length > 0, count: subs.length };
+    })
+  }),
+  // ============================================================
+  // INSPECTION RESULTS
+  // ============================================================
+  inspectionResults: router({
+    create: protectedProcedure.input(z4.object({
+      ticketId: z4.number(),
+      assetId: z4.number().optional(),
+      inspectorId: z4.number(),
+      inspectionType: z4.enum(["triage", "detailed"]),
+      severity: z4.enum(["low", "medium", "high", "critical"]).optional(),
+      rootCause: z4.string().optional(),
+      findings: z4.string().optional(),
+      recommendedAction: z4.string().optional()
+    })).mutation(async ({ input, ctx }) => {
+      const result = await createInspectionResult({
+        ...input,
+        inspectorId: ctx.user.id,
+        // always use authenticated user, ignore input.inspectorId
+        severity: input.severity ?? "medium",
+        rootCause: input.rootCause ?? "",
+        findings: input.findings ?? "",
+        recommendedAction: input.recommendedAction ?? ""
+      });
+      return result;
+    }),
+    listByTicket: protectedProcedure.input(z4.object({
+      ticketId: z4.number()
+    })).query(async ({ input }) => {
+      return getInspectionResultsByTicket(input.ticketId);
+    }),
+    listByAsset: protectedProcedure.input(z4.object({
+      assetId: z4.number()
+    })).query(async ({ input }) => {
+      return getInspectionResultsByAsset(input.assetId);
+    }),
+    dashboardStats: protectedProcedure.query(async () => {
+      return getInspectionDashboardStats();
+    })
+  }),
+  assetCategories: router({
+    list: protectedProcedure.query(async () => {
+      return listAssetCategories();
+    }),
+    create: protectedProcedure.input(z4.object({ name: z4.string().min(1) })).mutation(async ({ input }) => {
+      return createAssetCategory(input.name);
+    }),
+    update: protectedProcedure.input(z4.object({ id: z4.number(), name: z4.string().min(1) })).mutation(async ({ input }) => {
+      return updateAssetCategory(input.id, input.name);
+    }),
+    delete: protectedProcedure.input(z4.object({ id: z4.number() })).mutation(async ({ input }) => {
+      return deleteAssetCategory(input.id);
     })
   })
 });
@@ -7332,6 +8175,9 @@ function vitePluginManusDebugCollector() {
 var plugins = [react(), tailwindcss(), jsxLocPlugin(), vitePluginManusRuntime(), vitePluginManusDebugCollector()];
 var vite_config_default = defineConfig({
   plugins,
+  define: {
+    __APP_VERSION__: JSON.stringify(process.env.npm_package_version)
+  },
   resolve: {
     alias: {
       "@": path.resolve(import.meta.dirname, "client", "src"),
@@ -7428,6 +8274,59 @@ import sharp from "sharp";
 // server/exportService.ts
 init_db();
 import ExcelJS from "exceljs";
+
+// server/htmlToPdfService.ts
+import puppeteer from "puppeteer-core";
+var CHROMIUM_CANDIDATES = [
+  process.env.PUPPETEER_EXECUTABLE_PATH,
+  // explicit env override
+  "/usr/bin/chromium-browser",
+  // Alpine apk chromium
+  "/usr/bin/chromium",
+  // alternative Alpine path
+  "/usr/bin/google-chrome",
+  // Debian/Ubuntu chrome
+  "/usr/bin/google-chrome-stable"
+  // Debian stable
+];
+function resolveChromiumPath() {
+  for (const candidate of CHROMIUM_CANDIDATES) {
+    if (candidate) return candidate;
+  }
+  throw new Error(
+    "No Chromium executable found. Set PUPPETEER_EXECUTABLE_PATH or install chromium."
+  );
+}
+async function htmlToPdf(html) {
+  const executablePath = resolveChromiumPath();
+  const browser = await puppeteer.launch({
+    executablePath,
+    headless: true,
+    args: [
+      "--no-sandbox",
+      "--disable-setuid-sandbox",
+      "--disable-dev-shm-usage",
+      "--disable-gpu",
+      "--no-first-run",
+      "--no-zygote",
+      "--single-process"
+    ]
+  });
+  try {
+    const page = await browser.newPage();
+    await page.setContent(html, { waitUntil: "load" });
+    const pdfBuffer = await page.pdf({
+      format: "A4",
+      printBackground: true,
+      margin: { top: "20mm", right: "15mm", bottom: "20mm", left: "15mm" }
+    });
+    return Buffer.from(pdfBuffer);
+  } finally {
+    await browser.close();
+  }
+}
+
+// server/exportService.ts
 function styleHeader(worksheet) {
   const headerRow = worksheet.getRow(1);
   headerRow.font = { bold: true, color: { argb: "FFFFFFFF" }, size: 12 };
@@ -7735,6 +8634,292 @@ async function exportPMWorkOrdersToExcel() {
   const buffer = await workbook.xlsx.writeBuffer();
   return Buffer.from(buffer);
 }
+var DELEGATE_ACTIVE_STATUSES = /* @__PURE__ */ new Set(["pending", "estimated", "approved", "purchased"]);
+async function generateDelegateItemsPDF(delegateId) {
+  const allItems = await getPOItemsByDelegate(delegateId);
+  const activeItems = allItems.filter(
+    (item) => DELEGATE_ACTIVE_STATUSES.has(item.status)
+  );
+  const enriched = await Promise.all(
+    activeItems.map(async (item) => {
+      const po = item.purchaseOrderId ? await getPurchaseOrderById(item.purchaseOrderId) : null;
+      let department = "-";
+      if (po?.requestedById) {
+        const requester = await getUserById(po.requestedById);
+        department = requester?.department || "-";
+      }
+      return { ...item, poNumber: po?.poNumber ?? "-", department };
+    })
+  );
+  let grandTotal = 0;
+  const rows = enriched.map((item) => {
+    const unitCost = parseFloat(item.estimatedUnitCost || item.actualUnitCost || "0");
+    const qty = item.quantity || 1;
+    const rowTotal = unitCost * qty;
+    grandTotal += rowTotal;
+    return {
+      poNumber: item.poNumber,
+      itemName: item.itemName || "-",
+      qty: String(qty),
+      unit: item.unit || "-",
+      department: item.department,
+      unitCost: unitCost > 0 ? unitCost.toLocaleString("en-SA", { minimumFractionDigits: 2 }) : "-",
+      rowTotal: rowTotal > 0 ? rowTotal.toLocaleString("en-SA", { minimumFractionDigits: 2 }) : "-"
+    };
+  });
+  const generatedDate = (/* @__PURE__ */ new Date()).toLocaleDateString("en-GB");
+  const totalFormatted = grandTotal.toLocaleString("en-SA", { minimumFractionDigits: 2 });
+  const rowsHtml = rows.map((r, i) => `
+    <tr class="${i % 2 === 0 ? "even" : "odd"}">
+      <td>${escapeHtml(r.poNumber)}</td>
+      <td class="item-name">${escapeHtml(r.itemName)}</td>
+      <td>${escapeHtml(r.qty)}</td>
+      <td class="item-name">${escapeHtml(r.unit)}</td>
+      <td class="item-name">${escapeHtml(r.department)}</td>
+      <td>${escapeHtml(r.unitCost)}</td>
+      <td>${escapeHtml(r.rowTotal)}</td>
+    </tr>
+  `).join("");
+  const html = `<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Active Purchasing Items</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+Arabic:wght@400;700&family=Noto+Sans:wght@400;700&display=swap');
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Noto Sans Arabic', 'Noto Sans', Arial, sans-serif;
+      font-size: 11px;
+      color: #1e293b;
+      background: #fff;
+      padding: 0;
+    }
+    .header {
+      background: #1e40af;
+      color: #fff;
+      padding: 16px 20px;
+      margin-bottom: 16px;
+    }
+    .header h1 { font-size: 18px; font-weight: 700; margin-bottom: 4px; }
+    .header p  { font-size: 10px; color: #bfdbfe; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 10px;
+    }
+    thead tr {
+      background: #1e40af;
+      color: #fff;
+    }
+    thead th {
+      padding: 7px 6px;
+      text-align: center;
+      font-weight: 700;
+      border: 1px solid #1e3a8a;
+    }
+    tbody tr.even { background: #f8fafc; }
+    tbody tr.odd  { background: #fff; }
+    tbody td {
+      padding: 6px 6px;
+      border: 1px solid #e2e8f0;
+      text-align: center;
+      vertical-align: middle;
+    }
+    /* Item name, unit, department: preserve unicode direction automatically */
+    .item-name {
+      text-align: start;
+      unicode-bidi: plaintext;
+      direction: auto;
+    }
+    .total-row {
+      background: #1e40af;
+      color: #fff;
+      font-weight: 700;
+      font-size: 11px;
+    }
+    .total-row td {
+      padding: 8px 6px;
+      border: 1px solid #1e3a8a;
+    }
+    .footer {
+      margin-top: 12px;
+      font-size: 9px;
+      color: #64748b;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>Active Purchasing Items Report</h1>
+    <p>Active items only &nbsp;|&nbsp; Generated: ${generatedDate} &nbsp;|&nbsp; Items: ${rows.length}</p>
+  </div>
+  <table>
+    <thead>
+      <tr>
+        <th>PO #</th>
+        <th>Item Name</th>
+        <th>Qty</th>
+        <th>Unit</th>
+        <th>Department</th>
+        <th>Unit Cost (SAR)</th>
+        <th>Total (SAR)</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${rowsHtml}
+      <tr class="total-row">
+        <td colspan="6" style="text-align:end; padding-inline-end:12px;">Total</td>
+        <td>${escapeHtml(totalFormatted)} SAR</td>
+      </tr>
+    </tbody>
+  </table>
+  <div class="footer">
+    Excluded: completed, delivered to warehouse, delivered to requester, rejected
+  </div>
+</body>
+</html>`;
+  return htmlToPdf(html);
+}
+function escapeHtml(str) {
+  return String(str).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+async function generatePurchaseRequestPDF(purchaseOrderId, delegateId) {
+  const po = await getPurchaseOrderById(purchaseOrderId);
+  if (!po) throw new Error("Purchase Request not found");
+  const allItems = await getPOItems(purchaseOrderId);
+  if (!allItems || allItems.length === 0) throw new Error("No items found for this request");
+  const delegateItems = allItems.filter((item) => item.delegateId === delegateId);
+  if (delegateItems.length === 0) throw new Error("Access denied: not your request");
+  const delegate = await getUserById(delegateId);
+  const delegateUsername = delegate?.username || delegate?.name || "Unknown";
+  let grandTotal = 0;
+  const rows = allItems.map((item) => {
+    const unitCost = parseFloat(item.estimatedUnitCost || item.actualUnitCost || "0");
+    const qty = item.quantity || 1;
+    const rowTotal = unitCost * qty;
+    grandTotal += rowTotal;
+    return {
+      itemName: item.itemName || "-",
+      qty: String(qty),
+      unit: item.unit || "-",
+      unitCost: unitCost > 0 ? unitCost.toLocaleString("en-SA", { minimumFractionDigits: 2 }) : "-",
+      rowTotal: rowTotal > 0 ? rowTotal.toLocaleString("en-SA", { minimumFractionDigits: 2 }) : "-"
+    };
+  });
+  const generatedDate = (/* @__PURE__ */ new Date()).toLocaleDateString("en-GB");
+  const totalFormatted = grandTotal.toLocaleString("en-SA", { minimumFractionDigits: 2 });
+  const rowsHtml = rows.map((r, i) => `
+    <tr class="${i % 2 === 0 ? "even" : "odd"}">
+      <td class="item-name">${escapeHtml(r.itemName)}</td>
+      <td>${escapeHtml(r.qty)}</td>
+      <td class="item-name">${escapeHtml(r.unit)}</td>
+      <td>${escapeHtml(r.unitCost)}</td>
+      <td>${escapeHtml(r.rowTotal)}</td>
+    </tr>
+  `).join("");
+  const html = `<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Purchase Request ${po.poNumber}</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+Arabic:wght@400;700&family=Noto+Sans:wght@400;700&display=swap');
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Noto Sans Arabic', 'Noto Sans', Arial, sans-serif;
+      font-size: 11px;
+      color: #1e293b;
+      background: #fff;
+      padding: 0;
+    }
+    .header {
+      background: #1e40af;
+      color: #fff;
+      padding: 16px 20px;
+      margin-bottom: 16px;
+    }
+    .header h1 { font-size: 18px; font-weight: 700; margin-bottom: 4px; }
+    .header p  { font-size: 10px; color: #bfdbfe; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 10px;
+    }
+    thead tr {
+      background: #1e40af;
+      color: #fff;
+    }
+    thead th {
+      padding: 7px 6px;
+      text-align: center;
+      font-weight: 700;
+      border: 1px solid #1e3a8a;
+    }
+    tbody tr.even { background: #f8fafc; }
+    tbody tr.odd  { background: #fff; }
+    tbody td {
+      padding: 6px 6px;
+      border: 1px solid #e2e8f0;
+      text-align: center;
+      vertical-align: middle;
+    }
+    .item-name {
+      text-align: start;
+      unicode-bidi: plaintext;
+      direction: auto;
+    }
+    .total-row {
+      background: #1e40af;
+      color: #fff;
+      font-weight: 700;
+      font-size: 11px;
+    }
+    .total-row td {
+      padding: 8px 6px;
+      border: 1px solid #1e3a8a;
+    }
+    .footer {
+      margin-top: 12px;
+      font-size: 9px;
+      color: #64748b;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>Purchase Request ${escapeHtml(po.poNumber)}</h1>
+    <p>Generated: ${generatedDate} &nbsp;|&nbsp; Items: ${rows.length}</p>
+  </div>
+  <table>
+    <thead>
+      <tr>
+        <th>Item Name</th>
+        <th>Qty</th>
+        <th>Unit</th>
+        <th>Unit Price (SAR)</th>
+        <th>Total (SAR)</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${rowsHtml}
+      <tr class="total-row">
+        <td colspan="4" style="text-align:end; padding-inline-end:12px;">Total</td>
+        <td>${escapeHtml(totalFormatted)} SAR</td>
+      </tr>
+    </tbody>
+  </table>
+  <div class="footer">
+    Prepared by: ${escapeHtml(delegateUsername)}
+  </div>
+</body>
+</html>`;
+  return htmlToPdf(html);
+}
 
 // server/workflowPdfService.ts
 import PDFDocument from "pdfkit";
@@ -7952,7 +9137,10 @@ var DEFAULT_SLA_HOURS = 24;
 var _technicianOverdueRunning = false;
 async function _runTechnicianOverdueJobCore() {
   const db = await getDb();
-  if (!db) return;
+  if (!db) {
+    console.error("[TechnicianOverdue] Failed to get database connection. Job aborted.");
+    return;
+  }
   const now = Date.now();
   const assignedTickets = await db.select({
     id: tickets.id,
@@ -7992,15 +9180,23 @@ async function _runTechnicianOverdueJobCore() {
     return `\u0627\u0644\u0641\u0646\u064A: ${name}
 ${list}`;
   }).join("\n\n");
-  await notifyOwner({
-    title: `\u26A0\uFE0F \u062A\u0646\u0628\u064A\u0647 SLA: ${overdueTickets.length} \u0628\u0644\u0627\u063A \u062A\u062C\u0627\u0648\u0632 \u0627\u0644\u0648\u0642\u062A \u0627\u0644\u0645\u0639\u064A\u0627\u0631\u064A`,
-    content: `\u0627\u0644\u0628\u0644\u0627\u063A\u0627\u062A \u0627\u0644\u062A\u0627\u0644\u064A\u0629 \u062A\u062C\u0627\u0648\u0632\u062A \u0648\u0642\u062A SLA \u0627\u0644\u0645\u062D\u062F\u062F \u062D\u0633\u0628 \u0627\u0644\u0623\u0648\u0644\u0648\u064A\u0629:
+  try {
+    await notifyOwner({
+      title: `\u26A0\uFE0F \u062A\u0646\u0628\u064A\u0647 SLA: ${overdueTickets.length} \u0628\u0644\u0627\u063A \u062A\u062C\u0627\u0648\u0632 \u0627\u0644\u0648\u0642\u062A \u0627\u0644\u0645\u0639\u064A\u0627\u0631\u064A`,
+      content: `\u0627\u0644\u0628\u0644\u0627\u063A\u0627\u062A \u0627\u0644\u062A\u0627\u0644\u064A\u0629 \u062A\u062C\u0627\u0648\u0632\u062A \u0648\u0642\u062A SLA \u0627\u0644\u0645\u062D\u062F\u062F \u062D\u0633\u0628 \u0627\u0644\u0623\u0648\u0644\u0648\u064A\u0629:
 
 ${lines}
 
 ---
 \u0645\u0639\u0627\u064A\u064A\u0631 SLA: \u0639\u0627\u062C\u0644=4h | \u0645\u0631\u062A\u0641\u0639=8h | \u0645\u062A\u0648\u0633\u0637=24h | \u0645\u0646\u062E\u0641\u0636=72h`
-  });
+    });
+  } catch (ownerErr) {
+    if (ownerErr instanceof Error) {
+      console.error("[TechnicianOverdue] Unexpected error notifying owner about overdue tickets:", ownerErr.message);
+    } else {
+      console.error("[TechnicianOverdue] Unexpected error notifying owner about overdue tickets:", String(ownerErr));
+    }
+  }
   console.log(`[TechnicianOverdue] Notified about ${overdueTickets.length} overdue tickets (SLA-based)`);
 }
 async function runTechnicianOverdueJob() {
@@ -8038,7 +9234,10 @@ init_webPush();
 var _pmAutomationRunning = false;
 async function _runPMAutomationJobCore() {
   const db = await getDb();
-  if (!db) throw new Error("DB unavailable");
+  if (!db) {
+    console.error("[PM Automation] Failed to get database connection. Job aborted.");
+    throw new Error("DB unavailable");
+  }
   const now = /* @__PURE__ */ new Date();
   console.log(`[PM Automation] Job started at ${now.toISOString()}`);
   const activePlans = await db.select().from(preventivePlans).where(eq5(preventivePlans.isActive, true));
@@ -8100,10 +9299,20 @@ async function _runPMAutomationJobCore() {
     }
   }
   if (createdCount > 0) {
-    await notifyOwner({
-      title: "\u0627\u0644\u0635\u064A\u0627\u0646\u0629 \u0627\u0644\u0648\u0642\u0627\u0626\u064A\u0629 \u0627\u0644\u062A\u0644\u0642\u0627\u0626\u064A\u0629",
-      content: `\u062A\u0645 \u0625\u0646\u0634\u0627\u0621 ${createdCount} \u0623\u0645\u0631 \u0639\u0645\u0644 \u062A\u0644\u0642\u0627\u0626\u064A\u0627\u064B \u0644\u0644\u062E\u0637\u0637 \u0627\u0644\u0645\u0633\u062A\u062D\u0642\u0629\u060C \u0648\u062A\u0645 \u0625\u0634\u0639\u0627\u0631 ${notifiedCount} \u0641\u0646\u064A`
-    });
+    try {
+      await notifyOwner({
+        title: "\u0627\u0644\u0635\u064A\u0627\u0646\u0629 \u0627\u0644\u0648\u0642\u0627\u0626\u064A\u0629 \u0627\u0644\u062A\u0644\u0642\u0627\u0626\u064A\u0629",
+        content: `\u062A\u0645 \u0625\u0646\u0634\u0627\u0621 ${createdCount} \u0623\u0645\u0631 \u0639\u0645\u0644 \u062A\u0644\u0642\u0627\u0626\u064A\u0627\u064B \u0644\u0644\u062E\u0637\u0637 \u0627\u0644\u0645\u0633\u062A\u062D\u0642\u0629\u060C \u0648\u062A\u0645 \u0625\u0634\u0639\u0627\u0631 ${notifiedCount} \u0641\u0646\u064A`
+      });
+    } catch (ownerErr) {
+      if (ownerErr instanceof Error) {
+        console.error("[PM Automation] Unexpected error notifying owner about created PMs:", ownerErr.message);
+        errors.push(`Owner notification failed: ${ownerErr.message}`);
+      } else {
+        console.error("[PM Automation] Unexpected error notifying owner about created PMs:", String(ownerErr));
+        errors.push(`Owner notification failed: ${String(ownerErr)}`);
+      }
+    }
   }
   console.log(`[PM Automation] Completed: ${createdCount} work orders created, ${notifiedCount} technicians notified, ${errors.length} errors`);
   return { success: true, createdCount, notifiedCount, errors };
@@ -8144,7 +9353,10 @@ var REMINDER_THRESHOLD_HOURS = 24;
 var _pmReminderRunning = false;
 async function _runPMWorkOrderReminderJobCore() {
   const db = await getDb();
-  if (!db) return;
+  if (!db) {
+    console.error("[PM Reminder] Failed to get database connection. Job aborted.");
+    return;
+  }
   const now = /* @__PURE__ */ new Date();
   const cutoff = new Date(now.getTime() - REMINDER_THRESHOLD_HOURS * 60 * 60 * 1e3);
   const staleOrders = await db.select().from(pmWorkOrders).where(
@@ -8189,14 +9401,22 @@ async function _runPMWorkOrderReminderJobCore() {
     ownerLines.push(`\u2022 ${wo.workOrderNumber} - ${wo.title} (\u0645\u0646\u0630 ${hoursOverdue} \u0633\u0627\u0639\u0629)`);
   }
   if (overdueOrders.length > 0) {
-    await notifyOwner({
-      title: `\u23F0 \u062A\u0630\u0643\u064A\u0631 \u0635\u064A\u0627\u0646\u0629 \u0648\u0642\u0627\u0626\u064A\u0629: ${overdueOrders.length} \u0623\u0645\u0631 \u0639\u0645\u0644 \u0628\u062F\u0648\u0646 \u062A\u062D\u062F\u064A\u062B`,
-      content: `\u0627\u0644\u0623\u0648\u0627\u0645\u0631 \u0627\u0644\u062A\u0627\u0644\u064A\u0629 \u062A\u062C\u0627\u0648\u0632\u062A ${REMINDER_THRESHOLD_HOURS} \u0633\u0627\u0639\u0629 \u0628\u062F\u0648\u0646 \u062A\u062D\u062F\u064A\u062B \u0645\u0646 \u0627\u0644\u0641\u0646\u064A:
+    try {
+      await notifyOwner({
+        title: `\u23F0 \u062A\u0630\u0643\u064A\u0631 \u0635\u064A\u0627\u0646\u0629 \u0648\u0642\u0627\u0626\u064A\u0629: ${overdueOrders.length} \u0623\u0645\u0631 \u0639\u0645\u0644 \u0628\u062F\u0648\u0646 \u062A\u062D\u062F\u064A\u062B`,
+        content: `\u0627\u0644\u0623\u0648\u0627\u0645\u0631 \u0627\u0644\u062A\u0627\u0644\u064A\u0629 \u062A\u062C\u0627\u0648\u0632\u062A ${REMINDER_THRESHOLD_HOURS} \u0633\u0627\u0639\u0629 \u0628\u062F\u0648\u0646 \u062A\u062D\u062F\u064A\u062B \u0645\u0646 \u0627\u0644\u0641\u0646\u064A:
 
 ${ownerLines.join("\n")}
 
 \u062A\u0645 \u0625\u0634\u0639\u0627\u0631 ${notifiedCount} \u0641\u0646\u064A`
-    });
+      });
+    } catch (ownerErr) {
+      if (ownerErr instanceof Error) {
+        console.error("[PM Reminder] Unexpected error notifying owner about overdue PMs:", ownerErr.message);
+      } else {
+        console.error("[PM Reminder] Unexpected error notifying owner about overdue PMs:", String(ownerErr));
+      }
+    }
   }
   console.log(`[PM Reminder] Completed: ${overdueOrders.length} stale orders, ${notifiedCount} technicians notified`);
 }
@@ -8235,7 +9455,10 @@ var SLA_HOURS = 48;
 var _slaOverduePushRunning = false;
 async function _runSlaOverduePushJobCore() {
   const db = await getDb();
-  if (!db) return;
+  if (!db) {
+    console.error("[SlaOverduePush] Failed to get database connection. Job aborted.");
+    return;
+  }
   const now = Date.now();
   const cutoffMs = now - SLA_HOURS * 60 * 60 * 1e3;
   const overdueOrders = await db.select({
@@ -8269,6 +9492,7 @@ async function _runSlaOverduePushJobCore() {
         });
         notifiedCount++;
       } catch (e) {
+        console.warn(`[SlaOverduePush] Push notification failed for WO ${order.workOrderNumber}:`, e);
       }
     }
   }
@@ -8276,14 +9500,22 @@ async function _runSlaOverduePushJobCore() {
     const hrs = Math.floor((now - new Date(o.scheduledDate).getTime()) / 36e5);
     return `  \u2022 #${o.workOrderNumber} - ${o.title} (\u0645\u0646\u0630 ${hrs} \u0633\u0627\u0639\u0629)`;
   }).join("\n");
-  await notifyOwner({
-    title: `\u{1F534} \u062A\u0646\u0628\u064A\u0647 SLA: ${overdueOrders.length} \u0623\u0645\u0631 \u0639\u0645\u0644 \u0648\u0642\u0627\u0626\u064A \u062A\u062C\u0627\u0648\u0632 48 \u0633\u0627\u0639\u0629`,
-    content: `\u0627\u0644\u0623\u0648\u0627\u0645\u0631 \u0627\u0644\u062A\u0627\u0644\u064A\u0629 \u062A\u062C\u0627\u0648\u0632\u062A \u0627\u0644\u0648\u0642\u062A \u0627\u0644\u0645\u0639\u064A\u0627\u0631\u064A (48 \u0633\u0627\u0639\u0629) \u062F\u0648\u0646 \u0625\u063A\u0644\u0627\u0642:
+  try {
+    await notifyOwner({
+      title: `\u{1F534} \u062A\u0646\u0628\u064A\u0647 SLA: ${overdueOrders.length} \u0623\u0645\u0631 \u0639\u0645\u0644 \u0648\u0642\u0627\u0626\u064A \u062A\u062C\u0627\u0648\u0632 48 \u0633\u0627\u0639\u0629`,
+      content: `\u0627\u0644\u0623\u0648\u0627\u0645\u0631 \u0627\u0644\u062A\u0627\u0644\u064A\u0629 \u062A\u062C\u0627\u0648\u0632\u062A \u0627\u0644\u0648\u0642\u062A \u0627\u0644\u0645\u0639\u064A\u0627\u0631\u064A (48 \u0633\u0627\u0639\u0629) \u062F\u0648\u0646 \u0625\u063A\u0644\u0627\u0642:
 
 ${orderList}
 
 \u064A\u0631\u062C\u0649 \u0627\u0644\u0645\u0631\u0627\u062C\u0639\u0629 \u0627\u0644\u0641\u0648\u0631\u064A\u0629.`
-  });
+    });
+  } catch (ownerErr) {
+    if (ownerErr instanceof Error) {
+      console.error("[SlaOverduePush] Unexpected error notifying owner about overdue SLAs:", ownerErr.message);
+    } else {
+      console.error("[SlaOverduePush] Unexpected error notifying owner about overdue SLAs:", String(ownerErr));
+    }
+  }
   console.log(`[SlaOverduePush] Notified about ${overdueOrders.length} overdue orders, ${notifiedCount} push sent.`);
 }
 async function runSlaOverduePushJob() {
@@ -8320,7 +9552,10 @@ var RETENTION_DAYS = 30;
 var _backupCleanupRunning = false;
 async function _runBackupCleanupJobCore() {
   const db = await getDb();
-  if (!db) return;
+  if (!db) {
+    console.error("[BackupCleanup] Failed to get database connection. Job aborted.");
+    return;
+  }
   const cutoff = new Date(Date.now() - RETENTION_DAYS * 24 * 60 * 60 * 1e3);
   const result = await db.delete(backups).where(lt4(backups.createdAt, cutoff));
   const deleted = result?.[0]?.affectedRows ?? 0;
@@ -8508,6 +9743,401 @@ async function generatePMWorkOrderPDF(workOrderId) {
   });
 }
 
+// server/ticketPdfService.ts
+init_db();
+var STATUS_LABELS2 = {
+  open: "\u0645\u0641\u062A\u0648\u062D",
+  in_progress: "\u0642\u064A\u062F \u0627\u0644\u062A\u0646\u0641\u064A\u0630",
+  pending_approval: "\u0628\u0627\u0646\u062A\u0638\u0627\u0631 \u0627\u0644\u0627\u0639\u062A\u0645\u0627\u062F",
+  pending_quote: "\u0628\u0627\u0646\u062A\u0638\u0627\u0631 \u0627\u0644\u062A\u0633\u0639\u064A\u0631",
+  pending_po: "\u0628\u0627\u0646\u062A\u0638\u0627\u0631 \u0637\u0644\u0628 \u0634\u0631\u0627\u0621",
+  pending_funding: "\u0628\u0627\u0646\u062A\u0638\u0627\u0631 \u0627\u0644\u062A\u0645\u0648\u064A\u0644",
+  closed: "\u0645\u063A\u0644\u0642",
+  rejected: "\u0645\u0631\u0641\u0648\u0636",
+  revision_needed: "\u064A\u062D\u062A\u0627\u062C \u0645\u0631\u0627\u062C\u0639\u0629"
+};
+var PRIORITY_LABELS = {
+  low: "\u0645\u0646\u062E\u0641\u0636\u0629",
+  medium: "\u0645\u062A\u0648\u0633\u0637\u0629",
+  high: "\u0639\u0627\u0644\u064A\u0629",
+  critical: "\u062D\u0631\u062C\u0629"
+};
+var CATEGORY_LABELS = {
+  electrical: "\u0643\u0647\u0631\u0628\u0627\u0621",
+  plumbing: "\u0633\u0628\u0627\u0643\u0629",
+  hvac: "\u062A\u0643\u064A\u064A\u0641",
+  structural: "\u0625\u0646\u0634\u0627\u0626\u064A",
+  elevator: "\u0645\u0635\u0627\u0639\u062F",
+  fire_safety: "\u0633\u0644\u0627\u0645\u0629",
+  cleaning: "\u0646\u0638\u0627\u0641\u0629",
+  other: "\u0623\u062E\u0631\u0649"
+};
+var PO_STATUS_LABELS = {
+  draft: "\u0645\u0633\u0648\u062F\u0629",
+  pending_approval: "\u0628\u0627\u0646\u062A\u0638\u0627\u0631 \u0627\u0644\u0627\u0639\u062A\u0645\u0627\u062F",
+  approved: "\u0645\u0639\u062A\u0645\u062F",
+  quoted: "\u062A\u0645 \u0627\u0644\u062A\u0633\u0639\u064A\u0631",
+  funded: "\u062A\u0645 \u0627\u0644\u062A\u0645\u0648\u064A\u0644",
+  purchased: "\u062A\u0645 \u0627\u0644\u0634\u0631\u0627\u0621",
+  received: "\u062A\u0645 \u0627\u0644\u0627\u0633\u062A\u0644\u0627\u0645",
+  rejected: "\u0645\u0631\u0641\u0648\u0636",
+  cancelled: "\u0645\u0644\u063A\u064A",
+  revision_needed: "\u064A\u062D\u062A\u0627\u062C \u0645\u0631\u0627\u062C\u0639\u0629"
+};
+function escapeHtml2(text2) {
+  if (!text2) return "-";
+  return String(text2).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+async function generateTicketPDF(ticketId) {
+  const ticket = await getTicketById(ticketId);
+  if (!ticket) throw new Error("Ticket not found");
+  const reportedBy = ticket.reportedById ? await getUserById(ticket.reportedById) : null;
+  const assignedTo = ticket.assignedToId ? await getUserById(ticket.assignedToId) : null;
+  const site = ticket.siteId ? await getSiteById(ticket.siteId) : null;
+  const allSections = await getSections(ticket.siteId ?? void 0);
+  const section = allSections?.find((s) => s.id === ticket.sectionId) || null;
+  const allPOs = await getPurchaseOrders();
+  const linkedPOs = allPOs.filter((po) => po.linkedTicketIds?.includes(ticketId)) || [];
+  const createdDate = new Date(ticket.createdAt).toLocaleDateString("ar-SA", {
+    year: "numeric",
+    month: "long",
+    day: "numeric"
+  });
+  const closedDate = ticket.closedAt ? new Date(ticket.closedAt).toLocaleDateString("ar-SA", {
+    year: "numeric",
+    month: "long",
+    day: "numeric"
+  }) : "-";
+  const poRowsHtml = linkedPOs.length > 0 ? linkedPOs.map(
+    (po, i) => `
+        <tr class="${i % 2 === 0 ? "even" : "odd"}">
+          <td>${escapeHtml2(po.poNumber)}</td>
+          <td>${escapeHtml2(PO_STATUS_LABELS[po.status] || po.status)}</td>
+          <td>${po.totalEstimatedCost ? Number(po.totalEstimatedCost).toLocaleString("ar-SA") + " \u0631.\u0633" : "-"}</td>
+          <td>${po.totalActualCost ? Number(po.totalActualCost).toLocaleString("ar-SA") + " \u0631.\u0633" : "-"}</td>
+        </tr>
+      `
+  ).join("") : '<tr><td colspan="4" style="text-align: center; color: #9ca3af;">\u0644\u0627 \u062A\u0648\u062C\u062F \u0637\u0644\u0628\u0627\u062A \u0634\u0631\u0627\u0621 \u0645\u0631\u062A\u0628\u0637\u0629</td></tr>';
+  const html = `<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>\u062A\u0642\u0631\u064A\u0631 \u0627\u0644\u0628\u0644\u0627\u063A - ${escapeHtml2(ticket.ticketNumber)}</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+Arabic:wght@400;700&family=Noto+Sans:wght@400;700&display=swap');
+    
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    
+    body {
+      font-family: 'Noto Sans Arabic', 'Noto Sans', Arial, sans-serif;
+      font-size: 12px;
+      color: #1e293b;
+      background: #fff;
+      padding: 0;
+      line-height: 1.6;
+    }
+    
+    /* Header Banner */
+    .header {
+      background: linear-gradient(135deg, #1e40af 0%, #1e3a8a 100%);
+      color: #fff;
+      padding: 20px 24px;
+      margin-bottom: 24px;
+      border-radius: 4px;
+    }
+    
+    .header-title {
+      font-size: 20px;
+      font-weight: 700;
+      margin-bottom: 4px;
+    }
+    
+    .header-subtitle {
+      font-size: 11px;
+      color: #bfdbfe;
+    }
+    
+    .header-meta {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 12px;
+      font-size: 10px;
+      color: #dbeafe;
+    }
+    
+    /* Status Badge */
+    .status-badge {
+      display: inline-block;
+      padding: 4px 12px;
+      border-radius: 20px;
+      font-weight: 700;
+      font-size: 11px;
+      margin-inline-start: 8px;
+    }
+    
+    .status-open { background: #dbeafe; color: #1e40af; }
+    .status-in_progress { background: #fed7aa; color: #92400e; }
+    .status-closed { background: #dcfce7; color: #166534; }
+    .status-pending_approval { background: #fce7f3; color: #be185d; }
+    .status-revision_needed { background: #fecaca; color: #991b1b; }
+    
+    /* Section Header */
+    .section-header {
+      background: #1e40af;
+      color: #fff;
+      padding: 10px 16px;
+      font-size: 13px;
+      font-weight: 700;
+      margin: 20px 0 12px 0;
+      border-radius: 3px;
+    }
+    
+    /* Info Grid */
+    .info-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin-bottom: 16px;
+    }
+    
+    .info-box {
+      border: 1px solid #e2e8f0;
+      border-radius: 4px;
+      padding: 12px;
+      background: #f8fafc;
+    }
+    
+    .info-box h3 {
+      font-size: 12px;
+      font-weight: 700;
+      color: #1e40af;
+      margin-bottom: 8px;
+      border-bottom: 1px solid #cbd5e1;
+      padding-bottom: 6px;
+    }
+    
+    .info-row {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 6px;
+      font-size: 11px;
+    }
+    
+    .info-label {
+      font-weight: 700;
+      color: #4b5563;
+      min-width: 100px;
+    }
+    
+    .info-value {
+      color: #1e293b;
+      text-align: start;
+      unicode-bidi: plaintext;
+      direction: auto;
+    }
+    
+    /* Content Block */
+    .content-block {
+      margin-bottom: 16px;
+    }
+    
+    .content-label {
+      font-weight: 700;
+      color: #4b5563;
+      font-size: 11px;
+      margin-bottom: 6px;
+      display: block;
+    }
+    
+    .content-text {
+      background: #f1f5f9;
+      padding: 10px 12px;
+      border-right: 3px solid #1e40af;
+      border-radius: 3px;
+      font-size: 11px;
+      color: #1e293b;
+      line-height: 1.5;
+      text-align: start;
+      unicode-bidi: plaintext;
+      direction: auto;
+    }
+    
+    /* Table */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 8px;
+      font-size: 11px;
+    }
+    
+    thead tr {
+      background: #1e40af;
+      color: #fff;
+    }
+    
+    thead th {
+      padding: 8px 6px;
+      text-align: center;
+      font-weight: 700;
+      border: 1px solid #1e3a8a;
+    }
+    
+    tbody tr.even { background: #f8fafc; }
+    tbody tr.odd { background: #fff; }
+    
+    tbody td {
+      padding: 7px 6px;
+      border: 1px solid #e2e8f0;
+      text-align: center;
+    }
+    
+    /* Footer */
+    .footer {
+      margin-top: 24px;
+      padding-top: 12px;
+      border-top: 1px solid #e2e8f0;
+      font-size: 9px;
+      color: #64748b;
+      text-align: center;
+    }
+    
+    /* Print-specific adjustments */
+    @media print {
+      body { margin: 0; padding: 0; }
+      .header { page-break-after: avoid; }
+      .section-header { page-break-after: avoid; }
+      table { page-break-inside: avoid; }
+    }
+  </style>
+</head>
+<body>
+  <!-- Header -->
+  <div class="header">
+    <div class="header-title">
+      \u062A\u0642\u0631\u064A\u0631 \u0628\u0644\u0627\u063A \u0627\u0644\u0635\u064A\u0627\u0646\u0629
+      <span class="status-badge status-${ticket.status}">
+        ${escapeHtml2(STATUS_LABELS2[ticket.status] || ticket.status)}
+      </span>
+    </div>
+    <div class="header-subtitle">\u0646\u0638\u0627\u0645 \u0625\u062F\u0627\u0631\u0629 \u0627\u0644\u0635\u064A\u0627\u0646\u0629 \u0627\u0644\u0645\u0631\u0643\u0632\u064A\u0629 (CMMS)</div>
+    <div class="header-meta">
+      <span>\u0631\u0642\u0645 \u0627\u0644\u0628\u0644\u0627\u063A: ${escapeHtml2(ticket.ticketNumber)}</span>
+      <span>\u062A\u0627\u0631\u064A\u062E \u0627\u0644\u0625\u0646\u0634\u0627\u0621: ${createdDate}</span>
+    </div>
+  </div>
+
+  <!-- Section 1: Ticket Details -->
+  <div class="section-header">1. \u062A\u0641\u0627\u0635\u064A\u0644 \u0627\u0644\u0628\u0644\u0627\u063A</div>
+  <div class="info-grid">
+    <div class="info-box">
+      <h3>\u0645\u0639\u0644\u0648\u0645\u0627\u062A \u0639\u0627\u0645\u0629</h3>
+      <div class="info-row">
+        <span class="info-label">\u0627\u0644\u062D\u0627\u0644\u0629:</span>
+        <span class="info-value">${escapeHtml2(STATUS_LABELS2[ticket.status] || ticket.status)}</span>
+      </div>
+      <div class="info-row">
+        <span class="info-label">\u0627\u0644\u0623\u0648\u0644\u0648\u064A\u0629:</span>
+        <span class="info-value">${escapeHtml2(PRIORITY_LABELS[ticket.priority] || ticket.priority)}</span>
+      </div>
+      <div class="info-row">
+        <span class="info-label">\u0627\u0644\u0641\u0626\u0629:</span>
+        <span class="info-value">${escapeHtml2(CATEGORY_LABELS[ticket.category] || ticket.category)}</span>
+      </div>
+      <div class="info-row">
+        <span class="info-label">\u062A\u0627\u0631\u064A\u062E \u0627\u0644\u0625\u063A\u0644\u0627\u0642:</span>
+        <span class="info-value">${closedDate}</span>
+      </div>
+    </div>
+    
+    <div class="info-box">
+      <h3>\u0627\u0644\u0645\u0648\u0642\u0639 \u0648\u0627\u0644\u0623\u0637\u0631\u0627\u0641</h3>
+      <div class="info-row">
+        <span class="info-label">\u0627\u0644\u0645\u0648\u0642\u0639:</span>
+        <span class="info-value">${escapeHtml2(site?.name || ticket.locationDetail || "-")}</span>
+      </div>
+      ${section ? `
+      <div class="info-row">
+        <span class="info-label">\u0627\u0644\u0642\u0633\u0645:</span>
+        <span class="info-value">${escapeHtml2(section.name)}</span>
+      </div>
+      ` : ""}
+      <div class="info-row">
+        <span class="info-label">\u0645\u0642\u062F\u0645 \u0627\u0644\u0628\u0644\u0627\u063A:</span>
+        <span class="info-value">${escapeHtml2(reportedBy?.name || "-")}</span>
+      </div>
+      <div class="info-row">
+        <span class="info-label">\u0627\u0644\u0641\u0646\u064A \u0627\u0644\u0645\u0633\u0646\u062F:</span>
+        <span class="info-value">${escapeHtml2(assignedTo?.name || "-")}</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Section 2: Problem Description -->
+  <div class="section-header">2. \u0648\u0635\u0641 \u0627\u0644\u0645\u0634\u0643\u0644\u0629</div>
+  <div class="content-block">
+    <span class="content-label">\u0627\u0644\u0639\u0646\u0648\u0627\u0646:</span>
+    <div class="content-text">${escapeHtml2(ticket.title)}</div>
+  </div>
+  <div class="content-block">
+    <span class="content-label">\u0627\u0644\u0648\u0635\u0641 \u0627\u0644\u062A\u0641\u0635\u064A\u0644\u064A:</span>
+    <div class="content-text">${escapeHtml2(ticket.description || "\u0644\u0627 \u064A\u0648\u062C\u062F \u0648\u0635\u0641 \u0625\u0636\u0627\u0641\u064A")}</div>
+  </div>
+
+  <!-- Section 3: Work Execution Details -->
+  ${ticket.inspectionNotes || ticket.repairNotes || ticket.materialsUsed ? `
+  <div class="section-header">3. \u062A\u0641\u0627\u0635\u064A\u0644 \u0627\u0644\u062A\u0646\u0641\u064A\u0630</div>
+  ${ticket.inspectionNotes ? `
+  <div class="content-block">
+    <span class="content-label">\u0645\u0644\u0627\u062D\u0638\u0627\u062A \u0627\u0644\u0641\u062D\u0635:</span>
+    <div class="content-text">${escapeHtml2(ticket.inspectionNotes)}</div>
+  </div>
+  ` : ""}
+  ${ticket.repairNotes ? `
+  <div class="content-block">
+    <span class="content-label">\u0645\u0644\u0627\u062D\u0638\u0627\u062A \u0627\u0644\u0625\u0635\u0644\u0627\u062D:</span>
+    <div class="content-text">${escapeHtml2(ticket.repairNotes)}</div>
+  </div>
+  ` : ""}
+  ${ticket.materialsUsed ? `
+  <div class="content-block">
+    <span class="content-label">\u0627\u0644\u0645\u0648\u0627\u062F \u0648\u0627\u0644\u0645\u0647\u0645\u0627\u062A \u0627\u0644\u0645\u0633\u062A\u062E\u062F\u0645\u0629:</span>
+    <div class="content-text">${escapeHtml2(ticket.materialsUsed)}</div>
+  </div>
+  ` : ""}
+  ` : ""}
+
+  <!-- Section 4: Linked Purchase Orders -->
+  ${linkedPOs.length > 0 ? `
+  <div class="section-header">4. \u0637\u0644\u0628\u0627\u062A \u0627\u0644\u0634\u0631\u0627\u0621 \u0627\u0644\u0645\u0631\u062A\u0628\u0637\u0629</div>
+  <table>
+    <thead>
+      <tr>
+        <th>\u0631\u0642\u0645 \u0627\u0644\u0637\u0644\u0628</th>
+        <th>\u0627\u0644\u062D\u0627\u0644\u0629</th>
+        <th>\u0627\u0644\u062A\u0643\u0644\u0641\u0629 \u0627\u0644\u062A\u0642\u062F\u064A\u0631\u064A\u0629</th>
+        <th>\u0627\u0644\u062A\u0643\u0644\u0641\u0629 \u0627\u0644\u0641\u0639\u0644\u064A\u0629</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${poRowsHtml}
+    </tbody>
+  </table>
+  ` : ""}
+
+  <!-- Footer -->
+  <div class="footer">
+    \u062A\u0645 \u0625\u0646\u0634\u0627\u0621 \u0647\u0630\u0627 \u0627\u0644\u062A\u0642\u0631\u064A\u0631 \u0622\u0644\u064A\u0627\u064B \u0645\u0646 \u0646\u0638\u0627\u0645 \u0625\u062F\u0627\u0631\u0629 \u0627\u0644\u0635\u064A\u0627\u0646\u0629 \u0627\u0644\u0645\u0631\u0643\u0632\u064A\u0629 (CMMS) \u0628\u062A\u0627\u0631\u064A\u062E ${(/* @__PURE__ */ new Date()).toLocaleDateString("ar-SA")} \u0627\u0644\u0633\u0627\u0639\u0629 ${(/* @__PURE__ */ new Date()).toLocaleTimeString("ar-SA")}
+  </div>
+</body>
+</html>`;
+  return htmlToPdf(html);
+}
+
 // server/_core/index.ts
 init_sdk();
 var EXPORT_ALLOWED_ROLES = /* @__PURE__ */ new Set([
@@ -8590,14 +10220,15 @@ async function startServer() {
   }));
   let redisStoreForApi;
   let redisStoreForAuth;
-  if (process.env.REDIS_URL) {
+  if (env.REDIS_URL) {
     try {
-      const redisClient = new IORedis(process.env.REDIS_URL, {
+      const redisClient = new IORedis(env.REDIS_URL, {
         maxRetriesPerRequest: 1,
         enableOfflineQueue: false,
         lazyConnect: true
       });
-      await redisClient.connect().catch(() => {
+      await redisClient.connect().catch((connectErr) => {
+        console.warn("[RateLimit] Redis connection failed:", connectErr.message);
       });
       if (redisClient.status === "ready") {
         redisStoreForApi = new RedisStore({
@@ -8830,6 +10461,45 @@ async function startServer() {
       const buffer = await generatePMWorkOrderPDF(id);
       res.setHeader("Content-Type", "application/pdf");
       res.setHeader("Content-Disposition", `inline; filename=work-order-${id}-${Date.now()}.pdf`);
+      res.send(buffer);
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+  app.get("/api/export/my-items-pdf", requireAuthMiddleware, async (req, res) => {
+    try {
+      const user = req.authenticatedUser;
+      const buffer = await generateDelegateItemsPDF(user.id);
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `attachment; filename=my-items-${Date.now()}.pdf`);
+      res.send(buffer);
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+  app.get("/api/tickets/:id/pdf", requireAuthMiddleware, async (req, res) => {
+    try {
+      const ticketId = parseInt(req.params.id);
+      if (isNaN(ticketId)) return res.status(400).json({ error: "\u0631\u0642\u0645 \u0627\u0644\u0628\u0644\u0627\u063A \u063A\u064A\u0631 \u0635\u062D\u064A\u062D" });
+      const buffer = await generateTicketPDF(ticketId);
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `inline; filename=ticket-${ticketId}-${Date.now()}.pdf`);
+      res.send(buffer);
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+  app.get("/api/export/po/:id/pdf", requireAuthMiddleware, async (req, res) => {
+    try {
+      const poId = parseInt(req.params.id);
+      if (isNaN(poId)) return res.status(400).json({ error: "Invalid purchase request ID" });
+      const user = req.authenticatedUser;
+      const buffer = await generatePurchaseRequestPDF(poId, user.id);
+      const { getPurchaseOrderById: getPurchaseOrderById2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+      const po = await getPurchaseOrderById2(poId);
+      const filename = po?.poNumber ? `${po.poNumber}.pdf` : `po-${poId}.pdf`;
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `attachment; filename=${filename}`);
       res.send(buffer);
     } catch (e) {
       res.status(500).json({ error: e.message });

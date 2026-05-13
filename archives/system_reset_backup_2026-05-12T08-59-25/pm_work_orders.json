@@ -1,0 +1,23 @@
+[
+  {
+    "id": 1,
+    "workOrderNumber": "WO-00001",
+    "planId": 390001,
+    "assetId": null,
+    "siteId": 300001,
+    "title": "صيانة اليومية للعبة تصادم السيارات الكبيرة",
+    "scheduledDate": "2026-05-12 00:00:00",
+    "completedDate": null,
+    "status": "scheduled",
+    "assignedToId": 3540555,
+    "checklistResults": [],
+    "technicianNotes": null,
+    "completionPhotoUrl": null,
+    "createdAt": "2026-05-12 00:05:12",
+    "updatedAt": "2026-05-12 00:05:12",
+    "technicianNotes_ar": null,
+    "technicianNotes_en": null,
+    "technicianNotes_ur": null,
+    "originalLanguage": "ar"
+  }
+]

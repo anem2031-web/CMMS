@@ -43,6 +43,8 @@ const ITEM_STATUS_COLORS: Record<string, string> = {
   rejected: "bg-red-100 text-red-700",
   purchased: "bg-emerald-100 text-emerald-700",
   received: "bg-green-100 text-green-700",
+  pending_review: "bg-yellow-100 text-yellow-700",
+  cancelled: "bg-gray-200 text-gray-600",
 };
 
 function numberToArabicWords(num: number): string {
@@ -106,6 +108,13 @@ export default function PurchaseOrderDetail() {
   const [revisionNote, setRevisionNote] = useState("");
   const [isRevisionDialogOpen, setIsRevisionDialogOpen] = useState(false);
   const [resubmitNote, setResubmitNote] = useState("");
+  const [reviewItemId, setReviewItemId] = useState<number | null>(null);
+  const [reviewReason, setReviewReason] = useState("");
+  const [isReviewDialogOpen, setIsReviewDialogOpen] = useState(false);
+  const [editingReviewedItem, setEditingReviewedItem] = useState<any>(null);
+  const [editReviewedForm, setEditReviewedForm] = useState<{ itemName: string; description: string; quantity: number; unit: string; specifications: string; delegateId: number | null }>({ itemName: "", description: "", quantity: 1, unit: "", specifications: "", delegateId: null });
+  const [cancellingItemId, setCancellingItemId] = useState<number | null>(null);
+  const [isCancelDialogOpen, setIsCancelDialogOpen] = useState(false);
 
   const requestRevisionMut = trpc.purchaseOrders.requestRevision.useMutation({
     onSuccess: () => { toast.success("تم إرسال الطلب للمراجعة"); setIsRevisionDialogOpen(false); setRevisionNote(""); refetch(); },
@@ -122,6 +131,21 @@ export default function PurchaseOrderDetail() {
     onError: (e) => toast.error(e.message)
   });
 
+  const requestItemReviewMut = trpc.purchaseOrders.requestItemReview.useMutation({
+    onSuccess: () => { toast.success("تم طلب المراجعة بنجاح"); setIsReviewDialogOpen(false); setReviewItemId(null); setReviewReason(""); refetch(); },
+    onError: (e) => toast.error(e.message)
+  });
+
+  const editReviewedItemMut = trpc.purchaseOrders.editReviewedItem.useMutation({
+    onSuccess: () => { toast.success("تم تعديل الصنف بنجاح"); setEditingReviewedItem(null); refetch(); },
+    onError: (e) => toast.error(e.message)
+  });
+
+  const cancelReviewedItemMut = trpc.purchaseOrders.cancelReviewedItem.useMutation({
+    onSuccess: () => { toast.success("تم إلغاء الصنف بنجاح"); setIsCancelDialogOpen(false); setCancellingItemId(null); refetch(); },
+    onError: (e) => toast.error(e.message)
+  });
+
   const isAdminOrOwner = role === "admin" || role === "owner";
   const isDelegate = role === "delegate" || isAdminOrOwner;
   const isAccountant = role === "accountant" || isAdminOrOwner;
@@ -135,8 +159,8 @@ export default function PurchaseOrderDetail() {
     if (role === "delegate") return po.items.filter((item: any) => item.delegateId === userId);
     return po.items;
   }, [po?.items, isAdminOrOwner, role, userId]);
-  const totalEstimated = useMemo(() => visibleItems.reduce((sum: number, item: any) => sum + (parseFloat(item.estimatedTotalCost || "0")), 0), [visibleItems]);
-  const totalActual = useMemo(() => visibleItems.reduce((sum: number, item: any) => sum + (parseFloat(item.actualTotalCost || "0")), 0), [visibleItems]);
+  const totalEstimated = useMemo(() => visibleItems.filter((item: any) => item.status !== "cancelled").reduce((sum: number, item: any) => sum + (parseFloat(item.estimatedTotalCost || "0")), 0), [visibleItems]);
+  const totalActual = useMemo(() => visibleItems.filter((item: any) => item.status !== "cancelled").reduce((sum: number, item: any) => sum + (parseFloat(item.actualTotalCost || "0")), 0), [visibleItems]);
 
   const handleUpload = async (file: File, itemId: number, type: "invoice" | "purchased" | "warehouse"): Promise<string | null> => {
     setUploadingItem(`${itemId}-${type}`);
@@ -303,11 +327,11 @@ export default function PurchaseOrderDetail() {
             const isMyItem = isAdminOrOwner || (isDelegate && item.delegateId === userId);
 
             return (
-              <div key={item.id} className="border rounded-xl p-4 space-y-3 hover:border-primary/20 transition-colors">
+              <div key={item.id} className={`border rounded-xl p-4 space-y-3 hover:border-primary/20 transition-colors ${item.status === "cancelled" ? "bg-gray-50 opacity-60" : ""}`}>
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex-1">
                     <div className="flex items-center gap-2 mb-1 flex-wrap">
-                      <h4 className="font-medium text-sm">{item.itemName}</h4>
+                      <h4 className={`font-medium text-sm ${item.status === "cancelled" ? "line-through text-gray-500" : ""}`}>{item.itemName}</h4>
                       <Badge className={`text-[10px] ${ITEM_STATUS_COLORS[item.status] || "bg-gray-100 text-gray-700"}`}>
                         {getPOItemStatusLabel(item.status)}
                       </Badge>
@@ -484,6 +508,57 @@ export default function PurchaseOrderDetail() {
                     }} disabled={confirmPurchaseMut.isPending}>
                       {confirmPurchaseMut.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
                       {t.purchaseOrders.confirmPurchase}
+                    </Button>
+                  </div>
+                )}
+
+                {(po?.requestedById === userId || isAdminOrOwner) && item.status === "pending_review" && (
+                  <div className="bg-yellow-50 border border-yellow-300 rounded-lg p-3 space-y-2">
+                    <p className="text-xs font-medium text-yellow-800 flex items-center gap-1.5">
+                      <AlertCircle className="w-3.5 h-3.5" /> مراجعة مطلوبة
+                    </p>
+                    {item.reviewReason && (
+                      <p className="text-xs text-yellow-700 bg-white rounded p-2 border border-yellow-200">
+                        <strong>سبب المراجعة:</strong> {item.reviewReason}
+                      </p>
+                    )}
+                    <div className="flex gap-2">
+                      <Button size="sm" className="flex-1" onClick={() => {
+                        setEditingReviewedItem(item);
+                        setEditReviewedForm({
+                          itemName: item.itemName,
+                          description: item.description || "",
+                          quantity: item.quantity,
+                          unit: item.unit || "",
+                          specifications: item.specifications || "",
+                          delegateId: item.delegateId || null
+                        });
+                      }}>
+                        <Pencil className="w-3.5 h-3.5 mr-1.5" /> تعديل
+                      </Button>
+                      <Button size="sm" variant="destructive" className="flex-1" onClick={() => {
+                        setCancellingItemId(item.id);
+                        setIsCancelDialogOpen(true);
+                      }}>
+                        <XCircle className="w-3.5 h-3.5 mr-1.5" /> إلغاء
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
+                {isDelegate && item.status === "approved" && item.delegateId === userId && [
+                  "approved",
+                  "partial_purchase"
+                ].includes(po.status) && (
+                  <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 space-y-2">
+                    <p className="text-xs font-medium text-yellow-800 flex items-center gap-1.5">
+                      <AlertCircle className="w-3.5 h-3.5" /> طلب مراجعة
+                    </p>
+                    <Button variant="outline" size="sm" className="w-full text-yellow-700 border-yellow-300 hover:bg-yellow-100" onClick={() => {
+                      setReviewItemId(item.id);
+                      setIsReviewDialogOpen(true);
+                    }}>
+                      <AlertCircle className="w-3.5 h-3.5 mr-1.5" /> طلب مراجعة الصنف
                     </Button>
                   </div>
                 )}
@@ -866,6 +941,136 @@ export default function PurchaseOrderDetail() {
               onClick={() => requestRevisionMut.mutate({ id: po.id, note: revisionNote })}
             >
               {requestRevisionMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : t.purchaseOrders.returnForRevision}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Reviewed Item Dialog */}
+      <Dialog open={!!editingReviewedItem} onOpenChange={(open) => { if (!open) setEditingReviewedItem(null); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Pencil className="w-4 h-4" />
+              تعديل الصنف - {editingReviewedItem?.itemName}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>اسم الصنف *</Label>
+              <Input value={editReviewedForm.itemName} onChange={e => setEditReviewedForm(p => ({ ...p, itemName: e.target.value }))} />
+            </div>
+            <div className="space-y-2">
+              <Label>{t.common.description}</Label>
+              <Textarea value={editReviewedForm.description} onChange={e => setEditReviewedForm(p => ({ ...p, description: e.target.value }))} rows={2} />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label>الكمية *</Label>
+                <Input type="number" min={1} value={editReviewedForm.quantity} onChange={e => setEditReviewedForm(p => ({ ...p, quantity: parseInt(e.target.value) || 1 }))} />
+              </div>
+              <div className="space-y-2">
+                <Label>الوحدة *</Label>
+                <Input value={editReviewedForm.unit} onChange={e => setEditReviewedForm(p => ({ ...p, unit: e.target.value }))} />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>المواصفات</Label>
+              <Textarea value={editReviewedForm.specifications} onChange={e => setEditReviewedForm(p => ({ ...p, specifications: e.target.value }))} rows={2} />
+            </div>
+            <div className="space-y-2">
+              <Label>إعادة تعيين المندوب (اختياري)</Label>
+              <Select
+                value={editReviewedForm.delegateId ? String(editReviewedForm.delegateId) : ""}
+                onValueChange={v => setEditReviewedForm(p => ({ ...p, delegateId: v ? parseInt(v) : null }))}
+              >
+                <SelectTrigger className="bg-white"><SelectValue placeholder="اختر مندوب" /></SelectTrigger>
+                <SelectContent>
+                  {users?.filter((u: any) => u.role === "delegate").map((d: any) => <SelectItem key={d.id} value={String(d.id)}>{d.name || d.email}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditingReviewedItem(null)}>{t.common.cancel}</Button>
+            <Button onClick={() => {
+              if (!editReviewedForm.itemName || !editReviewedForm.unit || editReviewedForm.quantity < 1) {
+                toast.error("بيانات مطلوبة ناقصة");
+                return;
+              }
+              editReviewedItemMut.mutate({
+                itemId: editingReviewedItem.id,
+                itemName: editReviewedForm.itemName,
+                quantity: editReviewedForm.quantity,
+                unit: editReviewedForm.unit,
+                specifications: editReviewedForm.specifications || undefined,
+                delegateId: editReviewedForm.delegateId || undefined,
+              });
+            }} disabled={editReviewedItemMut.isPending}>
+              {editReviewedItemMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : t.common.save}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Cancel Item Dialog */}
+      <Dialog open={isCancelDialogOpen} onOpenChange={setIsCancelDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-600">
+              <XCircle className="w-4 h-4" />
+              إلغاء الصنف
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <p className="text-sm text-muted-foreground">
+              هل أنت متأكد من إلغاء هذا الصنف؟ سيبقى الصنف مرئياً في الطلب بحالة "ملغي" ولن يؤثر على الإجماليات المالية.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsCancelDialogOpen(false)}>{t.common.cancel}</Button>
+            <Button variant="destructive" disabled={cancelReviewedItemMut.isPending} onClick={() => {
+              if (cancellingItemId) {
+                cancelReviewedItemMut.mutate({ itemId: cancellingItemId, cancellationReason: "تم الإلغاء من قبل منشئ الطلب" });
+              }
+            }}>
+              {cancelReviewedItemMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "إلغاء نهائياً"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Request Item Review Dialog */}
+      <Dialog open={isReviewDialogOpen} onOpenChange={setIsReviewDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>طلب مراجعة الصنف</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <p className="text-sm text-muted-foreground">
+              يرجى توضيح سبب طلب مراجعة هذا الصنف لكي يقوم منشئ الطلب بتعديله أو إلغاؤه.
+            </p>
+            <div className="space-y-2">
+              <Label>سبب طلب المراجعة *</Label>
+              <Textarea 
+                placeholder="مثال: المواصفات غير واضحة بالكامل..." 
+                value={reviewReason}
+                onChange={e => setReviewReason(e.target.value)}
+                rows={4}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsReviewDialogOpen(false)}>{t.common.cancel}</Button>
+            <Button 
+              disabled={reviewReason.length < 5 || requestItemReviewMut.isPending}
+              onClick={() => {
+                if (reviewItemId) {
+                  requestItemReviewMut.mutate({ itemId: reviewItemId, reason: reviewReason });
+                }
+              }}
+            >
+              {requestItemReviewMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "طلب المراجعة"}
             </Button>
           </DialogFooter>
         </DialogContent>

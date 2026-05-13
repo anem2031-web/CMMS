@@ -1,0 +1,1 @@
+import{G as a}from"./index-Df9jkwOj.js";function g(){const{t:e}=a();return{getStatusLabel:t=>e.ticketStatus[t]||t,getPOStatusLabel:t=>e.poStatus[t]||t,getPOItemStatusLabel:t=>e.poItemStatus[t]||t,getPriorityLabel:t=>e.priority[t]||t,getCategoryLabel:t=>e.category[t]||t,getRoleLabel:t=>e.roles[t]||t}}export{g as u};

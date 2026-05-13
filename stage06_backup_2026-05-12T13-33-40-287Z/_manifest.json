@@ -1,0 +1,113 @@
+{
+  "timestamp": "2026-05-12T13-33-40-287Z",
+  "tables": {
+    "inspection_results": {
+      "rows": 0,
+      "file": "inspection_results.json"
+    },
+    "ticket_status_history": {
+      "rows": 0,
+      "file": "ticket_status_history.json"
+    },
+    "attachments": {
+      "rows": 0,
+      "file": "attachments.json"
+    },
+    "procurement_comments": {
+      "rows": 0,
+      "file": "procurement_comments.json"
+    },
+    "purchase_order_items": {
+      "rows": 2,
+      "file": "purchase_order_items.json"
+    },
+    "purchase_orders": {
+      "rows": 1,
+      "file": "purchase_orders.json"
+    },
+    "pm_execution_results": {
+      "rows": 0,
+      "file": "pm_execution_results.json"
+    },
+    "pm_execution_sessions": {
+      "rows": 0,
+      "file": "pm_execution_sessions.json"
+    },
+    "pm_work_orders": {
+      "rows": 0,
+      "file": "pm_work_orders.json"
+    },
+    "pm_checklist_items": {
+      "rows": 0,
+      "file": "pm_checklist_items.json"
+    },
+    "pm_jobs": {
+      "rows": 0,
+      "file": "pm_jobs.json"
+    },
+    "preventive_plans": {
+      "rows": 0,
+      "file": "preventive_plans.json"
+    },
+    "tickets": {
+      "rows": 0,
+      "file": "tickets.json"
+    },
+    "asset_spare_parts": {
+      "rows": 0,
+      "file": "asset_spare_parts.json"
+    },
+    "asset_metrics": {
+      "rows": 0,
+      "file": "asset_metrics.json"
+    },
+    "assets": {
+      "rows": 41,
+      "file": "assets.json"
+    },
+    "inventory_transactions": {
+      "rows": 0,
+      "file": "inventory_transactions.json"
+    },
+    "inventory": {
+      "rows": 0,
+      "file": "inventory.json"
+    },
+    "notifications": {
+      "rows": 0,
+      "file": "notifications.json"
+    },
+    "audit_logs": {
+      "rows": 5,
+      "file": "audit_logs.json"
+    },
+    "entity_translations": {
+      "rows": 0,
+      "file": "entity_translations.json"
+    },
+    "translation_jobs": {
+      "rows": 0,
+      "file": "translation_jobs.json"
+    },
+    "translation_versions": {
+      "rows": 0,
+      "file": "translation_versions.json"
+    },
+    "push_subscriptions": {
+      "rows": 0,
+      "file": "push_subscriptions.json"
+    },
+    "two_factor_audit_logs": {
+      "rows": 0,
+      "file": "two_factor_audit_logs.json"
+    },
+    "backups": {
+      "rows": 0,
+      "file": "backups.json"
+    },
+    "technicians": {
+      "rows": 12,
+      "file": "technicians.json"
+    }
+  }
+}

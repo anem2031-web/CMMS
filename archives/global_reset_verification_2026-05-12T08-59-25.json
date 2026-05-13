@@ -1,0 +1,158 @@
+{
+  "timestamp": "2026-05-12T08:59:38.582Z",
+  "all_checks_passed": true,
+  "deletion_counts": {
+    "audit_logs": 5,
+    "attachments": 18,
+    "notifications": 20002,
+    "two_factor_audit_logs": 0,
+    "translation_jobs": 0,
+    "ticket_status_history": 45000,
+    "inspection_results": 0,
+    "inventory_transactions": 0,
+    "asset_metrics": 0,
+    "procurement_comments": 0,
+    "pm_checklist_items": 0,
+    "pm_execution_results": 0,
+    "pm_execution_sessions": 0,
+    "pm_jobs": 0,
+    "purchase_order_items": 66,
+    "tickets": 40000,
+    "purchase_orders": 28,
+    "pm_work_orders": 1,
+    "backups": 1
+  },
+  "table_verification": {
+    "tickets": {
+      "expected": 0,
+      "actual": 0,
+      "passed": true
+    },
+    "ticket_status_history": {
+      "expected": 0,
+      "actual": 0,
+      "passed": true
+    },
+    "notifications": {
+      "expected": 0,
+      "actual": 0,
+      "passed": true
+    },
+    "attachments": {
+      "expected": 0,
+      "actual": 0,
+      "passed": true
+    },
+    "audit_logs": {
+      "expected": 0,
+      "actual": 0,
+      "passed": true
+    },
+    "purchase_orders": {
+      "expected": 0,
+      "actual": 0,
+      "passed": true
+    },
+    "purchase_order_items": {
+      "expected": 0,
+      "actual": 0,
+      "passed": true
+    },
+    "pm_work_orders": {
+      "expected": 0,
+      "actual": 0,
+      "passed": true
+    },
+    "pm_jobs": {
+      "expected": 0,
+      "actual": 0,
+      "passed": true
+    },
+    "pm_execution_sessions": {
+      "expected": 0,
+      "actual": 0,
+      "passed": true
+    },
+    "pm_execution_results": {
+      "expected": 0,
+      "actual": 0,
+      "passed": true
+    },
+    "pm_checklist_items": {
+      "expected": 0,
+      "actual": 0,
+      "passed": true
+    },
+    "inspection_results": {
+      "expected": 0,
+      "actual": 0,
+      "passed": true
+    },
+    "inventory_transactions": {
+      "expected": 0,
+      "actual": 0,
+      "passed": true
+    },
+    "asset_metrics": {
+      "expected": 0,
+      "actual": 0,
+      "passed": true
+    },
+    "procurement_comments": {
+      "expected": 0,
+      "actual": 0,
+      "passed": true
+    },
+    "two_factor_audit_logs": {
+      "expected": 0,
+      "actual": 0,
+      "passed": true
+    },
+    "translation_jobs": {
+      "expected": 0,
+      "actual": 0,
+      "passed": true
+    },
+    "backups": {
+      "expected": 0,
+      "actual": 0,
+      "passed": true
+    },
+    "users": {
+      "expected": ">=1",
+      "actual": 296,
+      "passed": true
+    },
+    "assets": {
+      "expected": ">=1",
+      "actual": 2073,
+      "passed": true
+    },
+    "sites": {
+      "expected": ">=1",
+      "actual": 2,
+      "passed": true
+    },
+    "sections": {
+      "expected": ">=1",
+      "actual": 20,
+      "passed": true
+    },
+    "technicians": {
+      "expected": ">=1",
+      "actual": 12,
+      "passed": true
+    },
+    "asset_categories": {
+      "expected": ">=1",
+      "actual": 1,
+      "passed": true
+    }
+  },
+  "orphan_checks": {
+    "inspection_results_orphans": 0,
+    "inventory_transactions_orphans": 0,
+    "notifications_orphans": 0,
+    "ticket_status_history_orphans": 0
+  }
+}

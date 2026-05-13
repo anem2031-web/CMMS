@@ -1,0 +1,15 @@
+{
+  "timestamp": "2026-05-12T10:02:51.669Z",
+  "deletedAssets": 2032,
+  "deletedUsers": 40,
+  "remainingUsers": 256,
+  "remainingAssets": 41,
+  "emptyRoleUsersRemaining": 41,
+  "assetsWithInvalidSiteId": 0,
+  "assetsWithInvalidSectionId": 0,
+  "usersWithNullUsername": 0,
+  "technicians": 12,
+  "sites": 1,
+  "sections": 19,
+  "integrityStatus": "CLEAN"
+}

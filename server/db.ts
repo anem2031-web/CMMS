@@ -437,6 +437,37 @@ export async function getPurchaseOrderById(id: number) {
   return result[0] || null;
 }
 
+export async function calculatePurchaseOrderStatus(purchaseOrderId: number): Promise<string> {
+  const db = await getDb();
+  if (!db) return "draft"; // Default or error state
+
+  const items = await db.select().from(purchaseOrderItems).where(eq(purchaseOrderItems.purchaseOrderId, purchaseOrderId));
+
+  if (items.length === 0) {
+    return "draft";
+  }
+
+  const totalItems = items.length;
+  const pendingItems = items.filter(item => item.status === "pending" || item.status === "estimated" || item.status === "pending_review").length;
+  const cancelledItems = items.filter(item => item.status === "cancelled").length;
+  const deliveredItems = items.filter(item => item.status === "delivered_to_requester").length;
+  const purchasedItems = items.filter(item => item.status === "purchased").length;
+
+  if (pendingItems === totalItems) {
+    return "pending_review"; // All items are pending or pending review
+  } else if (deliveredItems + cancelledItems === totalItems) {
+    return "received"; // All items are either delivered or cancelled
+  } else if (purchasedItems > 0 || deliveredItems > 0 || cancelledItems > 0) {
+    return "partial_purchase"; // Some items are processed, some are not
+  } else if (items.some(item => item.status === "approved")) {
+    return "approved";
+  } else if (items.some(item => item.status === "estimated")) {
+    return "pending_estimate";
+  }
+
+  return "draft";
+}
+
 export async function updatePurchaseOrder(id: number, data: any) {
   const db = await getDb();
   if (!db) return;
@@ -467,7 +498,14 @@ export async function getPOItemsByDelegate(delegateId: number) {
 export async function updatePOItem(id: number, data: any) {
   const db = await getDb();
   if (!db) return;
+  const [existingItem] = await db.select().from(purchaseOrderItems).where(eq(purchaseOrderItems.id, id));
+  if (!existingItem) return;
+
   await db.update(purchaseOrderItems).set(data).where(eq(purchaseOrderItems.id, id));
+
+  // Recalculate and update parent PO status
+  const newPOStatus = await calculatePurchaseOrderStatus(existingItem.purchaseOrderId);
+  await db.update(purchaseOrders).set({ status: newPOStatus as any }).where(eq(purchaseOrders.id, existingItem.purchaseOrderId));
 }
 
 export async function getPOItemById(id: number) {

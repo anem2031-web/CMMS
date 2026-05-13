@@ -1377,6 +1377,37 @@ export const appRouter = router({
       return { success: true };
     }),
 
+    cancelReviewedItem: protectedProcedure.input(z.object({
+      itemId: z.number(),
+      cancellationReason: z.string().min(5, "يجب كتابة سبب الإلغاء (بحد أدنى 5 أحرف)"),
+    })).mutation(async ({ input, ctx }) => {
+      const item = await db.getPOItemById(input.itemId);
+      if (!item) throw new TRPCError({ code: "NOT_FOUND", message: "الصنف غير موجود" });
+      const po = await db.getPurchaseOrderById(item.purchaseOrderId);
+      if (!po) throw new TRPCError({ code: "NOT_FOUND", message: "طلب الشراء غير موجود" });
+      if (po.requestedById !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN", message: "ليس لديك صلاحية لإلغاء هذا الصنف" });
+      if (item.status !== "pending_review") throw new TRPCError({ code: "BAD_REQUEST", message: "لا يمكن إلغاء صنف ليس في حالة مراجعة" });
+
+      await db.updatePOItem(input.itemId, {
+        status: "cancelled",
+        reviewReason: input.cancellationReason, // Use reviewReason to store cancellation reason
+      });
+
+      // Notify the delegate that the item has been cancelled
+      if (item.delegateId) {
+        await db.createNotification({
+          userId: item.delegateId,
+          title: "❌ تم إلغاء صنف في طلب شراء",
+          message: `قام منشئ الطلب ${ctx.user.name} بإلغاء الصنف \"${item.itemName}\" في طلب الشراء #${po.poNumber}: ${input.cancellationReason}`,
+          type: "error",
+          relatedPOId: po.id
+        });
+      }
+
+      await db.createAuditLog({ userId: ctx.user.id, action: "cancel_reviewed_item", entityType: "po_item", entityId: input.itemId, newValues: { status: "cancelled", cancellationReason: input.cancellationReason } });
+      return { success: true };
+    }),
+
     close: protectedProcedure.input(z.object({
       id: z.number(),
       note: z.string().optional(),
@@ -1772,6 +1803,32 @@ export const appRouter = router({
     }),
 
     // ============ المرحلة 1: المندوب يؤكد شراء صنف ============
+    requestReviewItem: delegateProcedure.input(z.object({
+      itemId: z.number(),
+      reviewReason: z.string().min(5, "يجب كتابة سبب طلب المراجعة (بحد أدنى 5 أحرف)"),
+    })).mutation(async ({ input, ctx }) => {
+      const item = await db.getPOItemById(input.itemId);
+      if (!item) throw new TRPCError({ code: "NOT_FOUND", message: "الصنف غير موجود" });
+      if (item.delegateId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN", message: "ليس لديك صلاحية لمراجعة هذا الصنف" });
+
+      await db.updatePOItem(input.itemId, { status: "pending_review", reviewReason: input.reviewReason });
+
+      // Notify the creator
+      const po = await db.getPurchaseOrderById(item.purchaseOrderId);
+      if (po) {
+        await db.createNotification({
+          userId: po.requestedById,
+          title: "⚠️ طلب مراجعة لصنف في طلب شراء",
+          message: `قام المندوب ${ctx.user.name} بطلب مراجعة للصنف \"${item.itemName}\" في طلب الشراء #${po.poNumber}: ${input.reviewReason}`,
+          type: "warning",
+          relatedPOId: po.id
+        });
+      }
+
+      await db.createAuditLog({ userId: ctx.user.id, action: "request_item_review", entityType: "po_item", entityId: input.itemId, newValues: { status: "pending_review", reviewReason: input.reviewReason } });
+      return { success: true };
+    }),
+
     confirmItemPurchase: delegateProcedure.input(z.object({
       itemId: z.number(),
       purchasedPhotoUrl: z.string().min(1, "صورة الصنف المشترى مطلوبة"),
@@ -1898,6 +1955,67 @@ export const appRouter = router({
     }),
 
     // ============ المرحلة 3: المستودع يسلم الصنف للفني/المسؤول ============
+    requestItemReview: delegateProcedure.input(z.object({
+      itemId: z.number(),
+      reason: z.string().min(1, "سبب المراجعة مطلوب"),
+    })).mutation(async ({ input, ctx }) => {
+      const item = await db.getPOItemById(input.itemId);
+      if (!item || item.delegateId !== ctx.user.id) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "الصنف غير موجود أو ليس من صلاحياتك" });
+      }
+      await db.updatePOItem(input.itemId, { status: "pending_review", reviewReason: input.reason });
+      await db.createAuditLog({ userId: ctx.user.id, action: "request_item_review", entityType: "po_item", entityId: input.itemId, newValues: { status: "pending_review", reviewReason: input.reason } });
+      // Notify creator about the review request
+      const po = await db.getPurchaseOrderById(item.purchaseOrderId);
+      if (po && po.requestedById) {
+        await db.createNotification({
+          userId: po.requestedById,
+          title: "طلب مراجعة صنف",
+          message: `تم طلب مراجعة الصنف ${item.itemName} في طلب الشراء رقم ${po.id}. السبب: ${input.reason}`,
+          relatedPOId: po.id,
+        });
+      }
+      return { success: true };
+    }),
+
+    editReviewedItem: protectedProcedure.input(z.object({
+      itemId: z.number(),
+      itemName: z.string().min(1, "اسم الصنف مطلوب"),
+      quantity: z.number().min(1, "الكمية مطلوبة"),
+      unit: z.string().min(1, "الوحدة مطلوبة"),
+      specifications: z.string().optional(),
+      delegateId: z.number().optional(),
+    })).mutation(async ({ input, ctx }) => {
+      const item = await db.getPOItemById(input.itemId);
+      if (!item || item.status !== "pending_review") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "الصنف ليس في حالة انتظار المراجعة" });
+      }
+      const po = await db.getPurchaseOrderById(item.purchaseOrderId);
+      if (!po || po.requestedById !== ctx.user.id) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "ليس لديك صلاحية لتعديل هذا الصنف" });
+      }
+      await db.updatePOItem(input.itemId, {
+        itemName: input.itemName,
+        quantity: input.quantity,
+        unit: input.unit,
+        specifications: input.specifications,
+        delegateId: input.delegateId || null, // Re-assign delegate if provided
+        status: "pending", // Reset status to pending after editing
+        reviewReason: null, // Clear review reason
+      });
+      await db.createAuditLog({ userId: ctx.user.id, action: "edit_reviewed_item", entityType: "po_item", entityId: input.itemId, newValues: { ...input, status: "pending" } });
+      // Notify delegate if re-assigned
+      if (input.delegateId) {
+        await db.createNotification({
+          userId: input.delegateId,
+          title: "تم إعادة تعيين صنف",
+          message: `تم إعادة تعيين الصنف ${input.itemName} في طلب الشراء رقم ${po.id} إليك للمراجعة.`, 
+          relatedPOId: po.id,
+        });
+      }
+      return { success: true };
+    }),
+
     confirmDeliveryToRequester: warehouseProcedure.input(z.object({
       itemId: z.number(),
       deliveredToId: z.number().optional(),

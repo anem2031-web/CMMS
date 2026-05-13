@@ -1,0 +1,28 @@
+[
+  {
+    "id": 60001,
+    "poNumber": "PR-2026-0001",
+    "ticketId": null,
+    "requestedById": 60723,
+    "status": "pending_review",
+    "totalEstimatedCost": null,
+    "totalActualCost": null,
+    "totalEstimatedText": null,
+    "accountingApprovedById": null,
+    "accountingApprovedAt": null,
+    "accountingNotes": null,
+    "managementApprovedById": null,
+    "managementApprovedAt": null,
+    "managementNotes": null,
+    "rejectedById": null,
+    "rejectedAt": null,
+    "rejectionReason": null,
+    "notes": null,
+    "createdAt": "2026-05-12T15:34:22.000Z",
+    "updatedAt": "2026-05-12T15:34:22.000Z",
+    "originalLanguage": "ar",
+    "custodyAmount": null,
+    "siteId": null,
+    "sectionId": null
+  }
+]

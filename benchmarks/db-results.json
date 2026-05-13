@@ -1,0 +1,384 @@
+[
+  {
+    "query": "db.getTickets()",
+    "min_ms": "1120.65",
+    "max_ms": "1220.24",
+    "avg_ms": "1173.14",
+    "p50_ms": "1174.31",
+    "p95_ms": "1220.24",
+    "p99_ms": "1220.24",
+    "explainPlan": [
+      {
+        "id": "IndexJoin_61",
+        "estRows": "50000.00",
+        "task": "root",
+        "access object": "",
+        "operator info": "left outer join, inner:TableReader_58, outer key:cmms.tickets.assignedtoid, inner key:cmms.users.id, equal cond:eq(cmms.tickets.assignedtoid, cmms.users.id)"
+      },
+      {
+        "id": "├─IndexJoin_69(Build)",
+        "estRows": "50000.00",
+        "task": "root",
+        "access object": "",
+        "operator info": "left outer join, inner:TableReader_66, outer key:cmms.tickets.assignedtechnicianid, inner key:cmms.technicians.id, equal cond:eq(cmms.tickets.assignedtechnicianid, cmms.technicians.id)"
+      },
+      {
+        "id": "│ ├─IndexLookUp_75(Build)",
+        "estRows": "40000.00",
+        "task": "root",
+        "access object": "",
+        "operator info": ""
+      },
+      {
+        "id": "│ │ ├─IndexFullScan_73(Build)",
+        "estRows": "40000.00",
+        "task": "cop[tikv]",
+        "access object": "table:t, index:idx_tickets_createdAt(createdAt)",
+        "operator info": "keep order:true, desc"
+      },
+      {
+        "id": "│ │ └─TableRowIDScan_74(Probe)",
+        "estRows": "40000.00",
+        "task": "cop[tikv]",
+        "access object": "table:t",
+        "operator info": "keep order:false"
+      },
+      {
+        "id": "│ └─TableReader_66(Probe)",
+        "estRows": "40000.00",
+        "task": "root",
+        "access object": "",
+        "operator info": "data:TableRangeScan_65"
+      },
+      {
+        "id": "│   └─TableRangeScan_65",
+        "estRows": "40000.00",
+        "task": "cop[tikv]",
+        "access object": "table:tech",
+        "operator info": "range: decided by [cmms.tickets.assignedtechnicianid], keep order:false, stats:pseudo"
+      },
+      {
+        "id": "└─TableReader_58(Probe)",
+        "estRows": "50000.00",
+        "task": "root",
+        "access object": "",
+        "operator info": "data:TableRangeScan_57"
+      },
+      {
+        "id": "  └─TableRangeScan_57",
+        "estRows": "50000.00",
+        "task": "cop[tikv]",
+        "access object": "table:au",
+        "operator info": "range: decided by [cmms.tickets.assignedtoid], keep order:false"
+      }
+    ]
+  },
+  {
+    "query": "db.getTickets({ status: \"open\" })",
+    "min_ms": "987.58",
+    "max_ms": "1234.50",
+    "avg_ms": "1124.27",
+    "p50_ms": "1133.32",
+    "p95_ms": "1234.50",
+    "p99_ms": "1234.50",
+    "explainPlan": [
+      {
+        "id": "IndexJoin_70",
+        "estRows": "50000.00",
+        "task": "root",
+        "access object": "",
+        "operator info": "left outer join, inner:TableReader_67, outer key:cmms.tickets.assignedtoid, inner key:cmms.users.id, equal cond:eq(cmms.tickets.assignedtoid, cmms.users.id)"
+      },
+      {
+        "id": "├─IndexJoin_78(Build)",
+        "estRows": "43691.25",
+        "task": "root",
+        "access object": "",
+        "operator info": "left outer join, inner:TableReader_75, outer key:cmms.tickets.assignedtechnicianid, inner key:cmms.technicians.id, equal cond:eq(cmms.tickets.assignedtechnicianid, cmms.technicians.id)"
+      },
+      {
+        "id": "│ ├─IndexLookUp_85(Build)",
+        "estRows": "34953.00",
+        "task": "root",
+        "access object": "",
+        "operator info": ""
+      },
+      {
+        "id": "│ │ ├─IndexFullScan_82(Build)",
+        "estRows": "40000.00",
+        "task": "cop[tikv]",
+        "access object": "table:t, index:idx_tickets_createdAt(createdAt)",
+        "operator info": "keep order:true, desc"
+      },
+      {
+        "id": "│ │ └─Selection_84(Probe)",
+        "estRows": "34953.00",
+        "task": "cop[tikv]",
+        "access object": "",
+        "operator info": "ne(cmms.tickets.status, ?)"
+      },
+      {
+        "id": "│ │   └─TableRowIDScan_83",
+        "estRows": "40000.00",
+        "task": "cop[tikv]",
+        "access object": "table:t",
+        "operator info": "keep order:false"
+      },
+      {
+        "id": "│ └─TableReader_75(Probe)",
+        "estRows": "34953.00",
+        "task": "root",
+        "access object": "",
+        "operator info": "data:TableRangeScan_74"
+      },
+      {
+        "id": "│   └─TableRangeScan_74",
+        "estRows": "34953.00",
+        "task": "cop[tikv]",
+        "access object": "table:tech",
+        "operator info": "range: decided by [cmms.tickets.assignedtechnicianid], keep order:false, stats:pseudo"
+      },
+      {
+        "id": "└─TableReader_67(Probe)",
+        "estRows": "43691.25",
+        "task": "root",
+        "access object": "",
+        "operator info": "data:TableRangeScan_66"
+      },
+      {
+        "id": "  └─TableRangeScan_66",
+        "estRows": "43691.25",
+        "task": "cop[tikv]",
+        "access object": "table:au",
+        "operator info": "range: decided by [cmms.tickets.assignedtoid], keep order:false"
+      }
+    ]
+  },
+  {
+    "query": "db.getDashboardStats()",
+    "min_ms": "435.11",
+    "max_ms": "505.98",
+    "avg_ms": "454.07",
+    "p50_ms": "439.94",
+    "p95_ms": "505.98",
+    "p99_ms": "505.98",
+    "explainPlan": [
+      {
+        "id": "HashAgg_13",
+        "estRows": "1.00",
+        "task": "root",
+        "access object": "",
+        "operator info": "funcs:count(Column#50)->Column#48"
+      },
+      {
+        "id": "└─IndexReader_14",
+        "estRows": "1.00",
+        "task": "root",
+        "access object": "",
+        "operator info": "index:HashAgg_6"
+      },
+      {
+        "id": "  └─HashAgg_6",
+        "estRows": "1.00",
+        "task": "cop[tikv]",
+        "access object": "",
+        "operator info": "funcs:count(?)->Column#50"
+      },
+      {
+        "id": "    └─IndexRangeScan_11",
+        "estRows": "34953.00",
+        "task": "cop[tikv]",
+        "access object": "table:tickets, index:idx_tickets_status(status)",
+        "operator info": "range:[?,?], [?,?], [?,?], [?,?], [?,?], [?,?], [?,?], [?,?], [?,?], [?,?], [?,?], [?,?], [?,?], [?,?], [?,?], [?,?], [?,?], [?,?], [?,?], [?,?], keep order:false"
+      }
+    ]
+  },
+  {
+    "query": "db.getTechnicianPerformance()",
+    "min_ms": "32649.47",
+    "max_ms": "39945.27",
+    "avg_ms": "36017.65",
+    "p50_ms": "35983.57",
+    "p95_ms": "39945.27",
+    "p99_ms": "39945.27",
+    "explainPlan": [
+      {
+        "id": "HashAgg_12",
+        "estRows": "1.00",
+        "task": "root",
+        "access object": "",
+        "operator info": "funcs:count(Column#49)->Column#48"
+      },
+      {
+        "id": "└─IndexReader_13",
+        "estRows": "1.00",
+        "task": "root",
+        "access object": "",
+        "operator info": "index:HashAgg_6"
+      },
+      {
+        "id": "  └─HashAgg_6",
+        "estRows": "1.00",
+        "task": "cop[tikv]",
+        "access object": "",
+        "operator info": "funcs:count(?)->Column#49"
+      },
+      {
+        "id": "    └─IndexFullScan_11",
+        "estRows": "40000.00",
+        "task": "cop[tikv]",
+        "access object": "table:tickets, index:idx_tickets_assignedToId(assignedToId)",
+        "operator info": "keep order:false"
+      }
+    ]
+  },
+  {
+    "query": "db.getPurchaseOrders()",
+    "min_ms": "86.72",
+    "max_ms": "128.40",
+    "avg_ms": "99.23",
+    "p50_ms": "89.94",
+    "p95_ms": "128.40",
+    "p99_ms": "128.40",
+    "explainPlan": [
+      {
+        "id": "Sort_4",
+        "estRows": "4001.00",
+        "task": "root",
+        "access object": "",
+        "operator info": "cmms.purchase_orders.createdat:desc"
+      },
+      {
+        "id": "└─TableReader_8",
+        "estRows": "4001.00",
+        "task": "root",
+        "access object": "",
+        "operator info": "data:TableFullScan_7"
+      },
+      {
+        "id": "  └─TableFullScan_7",
+        "estRows": "4001.00",
+        "task": "cop[tikv]",
+        "access object": "table:purchase_orders",
+        "operator info": "keep order:false"
+      }
+    ]
+  },
+  {
+    "query": "db.getPOItems()",
+    "min_ms": "21.38",
+    "max_ms": "56.52",
+    "avg_ms": "30.97",
+    "p50_ms": "24.92",
+    "p95_ms": "56.52",
+    "p99_ms": "56.52",
+    "explainPlan": [
+      {
+        "id": "IndexLookUp_20",
+        "estRows": "3.34",
+        "task": "root",
+        "access object": "",
+        "operator info": ""
+      },
+      {
+        "id": "├─IndexRangeScan_18(Build)",
+        "estRows": "3.34",
+        "task": "cop[tikv]",
+        "access object": "table:purchase_order_items, index:idx_purchaseOrderItems_purchaseOrderId(purchaseOrderId)",
+        "operator info": "range:[?,?], keep order:true, stats:partial[id:allEvicted]"
+      },
+      {
+        "id": "└─TableRowIDScan_19(Probe)",
+        "estRows": "3.34",
+        "task": "cop[tikv]",
+        "access object": "table:purchase_order_items",
+        "operator info": "keep order:false, stats:partial[id:allEvicted]"
+      }
+    ]
+  },
+  {
+    "query": "SELECT * FROM tickets WHERE assignedToId = ? LIMIT 50",
+    "min_ms": "21.87",
+    "max_ms": "39.50",
+    "avg_ms": "29.29",
+    "p50_ms": "28.85",
+    "p95_ms": "39.50",
+    "p99_ms": "39.50",
+    "explainPlan": [
+      {
+        "id": "IndexLookUp_17",
+        "estRows": "50.00",
+        "task": "root",
+        "access object": "",
+        "operator info": "limit embedded(offset:0, count:50)"
+      },
+      {
+        "id": "├─Limit_16(Build)",
+        "estRows": "50.00",
+        "task": "cop[tikv]",
+        "access object": "",
+        "operator info": "offset:?, count:?"
+      },
+      {
+        "id": "│ └─IndexFullScan_14",
+        "estRows": "50.00",
+        "task": "cop[tikv]",
+        "access object": "table:tickets, index:idx_tickets_assignedToId(assignedToId)",
+        "operator info": "keep order:false"
+      },
+      {
+        "id": "└─TableRowIDScan_15(Probe)",
+        "estRows": "50.00",
+        "task": "cop[tikv]",
+        "access object": "table:tickets",
+        "operator info": "keep order:false"
+      }
+    ]
+  },
+  {
+    "query": "SELECT * FROM notifications WHERE userId = ? AND isRead = 0",
+    "min_ms": "18.56",
+    "max_ms": "33.53",
+    "avg_ms": "22.66",
+    "p50_ms": "20.32",
+    "p95_ms": "33.53",
+    "p99_ms": "33.53",
+    "explainPlan": [
+      {
+        "id": "Limit_8",
+        "estRows": "50.00",
+        "task": "root",
+        "access object": "",
+        "operator info": "offset:?, count:?"
+      },
+      {
+        "id": "└─TableReader_13",
+        "estRows": "50.00",
+        "task": "root",
+        "access object": "",
+        "operator info": "data:Limit_12"
+      },
+      {
+        "id": "  └─Limit_12",
+        "estRows": "50.00",
+        "task": "cop[tikv]",
+        "access object": "",
+        "operator info": "offset:?, count:?"
+      },
+      {
+        "id": "    └─Selection_11",
+        "estRows": "50.00",
+        "task": "cop[tikv]",
+        "access object": "",
+        "operator info": "eq(cmms.notifications.isread, ?)"
+      },
+      {
+        "id": "      └─TableFullScan_10",
+        "estRows": "124.00",
+        "task": "cop[tikv]",
+        "access object": "table:notifications",
+        "operator info": "keep order:false"
+      }
+    ]
+  }
+]

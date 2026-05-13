@@ -1,0 +1,22 @@
+{
+  "timestamp": "2026-05-12T08:41:15.711Z",
+  "deletionCounts": {
+    "audit_logs_items": 0,
+    "attachments_items": 0,
+    "purchase_order_items": 9943,
+    "audit_logs_pos": 22,
+    "attachments_pos": 0,
+    "notifications": 22,
+    "procurement_comments": 0,
+    "purchase_orders": 3974
+  },
+  "verification": {
+    "total_pos_remaining": 27,
+    "protected_pos_intact": 27,
+    "orphan_items": 0,
+    "orphan_notifications": 0,
+    "remaining_items": 65,
+    "dashboard_pending_approvals": 6,
+    "all_checks_passed": true
+  }
+}

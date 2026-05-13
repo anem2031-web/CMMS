@@ -1,0 +1,133 @@
+{
+  "captureDate": "2026-05-12T07:10:00.000Z",
+  "datasetSize": {
+    "tickets": 10000,
+    "purchase_orders": 2000,
+    "purchase_order_items": 5000,
+    "history_records": 15000
+  },
+  "dbQueries": [
+    {
+      "query": "db.getTickets()",
+      "min_ms": "1120.65",
+      "max_ms": "1220.24",
+      "avg_ms": "1173.14",
+      "p50_ms": "1174.31",
+      "p95_ms": "1220.24",
+      "p99_ms": "1220.24"
+    },
+    {
+      "query": "db.getTickets({ status: \"open\" })",
+      "min_ms": "1083.56",
+      "max_ms": "1198.71",
+      "avg_ms": "1124.27",
+      "p50_ms": "1106.01",
+      "p95_ms": "1198.71",
+      "p99_ms": "1198.71"
+    },
+    {
+      "query": "db.getDashboardStats()",
+      "min_ms": "439.99",
+      "max_ms": "469.34",
+      "avg_ms": "454.07",
+      "p50_ms": "452.97",
+      "p95_ms": "469.34",
+      "p99_ms": "469.34"
+    },
+    {
+      "query": "db.getTechnicianPerformance()",
+      "min_ms": "35800.12",
+      "max_ms": "36215.44",
+      "avg_ms": "36017.65",
+      "p50_ms": "36001.23",
+      "p95_ms": "36215.44",
+      "p99_ms": "36215.44"
+    },
+    {
+      "query": "db.getPurchaseOrders()",
+      "min_ms": "85.12",
+      "max_ms": "112.45",
+      "avg_ms": "99.23",
+      "p50_ms": "98.76",
+      "p95_ms": "112.45",
+      "p99_ms": "112.45"
+    },
+    {
+      "query": "db.getPOItems()",
+      "min_ms": "25.43",
+      "max_ms": "35.88",
+      "avg_ms": "30.97",
+      "p50_ms": "31.02",
+      "p95_ms": "35.88",
+      "p99_ms": "35.88"
+    },
+    {
+      "query": "SELECT * FROM tickets WHERE assignedToId = ? LIMIT 50",
+      "min_ms": "26.11",
+      "max_ms": "33.56",
+      "avg_ms": "29.29",
+      "p50_ms": "28.99",
+      "p95_ms": "33.56",
+      "p99_ms": "33.56"
+    },
+    {
+      "query": "SELECT * FROM notifications WHERE userId = ? AND isRead = 0",
+      "min_ms": "19.54",
+      "max_ms": "26.12",
+      "avg_ms": "22.66",
+      "p50_ms": "22.45",
+      "p95_ms": "26.12",
+      "p99_ms": "26.12"
+    }
+  ],
+  "httpEndpoints": [
+    {
+      "endpoint": "Dashboard Stats",
+      "requestsPerSecond": 697.74,
+      "latencyAverageMs": 13.84,
+      "throughputMb": "0.87"
+    },
+    {
+      "endpoint": "Tickets List",
+      "requestsPerSecond": 886.04,
+      "latencyAverageMs": 10.71,
+      "throughputMb": "1.11"
+    },
+    {
+      "endpoint": "Reports: Tickets by Status",
+      "requestsPerSecond": 1127.77,
+      "latencyAverageMs": 8.39,
+      "throughputMb": "1.41"
+    },
+    {
+      "endpoint": "Reports: Purchase Cycle Report",
+      "requestsPerSecond": 1636.64,
+      "latencyAverageMs": 5.59,
+      "throughputMb": "2.05"
+    },
+    {
+      "endpoint": "Reports: Maintenance Cycle Report",
+      "requestsPerSecond": 3059.67,
+      "latencyAverageMs": 2.58,
+      "throughputMb": "3.82"
+    },
+    {
+      "endpoint": "Reports: Cost Report",
+      "requestsPerSecond": 3429.67,
+      "latencyAverageMs": 2.27,
+      "throughputMb": "4.29"
+    },
+    {
+      "endpoint": "KPI: Get Ticket Timelines",
+      "requestsPerSecond": 3465.54,
+      "latencyAverageMs": 2.2,
+      "throughputMb": "4.33"
+    }
+  ],
+  "memory": {
+    "heapStart_MB": 9.14,
+    "heapEnd_MB": 8.49,
+    "growth_MB": -0.65,
+    "leakDetected": false
+  }
+}

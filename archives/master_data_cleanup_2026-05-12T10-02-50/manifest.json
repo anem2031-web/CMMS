@@ -1,0 +1,14 @@
+[
+  {
+    "timestamp": "2026-05-12T10-02-50",
+    "backupDir": "/home/ubuntu/CMMS_REAL/archives/master_data_cleanup_2026-05-12T10-02-50",
+    "files": {
+      "seeded_users": 40,
+      "seeded_assets": 2032,
+      "broken_site_assets": 967,
+      "broken_section_assets": 98,
+      "empty_role_users": 41,
+      "duplicate_seeded_assets": 378
+    }
+  }
+]

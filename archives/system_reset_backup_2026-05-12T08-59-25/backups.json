@@ -1,0 +1,14 @@
+[
+  {
+    "id": 330001,
+    "name": "backup-2026-05-11T14-24-13-647Z",
+    "description": "نسخة احتياطية - ١١‏/٥‏/٢٠٢٦",
+    "fileUrl": "https://s3.eu-central-1.idrivee2.com/cmms-uploads/cmms/backups/backup-2026-05-11T14-24-13-647Z.json",
+    "fileKey": "cmms/backups/backup-2026-05-11T14-24-13-647Z.json",
+    "fileSize": 34842,
+    "tablesCount": 11,
+    "recordsCount": 66,
+    "createdById": 60723,
+    "createdAt": "2026-05-11 14:24:14"
+  }
+]

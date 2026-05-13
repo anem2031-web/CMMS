@@ -1,0 +1,103 @@
+{
+  "timestamp": "2026-05-12T09:00:04.574Z",
+  "description": "Global Operational Data Reset — Cold Storage Backup",
+  "backup_dir": "/home/ubuntu/CMMS_REAL/archives/system_reset_backup_2026-05-12T09-00-04",
+  "tables": {
+    "tickets": {
+      "rows": 0,
+      "file": "tickets.json",
+      "size_mb": "0.000"
+    },
+    "ticket_status_history": {
+      "rows": 0,
+      "file": "ticket_status_history.json",
+      "size_mb": "0.000"
+    },
+    "notifications": {
+      "rows": 0,
+      "file": "notifications.json",
+      "size_mb": "0.000"
+    },
+    "attachments": {
+      "rows": 0,
+      "file": "attachments.json",
+      "size_mb": "0.000"
+    },
+    "audit_logs": {
+      "rows": 0,
+      "file": "audit_logs.json",
+      "size_mb": "0.000"
+    },
+    "purchase_orders": {
+      "rows": 0,
+      "file": "purchase_orders.json",
+      "size_mb": "0.000"
+    },
+    "purchase_order_items": {
+      "rows": 0,
+      "file": "purchase_order_items.json",
+      "size_mb": "0.000"
+    },
+    "pm_work_orders": {
+      "rows": 0,
+      "file": "pm_work_orders.json",
+      "size_mb": "0.000"
+    },
+    "pm_jobs": {
+      "rows": 0,
+      "file": "pm_jobs.json",
+      "size_mb": "0.000"
+    },
+    "pm_execution_sessions": {
+      "rows": 0,
+      "file": "pm_execution_sessions.json",
+      "size_mb": "0.000"
+    },
+    "pm_execution_results": {
+      "rows": 0,
+      "file": "pm_execution_results.json",
+      "size_mb": "0.000"
+    },
+    "pm_checklist_items": {
+      "rows": 0,
+      "file": "pm_checklist_items.json",
+      "size_mb": "0.000"
+    },
+    "inspection_results": {
+      "rows": 0,
+      "file": "inspection_results.json",
+      "size_mb": "0.000"
+    },
+    "inventory_transactions": {
+      "rows": 0,
+      "file": "inventory_transactions.json",
+      "size_mb": "0.000"
+    },
+    "asset_metrics": {
+      "rows": 0,
+      "file": "asset_metrics.json",
+      "size_mb": "0.000"
+    },
+    "procurement_comments": {
+      "rows": 0,
+      "file": "procurement_comments.json",
+      "size_mb": "0.000"
+    },
+    "two_factor_audit_logs": {
+      "rows": 0,
+      "file": "two_factor_audit_logs.json",
+      "size_mb": "0.000"
+    },
+    "translation_jobs": {
+      "rows": 0,
+      "file": "translation_jobs.json",
+      "size_mb": "0.000"
+    },
+    "backups": {
+      "rows": 0,
+      "file": "backups.json",
+      "size_mb": "0.000"
+    }
+  },
+  "total_rows_backed_up": 0
+}

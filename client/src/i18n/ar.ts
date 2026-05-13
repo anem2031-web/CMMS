@@ -205,6 +205,8 @@ const ar = {
     rejected: "مرفوض",
     purchased: "تم الشراء",
     received: "تم الاستلام",
+    pending_review: "بانتظار مراجعة المنشئ",
+    cancelled: "ملغي",
   },
 
   // Priorities
