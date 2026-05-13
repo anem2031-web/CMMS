@@ -275,8 +275,8 @@ async function startServer() {
       // تحويل الصور إلى WebP مع تقليص الأبعاد لتسريع الرفع
       if (isImage) {
         fileBuffer = await sharp(req.file.buffer)
-          .resize(1920, 1920, { fit: "inside", withoutEnlargement: true })
-          .webp({ quality: 75, effort: 2 })
+          .resize(1600, 1600, { fit: "inside", withoutEnlargement: true }) // Slightly smaller for speed
+          .webp({ quality: 70, effort: 0, smartSubsample: false }) // Minimum effort (0) and disable expensive features for speed
           .toBuffer();
         mimeType = "image/webp";
         ext = "webp";
