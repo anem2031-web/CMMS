@@ -466,11 +466,15 @@ export async function calculatePurchaseOrderStatus(purchaseOrderId: number): Pro
     ["estimated", "rejected", "cancelled", "pending_review"].includes(i.status)
   );
 
+  // Only move to pending_accounting if ALL items are either estimated, rejected, cancelled, or pending_review
+  // AND there is at least one estimated item.
   if (allProcessedForAccounting && items.some(i => i.status === "estimated")) {
     return "pending_accounting";
   }
 
-  if (items.some(i => i.status === "pending_review")) {
+  // If there are items pending_review, the PO status should reflect that it's in progress
+  // but we must not force the WHOLE PO to pending_review if other items are still pending estimate.
+  if (items.some(i => i.status === "pending_review") && !items.some(i => i.status === "pending")) {
     return "pending_review";
   }
 
