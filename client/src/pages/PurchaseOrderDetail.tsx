@@ -546,10 +546,10 @@ export default function PurchaseOrderDetail() {
                   </div>
                 )}
 
-                {isDelegate && item.status === "approved" && item.delegateId === userId && [
-                  "approved",
-                  "partial_purchase"
-                ].includes(po.status) && (
+                {isDelegate && item.delegateId === userId && (
+                  (item.status === "approved" && ["approved", "partial_purchase"].includes(po.status)) ||
+                  (item.status === "pending" && po.status === "pending_estimate")
+                ) && (
                   <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 space-y-2">
                     <p className="text-xs font-medium text-yellow-800 flex items-center gap-1.5">
                       <AlertCircle className="w-3.5 h-3.5" /> طلب مراجعة

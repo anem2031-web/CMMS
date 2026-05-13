@@ -453,15 +453,32 @@ export async function calculatePurchaseOrderStatus(purchaseOrderId: number): Pro
   const deliveredItems = items.filter(item => item.status === "delivered_to_requester").length;
   const purchasedItems = items.filter(item => item.status === "purchased").length;
 
-  if (pendingItems === totalItems) {
-    return "pending_review"; // All items are pending or pending review
-  } else if (deliveredItems + cancelledItems === totalItems) {
-    return "received"; // All items are either delivered or cancelled
-  } else if (purchasedItems > 0 || deliveredItems > 0 || cancelledItems > 0) {
-    return "partial_purchase"; // Some items are processed, some are not
-  } else if (items.some(item => item.status === "approved")) {
+  // Status priority logic
+  if (deliveredItems + cancelledItems === totalItems) {
+    return "received";
+  }
+  
+  if (purchasedItems > 0 || deliveredItems > 0) {
+    return "partial_purchase";
+  }
+
+  const allProcessedForAccounting = items.every(i => 
+    ["estimated", "rejected", "cancelled", "pending_review"].includes(i.status)
+  );
+
+  if (allProcessedForAccounting && items.some(i => i.status === "estimated")) {
+    return "pending_accounting";
+  }
+
+  if (items.some(i => i.status === "pending_review")) {
+    return "pending_review";
+  }
+
+  if (items.some(i => i.status === "approved")) {
     return "approved";
-  } else if (items.some(item => item.status === "estimated")) {
+  }
+
+  if (items.some(i => i.status === "estimated" || i.status === "pending")) {
     return "pending_estimate";
   }
 

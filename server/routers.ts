@@ -1600,15 +1600,28 @@ export const appRouter = router({
         totalEstimated += totalCost;
         await db.updatePOItem(item.id, { estimatedUnitCost: item.estimatedUnitCost, estimatedTotalCost: String(totalCost), status: "estimated" });
       }
-      // Check if all items are estimated (excluding rejected items)
+      // The overall PO status is now handled automatically by db.updatePOItem 
+      // which calls calculatePurchaseOrderStatus. We just need to check if we should
+      // send the notification to accountants.
       const allItems = await db.getPOItems(input.purchaseOrderId);
-      const allEstimated = allItems.every(i => i.status === "estimated" || i.status === "rejected");
-      if (allEstimated) {
-        await db.updatePurchaseOrder(input.purchaseOrderId, { status: "pending_accounting", totalEstimatedCost: String(totalEstimated) });
-        // Notify accountants
+      const allProcessed = allItems.every(i => 
+        ["estimated", "rejected", "cancelled", "pending_review"].includes(i.status)
+      );
+      
+      if (allProcessed && allItems.some(i => i.status === "estimated")) {
+        // Calculate total for the notification
+        const total = allItems.reduce((sum, i) => sum + parseFloat(i.estimatedTotalCost || "0"), 0);
+        await db.updatePurchaseOrder(input.purchaseOrderId, { totalEstimatedCost: String(total) });
+        
         const accountants = await db.getUsersByRole("accountant");
         for (const acc of accountants) {
-          await db.createNotification({ userId: acc.id, title: "طلب شراء بانتظار الاعتماد", message: `طلب شراء بانتظار اعتماد الحسابات`, type: "warning", relatedPOId: input.purchaseOrderId });
+          await db.createNotification({ 
+            userId: acc.id, 
+            title: "طلب شراء بانتظار الاعتماد", 
+            message: `طلب شراء بانتظار اعتماد الحسابات (إجمالي: ${total})`, 
+            type: "warning", 
+            relatedPOId: input.purchaseOrderId 
+          });
         }
       }
       return { success: true };
