@@ -26,6 +26,7 @@ import { runBackupCleanupJob } from "../jobs/backup-cleanup";
 import { getDb } from "../db";
 import { generatePMWorkOrderPDF } from "../pmWorkOrderPdfService";
 import { generateTicketPDF } from "../ticketPdfService";
+import { generateEstimatedItemsPDF } from "../purchaseOrderPdfService";
 import { sdk } from "./sdk";
 
 // ============================================================
@@ -394,6 +395,27 @@ async function startServer() {
       const buffer = await generateDelegateItemsPDF(user.id);
       res.setHeader("Content-Type", "application/pdf");
       res.setHeader("Content-Disposition", `attachment; filename=my-items-${Date.now()}.pdf`);
+      res.send(buffer);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // Purchase Order estimated items PDF export
+  app.post("/api/export/po/estimated-items-pdf", requireAuthMiddleware, async (req: any, res: any) => {
+    try {
+      const po = req.body;
+      if (!po || !po.id) return res.status(400).json({ error: "بيانات طلب الشراء مفقودة" });
+      
+      const user = req.authenticatedUser;
+      const isDelegate = po.items?.some((item: any) => item.delegateId === user.id);
+      const isAdminOrOwner = ["admin", "owner"].includes(user.role);
+      
+      if (!isDelegate && !isAdminOrOwner) {
+        return res.status(403).json({ error: "ليس لديك صلاحية تصدير هذا الملف" });
+      }
+      
+      const buffer = await generateEstimatedItemsPDF(po);
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `attachment; filename=PO_${po.poNumber}_estimated_items.pdf`);
       res.send(buffer);
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
