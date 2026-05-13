@@ -19,22 +19,29 @@ export function ExportButton({ endpoint, filename, label, params, variant = "out
 
   const handleExport = async () => {
     setLoading(true);
+    let url: string | null = null;
+    const linkElem = document.createElement("a");
     try {
       const queryStr = params ? "?" + new URLSearchParams(params).toString() : "";
       const response = await fetch(`/api/export/${endpoint}${queryStr}`);
       if (!response.ok) throw new Error("Export failed");
       const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `${filename}-${new Date().toISOString().split("T")[0]}.xlsx`;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
+      url = window.URL.createObjectURL(blob);
+      linkElem.href = url;
+      linkElem.download = `${filename}-${new Date().toISOString().split("T")[0]}.xlsx`;
+      document.body.appendChild(linkElem);
+      linkElem.click();
+      // OPTIMIZATION: Delay revoke to ensure download starts (Phase 1)
+      setTimeout(() => {
+        if (url) window.URL.revokeObjectURL(url);
+        if (linkElem?.parentNode) linkElem.parentNode.removeChild(linkElem);
+      }, 100);
       toast.success(t.common.savedSuccessfully);
-    } catch {
+    } catch (error) {
       toast.error(t.common.close);
+      // Cleanup on error
+      if (url) window.URL.revokeObjectURL(url);
+      if (linkElem?.parentNode) linkElem.parentNode.removeChild(linkElem);
     } finally {
       setLoading(false);
     }

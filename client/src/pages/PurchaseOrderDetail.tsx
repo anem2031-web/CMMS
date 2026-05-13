@@ -12,7 +12,7 @@ import {
   ArrowRight, ShoppingCart, CheckCircle2, Clock, DollarSign, Loader2,
   Camera, Package, User, FileText, AlertCircle, ExternalLink, XCircle, Pencil, Upload, FileDown
 } from "lucide-react";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef, useEffect } from "react";
 import { toast } from "sonner";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
@@ -116,6 +116,52 @@ export default function PurchaseOrderDetail() {
   const [cancellingItemId, setCancellingItemId] = useState<number | null>(null);
   const [isCancelDialogOpen, setIsCancelDialogOpen] = useState(false);
 
+  // OPTIMIZATION: Track ObjectURLs for cleanup (Phase 1: Image Lifecycle Isolation)
+  const objectUrlsRef = useRef<Map<string, string>>(new Map());
+
+  /**
+   * Cleanup: Revoke all ObjectURLs when component unmounts or itemPhotos changes
+   * SAFETY: Prevents orphaned ObjectURLs and memory leaks
+   */
+  useEffect(() => {
+    return () => {
+      // Component unmount: revoke all tracked ObjectURLs
+      objectUrlsRef.current.forEach(url => {
+        try {
+          URL.revokeObjectURL(url);
+        } catch (e) {
+          console.warn("Failed to revoke ObjectURL:", e);
+        }
+      });
+      objectUrlsRef.current.clear();
+    };
+  }, []);
+
+  /**
+   * Helper: Track ObjectURL for later cleanup
+   * Only tracks blob: URLs (not server URLs)
+   */
+  const trackObjectUrl = (key: string, url: string) => {
+    if (url.startsWith("blob:")) {
+      objectUrlsRef.current.set(key, url);
+    }
+  };
+
+  /**
+   * Helper: Safely revoke and remove tracked ObjectURL
+   */
+  const revokeTrackedUrl = (key: string) => {
+    const url = objectUrlsRef.current.get(key);
+    if (url) {
+      try {
+        URL.revokeObjectURL(url);
+      } catch (e) {
+        console.warn("Failed to revoke ObjectURL:", e);
+      }
+      objectUrlsRef.current.delete(key);
+    }
+  };
+
   const requestRevisionMut = trpc.purchaseOrders.requestRevision.useMutation({
     onSuccess: () => { toast.success("تم إرسال الطلب للمراجعة"); setIsRevisionDialogOpen(false); setRevisionNote(""); refetch(); },
     onError: (e) => toast.error(e.message)
@@ -218,6 +264,7 @@ export default function PurchaseOrderDetail() {
               variant="outline" 
               className="border-blue-200 text-blue-700 hover:bg-blue-50" 
               onClick={async () => {
+                let url: string | null = null;
                 try {
                   const response = await fetch(`/api/export/po/estimated-items-pdf`, {
                     method: 'POST',
@@ -229,23 +276,29 @@ export default function PurchaseOrderDetail() {
                     throw new Error(error.error || "فشل تصدير الملف");
                   }
                   const blob = await response.blob();
-                  const url = window.URL.createObjectURL(blob);
+                  url = window.URL.createObjectURL(blob);
                   const link = document.createElement('a');
                   link.href = url;
                   link.download = `PO_${po.poNumber}_estimated_items.pdf`;
                   document.body.appendChild(link);
                   link.click();
                   document.body.removeChild(link);
-                  window.URL.revokeObjectURL(url);
+                  // OPTIMIZATION: Delay revoke to ensure download starts (Phase 1)
+                  setTimeout(() => {
+                    if (url) window.URL.revokeObjectURL(url);
+                  }, 100);
                   toast.success("تم تصدير الأصناف المُسعرة بنجاح");
                 } catch (error: any) {
                   toast.error(error.message || "فشل تصدير الملف");
+                  // Cleanup on error
+                  if (url) window.URL.revokeObjectURL(url);
                 }
               }}
             >
               <FileDown className="w-4 h-4 mr-1.5" /> تصدير PDF
             </Button>
           )}
+          {/* Note: url variable is scoped to onClick handler, so we need to declare it outside */}
           {isDelegate && po.status === "pending_estimate" && (
             <Button variant="outline" className="border-rose-200 text-rose-700 hover:bg-rose-50" onClick={() => setIsRevisionDialogOpen(true)}>
               <AlertCircle className="w-4 h-4 mr-1.5" /> {t.purchaseOrders.returnForRevision}
@@ -464,7 +517,12 @@ export default function PurchaseOrderDetail() {
                         {itemPhotos[item.id]?.invoice ? (
                           <div className="relative mt-1">
                             <img src={itemPhotos[item.id]!.invoice} alt="" className="w-full h-20 rounded-lg object-cover border" />
-                            <Button variant="destructive" size="icon" className="absolute top-1 left-1 h-5 w-5 rounded-full" onClick={() => { setItemPhotos(p => ({ ...p, [item.id]: { ...p[item.id], invoice: undefined } })); setDropZoneFor(null); }}>
+                            <Button variant="destructive" size="icon" className="absolute top-1 left-1 h-5 w-5 rounded-full" onClick={() => { 
+                              // CLEANUP: Revoke ObjectURL when deleting invoice photo (Phase 1)
+                              revokeTrackedUrl(`item-${item.id}-invoice`);
+                              setItemPhotos(p => ({ ...p, [item.id]: { ...p[item.id], invoice: undefined } })); 
+                              setDropZoneFor(null); 
+                            }}>
                               <XCircle className="w-3 h-3" />
                             </Button>
                           </div>
@@ -476,7 +534,12 @@ export default function PurchaseOrderDetail() {
                             sublabel="صورة أو PDF"
                             onFilesUploaded={(files: UploadedFile[]) => {
                               const done = files.find(f => f.status === "done" && f.url);
-                              if (done?.url) { setItemPhotos(p => ({ ...p, [item.id]: { ...p[item.id], invoice: done.url } })); setDropZoneFor(null); }
+                              if (done?.url) { 
+                                // OPTIMIZATION: Track ObjectURL for cleanup (Phase 1)
+                                trackObjectUrl(`item-${item.id}-invoice`, done.url);
+                                setItemPhotos(p => ({ ...p, [item.id]: { ...p[item.id], invoice: done.url } })); 
+                                setDropZoneFor(null); 
+                              }
                             }}
                           />
                         ) : (
@@ -500,7 +563,12 @@ export default function PurchaseOrderDetail() {
                         {itemPhotos[item.id]?.purchased ? (
                           <div className="relative mt-1">
                             <img src={itemPhotos[item.id]!.purchased} alt="" className="w-full h-20 rounded-lg object-cover border" />
-                            <Button variant="destructive" size="icon" className="absolute top-1 left-1 h-5 w-5 rounded-full" onClick={() => { setItemPhotos(p => ({ ...p, [item.id]: { ...p[item.id], purchased: undefined } })); setDropZoneFor(null); }}>
+                            <Button variant="destructive" size="icon" className="absolute top-1 left-1 h-5 w-5 rounded-full" onClick={() => { 
+                              // CLEANUP: Revoke ObjectURL when deleting purchased photo (Phase 1)
+                              revokeTrackedUrl(`item-${item.id}-purchased`);
+                              setItemPhotos(p => ({ ...p, [item.id]: { ...p[item.id], purchased: undefined } })); 
+                              setDropZoneFor(null); 
+                            }}>
                               <XCircle className="w-3 h-3" />
                             </Button>
                           </div>
@@ -512,7 +580,12 @@ export default function PurchaseOrderDetail() {
                             sublabel="صورة واحدة"
                             onFilesUploaded={(files: UploadedFile[]) => {
                               const done = files.find(f => f.status === "done" && f.url);
-                              if (done?.url) { setItemPhotos(p => ({ ...p, [item.id]: { ...p[item.id], purchased: done.url } })); setDropZoneFor(null); }
+                              if (done?.url) { 
+                                // OPTIMIZATION: Track ObjectURL for cleanup (Phase 1)
+                                trackObjectUrl(`item-${item.id}-purchased`, done.url);
+                                setItemPhotos(p => ({ ...p, [item.id]: { ...p[item.id], purchased: done.url } })); 
+                                setDropZoneFor(null); 
+                              }
                             }}
                           />
                         ) : (
@@ -621,6 +694,8 @@ export default function PurchaseOrderDetail() {
                         <div className="relative mt-1">
                           <img src={itemPhotos[item.id]!.warehouse} alt="" className="w-full h-20 rounded-lg object-cover border border-green-300" />
                           <Button variant="destructive" size="icon" className="absolute top-1 left-1 h-5 w-5 rounded-full" onClick={() => {
+                            // CLEANUP: Revoke ObjectURL when deleting warehouse photo (Phase 1)
+                            revokeTrackedUrl(`item-${item.id}-warehouse`);
                             setItemPhotos(p => ({ ...p, [item.id]: { ...p[item.id], warehouse: undefined } }));
                             setReceiveData(p => ({ ...p, [item.id]: { ...p[item.id], warehousePhotoUrl: "" } }));
                             setDropZoneFor(null);
@@ -637,6 +712,8 @@ export default function PurchaseOrderDetail() {
                           onFilesUploaded={(files: UploadedFile[]) => {
                             const done = files.find(f => f.status === "done" && f.url);
                             if (done?.url) {
+                              // OPTIMIZATION: Track ObjectURL for cleanup (Phase 1)
+                              trackObjectUrl(`item-${item.id}-warehouse`, done.url);
                               setItemPhotos(p => ({ ...p, [item.id]: { ...p[item.id], warehouse: done.url } }));
                               setReceiveData(p => ({ ...p, [item.id]: { ...p[item.id], warehousePhotoUrl: done.url! } }));
                               setDropZoneFor(null);

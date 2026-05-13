@@ -1,15 +1,20 @@
 /**
  * DropZone - Reusable Drag & Drop file upload component
- * Additive layer: does NOT replace existing upload logic, only adds D&D capability
+ * OPTIMIZED: Image Lifecycle Isolation & Memory Stabilization (Phase 1)
+ * 
+ * Key improvements:
+ * 1. File objects moved to useRef (outside React State) to prevent render storms
+ * 2. Controlled throttling on progress updates (100ms) for UI responsiveness
+ * 3. Explicit cleanup of File references after upload completion/cancellation
+ * 4. Metadata-only State for efficient re-renders
  */
-import { useRef, useState, useCallback } from "react";
+import { useRef, useState, useCallback, useEffect } from "react";
 import { Upload, Loader2, CheckCircle2, XCircle, RotateCcw, X, FileText, Image } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 export type UploadedFile = {
   id: string;
-  file: File;
   name: string;
   size: number;
   mimeType: string;
@@ -17,11 +22,12 @@ export type UploadedFile = {
   status: "pending" | "uploading" | "done" | "error";
   url?: string;
   error?: string;
+  // NOTE: File object is now stored in fileRefsMap, NOT here
 };
 
 type DropZoneProps = {
   onFilesUploaded: (files: UploadedFile[]) => void;
-  accept?: string; // e.g. "image/*,application/pdf"
+  accept?: string;
   maxSizeMB?: number;
   maxFiles?: number;
   uploadUrl?: string;
@@ -33,6 +39,7 @@ type DropZoneProps = {
 
 const DEFAULT_ACCEPT = "image/*,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 const DEFAULT_MAX_MB = 10;
+const PROGRESS_THROTTLE_MS = 100; // Throttle progress updates to prevent render storms
 
 function formatSize(bytes: number) {
   if (bytes < 1024) return `${bytes} B`;
@@ -57,21 +64,65 @@ export default function DropZone({
   disabled = false,
 }: DropZoneProps) {
   const [isDragging, setIsDragging] = useState(false);
+  // OPTIMIZATION: State now contains only metadata, NOT File objects
   const [files, setFiles] = useState<UploadedFile[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
+  
+  // OPTIMIZATION: Store actual File objects in refs to prevent render storms
+  const fileRefsMap = useRef<Map<string, File>>(new Map());
+  
+  // OPTIMIZATION: Track last progress update time for throttling
+  const lastProgressUpdateRef = useRef<Map<string, number>>(new Map());
+
+  /**
+   * Cleanup: Explicitly remove File reference after upload completes or is cancelled
+   * This prevents orphaned references and memory leaks
+   */
+  const cleanupFileRef = useCallback((fileId: string) => {
+    fileRefsMap.current.delete(fileId);
+    lastProgressUpdateRef.current.delete(fileId);
+  }, []);
+
+  /**
+   * Cleanup: Called when component unmounts to clean all remaining refs
+   * SAFETY: Prevents orphaned File references if component is destroyed mid-upload
+   */
+  useEffect(() => {
+    return () => {
+      // Component unmount cleanup
+      fileRefsMap.current.clear();
+      lastProgressUpdateRef.current.clear();
+    };
+  }, []);
 
   const uploadFile = useCallback(async (fileEntry: UploadedFile) => {
+    // Get File object from ref (not from State)
+    const fileObj = fileRefsMap.current.get(fileEntry.id);
+    if (!fileObj) {
+      setFiles(prev => prev.map(f => f.id === fileEntry.id ? { ...f, status: "error", error: "File reference lost" } : f));
+      return;
+    }
+
     setFiles(prev => prev.map(f => f.id === fileEntry.id ? { ...f, status: "uploading", progress: 0 } : f));
 
     return new Promise<void>((resolve) => {
       const xhr = new XMLHttpRequest();
       const formData = new FormData();
-      formData.append("file", fileEntry.file);
+      // SAFETY: FormData still receives the File object correctly
+      formData.append("file", fileObj);
 
+      // OPTIMIZATION: Throttle progress updates to prevent render storms
       xhr.upload.onprogress = (e) => {
         if (e.lengthComputable) {
-          const pct = Math.round((e.loaded / e.total) * 100);
-          setFiles(prev => prev.map(f => f.id === fileEntry.id ? { ...f, progress: pct } : f));
+          const now = Date.now();
+          const lastUpdate = lastProgressUpdateRef.current.get(fileEntry.id) || 0;
+          
+          // Only update if throttle window has passed
+          if (now - lastUpdate >= PROGRESS_THROTTLE_MS) {
+            const pct = Math.round((e.loaded / e.total) * 100);
+            setFiles(prev => prev.map(f => f.id === fileEntry.id ? { ...f, progress: pct } : f));
+            lastProgressUpdateRef.current.set(fileEntry.id, now);
+          }
         }
       };
 
@@ -94,18 +145,22 @@ export default function DropZone({
         } else {
           setFiles(prev => prev.map(f => f.id === fileEntry.id ? { ...f, status: "error", error: `HTTP ${xhr.status}` } : f));
         }
+        // CLEANUP: Remove File ref after upload completes (success or failure)
+        cleanupFileRef(fileEntry.id);
         resolve();
       };
 
       xhr.onerror = () => {
         setFiles(prev => prev.map(f => f.id === fileEntry.id ? { ...f, status: "error", error: "Network error" } : f));
+        // CLEANUP: Remove File ref on network error
+        cleanupFileRef(fileEntry.id);
         resolve();
       };
 
       xhr.open("POST", uploadUrl);
       xhr.send(formData);
     });
-  }, [uploadUrl, onFilesUploaded]);
+  }, [uploadUrl, onFilesUploaded, cleanupFileRef]);
 
   const processFiles = useCallback(async (rawFiles: File[]) => {
     if (disabled) return;
@@ -114,9 +169,13 @@ export default function DropZone({
 
     for (const file of rawFiles.slice(0, maxFiles)) {
       if (file.size > maxMB) continue; // skip oversized
+      const fileId = `${Date.now()}-${Math.random()}`;
+      
+      // OPTIMIZATION: Store File object in ref, not in State
+      fileRefsMap.current.set(fileId, file);
+      
       const entry: UploadedFile = {
-        id: `${Date.now()}-${Math.random()}`,
-        file,
+        id: fileId,
         name: file.name,
         size: file.size,
         mimeType: file.type,
@@ -156,6 +215,8 @@ export default function DropZone({
       onFilesUploaded(updated.filter(f => f.status === "done"));
       return updated;
     });
+    // CLEANUP: Remove File ref when user deletes the file
+    cleanupFileRef(id);
   };
 
   const retryFile = (entry: UploadedFile) => {

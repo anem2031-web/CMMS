@@ -91,23 +91,30 @@ export default function TicketDetail() {
 
   const handleDownloadPDF = useCallback(async () => {
     if (!ticket?.id) return;
+    let url: string | null = null;
     try {
       setDownloadingPdf(true);
       const response = await fetch(`/api/tickets/${ticket.id}/pdf`);
       if (!response.ok) throw new Error("Failed to generate PDF");
       const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
+      url = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
       a.download = `ticket-${ticket.ticketNumber}-${Date.now()}.pdf`;
       document.body.appendChild(a);
       a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
+      // OPTIMIZATION: Delay revoke to ensure download starts (Phase 1)
+      const linkToRemove = a;
+      setTimeout(() => {
+        if (url) window.URL.revokeObjectURL(url);
+        if (linkToRemove?.parentNode) linkToRemove.parentNode.removeChild(linkToRemove);
+      }, 100);
       toast.success("تم تحميل التقرير بنجاح");
     } catch (error) {
       console.error(error);
       toast.error("فشل تحميل التقرير");
+      // Cleanup on error
+      if (url) window.URL.revokeObjectURL(url);
     } finally {
       setDownloadingPdf(false);
     }

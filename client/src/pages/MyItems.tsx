@@ -61,9 +61,10 @@ export default function MyItems() {
       a.href = url;
       a.download = `my-items-${new Date().toISOString().slice(0, 10)}.pdf`;
       a.click();
-      URL.revokeObjectURL(url);
+      // OPTIMIZATION: Delay revoke to ensure download starts (Phase 1)
+      setTimeout(() => URL.revokeObjectURL(url), 100);
       toast.success(language === "ar" ? "تم تصدير PDF بنجاح" : "PDF exported successfully");
-    } catch {
+    } catch (error) {
       toast.error(language === "ar" ? "فشل تصدير PDF" : "PDF export failed");
     } finally {
       setExportingPdf(false);
@@ -82,7 +83,8 @@ export default function MyItems() {
       a.href = url;
       a.download = `pricing-${new Date().toISOString().slice(0, 10)}.pdf`;
       a.click();
-      URL.revokeObjectURL(url);
+      // OPTIMIZATION: Delay revoke to ensure download starts (Phase 1)
+      setTimeout(() => URL.revokeObjectURL(url), 100);
       toast.success(language === "ar" ? "تم تصدير PDF بنجاح" : "PDF exported successfully");
       setShowPricingExportButton(false);
       setPricingExportPoId(null);
