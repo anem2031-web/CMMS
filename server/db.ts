@@ -448,41 +448,44 @@ export async function calculatePurchaseOrderStatus(purchaseOrderId: number): Pro
   }
 
   const totalItems = items.length;
-  const pendingItems = items.filter(item => item.status === "pending" || item.status === "estimated" || item.status === "pending_review").length;
   const cancelledItems = items.filter(item => item.status === "cancelled").length;
+  const rejectedItems = items.filter(item => item.status === "rejected").length;
   const deliveredItems = items.filter(item => item.status === "delivered_to_requester").length;
   const purchasedItems = items.filter(item => item.status === "purchased").length;
 
-  // Status priority logic
+  // ── مسار الاستلام: كل الأصناف تم تسليمها أو إلغاؤها ──
   if (deliveredItems + cancelledItems === totalItems) {
     return "received";
   }
-  
+
+  // ── مسار الشراء الجزئي ──
   if (purchasedItems > 0 || deliveredItems > 0) {
     return "partial_purchase";
   }
 
-  const allProcessedForAccounting = items.every(i => 
-    ["estimated", "rejected", "cancelled", "pending_review"].includes(i.status)
-  );
+  // ── مسار الرفض الكلي (القديم — لا يُمس) ──
+  // إذا كانت كل الأصناف مرفوضة (بعد مرحلة المراجعة) → الطلب مرفوض
+  if (rejectedItems + cancelledItems === totalItems && rejectedItems > 0) {
+    return "rejected";
+  }
 
-  // Only move to pending_accounting if ALL items are either estimated, rejected, cancelled, or pending_review
-  // AND there is at least one estimated item.
-  if (allProcessedForAccounting && items.some(i => i.status === "estimated")) {
+  // ── مسار المحاسبة: كل الأصناف النشطة تمت معالجتها (مُسعّرة أو مرفوضة أو ملغاة) ──
+  // pending_review يُعامل هنا كـ "لم يُعالج بعد" لأنه ينتظر المنشئ
+  const activeItems = items.filter(i => i.status !== "cancelled");
+  const allActiveProcessed = activeItems.every(i =>
+    ["estimated", "rejected"].includes(i.status)
+  );
+  if (allActiveProcessed && activeItems.some(i => i.status === "estimated")) {
     return "pending_accounting";
   }
 
-  // If there are items pending_review, the PO status should reflect that it's in progress
-  // but we must not force the WHOLE PO to pending_review if other items are still pending estimate.
-  if (items.some(i => i.status === "pending_review") && !items.some(i => i.status === "pending")) {
-    return "pending_review";
-  }
-
+  // ── مسار الاعتماد ──
   if (items.some(i => i.status === "approved")) {
     return "approved";
   }
 
-  if (items.some(i => i.status === "estimated" || i.status === "pending")) {
+  // ── مسار التسعير: يظل الطلب في pending_estimate طالما هناك أصناف pending أو estimated أو pending_review ──
+  if (items.some(i => ["pending", "estimated", "pending_review"].includes(i.status))) {
     return "pending_estimate";
   }
 
