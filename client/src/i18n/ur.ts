@@ -37,10 +37,12 @@ const ur: any = {
     triage: "ٹریاج اور تصنیف",
     gateSecurity: "گیٹ سیکیورٹی",
     scanAsset: "اثاثہ سکین (NFC)",
+    catalog: "کیٹالاگز",
     sections: {
       coreOps: "آپریشن",
       preventiveMaint: "احتیاطی دیکھ بھال",
       logistics: "لاجسٹکس اور خریداری",
+      catalog: "کیٹالاگ یونٹ",
       management: "انتظام",
       reports: "رپورٹیں",
       aiUnit: "AI تجزیہ یونٹ",
@@ -1036,6 +1038,21 @@ const ur: any = {
   myItems: {
     empty: "کوئی اشیاء نہیں",
     confirmReceipt: "وصولی کی تصدیق",
+  },
+  catalog: {
+    title: "کیٹالاگ انتظام",
+    subtitle: "اقسام، اشیاء اور سلام کارواروں کا انتظام",
+    taxonomy: "زمرے",
+    items: "اشیاء",
+    suppliers: "سلام کاروار",
+    settings: "سٹنگز",
+    search: "ذہانی تلاش",
+    addCategory: "زمرہ شامل کریں",
+    addItem: "اشی شامل کریں",
+    editItem: "اشی کو تبدیل کریں",
+    deleteItem: "اشی کو حذف کریں",
+    noItems: "ابھی کوئی اشیاء نہیں",
+    noSuppliers: "کوئی مربوط سلام کار نہیں",
   },
 } as const;
 export default ur;

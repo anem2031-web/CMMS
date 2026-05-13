@@ -735,3 +735,248 @@ export const assetCategories = mysqlTable("asset_categories", {
 });
 export type AssetCategory = typeof assetCategories.$inferSelect;
 export type InsertAssetCategory = typeof assetCategories.$inferInsert;
+
+
+// ============================================================
+// CATALOG MODULE - ISOLATED LAYER
+// ============================================================
+// This module is completely independent and can be integrated
+// with other parts of the system later. It follows a 4-layer
+// architecture: Taxonomy, Material, Knowledge, and Business.
+// ============================================================
+
+// ============================================================
+// LAYER 1: TAXONOMY (التصنيف) - Hierarchical Classification
+// ============================================================
+export const catalogNodes = mysqlTable("catalog_nodes", {
+  id: int("id").autoincrement().primaryKey(),
+  parentId: int("parentId"),
+  nameAr: varchar("nameAr", { length: 255 }).notNull(),
+  nameEn: varchar("nameEn", { length: 255 }).notNull(),
+  nameUr: varchar("nameUr", { length: 255 }).notNull(),
+  descriptionAr: text("descriptionAr"),
+  descriptionEn: text("descriptionEn"),
+  descriptionUr: text("descriptionUr"),
+  level: int("level").notNull().default(1),
+  sortOrder: int("sortOrder").default(0),
+  isActive: boolean("isActive").default(true).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type CatalogNode = typeof catalogNodes.$inferSelect;
+export type InsertCatalogNode = typeof catalogNodes.$inferInsert;
+
+// ============================================================
+// LAYER 2: MATERIAL (المواد) - Core Material Information
+// ============================================================
+export const catalogItems = mysqlTable("catalog_items", {
+  id: int("id").autoincrement().primaryKey(),
+  itemCode: varchar("itemCode", { length: 100 }).notNull().unique(),
+  nameAr: varchar("nameAr", { length: 255 }).notNull(),
+  nameEn: varchar("nameEn", { length: 255 }).notNull(),
+  nameUr: varchar("nameUr", { length: 255 }).notNull(),
+  descriptionAr: text("descriptionAr"),
+  descriptionEn: text("descriptionEn"),
+  descriptionUr: text("descriptionUr"),
+  unit: varchar("unit", { length: 50 }),
+  manufacturer: varchar("manufacturer", { length: 255 }),
+  manufacturerPartNumber: varchar("manufacturerPartNumber", { length: 100 }),
+  categoryId: int("categoryId"),
+  primaryImageUrl: text("primaryImageUrl"),
+  isActive: boolean("isActive").default(true).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type CatalogItem = typeof catalogItems.$inferSelect;
+export type InsertCatalogItem = typeof catalogItems.$inferInsert;
+
+// Material Specifications (Technical Details)
+export const catalogItemSpecs = mysqlTable("catalog_item_specs", {
+  id: int("id").autoincrement().primaryKey(),
+  itemId: int("itemId").notNull(),
+  specKeyAr: varchar("specKeyAr", { length: 255 }).notNull(),
+  specKeyEn: varchar("specKeyEn", { length: 255 }).notNull(),
+  specKeyUr: varchar("specKeyUr", { length: 255 }).notNull(),
+  specValue: varchar("specValue", { length: 500 }),
+  specUnit: varchar("specUnit", { length: 50 }),
+  sortOrder: int("sortOrder").default(0),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type CatalogItemSpec = typeof catalogItemSpecs.$inferSelect;
+export type InsertCatalogItemSpec = typeof catalogItemSpecs.$inferInsert;
+
+// Alternative Materials
+export const catalogItemAlternatives = mysqlTable("catalog_item_alternatives", {
+  id: int("id").autoincrement().primaryKey(),
+  itemId: int("itemId").notNull(),
+  alternativeItemId: int("alternativeItemId").notNull(),
+  reasonAr: varchar("reasonAr", { length: 255 }),
+  reasonEn: varchar("reasonEn", { length: 255 }),
+  reasonUr: varchar("reasonUr", { length: 255 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type CatalogItemAlternative = typeof catalogItemAlternatives.$inferSelect;
+export type InsertCatalogItemAlternative = typeof catalogItemAlternatives.$inferInsert;
+
+// Material Compatibility
+export const catalogItemCompatibility = mysqlTable("catalog_item_compatibility", {
+  id: int("id").autoincrement().primaryKey(),
+  itemId: int("itemId").notNull(),
+  compatibleWithItemId: int("compatibleWithItemId").notNull(),
+  compatibilityTypeAr: varchar("compatibilityTypeAr", { length: 100 }),
+  compatibilityTypeEn: varchar("compatibilityTypeEn", { length: 100 }),
+  compatibilityTypeUr: varchar("compatibilityTypeUr", { length: 100 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type CatalogItemCompatibility = typeof catalogItemCompatibility.$inferSelect;
+export type InsertCatalogItemCompatibility = typeof catalogItemCompatibility.$inferInsert;
+
+// Link Items to Taxonomy Nodes
+export const catalogItemNodes = mysqlTable("catalog_item_nodes", {
+  id: int("id").autoincrement().primaryKey(),
+  itemId: int("itemId").notNull(),
+  nodeId: int("nodeId").notNull(),
+  isPrimary: boolean("isPrimary").default(false),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type CatalogItemNode = typeof catalogItemNodes.$inferSelect;
+export type InsertCatalogItemNode = typeof catalogItemNodes.$inferInsert;
+
+// Item Images Gallery
+export const catalogItemImages = mysqlTable("catalog_item_images", {
+  id: int("id").autoincrement().primaryKey(),
+  itemId: int("itemId").notNull(),
+  imageUrl: text("imageUrl").notNull(),
+  imageType: mysqlEnum("imageType", ["main", "gallery", "technical", "supplier"]).default("gallery"),
+  sortOrder: int("sortOrder").default(0),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type CatalogItemImage = typeof catalogItemImages.$inferSelect;
+export type InsertCatalogItemImage = typeof catalogItemImages.$inferInsert;
+
+// ============================================================
+// LAYER 3: KNOWLEDGE (المعرفة) - Documentation & Maintenance
+// ============================================================
+export const catalogKnowledge = mysqlTable("catalog_knowledge", {
+  id: int("id").autoincrement().primaryKey(),
+  itemId: int("itemId").notNull(),
+  titleAr: varchar("titleAr", { length: 255 }).notNull(),
+  titleEn: varchar("titleEn", { length: 255 }).notNull(),
+  titleUr: varchar("titleUr", { length: 255 }).notNull(),
+  contentAr: text("contentAr"),
+  contentEn: text("contentEn"),
+  contentUr: text("contentUr"),
+  typeAr: varchar("typeAr", { length: 100 }),
+  typeEn: varchar("typeEn", { length: 100 }),
+  typeUr: varchar("typeUr", { length: 100 }),
+  documentUrl: text("documentUrl"),
+  linkedAssetId: varchar("linkedAssetId", { length: 100 }),
+  linkedEquipmentId: varchar("linkedEquipmentId", { length: 100 }),
+  sparePartsList: text("sparePartsList"), // JSON stringified
+  maintenanceInstructions: text("maintenanceInstructions"), // JSON stringified
+  isPublished: boolean("isPublished").default(true),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type CatalogKnowledge = typeof catalogKnowledge.$inferSelect;
+export type InsertCatalogKnowledge = typeof catalogKnowledge.$inferInsert;
+
+// ============================================================
+// LAYER 4: BUSINESS (التشغيل) - Supplier & Pricing
+// ============================================================
+export const catalogBusiness = mysqlTable("catalog_business", {
+  id: int("id").autoincrement().primaryKey(),
+  itemId: int("itemId").notNull(),
+  supplierId: int("supplierId"),
+  supplierPartNumber: varchar("supplierPartNumber", { length: 100 }),
+  supplierNameAr: varchar("supplierNameAr", { length: 255 }),
+  supplierNameEn: varchar("supplierNameEn", { length: 255 }),
+  supplierNameUr: varchar("supplierNameUr", { length: 255 }),
+  supplierContact: varchar("supplierContact", { length: 255 }),
+  supplierEmail: varchar("supplierEmail", { length: 255 }),
+  supplierPhone: varchar("supplierPhone", { length: 20 }),
+  unitPrice: decimal("unitPrice", { precision: 12, scale: 4 }),
+  currency: varchar("currency", { length: 10 }).default("USD"),
+  minimumOrderQuantity: int("minimumOrderQuantity").default(1),
+  leadTimeDays: int("leadTimeDays"),
+  stockQuantity: int("stockQuantity").default(0),
+  reorderLevel: int("reorderLevel").default(0),
+  reorderQuantity: int("reorderQuantity").default(0),
+  lastRestockDate: timestamp("lastRestockDate"),
+  costCenterAr: varchar("costCenterAr", { length: 100 }),
+  costCenterEn: varchar("costCenterEn", { length: 100 }),
+  costCenterUr: varchar("costCenterUr", { length: 100 }),
+  isPreferred: boolean("isPreferred").default(false),
+  isActive: boolean("isActive").default(true),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type CatalogBusiness = typeof catalogBusiness.$inferSelect;
+export type InsertCatalogBusiness = typeof catalogBusiness.$inferInsert;
+
+// ============================================================
+// CATALOG SETTINGS - System Configuration
+// ============================================================
+export const catalogSettings = mysqlTable("catalog_settings", {
+  id: int("id").autoincrement().primaryKey(),
+  settingKey: varchar("settingKey", { length: 100 }).notNull().unique(),
+  settingValue: text("settingValue"),
+  settingType: mysqlEnum("settingType", ["boolean", "string", "number", "json"]).default("string"),
+  descriptionAr: text("descriptionAr"),
+  descriptionEn: text("descriptionEn"),
+  descriptionUr: text("descriptionUr"),
+  isActive: boolean("isActive").default(true),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type CatalogSetting = typeof catalogSettings.$inferSelect;
+export type InsertCatalogSetting = typeof catalogSettings.$inferInsert;
+
+// ============================================================
+// CATALOG AUDIT LOG - Track Changes
+// ============================================================
+export const catalogAuditLogs = mysqlTable("catalog_audit_logs", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId"),
+  action: varchar("action", { length: 100 }).notNull(), // create, update, delete
+  entityType: varchar("entityType", { length: 50 }).notNull(), // node, item, business, etc
+  entityId: int("entityId"),
+  oldValues: text("oldValues"), // JSON stringified
+  newValues: text("newValues"), // JSON stringified
+  ipAddress: varchar("ipAddress", { length: 45 }),
+  userAgent: text("userAgent"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type CatalogAuditLog = typeof catalogAuditLogs.$inferSelect;
+export type InsertCatalogAuditLog = typeof catalogAuditLogs.$inferInsert;
+
+// ============================================================
+// SUPPLIERS - Vendor Management
+// ============================================================
+export const suppliers = mysqlTable("suppliers", {
+  id: int("id").autoincrement().primaryKey(),
+  nameAr: varchar("nameAr", { length: 255 }).notNull(),
+  nameEn: varchar("nameEn", { length: 255 }).notNull(),
+  nameUr: varchar("nameUr", { length: 255 }),
+  contactPerson: varchar("contactPerson", { length: 255 }),
+  email: varchar("email", { length: 255 }),
+  phone: varchar("phone", { length: 20 }),
+  address: text("address"),
+  isActive: boolean("isActive").default(true),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type Supplier = typeof suppliers.$inferSelect;
+export type InsertSupplier = typeof suppliers.$inferInsert;

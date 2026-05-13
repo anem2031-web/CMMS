@@ -27,7 +27,8 @@ import {
   Package, BarChart3, Users, Bell, MapPin, Wrench, Shield,
   Brain, ShoppingBag, Truck, Languages, Database,
   HardDrive, CalendarClock, ScanSearch, DoorOpen, Nfc, Tag,
-  ChevronDown, Search, X, Building2, UserCog, Download, Smartphone, DollarSign
+  ChevronDown, Search, X, Building2, UserCog, Download, Smartphone, DollarSign,
+  FolderTree
 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState, useMemo, useCallback } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
@@ -105,6 +106,17 @@ const NAV_SECTIONS: NavSection[] = [
         roles: ["warehouse","maintenance_manager","owner","admin"] },
       { icon: Truck,        labelKey: "nav.purchaseCycle",  path: "/purchase-cycle",
         roles: ["delegate","warehouse","owner","admin"] },
+    ],
+  },
+  // 3.5 وحدة الكتالوجات
+  {
+    id: "catalog",
+    labelKey: "nav.sections.catalog",
+    icon: FolderTree,
+    roles: ["delegate","warehouse","accountant","senior_management","maintenance_manager","owner","admin"],
+    items: [
+      { icon: FolderTree, labelKey: "nav.catalog", path: "/catalog",
+        roles: ["delegate","warehouse","accountant","senior_management","maintenance_manager","owner","admin"] },
     ],
   },
   // 4. الإدارة

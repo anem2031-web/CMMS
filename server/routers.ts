@@ -11,6 +11,7 @@ import { notifyOwner } from "./_core/notification";
 import { invokeLLM } from "./_core/llm";
 import { nanoid } from "nanoid";
 import { translationRouter } from "./routers/translation";
+import { catalogRouter } from "./routers/catalogRouter";
 import { translateFields, detectLanguage, type SupportedLanguage } from "./services/translation";
 import bcrypt from "bcryptjs";
 import { cacheManager, cacheKeys, invalidateCache } from "./_core/cache";
@@ -4511,5 +4512,10 @@ ${JSON.stringify(recentAudit.map((a: any) => ({ action: a.action, entity: a.enti
       return db.deleteAssetCategory(input.id);
     }),
   }),
+  
+  // ============================================================
+  // CATALOG MODULE - Isolated Layer
+  // ============================================================
+  catalog: catalogRouter,
 });
 export type AppRouter = typeof appRouter;

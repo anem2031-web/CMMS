@@ -39,10 +39,12 @@ const ar = {
     triage: "الفرز والتصنيف",
     gateSecurity: "حارس البوابة",
     scanAsset: "مسح الأصل (NFC)",
+    catalog: "الكتالوجات",
     sections: {
       coreOps: "العمليات",
       preventiveMaint: "الصيانة الوقائية",
       logistics: "اللوجستيات والشراء",
+      catalog: "وحدة الكتالوجات",
       management: "الإدارة",
       reports: "التقارير",
       aiUnit: "وحدة التحليل AI",
@@ -1086,6 +1088,21 @@ const ar = {
   myItems: {
     empty: "لا توجد أصناف",
     confirmReceipt: "تأكيد الاستلام",
+  },
+  catalog: {
+    title: "إدارة الكتالوجات",
+    subtitle: "إدارة الأقسام والأصناف والموردين",
+    taxonomy: "التصنيفات",
+    items: "الأصناف",
+    suppliers: "الموردين",
+    settings: "الإعدادات",
+    search: "بحث ذكي",
+    addCategory: "إضافة قسم",
+    addItem: "إضافة صنف",
+    editItem: "تعديل الصنف",
+    deleteItem: "حذف الصنف",
+    noItems: "لا توجد أصناف بعد",
+    noSuppliers: "لا يوجد موردون مرتبطون",
   },
 } as const;
 

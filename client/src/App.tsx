@@ -48,6 +48,9 @@ const SectionReport = lazy(() => import("./pages/SectionReport"));
 const PreventiveReport = lazy(() => import("./pages/PreventiveReport"));
 const CostReport = lazy(() => import("./pages/CostReport"));
 
+// ─── Lazily loaded — Catalog module ────────────────────────────────────────────
+const CatalogDashboard = lazy(() => import("./pages/CatalogDashboard"));
+
 // ─── Lazily loaded — Admin / Settings module ────────────────────────────────
 const UsersPage = lazy(() => import("./pages/Users"));
 const Sites = lazy(() => import("./pages/Sites"));
@@ -106,6 +109,9 @@ function Router() {
               <Route path="/ai-assistant" component={AIAssistant} />
               <Route path="/translation-monitor" component={TranslationMonitor} />
               <Route path="/backup" component={Backup} />
+
+              {/* ── Catalog module ── */}
+              <Route path="/catalog" component={CatalogDashboard} />
 
               {/* ── Asset module ── */}
               <Route path="/assets" component={Assets} />

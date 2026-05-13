@@ -39,10 +39,12 @@ const en: TranslationKeys = {
     triage: "Triage & Classification",
     gateSecurity: "Gate Security",
     scanAsset: "Scan Asset (NFC)",
+    catalog: "Catalogs",
     sections: {
       coreOps: "Operations",
       preventiveMaint: "Preventive Maintenance",
       logistics: "Logistics & Buying",
+      catalog: "Catalog Unit",
       management: "Management",
       reports: "Reports",
       aiUnit: "AI Analysis Unit",
@@ -1058,6 +1060,21 @@ const en: TranslationKeys = {
   myItems: {
     empty: "No items found",
     confirmReceipt: "Confirm Receipt",
+  },
+  catalog: {
+    title: "Catalog Management",
+    subtitle: "Manage sections, items, and suppliers",
+    taxonomy: "Categories",
+    items: "Items",
+    suppliers: "Suppliers",
+    settings: "Settings",
+    search: "Smart Search",
+    addCategory: "Add Category",
+    addItem: "Add Item",
+    editItem: "Edit Item",
+    deleteItem: "Delete Item",
+    noItems: "No items yet",
+    noSuppliers: "No suppliers connected",
   },
 } as const;
 

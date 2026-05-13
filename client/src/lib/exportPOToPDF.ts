@@ -91,7 +91,7 @@ export function exportEstimatedItemsToPDF(po: PurchaseOrder, locale: string = 'a
       1: { halign: 'right' },
     },
     margin: { top: 35, right: 15, bottom: 20, left: 15 },
-    didDrawPage: (data) => {
+    didDrawPage: (data: any) => {
       // Footer
       const pageCount = (doc as any).internal.pages.length - 1;
       const pageSize = doc.internal.pageSize;
