@@ -20,6 +20,8 @@ export const users = mysqlTable("users", {
   loginMethod: varchar("loginMethod", { length: 64 }),
   role: mysqlEnum("role", ["user", "admin", ...userRoles]).default("user").notNull(),
   department: varchar("department", { length: 100 }),
+  // صورة التوقيع الإلكتروني — تظهر تلقائيًا في خانة توقيع صاحبها بالوثائق (0047)
+  signatureUrl: varchar("signatureUrl", { length: 500 }),
   preferredLanguage: mysqlEnum("preferredLanguage", ["ar", "en", "ur"]).default("ar").notNull(),
   isActive: boolean("isActive").default(true).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
@@ -178,6 +180,10 @@ export const purchaseOrders = mysqlTable("purchase_orders", {
   managementNotes: text("managementNotes"),
   reviewedById: int("reviewedById"),
   reviewedAt: timestamp("reviewedAt"),
+  // نسخ مجمَّدة من التوقيع لحظة أول إصدار للوثيقة (0048) — تمنع تغيّر
+  // الوثائق القديمة عند استبدال توقيع المستخدم لاحقًا
+  requesterSignatureSnapshot: varchar("requesterSignatureSnapshot", { length: 500 }),
+  reviewerSignatureSnapshot: varchar("reviewerSignatureSnapshot", { length: 500 }),
   rejectedById: int("rejectedById"),
   rejectedAt: timestamp("rejectedAt"),
   rejectionReason: text("rejectionReason"),
@@ -261,6 +267,8 @@ export const poPricingBatches = mysqlTable("po_pricing_batches", {
   batchNumber: int("batchNumber").notNull(),
   submittedById: int("submittedById").notNull(),
   submittedAt: timestamp("submittedAt").defaultNow().notNull(),
+  // نسخة مجمَّدة من توقيع المندوب لحظة أول إصدار للوثيقة لهذه الدفعة (0048)
+  delegateSignatureSnapshot: varchar("delegateSignatureSnapshot", { length: 500 }),
   itemCount: int("itemCount").default(0).notNull(),
   totalEstimatedCost: decimal("totalEstimatedCost", { precision: 12, scale: 2 }),
   status: mysqlEnum("status", [...poBatchStatuses]).default("pending_accounting").notNull(),
@@ -868,6 +876,7 @@ export const warehouseReceipts = mysqlTable("warehouse_receipts", {
   isDraft: boolean("isDraft").default(true).notNull(),
   approvedById: int("approvedById"),
   approvedAt: timestamp("approvedAt"),
+  printCount: int("printCount").default(0).notNull(),
 });
 export type WarehouseReceipt = typeof warehouseReceipts.$inferSelect;
 export type InsertWarehouseReceipt = typeof warehouseReceipts.$inferInsert;

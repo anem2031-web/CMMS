@@ -142,13 +142,90 @@ export async function getTickets(filters?: TicketListFilters) {
   }));
 }
 
+// ============================================================
+// صندوق البلاغات (Tickets Inbox) — فلاتر سريعة وترتيب من الخادم
+// ملاحظة مهمة: هذه ليست Workflow جديدًا — مجرد شروط "عرض/قراءة" إضافية
+// تُبنى فوق نفس buildTicketsWhere ونفس الجدول ونفس الحالات المعرّفة في
+// drizzle/schema (ticketStatuses / ticketPriorities). لا قيم جديدة.
+// ============================================================
+export type TicketInboxQuickFilter = "all" | "critical" | "unassigned" | "stale" | "ready_for_closure";
+export type TicketInboxSort = "important" | "newest" | "oldest" | "updated";
+
+const STALE_HOURS = 48;
+
+// شرط "بلاغ مفتوح" = ليس مغلقًا (نفس تعريف فلتر status="open" المستخدم في buildTicketsWhere)
+function openCondition() {
+  return ne(tickets.status, "closed" as any);
+}
+
+// شروط الفلاتر السريعة — تُضاف فوق شرط buildTicketsWhere ولا تستبدله
+function quickFilterCondition(quickFilter?: TicketInboxQuickFilter) {
+  switch (quickFilter) {
+    case "critical":
+      // الأولوية الحرجة الحالية (من ticketPriorities)
+      return eq(tickets.priority, "critical" as any);
+    case "unassigned":
+      // لا يوجد فني مسند (لا داخلي ولا خارجي) — مع استبعاد المغلقة لأن الهدف المتابعة
+      return and(openCondition(), isNull(tickets.assignedToId), isNull(tickets.assignedTechnicianId));
+    case "stale":
+      // بلاغ مفتوح لم يتغير updatedAt الخاص به منذ 48 ساعة
+      return and(openCondition(), sql`${tickets.updatedAt} < (NOW() - INTERVAL ${sql.raw(String(STALE_HOURS))} HOUR)`);
+    case "ready_for_closure":
+      // الحالة الحالية المستخدمة في النظام للجاهزية للإغلاق (من ticketStatuses)
+      return eq(tickets.status, "ready_for_closure" as any);
+    default:
+      return undefined;
+  }
+}
+
+// ترتيب "الأهم أولًا": الحرجة ← غير المسندة ← بدون تحديث 48س ← أقدم المفتوحة ← البقية
+function importantFirstRank() {
+  return sql`CASE
+    WHEN ${tickets.status} <> 'closed' AND ${tickets.priority} = 'critical' THEN 0
+    WHEN ${tickets.status} <> 'closed' AND ${tickets.assignedToId} IS NULL AND ${tickets.assignedTechnicianId} IS NULL THEN 1
+    WHEN ${tickets.status} <> 'closed' AND ${tickets.updatedAt} < (NOW() - INTERVAL ${sql.raw(String(STALE_HOURS))} HOUR) THEN 2
+    WHEN ${tickets.status} <> 'closed' THEN 3
+    ELSE 4
+  END`;
+}
+
+// عدادات الفلاتر السريعة — نفس شرط buildTicketsWhere (وبالتالي نفس نطاق الصلاحيات
+// الممرر من الراوتر) ثم عدّ كل فلتر سريع فوقه
+export async function getTicketsInboxCounts(filters?: TicketListFilters) {
+  const db = await getDb();
+  if (!db) return { all: 0, critical: 0, unassigned: 0, stale: 0, ready_for_closure: 0 };
+  const base = buildTicketsWhere(filters);
+  const countWhere = async (qf?: TicketInboxQuickFilter) => {
+    const extra = quickFilterCondition(qf);
+    const where = base && extra ? and(base, extra) : (extra ?? base);
+    const [{ cnt }] = await db.select({ cnt: count() }).from(tickets).where(where);
+    return Number(cnt) || 0;
+  };
+  const [all, critical, unassigned, stale, ready] = await Promise.all([
+    countWhere(undefined),
+    countWhere("critical"),
+    countWhere("unassigned"),
+    countWhere("stale"),
+    countWhere("ready_for_closure"),
+  ]);
+  return { all, critical, unassigned, stale, ready_for_closure: ready };
+}
+
 // صفحات حقيقية لقائمة البلاغات: ترجع فقط عناصر الصفحة المطلوبة + العدد الإجمالي
 // لحساب عدد الصفحات بالواجهة (limit/offset على مستوى قاعدة البيانات بعد تطبيق نفس الفلاتر والبحث)
-export async function getTicketsPaginated(filters: TicketListFilters | undefined, page: number = 1, pageSize: number = 10) {
+// خيارات inbox (quickFilter/sort) اختيارية ولا تغيّر السلوك الافتراضي القديم إطلاقًا
+export async function getTicketsPaginated(
+  filters: TicketListFilters | undefined,
+  page: number = 1,
+  pageSize: number = 10,
+  options?: { quickFilter?: TicketInboxQuickFilter; sort?: TicketInboxSort },
+) {
   const db = await getDb();
   if (!db) return { tickets: [] as any[], total: 0, page: 1, pageSize, totalPages: 1 };
 
-  const where = buildTicketsWhere(filters);
+  const base = buildTicketsWhere(filters);
+  const extra = quickFilterCondition(options?.quickFilter);
+  const where = base && extra ? and(base, extra) : (extra ?? base);
 
   const [{ cnt }] = await db.select({ cnt: count() }).from(tickets).where(where);
   const total = Number(cnt) || 0;
@@ -156,18 +233,34 @@ export async function getTicketsPaginated(filters: TicketListFilters | undefined
   const safePage = Math.min(Math.max(1, page), totalPages);
   const offset = (safePage - 1) * pageSize;
 
+  // ترتيب النتائج: الافتراضي القديم (الأحدث أولًا) يبقى كما هو تمامًا
+  const sortMode = options?.sort;
+  const orderExprs =
+    sortMode === "important"
+      ? [asc(importantFirstRank()),
+         // داخل الفئات المفتوحة (0-3): الأقدم أولًا — والبقية (المغلقة): الأحدث أولًا
+         asc(sql`IF(${importantFirstRank()} < 4, UNIX_TIMESTAMP(${tickets.createdAt}), -UNIX_TIMESTAMP(${tickets.createdAt}))`)]
+      : sortMode === "oldest"
+        ? [asc(tickets.createdAt)]
+        : sortMode === "updated"
+          ? [desc(tickets.updatedAt)]
+          : [desc(tickets.createdAt)]; // newest / الافتراضي القديم
+
   const assignedUser = alias(users, "assignedUser");
+  const reporter = alias(users, "reporterUser");
   const rows = await db
     .select({
       ticket: tickets,
       technicianName: technicians.name,
       assignedUserName: assignedUser.name,
+      reporterName: reporter.name,
     })
     .from(tickets)
     .leftJoin(technicians, eq(tickets.assignedTechnicianId, technicians.id))
     .leftJoin(assignedUser, eq(tickets.assignedToId, assignedUser.id))
+    .leftJoin(reporter, eq(tickets.reportedById, reporter.id))
     .where(where)
-    .orderBy(desc(tickets.createdAt))
+    .orderBy(...orderExprs)
     .limit(pageSize)
     .offset(offset);
 
@@ -176,6 +269,7 @@ export async function getTicketsPaginated(filters: TicketListFilters | undefined
       ...r.ticket,
       assignedTechnicianName: r.technicianName ?? null,
       assignedToUserName: r.assignedUserName ?? null,
+      reportedByName: r.reporterName ?? null,
     })),
     total,
     page: safePage,

@@ -12,6 +12,7 @@ import Home from "@/pages/dashboard/Home";
 import Tickets from "@/pages/tickets/Tickets";
 import ImprovementIdeas from "@/pages/improvement/ImprovementIdeas";
 import TicketDetail from "@/pages/tickets/TicketDetail";
+import TicketsInbox from "@/pages/tickets/TicketsInbox";
 import CreateTicket from "@/pages/tickets/CreateTicket";
 import PurchaseOrders from "@/pages/purchase/PurchaseOrders";
 import PurchaseOrderDetail from "@/pages/purchase/PurchaseOrderDetail";
@@ -30,6 +31,7 @@ import TechnicianReport from "@/pages/reports/TechnicianReport";
 import MyItems from "@/pages/inventory/MyItems";
 import TranslationMonitor from "@/pages/admin/TranslationMonitor";
 import PurchaseCycle from "@/pages/purchase/PurchaseCycle";
+import DocumentsCenter from "@/pages/DocumentsCenter";
 import ItemTracker from "@/pages/inventory/ItemTracker";
 import PurchaseCycleReport from "@/pages/reports/PurchaseCycleReport";
 import MaintenanceCycleReport from "@/pages/reports/MaintenanceCycleReport";
@@ -74,12 +76,15 @@ function Router() {
             <Route path="/tickets" component={Tickets} />
             <Route path="/improvement-ideas" component={ImprovementIdeas} />
             <Route path="/tickets/new" component={CreateTicket} />
+            {/* صندوق البلاغات — يجب أن يسبق /tickets/:id حتى لا تُفسَّر "inbox" كمعرّف بلاغ */}
+            <Route path="/tickets/inbox" component={TicketsInbox} />
             <Route path="/tickets/:id" component={TicketDetail} />
             <Route path="/purchase-orders" component={PurchaseOrders} />
             <Route path="/purchase-orders/new" component={CreatePurchaseOrder} />
             <Route path="/purchase-orders/edit-draft/:id" component={CreatePurchaseOrder} />
             <Route path="/purchase-orders/:id" component={PurchaseOrderDetail} />
             <Route path="/purchase-cycle" component={PurchaseCycle} />
+            <Route path="/documents" component={DocumentsCenter} />
             <Route path="/item-tracker" component={ItemTracker} />
             <Route path="/my-items" component={MyItems} />
             <Route path="/inventory" component={Inventory} />

@@ -1,6 +1,7 @@
 import ExcelJS from "exceljs";
 import * as db from "../../_core/db";
 import { htmlToPdf } from "../pdf/htmlToPdfService";
+import { getSignatureDataUrl } from "../pdf/signatureImage";
 
 // ============================================================
 // EXCEL EXPORT HELPERS
@@ -664,6 +665,54 @@ export async function generatePurchaseRequestPDF(
   const reviewerName = reviewer?.name || "-";
   const accountingApproverName = accountingApprover?.name || "";
 
+  // ── التوقيع الإلكتروني (0047 + إصلاح 0048) ──────────────────
+  // إصلاح جوهري: التوقيع لم يعد يُقرأ حيًّا من users.signatureUrl في كل
+  // طباعة (كان هذا يجعل استبدال توقيع المستخدم لاحقًا يغيّر شكل الوثائق
+  // القديمة بأثر رجعي). الآن: أول مرة تصدر فيها الوثيقة لهذا الطلب/الدفعة
+  // يُجمَّد التوقيع الحالي في عمود Snapshot، وكل طباعة لاحقة تقرأ من هذا
+  // التجميد فقط — من الحالي للمستقبل، بلا تعديل على ما صدر مسبقًا.
+  // يُملأ تلقائيًا لثلاث خانات فقط: مقدّم الطلب، مراجع الطلب، مستلم العهدة.
+  // خانتا «الحسابات» و«الشؤون المالية» تبقيان فارغتين للتوقيع اليدوي.
+  let requesterSigSource = (po as any).requesterSignatureSnapshot || null;
+  if (!requesterSigSource) {
+    requesterSigSource = (requester as any)?.signatureUrl || null;
+    if (requesterSigSource) {
+      await db.updatePurchaseOrder(po.id, { requesterSignatureSnapshot: requesterSigSource });
+    }
+  }
+
+  let reviewerSigSource = (po as any).reviewerSignatureSnapshot || null;
+  if (!reviewerSigSource && reviewer) {
+    reviewerSigSource = (reviewer as any)?.signatureUrl || null;
+    if (reviewerSigSource) {
+      await db.updatePurchaseOrder(po.id, { reviewerSignatureSnapshot: reviewerSigSource });
+    }
+  }
+
+  // توقيع المندوب يُجمَّد على مستوى الدفعة تحديدًا (كل دفعة قد يسعّرها مندوب مختلف).
+  // لو الطباعة بلا تحديد دفعة (نسخة الطلب كاملاً)، نُبقي القراءة حيّة كسلوك
+  // احتياطي فقط لهذه الحالة النادرة.
+  let delegateSigSource: string | null = null;
+  if (batch) {
+    delegateSigSource = (batch as any).delegateSignatureSnapshot || null;
+    if (!delegateSigSource) {
+      delegateSigSource = (delegate as any)?.signatureUrl || null;
+      if (delegateSigSource) {
+        await db.updatePOPricingBatch(batch.id, { delegateSignatureSnapshot: delegateSigSource });
+      }
+    }
+  } else {
+    delegateSigSource = (delegate as any)?.signatureUrl || null;
+  }
+
+  const [requesterSig, reviewerSig, delegateSig] = await Promise.all([
+    getSignatureDataUrl(requesterSigSource),
+    getSignatureDataUrl(reviewerSigSource),
+    getSignatureDataUrl(delegateSigSource),
+  ]);
+  const sigImg = (dataUrl: string) =>
+    dataUrl ? `<img src="${dataUrl}" alt="التوقيع" class="sig-img" />` : "";
+
   // ── استبعاد الأصناف الملغاة/المرفوضة، وكذلك التي لم يُسعِّرها المندوب بعد ──
   // (1) صنف مُلغى: لن يُشترى أصلاً، فلا يجوز احتسابه ضمن مبلغ العهدة المطلوب صرفه.
   // (2) صنف بلا تسعير: لا معنى لإدراجه في مستند "طلب عهدة مالية" أصلاً — المبلغ
@@ -775,6 +824,9 @@ export async function generatePurchaseRequestPDF(
         table.signatures-table { width: 100%; border-collapse: collapse; margin-bottom: 8.55px; background: #ffffff; }
         table.signatures-table th { background-color: #4a5568; color: #ffffff; font-weight: bold; padding: ${rowPad}px; font-size: ${FS(8.1)}pt; border: 1px solid #4a5568; }
         table.signatures-table td { border: 1px solid #cbd5e0; padding: ${rowPad}px ${sigPadH}px; font-size: ${FS(8.55)}pt; height: ${sigRowHeight}px; }
+        /* التوقيع الإلكتروني: يُقصّ ارتفاعه ليناسب الصف بلا تمديده أو كسر التنسيق */
+        /* حجم صورة التوقيع × 3 (كانت صغيرة جدًا) — الصف يتمدد تلقائيًا لاستيعابها */
+        .sig-img { max-height: ${(sigRowHeight * 0.85 * 1.6).toFixed(1)}px; max-width: 100%; object-fit: contain; display: block; margin: 0 auto; }
         .finance-section { background-color: #ffffff; border: 1px solid #cbd5e0; border-radius: 6px; padding: 6.84px; margin-bottom: 6.84px; }
         .line-input { margin-bottom: 5.13px; font-size: ${FS(8.55)}pt; }
         .dotted-line { border-bottom: 1px dotted #718096; display: inline-block; min-width: 150px; }
@@ -854,17 +906,17 @@ export async function generatePurchaseRequestPDF(
             <tr>
                 <td style="font-weight: bold; background-color: #f7fafc;">مقدّم الطلب</td>
                 <td>${escapeHtml(requesterName)}</td>
-                <td></td>
+                <td>${sigImg(requesterSig)}</td>
             </tr>
             <tr>
                 <td style="font-weight: bold; background-color: #f7fafc;">مراجع الطلب</td>
                 <td>${escapeHtml(reviewerName)}</td>
-                <td></td>
+                <td>${sigImg(reviewerSig)}</td>
             </tr>
             <tr>
                 <td style="font-weight: bold; background-color: #f7fafc;">اسم مستلم العهدة</td>
                 <td>${escapeHtml(delegateName)}</td>
-                <td></td>
+                <td>${sigImg(delegateSig)}</td>
             </tr>
             ${isDelegateViewer ? "" : `
             <tr>

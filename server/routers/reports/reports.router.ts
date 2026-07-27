@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { router, protectedProcedure, managerProcedure } from "../_shared/procedures";
 import * as db from "../../_core/db";
+import { computePurchaseOrderPhases } from "../../services/reports/purchaseCyclePhases";
 
 export const reportsRouter = router({
   ticketsByStatus: protectedProcedure.query(async () => {
@@ -118,11 +119,12 @@ export const reportsRouter = router({
     dateTo: z.string().optional(),
     poId: z.number().optional(),
   }).optional()).query(async ({ input }) => {
-    const [allPOs, allUsers, allItems, allTickets] = await Promise.all([
+    const [allPOs, allUsers, allItems, allTickets, allWarehouseReceiptItems] = await Promise.all([
       db.getPurchaseOrders(),
       db.getAllUsers(),
       db.getAllPOItems(),
       db.getTickets(),
+      db.getAllWarehouseReceiptItemsMinimal(),
     ]);
 
     let pos = allPOs;
@@ -141,22 +143,36 @@ export const reportsRouter = router({
 
     const msToHours = (ms: number) => Math.round(ms / 3600000 * 10) / 10;
 
+    // ✅ خريطة "لحظة حفظ الفاتورة" لكل صنف — أقدم سجل استلام فعلي لكل purchaseOrderItemId
+    // (البيانات مُرتَّبة تصاعديًا من الاستعلام نفسه، فأول ظهور = الأقدم زمنياً)
+    const invoiceSavedAtByItemId = new Map<number, number>();
+    for (const wri of allWarehouseReceiptItems) {
+      const itemId = wri.purchaseOrderItemId;
+      if (itemId != null && !invoiceSavedAtByItemId.has(itemId)) {
+        invoiceSavedAtByItemId.set(itemId, new Date(wri.createdAt).getTime());
+      }
+    }
+
     const result = pos.map(po => {
       const items = allItems.filter(i => i.purchaseOrderId === po.id);
       const ticket = po.ticketId ? allTickets.find(t => t.id === po.ticketId) : null;
       const requestedBy = allUsers.find(u => u.id === po.requestedById)?.name || "غير معروف";
-      const accountingApprovedBy = allUsers.find(u => u.id === po.accountingApprovedById)?.name;
-      const managementApprovedBy = allUsers.find(u => u.id === po.managementApprovedById)?.name;
+      const reviewedBy = allUsers.find(u => u.id === (po as any).reviewedById)?.name || null;
+      const accountingApprovedBy = allUsers.find(u => u.id === po.accountingApprovedById)?.name || null;
+      const managementApprovedBy = allUsers.find(u => u.id === po.managementApprovedById)?.name || null;
 
-      const t0 = new Date(po.createdAt).getTime();
+      // ✅ إصلاح: استبدال منطق poPhases القديم (3 مراحل، حالتان فقط done/pending،
+      // ولا يشمل مرحلة "مراجعة الأصناف" إطلاقًا) بالدالة المشتركة الصحيحة —
+      // راجع server/services/reports/purchaseCyclePhases.ts لتفاصيل الإصلاح والسبب.
+      const poPhases = computePurchaseOrderPhases(po as any, {
+        requestedBy,
+        reviewedBy,
+        accountingApprovedBy,
+        managementApprovedBy,
+      });
+
       const t1 = po.accountingApprovedAt ? new Date(po.accountingApprovedAt).getTime() : null;
       const t2 = po.managementApprovedAt ? new Date(po.managementApprovedAt).getTime() : null;
-
-      const poPhases = [
-        { phase: "إنشاء الطلب", startAt: new Date(po.createdAt), endAt: po.accountingApprovedAt ? new Date(po.accountingApprovedAt) : null, durationHours: t1 ? msToHours(t1 - t0) : null, actor: requestedBy, status: "done" },
-        { phase: "موافقة الحسابات", startAt: po.accountingApprovedAt ? new Date(po.accountingApprovedAt) : null, endAt: po.managementApprovedAt ? new Date(po.managementApprovedAt) : null, durationHours: t1 && t2 ? msToHours(t2 - t1) : null, actor: accountingApprovedBy || null, status: po.accountingApprovedAt ? "done" : "pending" },
-        { phase: "موافقة الإدارة", startAt: po.managementApprovedAt ? new Date(po.managementApprovedAt) : null, endAt: null, durationHours: null, actor: managementApprovedBy || null, status: po.managementApprovedAt ? "done" : "pending" },
-      ];
 
       const itemsReport = items.map(item => {
         const delegate = allUsers.find(u => u.id === item.delegateId)?.name || "غير مُعيَّن";
@@ -165,16 +181,23 @@ export const reportsRouter = router({
         const purchasedBy = allUsers.find(u => u.id === item.purchasedById)?.name;
 
         const tCreated = new Date(item.createdAt).getTime();
+        const tUpdated = item.estimatedUnitCost ? new Date(item.updatedAt).getTime() : null;
         const tPurchased = item.purchasedAt ? new Date(item.purchasedAt).getTime() : null;
         const tReceived = item.receivedAt ? new Date(item.receivedAt).getTime() : null;
+        const tInvoiceSaved = invoiceSavedAtByItemId.get(item.id) ?? null;
         const tDelivered = item.deliveredAt ? new Date(item.deliveredAt).getTime() : null;
 
+        // ✅ إعادة هيكلة كاملة: 7 مراحل بدل 5، بعد اتفاق مفصَّل مع صاحب المشروع على تعريف
+        // بداية/نهاية كل مرحلة بدقة (راجع docs/CHANGELOG_TECHNICAL.md بند 2026-07-21 للتفاصيل
+        // الكاملة والأسباب). كل مرحلة تبدأ من حيث انتهت التي قبلها مباشرة — لا فجوات ولا تداخل.
         const phases = [
-          { phase: "انتظار التسعير", startAt: new Date(item.createdAt), endAt: item.estimatedUnitCost ? new Date(item.updatedAt) : null, durationHours: item.estimatedUnitCost && t2 ? msToHours(t2 - tCreated) : null, status: item.estimatedUnitCost ? "done" : "pending" },
-          { phase: "اعتماد الشراء", startAt: po.managementApprovedAt ? new Date(po.managementApprovedAt) : null, endAt: item.purchasedAt ? new Date(item.purchasedAt) : null, durationHours: t2 && tPurchased ? msToHours(tPurchased - t2) : null, status: item.purchasedAt ? "done" : (po.managementApprovedAt ? "in_progress" : "pending") },
-          { phase: "شراء المندوب", startAt: item.purchasedAt ? new Date(item.purchasedAt) : null, endAt: item.receivedAt ? new Date(item.receivedAt) : null, durationHours: tPurchased && tReceived ? msToHours(tReceived - tPurchased) : null, actor: purchasedBy || delegate, status: item.purchasedAt ? "done" : "pending" },
-          { phase: "استلام المستودع", startAt: item.receivedAt ? new Date(item.receivedAt) : null, endAt: item.deliveredAt ? new Date(item.deliveredAt) : null, durationHours: tReceived && tDelivered ? msToHours(tDelivered - tReceived) : null, actor: receivedBy || null, status: item.receivedAt ? "done" : "pending" },
-          { phase: "تسليم للفني", startAt: item.deliveredAt ? new Date(item.deliveredAt) : null, endAt: null, durationHours: null, actor: deliveredBy || null, status: item.deliveredAt ? "done" : "pending" },
+          { phase: "انتظار التسعير", startAt: new Date(item.createdAt), endAt: tUpdated ? new Date(tUpdated) : null, durationHours: tUpdated ? msToHours(tUpdated - tCreated) : null, status: item.estimatedUnitCost ? "done" : "pending" },
+          { phase: "اعتماد الحسابات", startAt: tUpdated ? new Date(tUpdated) : null, endAt: t1 ? new Date(t1) : null, durationHours: (tUpdated && t1) ? msToHours(t1 - tUpdated) : null, actor: accountingApprovedBy || null, status: po.accountingApprovedAt ? "done" : (tUpdated ? "in_progress" : "pending") },
+          { phase: "اعتماد الشراء", startAt: t1 ? new Date(t1) : null, endAt: t2 ? new Date(t2) : null, durationHours: (t1 && t2) ? msToHours(t2 - t1) : null, actor: managementApprovedBy || null, status: po.managementApprovedAt ? "done" : (po.accountingApprovedAt ? "in_progress" : "pending") },
+          { phase: "شراء المندوب", startAt: t2 ? new Date(t2) : null, endAt: item.purchasedAt ? new Date(item.purchasedAt) : null, durationHours: (t2 && tPurchased) ? msToHours(tPurchased - t2) : null, actor: purchasedBy || delegate, status: item.purchasedAt ? "done" : (po.managementApprovedAt ? "in_progress" : "pending") },
+          { phase: "وقت التوصيل", startAt: item.purchasedAt ? new Date(item.purchasedAt) : null, endAt: item.receivedAt ? new Date(item.receivedAt) : null, durationHours: (tPurchased && tReceived) ? msToHours(tReceived - tPurchased) : null, status: item.receivedAt ? "done" : (item.purchasedAt ? "in_progress" : "pending") },
+          { phase: "استلام المستودع", startAt: item.receivedAt ? new Date(item.receivedAt) : null, endAt: tInvoiceSaved ? new Date(tInvoiceSaved) : null, durationHours: (tReceived && tInvoiceSaved) ? msToHours(tInvoiceSaved - tReceived) : null, actor: receivedBy || null, status: tInvoiceSaved ? "done" : (item.receivedAt ? "in_progress" : "pending") },
+          { phase: "تسليم للفني", startAt: tInvoiceSaved ? new Date(tInvoiceSaved) : null, endAt: item.deliveredAt ? new Date(item.deliveredAt) : null, durationHours: (tInvoiceSaved && tDelivered) ? msToHours(tDelivered - tInvoiceSaved) : null, actor: deliveredBy || null, status: item.deliveredAt ? "done" : (tInvoiceSaved ? "in_progress" : "pending") },
         ];
 
         const totalHours = tDelivered ? msToHours(tDelivered - tCreated) : null;
@@ -206,7 +229,7 @@ export const reportsRouter = router({
       ? Math.round(completedPOs.reduce((s, r) => s + (r.totalPOHours || 0), 0) / completedPOs.length * 10) / 10
       : null;
 
-    const phaseNames = ["انتظار التسعير", "اعتماد الشراء", "شراء المندوب", "استلام المستودع", "تسليم للفني"];
+    const phaseNames = ["انتظار التسعير", "اعتماد الحسابات", "اعتماد الشراء", "شراء المندوب", "وقت التوصيل", "استلام المستودع", "تسليم للفني"];
     const phaseAvgs = phaseNames.map(phaseName => {
       const durations: number[] = result.flatMap(r => r.items.flatMap(i => i.phases.filter(p => p.phase === phaseName && p.durationHours !== null).map(p => p.durationHours as number)));
       return { phase: phaseName, avgHours: durations.length > 0 ? Math.round(durations.reduce((s: number, d: number) => s + d, 0) / durations.length * 10) / 10 : null, count: durations.length };

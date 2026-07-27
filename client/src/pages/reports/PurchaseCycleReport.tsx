@@ -123,12 +123,28 @@ const PHASE_KEY_MAP: Record<string, string> = {
   "استلام المستودع": "warehouseReceive",
   "تسليم للفني": "deliverToTechnician",
   "انتظار التسعير": "waitingPricing",
+  "اعتماد الحسابات": "itemAccountingApproval",
   "اعتماد الشراء": "purchaseApproval",
+  "وقت التوصيل": "transitTime",
 };
 
 function translatePhase(phaseName: string, tr: any): string {
   const key = PHASE_KEY_MAP[phaseName];
   return (key && tr?.purchaseCycleReport?.phases?.[key]) || phaseName;
+}
+
+// ─── Phase Status Badge (4 states: مكتملة/قيد التنفيذ/بانتظار التنفيذ/لم تبدأ) ──────
+function PhaseStatusBadge({ status }: { status: string }) {
+  switch (status) {
+    case "مكتملة":
+      return <span className="text-green-600 dark:text-green-400 flex items-center gap-1 whitespace-nowrap"><CheckCircle2 className="w-3 h-3" />مكتملة</span>;
+    case "قيد التنفيذ":
+      return <span className="text-blue-600 dark:text-blue-400 flex items-center gap-1 whitespace-nowrap"><Clock className="w-3 h-3" />قيد التنفيذ</span>;
+    case "بانتظار التنفيذ":
+      return <span className="text-amber-600 dark:text-amber-400 flex items-center gap-1 whitespace-nowrap"><Clock className="w-3 h-3" />بانتظار التنفيذ</span>;
+    default:
+      return <span className="text-muted-foreground flex items-center gap-1 whitespace-nowrap"><Clock className="w-3 h-3" />لم تبدأ</span>;
+  }
 }
 
 // ─── Actor Cell ───────────────────────────────────────────────────────────────
@@ -341,9 +357,11 @@ function POCard({ po }: { po: any }) {
       <thead>
         <tr className="border-b border-border">
           <th className="text-right py-1.5 pr-2 font-semibold text-muted-foreground">{tr.purchaseCycleReport?.stage || "Stage"}</th>
-          <th className="text-right py-1.5 font-semibold text-muted-foreground">{tr.common?.date || "Date"}</th>
-          <th className="text-right py-1.5 font-semibold text-muted-foreground">{tr.purchaseCycleReport?.delegate || "Executor"}</th>
           <th className="text-right py-1.5 font-semibold text-muted-foreground">{tr.common?.status || "Status"}</th>
+          <th className="text-right py-1.5 font-semibold text-muted-foreground">{tr.purchaseCycleReport?.delegate || "Executor"}</th>
+          <th className="text-right py-1.5 font-semibold text-muted-foreground">{tr.purchaseCycleReport?.startDate || "Start"}</th>
+          <th className="text-right py-1.5 font-semibold text-muted-foreground">{tr.purchaseCycleReport?.endDate || "End"}</th>
+          <th className="text-right py-1.5 font-semibold text-muted-foreground">{tr.purchaseCycleReport?.duration || "Duration"}</th>
         </tr>
       </thead>
       <tbody>
@@ -355,17 +373,20 @@ function POCard({ po }: { po: any }) {
                 <span className="font-medium">{translatePhase(p.phase, tr)}</span>
               </div>
             </td>
-            <td className="py-1.5 text-muted-foreground">
-              {p.startAt ? new Date(p.startAt).toLocaleDateString("ar-SA") : "—"}
+            <td className="py-1.5">
+              <PhaseStatusBadge status={p.status} />
             </td>
             <td className="py-1.5">
               <ActorCell phase={p} />
             </td>
-            <td className="py-1.5">
-              {p.status === "done"
-                ? <span className="text-green-600 dark:text-green-400 flex items-center gap-1"><CheckCircle2 className="w-3 h-3" />منجز</span>
-                : <span className="text-muted-foreground flex items-center gap-1"><Clock className="w-3 h-3" />انتظار</span>
-              }
+            <td className="py-1.5 text-muted-foreground whitespace-nowrap">
+              {p.startAt ? new Date(p.startAt).toLocaleString("ar-SA", { dateStyle: "short", timeStyle: "short" }) : "—"}
+            </td>
+            <td className="py-1.5 text-muted-foreground whitespace-nowrap">
+              {p.endAt ? new Date(p.endAt).toLocaleString("ar-SA", { dateStyle: "short", timeStyle: "short" }) : "—"}
+            </td>
+            <td className="py-1.5 text-muted-foreground whitespace-nowrap">
+              {formatHours(p.durationHours, tr)}
             </td>
           </tr>
         ))}

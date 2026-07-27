@@ -42,7 +42,7 @@ const FULL_ACCESS_ROLES = ["owner", "admin", "maintenance_manager", "purchase_ma
 export default function PurchaseOrders() {
   const [, setLocation] = useLocation();
   const { t, language } = useTranslation();
-  const { getPOStatusLabel } = useStaticLabels();
+  const { getPOStatusLabel, getPOItemStatusLabel } = useStaticLabels();
   const { user } = useAuth();
   const utils = trpc.useUtils();
 
@@ -168,6 +168,10 @@ export default function PurchaseOrders() {
             <SelectContent>
               <SelectItem value="all">{t.common.all}</SelectItem>
               {Object.keys(t.poStatus).map(k => <SelectItem key={k} value={k}>{getPOStatusLabel(k)}</SelectItem>)}
+              {/* ✅ فلترة إضافية على مستوى الصنف: طلبات تحتوي صنفًا واحدًا على الأقل بهذه
+                  الحالة — وليست حالة للطلب نفسه، لذا بتسمية توضيحية مختلفة لتفادي اللبس */}
+              <SelectItem value="purchase_cancelled">{`${t.common.contains || "يحتوي صنفًا"}: ${getPOItemStatusLabel("purchase_cancelled")}`}</SelectItem>
+              <SelectItem value="needs_item_revision">{`${t.common.contains || "يحتوي صنفًا"}: ${getPOItemStatusLabel("needs_item_revision")}`}</SelectItem>
             </SelectContent>
           </Select>
         </div>

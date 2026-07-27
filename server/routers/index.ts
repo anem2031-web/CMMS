@@ -48,7 +48,10 @@ import { attachmentsRouter } from "./uploads/attachments.router";
 import { reportsRouter } from "./reports/reports.router";
 import { analyticsRouter } from "./reports/analytics.router";
 import { maintenanceReportsRouter } from "./reports/maintenance-reports.router";
-import { purchaseReportsRouter } from "./reports/purchase-reports.router";
+// ✅ purchaseReportsRouter (purchase-reports.router.ts) حُذف نهائيًا — كان كودًا ميتًا
+// 100% (صفر استخدام من الواجهة)، ونسخة مكرَّرة من purchaseCycleReport/costReport
+// الموجودتين فعلياً وبشكل صحيح في reportsRouter أعلاه. راجع docs/CHANGELOG_TECHNICAL.md
+// (بند 2026-07-21) لتفاصيل هذا الاكتشاف والإصلاح الكامل.
 import { inventoryReportsRouter } from "./reports/inventory-reports.router";
 
 import { aiRouter } from "./ai/ai.router";
@@ -115,7 +118,6 @@ purchaseOrders: router({
   reports: reportsRouter,
   analytics: analyticsRouter,
   maintenanceReports: maintenanceReportsRouter,
-  purchaseReports: purchaseReportsRouter,
   inventoryReports: inventoryReportsRouter,
 
   ai: aiRouter,

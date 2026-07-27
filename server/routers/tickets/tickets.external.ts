@@ -11,6 +11,12 @@ export const ticketsExternalRouter = router({
     await db.updateTicket(input.id, { status: "out_for_repair", gateExitApprovedById: ctx.user.id, gateExitApprovedAt: new Date() });
     await db.addTicketStatusHistory({ ticketId: input.id, fromStatus: ticket.status, toStatus: "out_for_repair", changedById: ctx.user.id, notes: "تمت الموافقة على خروج الأصل" });
     await db.createAuditLog({ userId: ctx.user.id, action: "gate_exit_approved", entityType: "ticket", entityId: input.id });
+    // إشعار المندوبين: كانت هذه الخطوة لا تنبّه أحداً — الأصل يخرج فعلياً للإصلاح
+    // الخارجي دون أن يعلم المندوب المسؤول عن متابعته حتى يفتح التطبيق يدوياً.
+    const delegateUsers = await db.getUsersByRole("delegate");
+    for (const d of delegateUsers) {
+      await db.createNotification({ userId: d.id, title: "أصل خرج للإصلاح الخارجي", message: `الأصل المرتبط بالبلاغ ${ticket.ticketNumber} غادر المنشأة للإصلاح الخارجي`, type: "info", relatedTicketId: input.id });
+    }
     return { success: true };
   }),
 

@@ -57,6 +57,18 @@ const validatePayload = (input: NotificationPayload): NotificationPayload => {
   return { title, content };
 };
 
+// هذه الخدمة خاصة بتنبيه "مالك" مشروع Manus عند حدوث أخطاء نظام — منفصلة تماماً
+// عن نظام إشعارات المستخدمين الداخلي (البلاغات/طلبات الشراء). في بيئة تشغيل ذاتية
+// (self-hosted) عادة لا يوجد مفتاح صالح لهذه الخدمة، وبما أنها تُستدعى من عدة
+// مهام دورية (jobs)، كانت رسالة الفشل تتكرر في كل تشغيل. نطبع كل رسالة مرة واحدة
+// فقط لكل نوع فشل طوال عمر العملية (process) بدل تكرارها في كل استدعاء.
+const warnedOnce = new Set<string>();
+const warnOnce = (key: string, ...args: unknown[]) => {
+  if (warnedOnce.has(key)) return;
+  warnedOnce.add(key);
+  console.warn(...args, "(لن تتكرر هذه الرسالة مجدداً في هذه الجلسة)");
+};
+
 /**
  * Dispatches a project-owner notification through the Manus Notification Service.
  * Returns `true` if the request was accepted, `false` when the upstream service
@@ -69,12 +81,12 @@ export async function notifyOwner(
   const { title, content } = validatePayload(payload);
 
   if (!ENV.forgeApiUrl) {
-    console.warn("[Notifications] Notification service unavailable — owner notifications skipped (URL not configured).");
+    warnOnce("no-url", "[Notifications] Notification service unavailable — owner notifications skipped (URL not configured).");
     return false;
   }
 
   if (!ENV.forgeApiKey) {
-    console.warn("[Notifications] Notification service unavailable — owner notifications skipped (API key not configured).");
+    warnOnce("no-key", "[Notifications] Notification service unavailable — owner notifications skipped (API key not configured).");
     return false;
   }
 
@@ -94,7 +106,8 @@ export async function notifyOwner(
 
     if (!response.ok) {
       const detail = await response.text().catch(() => "");
-      console.warn(
+      warnOnce(
+        `http-${response.status}`,
         `[Notification] Failed to notify owner (${response.status} ${response.statusText})${
           detail ? `: ${detail}` : ""
         }`
@@ -104,7 +117,7 @@ export async function notifyOwner(
 
     return true;
   } catch (error) {
-    console.warn("[Notification] Error calling notification service:", error);
+    warnOnce("network-error", "[Notification] Error calling notification service:", error);
     return false;
   }
 }

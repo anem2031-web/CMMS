@@ -37,13 +37,36 @@ export const ticketsRouter = router({
     assignedToId: z.number().optional(),
     page: z.number().min(1).default(1),
     pageSize: z.number().min(1).max(100).default(10),
+    // خيارات "صندوق البلاغات" — اختيارية بالكامل ولا تغيّر سلوك الصفحة الحالية
+    quickFilter: z.enum(["all", "critical", "unassigned", "stale", "ready_for_closure"]).optional(),
+    sort: z.enum(["important", "newest", "oldest", "updated"]).optional(),
   }).optional()).query(async ({ input, ctx }) => {
     const role = ctx.user.role;
-    const { page = 1, pageSize = 10, ...rest } = input || {};
+    const { page = 1, pageSize = 10, quickFilter, sort, ...rest } = input || {};
     let filters: any = rest;
     if (role === "operator") filters.reportedById = ctx.user.id;
     else if (role === "technician") filters.assignedToId = ctx.user.id;
-    return db.getTicketsPaginated(filters, page, pageSize);
+    return db.getTicketsPaginated(filters, page, pageSize, {
+      quickFilter: quickFilter === "all" ? undefined : quickFilter,
+      sort,
+    });
+  }),
+
+  // عدادات الفلاتر السريعة لصندوق البلاغات — نفس الفلاتر ونفس نطاق الصلاحيات
+  // المستخدم في list/listPaginated حرفيًا (operator ← بلاغاته، technician ← المسند له)
+  inboxCounts: protectedProcedure.input(z.object({
+    status: z.string().optional(),
+    priority: z.string().optional(),
+    siteId: z.number().optional(),
+    sectionId: z.number().optional(),
+    search: z.string().optional(),
+    assignedToId: z.number().optional(),
+  }).optional()).query(async ({ input, ctx }) => {
+    const role = ctx.user.role;
+    let filters: any = input || {};
+    if (role === "operator") filters.reportedById = ctx.user.id;
+    else if (role === "technician") filters.assignedToId = ctx.user.id;
+    return db.getTicketsInboxCounts(filters);
   }),
 
   getById: protectedProcedure.input(z.object({ id: z.number() })).query(async ({ input }) => {
@@ -118,7 +141,11 @@ export const ticketsRouter = router({
     // Only owner/admin/manager or the reporter can edit
     const canEdit = ["owner", "admin", "maintenance_manager"].includes(ctx.user.role) || ticket.reportedById === ctx.user.id;
     if (!canEdit) throw new TRPCError({ code: "FORBIDDEN", message: "ليس لديك صلاحية لتعديل هذا البلاغ" });
-    if (ticket.status === "closed") throw new TRPCError({ code: "BAD_REQUEST", message: "لا يمكن تعديل بلاغ مغلق" });
+    // ✅ البلاغ قابل للتعديل فقط طالما لم يُصنَّف بعد (لا يزال في مرحلة الفرز الأولي pending_triage).
+    // بمجرد تصنيفه (انتقاله لأي حالة تالية) يُمنع التعديل نهائياً، بصرف النظر عن الدور.
+    if (ticket.status !== "pending_triage") {
+      throw new TRPCError({ code: "BAD_REQUEST", message: "لا يمكن تعديل البلاغ بعد تصنيفه" });
+    }
     const { id, ...updateData } = input;
     const oldValues: any = {};
     const newValues: any = {};

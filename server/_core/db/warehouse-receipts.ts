@@ -355,10 +355,92 @@ export async function getWarehouseReceiptByPO(purchaseOrderId: number) {
   return rows;
 }
 
+/**
+ * جلب مبسَّط (id, purchaseOrderItemId, createdAt فقط) لكل صفوف warehouse_receipt_items
+ * — يُستخدَم في تقرير دورة الشراء لمعرفة "لحظة حفظ الفاتورة" لكل صنف (مرحلتا استلام
+ * المستودع/التسليم للفني)، دون تحميل كامل بيانات سطر الفاتورة (أداء أفضل).
+ * عند وجود أكثر من سطر لنفس الصنف، يُختار الأقدم زمنيًا (أول سجل استلام فعلي).
+ */
+export async function getAllWarehouseReceiptItemsMinimal() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select({
+    purchaseOrderItemId: warehouseReceiptItems.purchaseOrderItemId,
+    createdAt: warehouseReceiptItems.createdAt,
+  })
+    .from(warehouseReceiptItems)
+    .where(isNotNull(warehouseReceiptItems.purchaseOrderItemId))
+    .orderBy(asc(warehouseReceiptItems.createdAt));
+}
+
 export async function listWarehouseReceipts() {
   const db = await getDb();
   if (!db) return [];
   return db.select().from(warehouseReceipts).orderBy(desc(warehouseReceipts.createdAt));
+}
+
+// ─────────────────────────────────────────────────────────────
+// «سند استلام المشتريات» — المستند الرسمي القابل للطباعة (0046)
+// يجمع كل تفاصيل العملية من رفع الفاتورة وتحليل OCR حتى الحفظ:
+// بيانات السند + المورد والفاتورة + المستلم + طلب الشراء المرتبط +
+// بنود السند مع الكود الداخلي وباركود المصنع لكل صنف (سواء وُلّد
+// آلياً أو أُدخل يدوياً — كلاهما محفوظ في inventory.manufacturerBarcode)
+// ─────────────────────────────────────────────────────────────
+export async function getWarehouseReceiptForPrint(id: number) {
+  const db = await getDb();
+  if (!db) return null;
+
+  const receiptRows = await db
+    .select({
+      receipt:        warehouseReceipts,
+      receivedByName: users.name,
+      poNumber:       purchaseOrders.poNumber,
+    })
+    .from(warehouseReceipts)
+    .leftJoin(users, eq(warehouseReceipts.receivedById, users.id))
+    .leftJoin(purchaseOrders, eq(warehouseReceipts.purchaseOrderId, purchaseOrders.id))
+    .where(eq(warehouseReceipts.id, id))
+    .limit(1);
+
+  if (!receiptRows.length) return null;
+  const { receipt, receivedByName, poNumber } = receiptRows[0];
+
+  // البنود مع بيانات الصنف الحية (الكود الداخلي وباركود المصنع)
+  const itemRows = await db
+    .select({
+      item:                warehouseReceiptItems,
+      internalCode:        inventory.internalCode,
+      manufacturerBarcode: inventory.manufacturerBarcode,
+      currentUnit:         inventory.unit,
+    })
+    .from(warehouseReceiptItems)
+    .leftJoin(inventory, eq(warehouseReceiptItems.inventoryId, inventory.id))
+    .where(eq(warehouseReceiptItems.receiptId, id))
+    .orderBy(asc(warehouseReceiptItems.id));
+
+  return {
+    ...receipt,
+    receivedByName: receivedByName ?? null,
+    poNumber:       poNumber ?? null,
+    items: itemRows.map(r => ({
+      ...r.item,
+      internalCode:        r.internalCode ?? null,
+      manufacturerBarcode: r.manufacturerBarcode ?? null,
+      unit:                r.item.purchaseUnit || r.currentUnit || "",
+    })),
+  };
+}
+
+// زيادة عدّاد طباعة سند الاستلام — بنفس نمط عدّادات وثائق التسليم والمرتجع
+export async function incrementReceiptPrintCount(id: number) {
+  const db = await getDb();
+  if (!db) return { printCount: 0 };
+  await db.update(warehouseReceipts)
+    .set({ printCount: sql`${warehouseReceipts.printCount} + 1` })
+    .where(eq(warehouseReceipts.id, id));
+  const rows = await db.select({ printCount: warehouseReceipts.printCount })
+    .from(warehouseReceipts).where(eq(warehouseReceipts.id, id)).limit(1);
+  return { printCount: rows[0]?.printCount ?? 0 };
 }
 
 // ============================================================

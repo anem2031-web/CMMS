@@ -12,7 +12,7 @@ import { Label } from "@/components/ui/label";
 import { STATUS_COLORS, PRIORITY_COLORS } from "@shared/types";
 import {
   ArrowRight, Clock, User, MapPin, CheckCircle2, Wrench, ShoppingCart,
-  Camera, Loader2, FileText, AlertCircle, ExternalLink, Upload, X, ZoomIn, Download, Video, PlayCircle
+  Camera, Loader2, FileText, AlertCircle, ExternalLink, Upload, X, ZoomIn, Download, Video, PlayCircle, Pencil
 } from "lucide-react";
 import { useState, useMemo, useCallback } from "react";
 import { toast } from "sonner";
@@ -98,6 +98,31 @@ const { getField } = useResolvedTranslation(
 
   const approveMut = trpc.tickets.approve.useMutation({ onSuccess: () => { toast.success(t.common.confirm); refetch(); } });
   const assignMut = trpc.tickets.assign.useMutation({ onSuccess: () => { toast.success(t.tickets.assignedTo); refetch(); } });
+
+  // ── تعديل البلاغ: متاح فقط طالما لم يُصنَّف بعد (status === "pending_triage") ──
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [editForm, setEditForm] = useState({ title: "", description: "", priority: "", category: "", locationDetail: "" });
+  const canEditTicket = !!ticket && ticket.status === "pending_triage" &&
+    (["owner", "admin", "maintenance_manager"].includes(user?.role || "") || ticket.reportedById === user?.id);
+  const openEditDialog = useCallback(() => {
+    if (!ticket) return;
+    setEditForm({
+      title: ticket.title || "",
+      description: ticket.description || "",
+      priority: ticket.priority || "",
+      category: ticket.category || "",
+      locationDetail: ticket.locationDetail || "",
+    });
+    setEditDialogOpen(true);
+  }, [ticket]);
+  const updateTicketMut = trpc.tickets.update.useMutation({
+    onSuccess: () => {
+      toast.success(t.common.save);
+      setEditDialogOpen(false);
+      refetch();
+    },
+    onError: (err) => toast.error(err.message),
+  });
   const startMut = trpc.tickets.startRepair.useMutation({ onSuccess: () => { toast.success(t.tickets.startRepair); refetch(); } });
   const completeMut = trpc.tickets.completeRepair.useMutation({ onSuccess: () => { toast.success(t.tickets.completeRepair); refetch(); } });
   const closeMut = trpc.tickets.close.useMutation({ onSuccess: () => { toast.success(t.tickets.closeTicket); refetch(); } });
@@ -402,7 +427,14 @@ const { getField } = useResolvedTranslation(
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 space-y-4">
           <Card>
-            <CardHeader><CardTitle className="text-base">{t.tickets.ticketTitle}</CardTitle></CardHeader>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <CardTitle className="text-base">{t.tickets.ticketTitle}</CardTitle>
+              {canEditTicket && (
+                <Button variant="ghost" size="sm" className="gap-1.5 h-8" onClick={openEditDialog}>
+                  <Pencil className="w-3.5 h-3.5" /> {t.common.edit}
+                </Button>
+              )}
+            </CardHeader>
             <CardContent className="space-y-4">
               {ticket.description && <p className="text-sm leading-relaxed">{getField("description")}</p>}
               <div className="grid grid-cols-2 gap-4 text-sm">
@@ -1159,6 +1191,70 @@ const { getField } = useResolvedTranslation(
         </DialogContent>
       </Dialog>
 
+      {/* تعديل البلاغ — متاح فقط طالما لم يُصنَّف بعد (pending_triage) */}
+      <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Pencil className="w-5 h-5" /> {t.common.edit} — {ticket?.ticketNumber}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>{t.tickets.ticketTitle}</Label>
+              <Textarea value={editForm.title} onChange={e => setEditForm(f => ({ ...f, title: e.target.value }))} rows={2} />
+            </div>
+            <div className="space-y-2">
+              <Label>{t.tickets.description}</Label>
+              <Textarea value={editForm.description} onChange={e => setEditForm(f => ({ ...f, description: e.target.value }))} rows={4} />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>{t.tickets.priority}</Label>
+                <Select value={editForm.priority} onValueChange={v => setEditForm(f => ({ ...f, priority: v }))}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {Object.keys(t.priority).map(k => <SelectItem key={k} value={k}>{getPriorityLabel(k)}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>{t.tickets.category}</Label>
+                <Select value={editForm.category} onValueChange={v => setEditForm(f => ({ ...f, category: v }))}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {Object.keys(t.category).map(k => <SelectItem key={k} value={k}>{getCategoryLabel(k)}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>{t.tickets.location}</Label>
+              <Textarea value={editForm.locationDetail} onChange={e => setEditForm(f => ({ ...f, locationDetail: e.target.value }))} rows={1} />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditDialogOpen(false)}>{t.common.cancel}</Button>
+            <Button
+              onClick={() => {
+                if (!ticket) return;
+                updateTicketMut.mutate({
+                  id: ticket.id,
+                  title: editForm.title,
+                  description: editForm.description,
+                  priority: editForm.priority,
+                  category: editForm.category,
+                  locationDetail: editForm.locationDetail,
+                });
+              }}
+              disabled={updateTicketMut.isPending || !editForm.title.trim()}
+            >
+              {updateTicketMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+              {t.common.save}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
     </>
   );

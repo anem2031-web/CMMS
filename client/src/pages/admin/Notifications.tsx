@@ -3,7 +3,7 @@ import { trpc } from "@/lib/trpc";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useTranslation, useLanguage } from "@/contexts/LanguageContext";
+import { useTranslation } from "@/contexts/LanguageContext";
 import { useLocation } from "wouter";
 import { usePushNotifications } from "@/hooks/usePushNotifications";
 import { cn } from "@/lib/utils";
@@ -13,6 +13,7 @@ import {
   CheckCircle2, XCircle, Clock, Ticket, ShoppingCart,
   Trash2, RefreshCw, Smartphone, Activity
 } from "lucide-react";
+import { useBatchTranslation, getTranslatedField } from "@/hooks/useContentTranslation";
 import KpiTimeline from "@/components/dashboard/KpiTimeline";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -40,13 +41,13 @@ function getTypeBg(type: string, isRead: boolean) {
   }
 }
 
-function getTypeLabel(type: string) {
+function getTypeLabel(type: string, types: Record<string, string>) {
   switch (type) {
-    case "critical": return "حرجة";
-    case "error":    return "خطأ";
-    case "warning":  return "تنبيه";
-    case "success":  return "إنجاز";
-    default:         return "معلومة";
+    case "critical": return types.critical;
+    case "error":    return types.error;
+    case "warning":  return types.warning;
+    case "success":  return types.success;
+    default:         return types.info;
   }
 }
 
@@ -73,7 +74,6 @@ function getIconBg(type: string) {
 // ─── Filter Card Config ───────────────────────────────────────────────────────
 const FILTER_CARDS: {
   id: NotifFilter;
-  label: string;
   icon: React.ReactNode;
   activeClass: string;
   badgeClass: string;
@@ -81,7 +81,6 @@ const FILTER_CARDS: {
 }[] = [
   {
     id: "all",
-    label: "الكل",
     icon: <Bell className="w-5 h-5" />,
     activeClass: "bg-slate-800 text-white border-transparent dark:bg-slate-100 dark:text-slate-900",
     badgeClass: "bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-200",
@@ -89,7 +88,6 @@ const FILTER_CARDS: {
   },
   {
     id: "unread",
-    label: "غير مقروءة",
     icon: <BellOff className="w-5 h-5" />,
     activeClass: "bg-yellow-500 text-white border-transparent",
     badgeClass: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/50 dark:text-yellow-300",
@@ -97,7 +95,6 @@ const FILTER_CARDS: {
   },
   {
     id: "critical",
-    label: "حرجة",
     icon: <XCircle className="w-5 h-5" />,
     activeClass: "bg-red-600 text-white border-transparent",
     badgeClass: "bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-300",
@@ -105,7 +102,6 @@ const FILTER_CARDS: {
   },
   {
     id: "warning",
-    label: "تنبيهات",
     icon: <AlertTriangle className="w-5 h-5" />,
     activeClass: "bg-orange-500 text-white border-transparent",
     badgeClass: "bg-orange-100 text-orange-700 dark:bg-orange-900/50 dark:text-orange-300",
@@ -113,7 +109,6 @@ const FILTER_CARDS: {
   },
   {
     id: "success",
-    label: "إنجازات",
     icon: <CheckCircle2 className="w-5 h-5" />,
     activeClass: "bg-green-600 text-white border-transparent",
     badgeClass: "bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-300",
@@ -121,7 +116,6 @@ const FILTER_CARDS: {
   },
   {
     id: "info",
-    label: "معلومات",
     icon: <Info className="w-5 h-5" />,
     activeClass: "bg-blue-600 text-white border-transparent",
     badgeClass: "bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300",
@@ -131,8 +125,7 @@ const FILTER_CARDS: {
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 export default function Notifications() {
-  const { t: tr } = useLanguage();
-  const { t, language } = useTranslation();
+  const { t, language, dir } = useTranslation();
   const [, setLocation] = useLocation();
   const locale = language === "ar" ? "ar-SA" : language === "ur" ? "ur-PK" : "en-US";
   const [activeFilter, setActiveFilter] = useState<NotifFilter>("all");
@@ -143,10 +136,25 @@ export default function Notifications() {
 
   const markReadMut = trpc.notifications.markRead.useMutation({ onSuccess: () => refetch() });
   const markAllReadMut = trpc.notifications.markAllRead.useMutation({
-    onSuccess: () => { toast.success("تم تحديد الكل كمقروء"); refetch(); }
+    onSuccess: () => { toast.success(t.notifications.allMarkedRead); refetch(); }
   });
 
   const { isSupported, permission, isSubscribed, isLoading: pushLoading, subscribe, unsubscribe } = usePushNotifications();
+
+  // ─── Dynamic content translation ────────────────────────────────────────
+  // كل الإشعارات تُنشأ بنصوص عربية في الخادم (originalLanguage = "ar" دائماً)،
+  // فنطلب ترجمتها فقط عندما تختلف لغة الواجهة الحالية عن العربية.
+  const notificationIds = useMemo(() => notifications.map(n => n.id), [notifications]);
+  const originalLanguages = useMemo(
+    () => Object.fromEntries(notificationIds.map(id => [id, "ar"])),
+    [notificationIds]
+  );
+  const { translationsMap } = useBatchTranslation(
+    "NOTIFICATION",
+    notificationIds,
+    ["title", "message"],
+    originalLanguages
+  );
 
   // ─── Counts ──────────────────────────────────────────────────────────────
   const counts = useMemo(() => ({
@@ -173,19 +181,19 @@ export default function Notifications() {
   const handlePushToggle = async () => {
     if (isSubscribed) {
       await unsubscribe();
-      toast.success("تم إيقاف إشعارات الجوال");
+      toast.success(t.notifications.pushDisabled);
     } else {
       const ok = await subscribe();
-      if (ok) toast.success("تم تفعيل إشعارات الجوال بنجاح!");
-      else if (permission === "denied") toast.error("تم رفض الإذن. يرجى السماح بالإشعارات من إعدادات المتصفح.");
-      else toast.error("فشل تفعيل الإشعارات");
+      if (ok) toast.success(t.notifications.pushEnabled);
+      else if (permission === "denied") toast.error(t.notifications.pushDenied);
+      else toast.error(t.notifications.pushFailed);
     }
   };
 
   const [mainTab, setMainTab] = useState<"notifications" | "kpi">("notifications");
 
   return (
-    <div className="space-y-6" dir="rtl">
+    <div className="space-y-6" dir={dir}>
       {/* ── Main Tab Switcher ── */}
       <div className="flex gap-2 p-1 bg-muted rounded-xl">
         <button
@@ -198,7 +206,7 @@ export default function Notifications() {
           )}
         >
           <Bell className="w-4 h-4" />
-          مركز الإشعارات
+          {t.notifications.centerTab}
         </button>
         <button
           onClick={() => setMainTab("kpi")}
@@ -210,7 +218,7 @@ export default function Notifications() {
           )}
         >
           <Activity className="w-4 h-4" />
-          الرقابة الوقتية
+          {t.notifications.kpiTab}
         </button>
       </div>
 
@@ -242,17 +250,17 @@ export default function Notifications() {
               onClick={handlePushToggle}
               disabled={pushLoading || permission === "denied"}
               className="gap-2"
-              title={permission === "denied" ? "الإشعارات محظورة في المتصفح" : undefined}
+              title={permission === "denied" ? t.notifications.pushBlockedTitle : undefined}
             >
               {isSubscribed
-                ? <><BellOff className="w-4 h-4" /> إيقاف إشعارات الجوال</>
-                : <><Smartphone className="w-4 h-4" /> تفعيل إشعارات الجوال</>
+                ? <><BellOff className="w-4 h-4" /> {t.notifications.pushToggleOff}</>
+                : <><Smartphone className="w-4 h-4" /> {t.notifications.pushToggleOn}</>
               }
             </Button>
           )}
           <Button variant="outline" size="sm" onClick={() => refetch()} className="gap-2">
             <RefreshCw className="w-4 h-4" />
-            تحديث
+            {t.common.refresh}
           </Button>
           {counts.unread > 0 && (
             <Button
@@ -273,16 +281,16 @@ export default function Notifications() {
       {isSupported && !isSubscribed && permission !== "denied" && (
         <div className="flex items-center gap-3 p-3 rounded-lg bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 text-sm text-blue-700 dark:text-blue-300">
           <Smartphone className="w-4 h-4 shrink-0" />
-          <span>فعّل إشعارات الجوال لتصلك التنبيهات حتى عند إغلاق التطبيق.</span>
+          <span>{t.notifications.pushHint}</span>
           <Button size="sm" variant="outline" className="mr-auto text-xs h-7 border-blue-300 text-blue-700 hover:bg-blue-100" onClick={handlePushToggle} disabled={pushLoading}>
-            تفعيل الآن
+            {t.notifications.pushEnableNow}
           </Button>
         </div>
       )}
       {permission === "denied" && (
         <div className="flex items-center gap-3 p-3 rounded-lg bg-orange-50 dark:bg-orange-950/30 border border-orange-200 dark:border-orange-800 text-sm text-orange-700 dark:text-orange-300">
           <BellOff className="w-4 h-4 shrink-0" />
-          <span>إشعارات الجوال محظورة. اذهب إلى إعدادات المتصفح وأعطِ الإذن لهذا الموقع.</span>
+          <span>{t.notifications.pushBlockedBanner}</span>
         </div>
       )}
 
@@ -313,7 +321,7 @@ export default function Notifications() {
 
               {/* Label */}
               <span className="text-xs font-semibold leading-tight text-center">
-                {card.label}
+                {t.notifications.filters[card.id]}
               </span>
 
               {/* Count badge */}
@@ -351,14 +359,18 @@ export default function Notifications() {
             <h3 className="font-semibold text-lg mb-1">{t.notifications.noNotifications}</h3>
             {activeFilter !== "all" && (
               <p className="text-sm text-muted-foreground mt-1">
-                لا توجد إشعارات في فئة "{FILTER_CARDS.find(c => c.id === activeFilter)?.label}"
+                {t.notifications.noneInFilter.replace("{filter}", t.notifications.filters[activeFilter])}
               </p>
             )}
           </CardContent>
         </Card>
       ) : (
         <div className="space-y-2">
-          {filtered.map((n) => (
+          {filtered.map((n) => {
+            const fields = translationsMap[n.id];
+            const displayTitle = getTranslatedField(fields, "title", n.title);
+            const displayMessage = getTranslatedField(fields, "message", n.message);
+            return (
             <div
               key={n.id}
               className={cn(
@@ -395,13 +407,13 @@ export default function Notifications() {
                       "text-sm text-foreground leading-tight",
                       !n.isRead ? "font-bold" : "font-medium"
                     )}>
-                      {n.title}
+                      {displayTitle}
                     </p>
                     <span className={cn(
                       "text-[10px] font-semibold px-2 py-0.5 rounded-full",
                       getTypeLabelClass(n.type || "info")
                     )}>
-                      {getTypeLabel(n.type || "info")}
+                      {getTypeLabel(n.type || "info", t.notifications.types)}
                     </span>
                   </div>
                   <span className="flex items-center gap-1 text-xs text-muted-foreground whitespace-nowrap">
@@ -411,7 +423,7 @@ export default function Notifications() {
                 </div>
 
                 <p className="text-sm text-muted-foreground mt-1 leading-relaxed">
-                  {n.message}
+                  {displayMessage}
                 </p>
 
                 {/* Related links */}
@@ -427,7 +439,7 @@ export default function Notifications() {
                         className="text-xs text-primary hover:underline flex items-center gap-1 font-medium"
                       >
                         <Ticket className="w-3 h-3" />
-                        عرض البلاغ ←
+                        {t.notifications.viewTicket}
                       </button>
                     )}
                     {n.relatedPOId && (
@@ -440,7 +452,7 @@ export default function Notifications() {
                         className="text-xs text-primary hover:underline flex items-center gap-1 font-medium"
                       >
                         <ShoppingCart className="w-3 h-3" />
-                        عرض طلب الشراء ←
+                        {t.notifications.viewPO}
                       </button>
                     )}
                   </div>
@@ -453,7 +465,7 @@ export default function Notifications() {
                   <button
                     onClick={(e) => { e.stopPropagation(); markReadMut.mutate({ id: n.id }); }}
                     className="w-7 h-7 rounded-lg bg-primary/10 hover:bg-primary/20 flex items-center justify-center transition-colors"
-                    title="تحديد كمقروء"
+                    title={t.notifications.markAsRead}
                   >
                     <CheckCheck className="w-3.5 h-3.5 text-primary" />
                   </button>
@@ -461,14 +473,17 @@ export default function Notifications() {
 
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
       {/* ── Footer ── */}
       {filtered.length > 0 && (
         <p className="text-center text-xs text-muted-foreground py-2">
-          عرض {filtered.length} من {notifications.length} إشعار
+          {t.notifications.showingCount
+            .replace("{shown}", String(filtered.length))
+            .replace("{total}", String(notifications.length))}
         </p>
       )}
       </> }

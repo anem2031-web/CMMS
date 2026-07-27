@@ -19,6 +19,23 @@ export const receiptsRouter = router({
       return receipt;
     }),
 
+  // «سند استلام المشتريات» — كل تفاصيل السند للطباعة الرسمية:
+  // بيانات المورد والفاتورة وOCR + البنود مع الكود الداخلي وباركود المصنع لكل صنف
+  getForPrint: warehouseProcedure
+    .input(z.object({ id: z.number() }))
+    .query(async ({ input }) => {
+      const receipt = await db.getWarehouseReceiptForPrint(input.id);
+      if (!receipt) throw new TRPCError({ code: "NOT_FOUND", message: "سند الاستلام غير موجود" });
+      return receipt;
+    }),
+
+  // عدّاد طباعة سند الاستلام — بنفس نمط وثائق التسليم والمرتجع
+  incrementPrint: warehouseProcedure
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ input }) => {
+      return db.incrementReceiptPrintCount(input.id);
+    }),
+
   // جلب فواتير طلب شراء معين
   getByPO: warehouseProcedure
     .input(z.object({ purchaseOrderId: z.number() }))

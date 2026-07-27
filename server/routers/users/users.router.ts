@@ -54,6 +54,30 @@ export const usersRouter = router({
     return { success: true };
   }),
 
+  // ── التوقيع الإلكتروني — رفع/حذف صورة توقيع مستخدم (admin/owner فقط) ──
+  // signatureUrl = رابط/مفتاح الملف المرفوع عبر /api/upload الحالي، أو null للحذف
+  updateSignature: protectedProcedure.input(z.object({
+    userId: z.number(),
+    signatureUrl: z.string().nullable(),
+  })).mutation(async ({ input, ctx }) => {
+    if (ctx.user.role !== "owner" && ctx.user.role !== "admin") {
+      throw new TRPCError({ code: "FORBIDDEN", message: "فقط المالك أو المسؤول يمكنه رفع التوقيع" });
+    }
+    const oldUser = await db.getUserById(input.userId);
+    if (!oldUser) throw new TRPCError({ code: "NOT_FOUND", message: "المستخدم غير موجود" });
+    await db.updateUser(input.userId, { signatureUrl: input.signatureUrl } as any);
+    await db.createAuditLog({
+      userId: ctx.user.id,
+      action: input.signatureUrl ? "upload_signature" : "remove_signature",
+      entityType: "user",
+      entityId: input.userId,
+      oldValues: { signatureUrl: (oldUser as any).signatureUrl ?? null },
+      newValues: { signatureUrl: input.signatureUrl },
+    });
+    invalidateCache.users();
+    return { success: true };
+  }),
+
   create: protectedProcedure.input(z.object({
     username: z.string().min(2),
     password: z.string().min(8, "كلمة المرور يجب أن تكون 8 أحرف على الأقل").regex(/(?=.*[A-Z])(?=.*\d)/, "يجب أن تحتوي على حرف كبير ورقم واد على الأقل"),

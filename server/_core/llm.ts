@@ -209,17 +209,195 @@ const normalizeToolChoice = (
   return toolChoice;
 };
 
-const resolveApiUrl = () => {
+const resolveApiBaseUrl = () => {
   if (!ENV.forgeApiUrl || ENV.forgeApiUrl.trim().length === 0) {
     throw new Error("BUILT_IN_FORGE_API_URL is not configured in .env");
   }
-  return `${ENV.forgeApiUrl.replace(/\/$/, "")}/v1/chat/completions`;
+
+  const normalizedUrl = ENV.forgeApiUrl.trim().replace(/\/+$/, "");
+  return normalizedUrl.endsWith("/v1")
+    ? normalizedUrl.slice(0, -3)
+    : normalizedUrl;
 };
+
+const resolveApiUrl = () => `${resolveApiBaseUrl()}/v1/chat/completions`;
+const resolveModelsUrl = () => `${resolveApiBaseUrl()}/models`;
 
 const assertApiKey = () => {
   if (!ENV.forgeApiKey) {
-    throw new Error("OPENAI_API_KEY is not configured");
+    throw new Error("BUILT_IN_FORGE_API_KEY is not configured");
   }
+};
+
+type DeepSeekModelsResponse = {
+  object?: string;
+  data?: Array<{
+    id?: string;
+    object?: string;
+    owned_by?: string;
+  }>;
+};
+
+const MODEL_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
+const MODEL_RETRY_CACHE_TTL_MS = 5 * 60 * 1000;
+const FALLBACK_DEEPSEEK_MODEL = "deepseek-v4-flash";
+
+let cachedDeepSeekModel: string | null = null;
+let cachedDeepSeekModelExpiresAt = 0;
+let modelResolutionPromise: Promise<string> | null = null;
+
+const selectDeepSeekModel = (models: string[]): string => {
+  const availableModels = Array.from(
+    new Set(models.map(model => model.trim()).filter(Boolean))
+  );
+
+  if (availableModels.length === 0) {
+    throw new Error("DeepSeek did not return any available models");
+  }
+
+  // Preserve the previous deepseek-chat behavior by preferring the fast model.
+  const exactPreference = [
+    "deepseek-v4-flash",
+    "deepseek-chat",
+    "deepseek-v4-pro",
+    "deepseek-reasoner",
+  ];
+
+  for (const preferredModel of exactPreference) {
+    const match = availableModels.find(
+      model => model.toLowerCase() === preferredModel
+    );
+    if (match) return match;
+  }
+
+  const patternPreference = [/flash/i, /chat/i, /pro/i, /reasoner/i];
+  for (const pattern of patternPreference) {
+    const match = availableModels.find(model => pattern.test(model));
+    if (match) return match;
+  }
+
+  return availableModels[0];
+};
+
+const fetchAvailableDeepSeekModel = async (): Promise<string> => {
+  assertApiKey();
+
+  const response = await fetch(resolveModelsUrl(), {
+    method: "GET",
+    headers: {
+      authorization: `Bearer ${ENV.forgeApiKey}`,
+    },
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(
+      `Failed to list DeepSeek models: ${response.status} ${response.statusText} – ${errorText}`
+    );
+  }
+
+  const result = (await response.json()) as DeepSeekModelsResponse;
+  const models = Array.isArray(result.data)
+    ? result.data
+        .map(model => model.id)
+        .filter((id): id is string => typeof id === "string")
+    : [];
+
+  return selectDeepSeekModel(models);
+};
+
+const resolveDeepSeekModel = async (
+  forceRefresh = false
+): Promise<string> => {
+  const now = Date.now();
+
+  if (
+    !forceRefresh &&
+    cachedDeepSeekModel &&
+    now < cachedDeepSeekModelExpiresAt
+  ) {
+    return cachedDeepSeekModel;
+  }
+
+  if (modelResolutionPromise) {
+    return modelResolutionPromise;
+  }
+
+  const previousModel = cachedDeepSeekModel;
+
+  modelResolutionPromise = (async () => {
+    try {
+      const selectedModel = await fetchAvailableDeepSeekModel();
+      cachedDeepSeekModel = selectedModel;
+      cachedDeepSeekModelExpiresAt = Date.now() + MODEL_CACHE_TTL_MS;
+      console.info(`[DeepSeek] Selected model: ${selectedModel}`);
+      return selectedModel;
+    } catch (error) {
+      const fallbackModel = previousModel ?? FALLBACK_DEEPSEEK_MODEL;
+      cachedDeepSeekModel = fallbackModel;
+      cachedDeepSeekModelExpiresAt = Date.now() + MODEL_RETRY_CACHE_TTL_MS;
+      console.warn(
+        `[DeepSeek] Could not refresh the model list; using ${fallbackModel}`,
+        error
+      );
+      return fallbackModel;
+    }
+  })();
+
+  try {
+    return await modelResolutionPromise;
+  } finally {
+    modelResolutionPromise = null;
+  }
+};
+
+const isModelSelectionError = (status: number, errorText: string): boolean => {
+  if (![400, 404, 422].includes(status)) return false;
+
+  return /(model).*(not found|does not exist|invalid|unsupported|unavailable|deprecated)|(not found|does not exist|invalid|unsupported|unavailable|deprecated).*(model)/i.test(
+    errorText
+  );
+};
+
+const sendDeepSeekRequest = async (
+  payload: Record<string, unknown>,
+  allowModelRefresh = true
+): Promise<InvokeResult> => {
+  const response = await fetch(resolveApiUrl(), {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${ENV.forgeApiKey}`,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (response.ok) {
+    return (await response.json()) as InvokeResult;
+  }
+
+  const errorText = await response.text();
+
+  if (
+    allowModelRefresh &&
+    isModelSelectionError(response.status, errorText)
+  ) {
+    const previousModel = String(payload.model ?? "");
+    cachedDeepSeekModel = null;
+    cachedDeepSeekModelExpiresAt = 0;
+
+    const refreshedModel = await resolveDeepSeekModel(true);
+    if (refreshedModel !== previousModel) {
+      return sendDeepSeekRequest(
+        { ...payload, model: refreshedModel },
+        false
+      );
+    }
+  }
+
+  throw new Error(
+    `LLM invoke failed: ${response.status} ${response.statusText} – ${errorText}`
+  );
 };
 
 const normalizeResponseFormat = ({
@@ -282,7 +460,7 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
   } = params;
 
   const payload: Record<string, unknown> = {
-    model: "deepseek-chat",
+    model: await resolveDeepSeekModel(),
     messages: messages.map(normalizeMessage),
   };
 
@@ -298,8 +476,8 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
     payload.tool_choice = normalizedToolChoice;
   }
 
-  payload.max_tokens = 32768
-  
+  payload.max_tokens = params.maxTokens ?? params.max_tokens ?? 32768;
+
   const normalizedResponseFormat = normalizeResponseFormat({
     responseFormat,
     response_format,
@@ -311,23 +489,7 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
     payload.response_format = normalizedResponseFormat;
   }
 
-  const response = await fetch(resolveApiUrl(), {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${ENV.forgeApiKey}`,
-    },
-    body: JSON.stringify(payload),
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(
-      `LLM invoke failed: ${response.status} ${response.statusText} – ${errorText}`
-    );
-  }
-
-  return (await response.json()) as InvokeResult;
+  return sendDeepSeekRequest(payload);
 }
 
 // ============================================================

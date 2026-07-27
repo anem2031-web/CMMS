@@ -28,6 +28,7 @@ import { runConstructionAutomation } from "../jobs/construction-automation";
 import { getDb } from "./db";
 import { generatePMWorkOrderPDF } from "../services/pdf/pmWorkOrderPdfService";
 import { generateTicketPDF } from "../services/pdf/ticketPdfService";
+import { htmlToPdf } from "../services/pdf/htmlToPdfService";
 import { sdk } from "./sdk";
 
 // ============================================================
@@ -463,6 +464,30 @@ async function startServer() {
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
+  // ============================================================
+  // تصدير PDF عام من HTML جاهز — لمركز المستندات (زر "عرض/تنزيل PDF")
+  // العميل يبني نفس HTML المستخدم فعلاً لنوافذ الطباعة (بلا أي تكرار
+  // لمنطق القوالب)، ويرسله هنا فقط ليُحوَّل لملف PDF حقيقي عبر نفس
+  // خدمة htmlToPdfService (Puppeteer) المستخدمة لتصدير طلبات الشراء.
+  // ============================================================
+  app.post("/api/export/html-to-pdf", requireAuthMiddleware, async (req: any, res: any) => {
+    try {
+      const { html, filename } = req.body || {};
+      if (!html || typeof html !== "string") {
+        return res.status(400).json({ error: "الحقل html مطلوب" });
+      }
+      const buffer = await htmlToPdf(html);
+      const safeName = (filename && typeof filename === "string" ? filename : `document-${Date.now()}`).replace(/[^\w\u0600-\u06FF.-]+/g, "-");
+      const download = req.query.download === "1" || req.query.download === "true";
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `${download ? "attachment" : "inline"}; filename="${safeName}.pdf"`);
+      res.send(buffer);
+    } catch (e: any) {
+      console.error("[HTML→PDF Export Error]", e.message);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   // Purchase Request PDF export — delegate pricing workflow (auth required)
   app.get("/api/export/po/:id/pdf", requireAuthMiddleware, async (req: any, res: any) => {
     try {
@@ -512,14 +537,24 @@ async function startServer() {
     console.log(`Server running on http://localhost:${port}/`);
   });
 
-  // استعادة الـ translation jobs المعلقة عند بدء التشغيل
+  // استعادة الـ translation jobs المعلقة عند بدء التشغيل، ثم دوريًا كل 30 دقيقة
+  // (كانت سابقاً تُنفَّذ مرة واحدة فقط عند الإقلاع — أي مهمة تُفقَد بسبب إعادة تشغيل
+  // الخادم أثناء انتظار setTimeout الخاص بها كانت تبقى عالقة للأبد حتى إعادة التشغيل
+  // التالية. أُضيفت أيضاً queueMissingTranslations لتغطية حالة أخطر: بلاغات لم تُنشأ
+  // لها أي مهمة ترجمة إطلاقاً بسبب فشل صامت في queueTranslation نفسه عند الإنشاء)
+  const THIRTY_MINUTES = 30 * 60 * 1000;
   setTimeout(async () => {
-    try {
-      const { recoverPendingTranslations } = await import("../services/translation/translationEngine");
-      await recoverPendingTranslations();
-    } catch (e) {
-      console.error("[Startup] Translation recovery failed:", e);
-    }
+    const runTranslationRecovery = async () => {
+      try {
+        const { recoverPendingTranslations, queueMissingTranslations } = await import("../services/translation/translationEngine");
+        await recoverPendingTranslations();
+        await queueMissingTranslations();
+      } catch (e) {
+        console.error("[TranslationRecovery] Failed:", e);
+      }
+    };
+    await runTranslationRecovery();
+    setInterval(runTranslationRecovery, THIRTY_MINUTES);
   }, 3000);
 
   const ONE_HOUR = 60 * 60 * 1000;

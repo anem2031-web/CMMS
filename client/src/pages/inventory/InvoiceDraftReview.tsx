@@ -5,6 +5,7 @@
 
 import { useState } from "react";
 import { trpc } from "@/lib/trpc";
+import { printReceiptDocument } from "@/lib/printReceiptDocument";
 import { useLocation, useSearch } from "wouter";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -36,11 +37,18 @@ export default function InvoiceDraftReview() {
   );
 
   // ── Mutations ────────────────────────────────────────────
+  const trpcUtils = trpc.useUtils();
+  const incrementReceiptPrintMut = trpc.warehouseReceipts.incrementPrint.useMutation();
   const approveMut = trpc.invoiceDraft.approveDraft.useMutation({
-    onSuccess: (data) => {
+    onSuccess: async (data) => {
       toast.success(`✅ تم اعتماد الفاتورة ${data.receiptNumber}`, {
         description: `تم إدخال ${data.itemsProcessed} صنف للمخزون`,
       });
+      // طباعة «سند استلام المشتريات» الرسمي مباشرة بعد الاعتماد
+      try {
+        const receipt = await trpcUtils.warehouseReceipts.getForPrint.fetch({ id: data.receiptId });
+        await printReceiptDocument(receipt, () => incrementReceiptPrintMut.mutate({ id: data.receiptId }));
+      } catch { /* لو تعذرت الطباعة لا نوقف التنقل */ }
       navigate("/inventory");
     },
     onError: (err: any) => toast.error(err.message),

@@ -908,3 +908,56 @@ export async function recoverPendingTranslations(): Promise<void> {
     console.error("[TranslationEngine] Recovery processing error:", e)
   );
 }
+
+/**
+ * ✅ إصلاح: يكتشف بلاغات (وأي كيان آخر لاحقًا) لم تُنشأ لها أي مهمة ترجمة إطلاقًا —
+ * حالة أخطر من "المهمة المعلَّقة" التي تغطيها recoverPendingTranslations، لأنها تعني
+ * أن queueTranslation نفسه فشل بصمت عند الإنشاء (مثال حقيقي: انقطاع اتصال مؤقت بقاعدة
+ * البيانات في نفس لحظة إنشاء البلاغ) ولم يترك أي أثر (لا مهمة pending ولا حتى failed).
+ * يُنفَّذ دوريًا (راجع server/_core/index.ts) ويكتفي بالبلاغات الحديثة لتفادي فحص كامل الجدول.
+ */
+export async function queueMissingTranslations(): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+
+  const recentTickets = await db.select({
+    id: tickets.id,
+    title: tickets.title,
+    description: tickets.description,
+    originalLanguage: tickets.originalLanguage,
+  }).from(tickets)
+    .where(sql`${tickets.createdAt} >= DATE_SUB(NOW(), INTERVAL 7 DAY)`)
+    .limit(200);
+
+  if (recentTickets.length === 0) return;
+
+  const existing = await db.select({ entityId: entityTranslations.entityId })
+    .from(entityTranslations)
+    .where(and(
+      eq(entityTranslations.entityType, "TICKET"),
+      inArray(entityTranslations.entityId, recentTickets.map(t => t.id))
+    ));
+  const hasAnyTranslation = new Set(existing.map(e => e.entityId));
+
+  const missing = recentTickets.filter(t => !hasAnyTranslation.has(t.id));
+  if (missing.length === 0) {
+    console.log("[TranslationEngine] No tickets missing translations entirely.");
+    return;
+  }
+
+  console.log(`[TranslationEngine] Found ${missing.length} ticket(s) with zero translation records — re-queueing...`);
+
+  for (const t of missing) {
+    const fields: TranslatableField[] = [
+      { fieldName: "title", text: t.title },
+      ...(t.description ? [{ fieldName: "description", text: t.description }] : []),
+    ];
+    await queueTranslation({
+      entityType: "TICKET",
+      entityId: t.id,
+      fields,
+      sourceLanguage: (t.originalLanguage as SupportedLanguage) || "ar",
+    }).catch(e => console.error(`[TranslationEngine] Re-queue failed for ticket ${t.id}:`, e));
+  }
+}
+

@@ -28,7 +28,7 @@ import {
   Brain, ShoppingBag, Truck, Languages, Database,
   HardDrive, CalendarClock, ScanSearch, DoorOpen, Nfc, Tag,
   ChevronDown, Search, X, Building2, UserCog, Download, Smartphone, DollarSign,
-  RotateCcw, BookOpen, Lightbulb, FileText
+  RotateCcw, BookOpen, Lightbulb, FileText, Inbox, FileStack
 ,
   HardHat, FolderKanban} from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState, useMemo, useCallback } from "react";
@@ -75,6 +75,9 @@ const NAV_SECTIONS: NavSection[] = [
         roles: ["operator","technician","maintenance_manager","supervisor","gate_security","owner","admin"] },
       { icon: ClipboardList, labelKey: "nav.tickets",      path: "/tickets",
         roles: ["operator","technician","maintenance_manager","supervisor","gate_security","delegate","senior_management","executive_director","owner","admin"] },
+      // صندوق البلاغات — واجهة متابعة لنفس البلاغات، نفس أدوار صفحة البلاغات تمامًا
+      { icon: Inbox,         labelKey: "nav.ticketsInbox", path: "/tickets/inbox",
+        roles: ["operator","technician","maintenance_manager","supervisor","gate_security","delegate","senior_management","executive_director","owner","admin"] },
       { icon: Lightbulb,     labelKey: "nav.improvementIdeas", path: "/improvement-ideas" },
       { icon: ScanSearch,    labelKey: "nav.triage",       path: "/triage",
         roles: ["supervisor","maintenance_manager","owner","admin"] },
@@ -118,6 +121,9 @@ const NAV_SECTIONS: NavSection[] = [
         roles: ["warehouse","owner","admin"] },
       { icon: Truck,        labelKey: "nav.purchaseCycle",  path: "/purchase-cycle",
         roles: ["delegate","warehouse","owner","admin"] },
+      // مركز المستندات — عرض وإعادة طباعة فقط لكل مستندات المشتريات/المخزون
+      { icon: FileStack,    labelKey: "nav.documentsCenter", path: "/documents",
+        roles: ["warehouse","accountant","senior_management","executive_director","maintenance_manager","purchase_requester","food_warehouse_manager","food_warehouse_assistant","owner","admin"] },
       { icon: Search,       labelKey: "nav.itemTracker",    path: "/item-tracker",
         roles: ["warehouse","owner","admin","maintenance_manager","accountant"] },
     ],

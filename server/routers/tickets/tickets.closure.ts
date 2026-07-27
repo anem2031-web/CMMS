@@ -97,6 +97,12 @@ export const ticketsClosureRouter = router({
     if (ticket.maintenancePath !== "B" && ticket.maintenancePath !== "C") throw new TRPCError({ code: "BAD_REQUEST", message: "هذا الإجراء للمسار B أو C فقط" });
     await db.updateTicket(input.id, { status: "ready_for_closure", afterPhotoUrl: input.afterPhotoUrl, repairNotes: input.repairNotes });
     await db.addTicketStatusHistory({ ticketId: input.id, fromStatus: "received_warehouse", toStatus: "ready_for_closure", changedById: ctx.user.id });
+    // إشعار المشرفين: كانت هذه الخطوة (خلافاً لـ markReadyForClosure الخاصة بالمسار A)
+    // لا تنبّه أحداً، فتبقى البلاغات من المسار B/C جاهزة للإغلاق دون أن يعلم أحد.
+    const supervisorsParts = await db.getUsersByRole("supervisor");
+    for (const sup of supervisorsParts) {
+      await db.createNotification({ userId: sup.id, title: "بلاغ جاهز للإغلاق", message: `البلاغ ${ticket.ticketNumber} جاهز للإغلاق بعد استلام واستخدام المواد`, type: "success", relatedTicketId: input.id });
+    }
     return { success: true };
   }),
 

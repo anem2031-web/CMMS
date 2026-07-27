@@ -7,7 +7,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
-import { Users as UsersIcon, Pencil, Trash2, UserPlus, Eye, EyeOff, KeyRound, Search, ShieldOff, ShieldCheck, Lock } from "lucide-react";
+import { Users as UsersIcon, Pencil, Trash2, UserPlus, Eye, EyeOff, KeyRound, Search, ShieldOff, ShieldCheck, Lock, PenLine, Upload, Loader2 } from "lucide-react";
+import { mediaUrl } from "@/lib/mediaUrl";
 import { PasswordStrengthIndicator, isPasswordValid } from "@/components/auth/PasswordStrengthIndicator";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -97,6 +98,53 @@ export default function UsersPage() {
     },
     onError: (err) => toast.error(err.message),
   });
+
+  // ── التوقيع الإلكتروني (admin/owner فقط) ──────────────────
+  const updateSignatureMut = trpc.users.updateSignature.useMutation({
+    onSuccess: () => {
+      toast.success(t.common.savedSuccessfully);
+      utils.users.list.invalidate();
+    },
+    onError: (err) => toast.error(err.message),
+  });
+
+  const [signatureOpen, setSignatureOpen] = useState(false);
+  const [signatureUser, setSignatureUser] = useState<any>(null);
+  const [uploadingSignature, setUploadingSignature] = useState(false);
+
+  const openSignature = (u: any) => {
+    setSignatureUser(u);
+    setSignatureOpen(true);
+  };
+
+  // يرفع صورة التوقيع عبر نقطة الرفع الحالية ثم يربطها بالمستخدم
+  const handleSignatureFile = async (file: File) => {
+    if (!signatureUser) return;
+    if (!file.type.startsWith("image/")) {
+      toast.error("يُقبل ملف صورة فقط (PNG أو JPG)");
+      return;
+    }
+    setUploadingSignature(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const res = await fetch("/api/upload", { method: "POST", credentials: "include", body: formData });
+      if (!res.ok) throw new Error("فشل رفع الصورة");
+      const { url } = await res.json();
+      await updateSignatureMut.mutateAsync({ userId: signatureUser.id, signatureUrl: url });
+      setSignatureUser({ ...signatureUser, signatureUrl: url });
+    } catch (e: any) {
+      toast.error(e.message || "فشل رفع التوقيع");
+    } finally {
+      setUploadingSignature(false);
+    }
+  };
+
+  const removeSignature = async () => {
+    if (!signatureUser) return;
+    await updateSignatureMut.mutateAsync({ userId: signatureUser.id, signatureUrl: null });
+    setSignatureUser({ ...signatureUser, signatureUrl: null });
+  };
 
   const canManage = ["admin", "owner"].includes(currentUser?.role || "");
   // دور "المستودع" مسموح له بإضافة مستخدمين جدد فقط (بدون تعديل/حذف/تعطيل)
@@ -275,6 +323,17 @@ export default function UsersPage() {
                     <Badge className={`text-[11px] ${ROLE_COLORS[u.role] || "bg-gray-100 text-gray-700"}`}>
                       {getRoleLabel(u.role)}
                     </Badge>
+                    {canManage && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className={`h-8 w-8 ${u.signatureUrl ? "text-green-600 hover:text-green-700" : "text-muted-foreground"}`}
+                        title={u.signatureUrl ? "التوقيع الإلكتروني (مرفوع)" : "رفع التوقيع الإلكتروني"}
+                        onClick={() => openSignature(u)}
+                      >
+                        <PenLine className="w-4 h-4" />
+                      </Button>
+                    )}
                     {canManage && u.id !== currentUser?.id && (
                       <>
                         <Button variant="ghost" size="icon" className="h-8 w-8" title="تعديل البيانات" onClick={() => openEdit(u)}>
@@ -311,6 +370,77 @@ export default function UsersPage() {
           ))}
         </div>
       )}
+
+      {/* ====== Signature Dialog (admin/owner only) ====== */}
+      <Dialog open={signatureOpen} onOpenChange={setSignatureOpen}>
+        <DialogContent className="sm:max-w-[460px]" dir="rtl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <PenLine className="w-5 h-5" />
+              التوقيع الإلكتروني
+            </DialogTitle>
+            <DialogDescription>
+              {signatureUser?.name} — يظهر هذا التوقيع تلقائيًا في خانة توقيعه بالوثائق الصادرة باسمه
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            {/* معاينة التوقيع الحالي */}
+            <div className="border rounded-lg bg-muted/30 p-4 flex items-center justify-center min-h-[120px]">
+              {signatureUser?.signatureUrl ? (
+                <img
+                  src={mediaUrl(signatureUser.signatureUrl)}
+                  alt="التوقيع"
+                  className="max-h-24 max-w-full object-contain"
+                />
+              ) : (
+                <p className="text-sm text-muted-foreground">لا يوجد توقيع مرفوع</p>
+              )}
+            </div>
+
+            <div className="flex gap-2">
+              <label className="flex-1">
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg,image/jpg"
+                  className="hidden"
+                  disabled={uploadingSignature}
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) handleSignatureFile(file);
+                    e.target.value = "";
+                  }}
+                />
+                <Button asChild variant="default" className="w-full gap-2" disabled={uploadingSignature}>
+                  <span>
+                    {uploadingSignature ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+                    {uploadingSignature ? "جاري الرفع..." : signatureUser?.signatureUrl ? "استبدال التوقيع" : "رفع التوقيع"}
+                  </span>
+                </Button>
+              </label>
+              {signatureUser?.signatureUrl && (
+                <Button
+                  variant="outline"
+                  className="text-destructive hover:text-destructive gap-2"
+                  disabled={uploadingSignature || updateSignatureMut.isPending}
+                  onClick={removeSignature}
+                >
+                  <Trash2 className="w-4 h-4" />
+                  حذف
+                </Button>
+              )}
+            </div>
+
+            <p className="text-xs text-muted-foreground">
+              يُفضَّل صورة PNG بخلفية شفافة لأفضل ظهور داخل الوثيقة. الصيغ المقبولة: PNG أو JPG.
+            </p>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSignatureOpen(false)}>{t.common.close}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* ====== Create User Dialog ====== */}
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>

@@ -69,6 +69,15 @@ export const ticketsApprovalsRouter = router({
     if (ticket.status !== "pending_triage") throw new TRPCError({ code: "BAD_REQUEST", message: "البلاغ يجب أن يكون في مرحلة الفحص الأولي" });
     await db.updateTicket(input.id, { status: "under_inspection", assignedToId: input.assignedToId, triageNotes: input.triageNotes });
     await db.addTicketStatusHistory({ ticketId: input.id, fromStatus: "pending_triage", toStatus: "under_inspection", changedById: ctx.user.id });
+    // إشعار الفني: هذه الخطوة (على عكس assign/triageTicket) كانت لا تنبّه الفني
+    // المُسنَد إليه الفحص الميداني إطلاقاً، فيكتشف المهمة فقط عند فتح التطبيق يدوياً.
+    await db.createNotification({
+      userId: input.assignedToId,
+      title: "تم تعيينك لفحص بلاغ",
+      message: `تم تعيينك للفحص الميداني للبلاغ ${ticket.ticketNumber}`,
+      type: "warning",
+      relatedTicketId: input.id,
+    });
     return { success: true };
   }),
 

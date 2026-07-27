@@ -59,6 +59,35 @@ async function getWebPush() {
   return _webPush;
 }
 
+// Lazy import to avoid circular deps (translation engine also touches the db layer)
+let _translationEngine: typeof import('../../services/translation/translationEngine') | null = null;
+async function getTranslationEngine() {
+  if (!_translationEngine) _translationEngine = await import('../../services/translation/translationEngine');
+  return _translationEngine;
+}
+
+/**
+ * كل عناوين/رسائل الإشعارات في الكود مكتوبة يدوياً بالعربية (انظر جميع نداءات
+ * createNotification عبر tickets/purchase/inventory routers). لضمان وصول
+ * الإشعار مترجَماً لأي مستخدم يفضّل الإنجليزية أو الأردية، نمرّر محتوى كل
+ * إشعار جديد لمحرك الترجمة المركزي (نفس الآلية المستخدمة لعناوين/أوصاف
+ * البلاغات) — تعمل في الخلفية (fire-and-forget) ولا تُبطئ إنشاء الإشعار.
+ */
+function queueNotificationTranslation(notificationId: number, title: string, message: string, userId: number) {
+  getTranslationEngine().then(te => {
+    te.queueTranslation({
+      entityType: "NOTIFICATION",
+      entityId: notificationId,
+      fields: [
+        { fieldName: "title", text: title },
+        { fieldName: "message", text: message },
+      ],
+      sourceLanguage: "ar",
+      userId,
+    }).catch(e => console.error("[Notifications] Queue translation failed:", e));
+  }).catch(() => {});
+}
+
 export async function createNotification(data: { userId: number; title: string; message: string; type?: string; relatedTicketId?: number; relatedPOId?: number; allowSeniorManagement?: boolean }) {
   const db = await getDb();
   if (!db) return;
@@ -78,7 +107,7 @@ export async function createNotification(data: { userId: number; title: string; 
     }
   }
 
-  await db.insert(notifications).values({
+  const [notifInsertResult] = await db.insert(notifications).values({
     userId: data.userId,
     title: data.title,
     message: data.message,
@@ -86,6 +115,9 @@ export async function createNotification(data: { userId: number; title: string; 
     relatedTicketId: data.relatedTicketId,
     relatedPOId: data.relatedPOId,
   });
+  if (notifInsertResult?.insertId) {
+    queueNotificationTranslation(notifInsertResult.insertId, data.title, data.message, data.userId);
+  }
 
   // ── تعميم تلقائي لـ"مدير المستودع الغذائي" على أي تحديث لاحق لطلب اعتمده ──
   // هذا الدور لا يستقبل أي إشعار عام (كـ"طلب جديد بانتظار المراجعة")، لكن لازم
@@ -98,7 +130,7 @@ export async function createNotification(data: { userId: number; title: string; 
     if (reviewerId && reviewerId !== data.userId) {
       const reviewer = await getUserById(reviewerId);
       if (reviewer?.role === "food_warehouse_manager") {
-        await db.insert(notifications).values({
+        const [reviewerNotifResult] = await db.insert(notifications).values({
           userId: reviewerId,
           title: data.title,
           message: data.message,
@@ -106,6 +138,9 @@ export async function createNotification(data: { userId: number; title: string; 
           relatedTicketId: data.relatedTicketId,
           relatedPOId: data.relatedPOId,
         });
+        if (reviewerNotifResult?.insertId) {
+          queueNotificationTranslation(reviewerNotifResult.insertId, data.title, data.message, reviewerId);
+        }
         getWebPush().then(wp => {
           const url = `/purchase-orders/${data.relatedPOId}`;
           wp.sendPushToUser(reviewerId, {

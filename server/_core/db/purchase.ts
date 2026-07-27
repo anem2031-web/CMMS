@@ -2,7 +2,7 @@
 // db/purchase.ts — المشتريات: أوامر الشراء وبنودها ودفعات التسعير وتعليقاتها
 // (مُقسَّم من db.ts الأصلي حسب المجال الوظيفي)
 // ============================================================
-import { eq, desc, asc, and, sql, count, sum, inArray, notInArray, like, or, gte, lte, lt, isNull, isNotNull, ne } from "drizzle-orm";
+import { eq, desc, asc, and, sql, count, sum, inArray, notInArray, like, or, gte, lte, lt, isNull, isNotNull, ne, getTableColumns } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import { alias } from "drizzle-orm/mysql-core";
 import mysql from "mysql2/promise";
@@ -135,7 +135,24 @@ export async function getPurchaseOrders(filters?: {
   const db = await getDb();
   if (!db) return [];
   const conditions: any[] = [];
-  if (filters?.status) conditions.push(eq(purchaseOrders.status, filters.status as any));
+
+  // ✅ فلترة "الطلبات التي تحتوي صنفًا واحدًا على الأقل بحالة معيّنة" — لحالتين
+  // موجودتين فقط على مستوى الصنف (purchase_order_items.status) وليس على مستوى
+  // الطلب نفسه (purchase_orders.status): ملغى الشراء (purchase_cancelled)
+  // وبحاجة مراجعة (needs_item_revision). فلترة مباشرة بـ eq() على عمود الطلب
+  // لن تُطابق أي شيء أبداً لهاتين القيمتين تحديداً، فنستخدم بحثاً فرعياً بدلاً منها.
+  const ITEM_LEVEL_STATUS_FILTERS = new Set(["purchase_cancelled", "needs_item_revision"]);
+  if (filters?.status && ITEM_LEVEL_STATUS_FILTERS.has(filters.status)) {
+    const matchingPOItems = await db
+      .selectDistinct({ purchaseOrderId: purchaseOrderItems.purchaseOrderId })
+      .from(purchaseOrderItems)
+      .where(eq(purchaseOrderItems.status, filters.status as any));
+    const matchingPOIds = matchingPOItems.map(r => r.purchaseOrderId);
+    conditions.push(matchingPOIds.length > 0 ? inArray(purchaseOrders.id, matchingPOIds) : sql`1 = 0`);
+  } else if (filters?.status) {
+    conditions.push(eq(purchaseOrders.status, filters.status as any));
+  }
+
   if (filters?.requestedById) conditions.push(eq(purchaseOrders.requestedById, filters.requestedById));
   if (filters?.dateFrom) conditions.push(gte(purchaseOrders.createdAt, new Date(filters.dateFrom)));
   if (filters?.dateTo) {
@@ -265,7 +282,25 @@ export async function getPurchaseOrders(filters?: {
 export async function getPurchaseOrderById(id: number) {
   const db = await getDb();
   if (!db) return null;
-  const result = await db.select().from(purchaseOrders).where(eq(purchaseOrders.id, id)).limit(1);
+  // ✅ يُرجِع الآن أيضاً الاسم الكامل لمن راجع الأصناف / اعتمدت الحسابات / اعتمدت
+  // الإدارة العليا، عبر ثلاثة LEFT JOIN مستقلة (aliased) لجدول users نفسه —
+  // بدل الاكتفاء بمعرّفات (IDs) خام لا تُترجَم لاسم في واجهة تفاصيل الطلب.
+  const reviewer = alias(users, "reviewer");
+  const accountingApprover = alias(users, "accountingApprover");
+  const managementApprover = alias(users, "managementApprover");
+  const result = await db
+    .select({
+      ...getTableColumns(purchaseOrders),
+      reviewedByName: reviewer.name,
+      accountingApprovedByName: accountingApprover.name,
+      managementApprovedByName: managementApprover.name,
+    })
+    .from(purchaseOrders)
+    .leftJoin(reviewer, eq(purchaseOrders.reviewedById, reviewer.id))
+    .leftJoin(accountingApprover, eq(purchaseOrders.accountingApprovedById, accountingApprover.id))
+    .leftJoin(managementApprover, eq(purchaseOrders.managementApprovedById, managementApprover.id))
+    .where(eq(purchaseOrders.id, id))
+    .limit(1);
   return result[0] || null;
 }
 

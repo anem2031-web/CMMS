@@ -16,6 +16,7 @@ import {
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { mediaUrl } from "@/lib/mediaUrl";
+import { printReceiptDocument } from "@/lib/printReceiptDocument";
 import DropZone, { UploadedFile } from "@/components/common/DropZone";
 
 // ── Types ────────────────────────────────────────────────────
@@ -175,15 +176,34 @@ export default function InventoryStandaloneReceive() {
 
   const [printItems, setPrintItems] = useState<any[]>([]);
   const [showPrint, setShowPrint] = useState(false);
+  // معرّف السند المحفوظ — لطباعة «سند استلام المشتريات» الرسمي بعد الحفظ
+  const [savedReceiptId, setSavedReceiptId] = useState<number | null>(null);
+  const trpcUtils = trpc.useUtils();
+  const incrementReceiptPrintMut = trpc.warehouseReceipts.incrementPrint.useMutation();
+
+  const handlePrintReceiptDoc = async () => {
+    if (!savedReceiptId) return;
+    try {
+      const receipt = await trpcUtils.warehouseReceipts.getForPrint.fetch({ id: savedReceiptId });
+      await printReceiptDocument(receipt, () => incrementReceiptPrintMut.mutate({ id: savedReceiptId }));
+    } catch (e: any) {
+      toast.error(e.message || "تعذر تحميل بيانات السند");
+    }
+  };
 
   const receiveMut = trpc.warehouseReceiptsV2.receiveStandaloneV2.useMutation({
     onSuccess: (data: any) => {
       toast.success(`تم الاستلام — فاتورة ${data.receiptNumber}`, {
         description: data.hasDiscrepancy ? "⚠️ تم تسجيل الفروقات" : "تم تحديث المخزون",
       });
+      setSavedReceiptId(data.receiptId ?? null);
       // عرض شاشة طباعة الباركود
       if (data.inventoryItems && data.inventoryItems.length > 0) {
         setPrintItems(data.inventoryItems);
+        setShowPrint(true);
+      } else if (data.receiptId) {
+        // لا أصناف جديدة تحتاج باركود — نعرض شاشة الطباعة للوصول لزر سند الاستلام
+        setPrintItems([]);
         setShowPrint(true);
       } else {
         navigate("/inventory");
@@ -325,6 +345,7 @@ export default function InventoryStandaloneReceive() {
       <BarcodesPrintScreen
         items={printItems}
         onDone={() => navigate("/inventory")}
+        onPrintReceipt={savedReceiptId ? handlePrintReceiptDoc : undefined}
       />
     );
   }
@@ -974,7 +995,7 @@ function QRCodeCanvas({ value, size = 120 }: { value: string; size?: number }) {
   return <canvas ref={canvasRef} width={size} height={size} />;
 }
 
-function BarcodesPrintScreen({ items, onDone }: { items: any[]; onDone: () => void }) {
+function BarcodesPrintScreen({ items, onDone, onPrintReceipt }: { items: any[]; onDone: () => void; onPrintReceipt?: () => void }) {
   const handlePrint = () => {
     window.print();
   };
@@ -982,15 +1003,25 @@ function BarcodesPrintScreen({ items, onDone }: { items: any[]; onDone: () => vo
   return (
     <div className="min-h-screen bg-gray-100 p-4" dir="rtl">
       {/* شريط العنوان */}
-      <div className="print-hidden max-w-2xl mx-auto mb-4 flex items-center justify-between">
+      <div className="print-hidden max-w-2xl mx-auto mb-4 flex items-center justify-between flex-wrap gap-2">
         <h1 className="text-lg font-bold">طباعة باركودات الأصناف</h1>
-        <div className="flex gap-2">
-          <button
-            onClick={handlePrint}
-            className="bg-primary text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-primary/90"
-          >
-            🖨️ طباعة الباركودات
-          </button>
+        <div className="flex gap-2 flex-wrap">
+          {onPrintReceipt && (
+            <button
+              onClick={onPrintReceipt}
+              className="bg-green-800 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-green-700"
+            >
+              🧾 طباعة سند استلام المشتريات
+            </button>
+          )}
+          {items.length > 0 && (
+            <button
+              onClick={handlePrint}
+              className="bg-primary text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-primary/90"
+            >
+              🖨️ طباعة الباركودات
+            </button>
+          )}
           <button
             onClick={onDone}
             className="border px-4 py-2 rounded-lg text-sm text-muted-foreground hover:bg-muted"
