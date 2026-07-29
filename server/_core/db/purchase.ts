@@ -644,7 +644,7 @@ export async function trackItemHistory(searchTerm: string, exactMatch: boolean =
 
 /**
  * جلب أصناف عدة طلبات دفعة واحدة — لتفادي استعلام منفصل لكل طلب (N+1)
- * عند بناء قائمة "تحتاجني الآن".
+ * عند بناء قائمة "بانتظار إجرائي".
  */
 export async function getPOItemsForPOs(poIds: number[]) {
   const db = await getDb();

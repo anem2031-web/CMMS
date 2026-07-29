@@ -57,7 +57,7 @@ export default function PurchaseOrders() {
   const PAGE_SIZE = 10;
   const [currentPage, setCurrentPage] = useState(1);
 
-  // ── عرض "تحتاجني الآن" (افتراضي) مقابل "جميع الطلبات" ──
+  // ── عرض "بانتظار إجرائي" (افتراضي) مقابل "جميع الطلبات" ──
   const [view, setView] = useState<"actionable" | "all">("actionable");
   const { data: actionable, isLoading: actionableLoading } =
     trpc.purchaseOrders.actionableForMe.useQuery();
@@ -159,8 +159,8 @@ export default function PurchaseOrders() {
       ) : (
         <p className="text-base font-medium">
           {actionableItems.length > 0
-            ? `لديك ${actionableItems.length} ${actionableItems.length === 1 ? "طلب يحتاج" : "طلبات تحتاج"} تدخلك`
-            : "لا توجد طلبات تحتاج تدخلك حالياً"}
+            ? `لديك ${actionableItems.length} ${actionableItems.length === 1 ? "طلب بانتظار" : "طلبات بانتظار"} إجرائك`
+            : "لا توجد طلبات بانتظار إجرائك حالياً"}
         </p>
       )}
 
@@ -170,7 +170,7 @@ export default function PurchaseOrders() {
           size="sm"
           onClick={() => setView("actionable")}
         >
-          تحتاجني الآن {actionableItems.length > 0 && `(${actionableItems.length})`}
+          بانتظار إجرائي {actionableItems.length > 0 && `(${actionableItems.length})`}
         </Button>
         <Button
           variant={view === "all" ? "default" : "outline"}
@@ -181,7 +181,7 @@ export default function PurchaseOrders() {
         </Button>
       </div>
 
-      {/* ── قائمة "تحتاجني الآن" ──────────────────────────────────── */}
+      {/* ── قائمة "بانتظار إجرائي" ────────────────────────────────── */}
       {view === "actionable" && (
         <div className="space-y-2">
           {actionableLoading ? (
@@ -193,7 +193,7 @@ export default function PurchaseOrders() {
             <Card>
               <CardContent className="py-10 text-center text-muted-foreground">
                 <Package className="w-10 h-10 mx-auto mb-3 opacity-40" />
-                لا توجد طلبات تنتظر إجراءً منك حالياً.
+                لا توجد طلبات بانتظار إجرائك حالياً.
               </CardContent>
             </Card>
           ) : (
