@@ -117,9 +117,9 @@ export const ticketsApprovalsRouter = router({
         const lang = await detectLanguage(input.repairNotes);
         const translations = await translateFields({ repairNotes: input.repairNotes }, lang);
         if (translations.repairNotes) {
-          repairTranslation.repairNotes_ar = translations.repairNotes.ar;
-          repairTranslation.repairNotes_en = translations.repairNotes.en;
-          repairTranslation.repairNotes_ur = translations.repairNotes.ur;
+          repairTranslation.repairNotesAr = translations.repairNotes.ar;
+          repairTranslation.repairNotesEn = translations.repairNotes.en;
+          repairTranslation.repairNotesUr = translations.repairNotes.ur;
         }
       } catch (e) {
         console.error("[Ticket] RepairNotes translation failed:", e);

@@ -6,6 +6,9 @@ import { notifyOwner } from "../../_core/notification";
 import { detectLanguage } from "../../services/translation/translation";
 import { queueTranslation } from "../../services/translation/translationEngine";
 import { notifyItemRejection } from "../_shared/router-helpers";
+import { assertCanViewPurchaseOrder, filterVisiblePurchaseOrders, assertCanPerformPOAction, assertCanPerformItemPOAction, assertPOItemAssignedToDelegate, isItemAssignedToPODelegate, assertCanPerformItemStatusPOAction } from "../../_core/authz/guard";
+import { OWN_REQUESTS_ONLY_ROLES } from "../../_core/authz/policy";
+import { computeActionablePOs } from "./actionable";
 
 // ── دالة مشتركة: ترجمة أصناف طلب الشراء في الخلفية ──────────────────────────
 async function queuePOItemsTranslation(items: any[], userId: number): Promise<void> {
@@ -127,9 +130,8 @@ export const purchaseOrdersRouter = router({
   })).mutation(async ({ input, ctx }) => {
     const item = await db.getPOItemById(input.itemId);
     if (!item) throw new TRPCError({ code: "NOT_FOUND", message: "الصنف غير موجود" });
-    if (item.status !== "delivered_to_warehouse") {
-      throw new TRPCError({ code: "BAD_REQUEST", message: "هذا الصنف لم يتم توريده للمستودع بعد" });
-    }
+    // ✅ الحارس المركزي: يفحص حالة الصنف نفسه (لا حالة الطلب ككل)
+    assertCanPerformItemStatusPOAction("confirmDeliveryToRequester", ctx.user, item.status);
 
     // التحقق من الكمية
     if (input.deliveryQty <= 0) {
@@ -219,9 +221,8 @@ export const purchaseOrdersRouter = router({
     // Get the item
     const item = await db.getPOItemById(input.itemId);
     if (!item) throw new TRPCError({ code: "NOT_FOUND", message: "الصنف غير موجود" });
-    if (item.status !== "purchased") {
-      throw new TRPCError({ code: "BAD_REQUEST", message: "هذا الصنف ليس في حالة \"تم الشراء\" بعد" });
-    }
+    // ✅ الحارس المركزي: يفحص حالة الصنف نفسه (لا حالة الطلب ككل)
+    assertCanPerformItemStatusPOAction("confirmDeliveryToWarehouse", ctx.user, item.status);
     await db.updatePOItem(input.itemId, {
       status: "delivered_to_warehouse",
       receivedAt: new Date(),
@@ -264,16 +265,10 @@ export const purchaseOrdersRouter = router({
     itemId: z.number(),
     note: z.string().min(3, "يجب كتابة سبب إلغاء الشراء"),
   })).mutation(async ({ input, ctx }) => {
-    // المندوب يلغي شراء صنفه فقط، والأدمن/الأونر أي صنف
-    const isAdminOrOwner = ctx.user.role === "admin" || ctx.user.role === "owner";
-    let item: any;
-    if (isAdminOrOwner) {
-      item = await db.getPOItemById(input.itemId);
-    } else {
-      const allItems = await db.getPOItemsByDelegate(ctx.user.id);
-      item = allItems.find(i => i.id === input.itemId);
-    }
-    if (!item) throw new TRPCError({ code: "NOT_FOUND", message: "الصنف غير موجود أو غير مخصص لك" });
+    const item = await db.getPOItemById(input.itemId);
+    if (!item) throw new TRPCError({ code: "NOT_FOUND", message: "الصنف غير موجود" });
+    // ✅ الحارس المركزي: المندوب يلغي شراء صنفه المخصَّص له فقط (owner/admin يتجاوزان)
+    assertPOItemAssignedToDelegate(ctx.user, item);
 
     // يُسمح بالإلغاء فقط للأصناف الجاهزة للشراء (approved أو funded)
     if (item.status !== "approved" && item.status !== "funded") {
@@ -360,16 +355,10 @@ export const purchaseOrdersRouter = router({
     purchasedPhotoUrl: z.string().min(1, "صورة الصنف المشترى مطلوبة"),
     invoicePhotoUrl: z.string().min(1, "صورة الفاتورة مطلوبة"),
   })).mutation(async ({ input, ctx }) => {
-    // Admin/owner can confirm purchase for any item; delegate only for their own
-    const isAdminOrOwner = ctx.user.role === "admin" || ctx.user.role === "owner";
-    let item: any;
-    if (isAdminOrOwner) {
-      item = await db.getPOItemById(input.itemId);
-    } else {
-      const allItems = await db.getPOItemsByDelegate(ctx.user.id);
-      item = allItems.find(i => i.id === input.itemId);
-    }
-    if (!item) throw new TRPCError({ code: "NOT_FOUND", message: "الصنف غير موجود أو غير مخصص لك" });
+    const item = await db.getPOItemById(input.itemId);
+    if (!item) throw new TRPCError({ code: "NOT_FOUND", message: "الصنف غير موجود" });
+    // ✅ الحارس المركزي: المندوب يؤكد شراء أصنافه المخصَّصة له فقط (owner/admin يتجاوزان)
+    assertPOItemAssignedToDelegate(ctx.user, item);
     if (item.status !== "approved" && item.status !== "funded") {
       throw new TRPCError({ code: "BAD_REQUEST", message: "لا يمكن تأكيد شراء هذا الصنف في حالته الحالية" });
     }
@@ -482,14 +471,15 @@ export const purchaseOrdersRouter = router({
     const po = await db.getPurchaseOrderById(input.id);
     if (!po) throw new TRPCError({ code: "NOT_FOUND", message: "طلب الشراء غير موجود" });
     if (po.status !== "draft") throw new TRPCError({ code: "BAD_REQUEST", message: "الطلب ليس مسودة" });
-    if (String(po.requestedById) !== String(ctx.user.id) && !["admin", "owner"].includes(ctx.user.role)) {
-      throw new TRPCError({ code: "FORBIDDEN", message: "فقط منشئ الطلب يمكنه إرساله" });
-    }
+    assertCanPerformPOAction("submitDraft", ctx.user, po, { isCreator: String(po.requestedById) === String(ctx.user.id) });
 
     const items = await db.getPOItems(input.id);
     if (items.length === 0) throw new TRPCError({ code: "BAD_REQUEST", message: "لا يوجد أصناف في الطلب" });
 
-    await db.updatePurchaseOrder(input.id, { status: "pending_review" });
+    // ✅ تسجيل تاريخ التحويل من مسودة إلى طلب رسمي (2026-07-28) — هو ما تُرتَّب
+    // وتُفلتر به القائمة، حتى لا يظهر الطلب بتاريخ إنشاء مسودته فيضيع بين
+    // الطلبات القديمة. createdAt يبقى كما هو دون تعديل.
+    await db.updatePurchaseOrder(input.id, { status: "pending_review", submittedAt: new Date() });
 
     // أخطر المدراء
     const managers = await db.getManagerUsers();
@@ -516,7 +506,7 @@ export const purchaseOrdersRouter = router({
     await db.createAuditLog({ userId: ctx.user.id, action: "submit_draft_po", entityType: "purchase_order", entityId: input.id });
 
     // ترجمة الأصناف التي لم تُترجم بعد (قد تكون فاتت عند حفظ المسودة)
-    const itemsNeedingTranslation = items.filter((i: any) => !i.itemName_en && !i.itemName_ar);
+    const itemsNeedingTranslation = items.filter((i: any) => !i.itemNameEn && !i.itemNameAr);
     if (itemsNeedingTranslation.length > 0) queuePOItemsTranslation(itemsNeedingTranslation, ctx.user.id);
     if (po.notes) queuePONotesTranslation(input.id, po.notes, ctx.user.id);
 
@@ -540,9 +530,7 @@ export const purchaseOrdersRouter = router({
     const po = await db.getPurchaseOrderById(input.id);
     if (!po) throw new TRPCError({ code: "NOT_FOUND", message: "المسودة غير موجودة" });
     if (po.status !== "draft") throw new TRPCError({ code: "BAD_REQUEST", message: "لا يمكن تعديل طلب ليس مسودة" });
-    if (String(po.requestedById) !== String(ctx.user.id) && !["admin", "owner"].includes(ctx.user.role)) {
-      throw new TRPCError({ code: "FORBIDDEN", message: "فقط منشئ المسودة يمكنه تعديلها" });
-    }
+    assertCanPerformPOAction("editDraft", ctx.user, po, { isCreator: String(po.requestedById) === String(ctx.user.id) });
     if (input.items.length > 20) throw new TRPCError({ code: "BAD_REQUEST", message: "الحد الأقصى 20 صنف" });
 
     // تحديث ملاحظات الطلب
@@ -675,9 +663,12 @@ export const purchaseOrdersRouter = router({
   delete: protectedProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
     const po = await db.getPurchaseOrderById(input.id);
     if (!po) throw new TRPCError({ code: "NOT_FOUND", message: "طلب الشراء غير موجود" });
-    if (!["owner", "admin"].includes(ctx.user.role)) {
-      throw new TRPCError({ code: "FORBIDDEN", message: "ليس لديك صلاحية لحذف طلبات الشراء" });
-    }
+    // ✅ الحارس المركزي: owner/admin فقط (لا بند إضافي بالسياسة لأي دور آخر)
+    assertCanPerformPOAction("deleteOrder", ctx.user);
+    // ملاحظة: القيد التالي (منع الحذف بعد مرحلة معيّنة) قاعدة عمل/سلامة بيانات
+    // عامة تنطبق على الجميع (حتى owner/admin) — ليست قاعدة صلاحية تختلف بين
+    // الأدوار، لذلك تبقى هنا بدل نقلها لسياسة الحارس (التي تتجاوزها owner/admin
+    // بتصميمها أصلًا).
     // ✅ إصلاح حرج #3: القيم السابقة (funded, partially_purchased, completed) لم تكن
     // موجودة إطلاقًا في enum الحالات الحقيقي للنظام، فكان الشرط كوداً ميتاً لا يتحقق
     // أبداً — يسمح بحذف أي طلب مهما كانت حالته. القائمة الصحيحة أدناه تطابق poStatuses
@@ -725,35 +716,15 @@ export const purchaseOrdersRouter = router({
     }
 
     const isCreator = po.requestedById === ctx.user.id;
-    // الأدوار المسموح لها بحذف صنف من طلب الشراء بشكل عام (تطابق صلاحية editItem)
-    const isPrivilegedRole = ["owner", "admin", "maintenance_manager"].includes(ctx.user.role);
 
-    // استثناء منشئ الطلب: يقدر يحذف صنفاً من طلبه فقط في حالتين:
-    // 1) طلب مراجعة من المندوب (على الصنف needs_item_revision أو على كامل الطلب revision_needed)
-    // 2) إلغاء شراء الصنف من قبل المندوب (purchase_cancelled)
-    const isRevisionCase = item.status === "needs_item_revision" || po.status === "revision_needed";
-    const isPurchaseCancelledCase = item.status === "purchase_cancelled";
-    const creatorException = isCreator && (isRevisionCase || isPurchaseCancelledCase);
-
-    const editableStatuses = ["draft", "pending_review", "pending_estimate", "pending_accounting", "revision_needed"];
-    const isEditableStatus = editableStatuses.includes(po.status);
-
-    if (!creatorException) {
-      if (!isPrivilegedRole) {
-        throw new TRPCError({ code: "FORBIDDEN", message: "ليس لديك صلاحية لحذف أصناف طلب الشراء" });
-      }
-      if (!isEditableStatus) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "لا يمكن حذف صنف من طلب معتمد" });
-      }
-    }
-
-    // عند طلب المراجعة على كامل الطلب (revision_needed)، الحذف مقصور على منشئ الطلب فقط
-    if (po.status === "revision_needed" && !isCreator) {
-      throw new TRPCError({
-        code: "FORBIDDEN",
-        message: "فقط منشئ الطلب يمكنه حذف الأصناف عند طلب المراجعة"
-      });
-    }
+    // ✅ الحارس المركزي (مستوى الصنف) — يستبدل الفحص اليدوي المتعدد الشروط
+    // الذي كان هنا (استثناء منشئ الطلب حسب حالة الصنف/الطلب + الأدوار المميّزة
+    // + قيد revision_needed غير المشروط بالدور). نفس السلوك بالضبط، موحَّد بـpolicy.ts.
+    assertCanPerformItemPOAction("deleteItem", ctx.user, {
+      itemStatus: item.status,
+      poStatus: po.status,
+      isCreator,
+    });
 
     // ✅ إصلاح حرج #2: منع حذف آخر صنف متبقٍ في الطلب — يمنع تفريغ الطلب بالكامل
     // من أصنافه وبقائه "رأسًا" بلا بنود. إن رغب المستخدم بإلغاء الطلب كليًا
@@ -806,36 +777,13 @@ export const purchaseOrdersRouter = router({
     }
 
     const isCreator = po.requestedById === ctx.user.id;
-    // الأدوار المسموح لها بتعديل طلب الشراء / الصنف بشكل عام
-    const isPrivilegedRole = ["owner", "admin", "maintenance_manager"].includes(ctx.user.role);
 
-    // استثناء منشئ الطلب: يقدر يعدّل طلبه فقط في حالتين:
-    // 1) طلب مراجعة من المندوب (على الصنف نفسه needs_item_revision أو على كامل الطلب revision_needed)
-    // 2) إلغاء شراء الصنف من قبل المندوب (purchase_cancelled)
-    const isRevisionCase = oldItem.status === "needs_item_revision" || po.status === "revision_needed";
-    const isPurchaseCancelledCase = oldItem.status === "purchase_cancelled";
-    const creatorException = isCreator && (isRevisionCase || isPurchaseCancelledCase);
-
-    // الحالات المسموح فيها بالتعديل العادي (لأصحاب الأدوار المسموح لها)
-    const editableStatuses = ['draft', 'pending_review', 'pending_estimate', 'pending_accounting', 'revision_needed'];
-    const isEditableStatus = editableStatuses.includes(po.status);
-
-    if (!creatorException) {
-      if (!isPrivilegedRole) {
-        throw new TRPCError({ code: "FORBIDDEN", message: "ليس لديك صلاحية لتعديل أصناف طلب الشراء" });
-      }
-      if (!isEditableStatus) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "لا يمكن تعديل صنف في طلب معتمد أو ممول" });
-      }
-    }
-
-    // عند طلب المراجعة على كامل الطلب (revision_needed)، التعديل مقصور على منشئ الطلب فقط
-    if (po.status === 'revision_needed' && !isCreator) {
-      throw new TRPCError({
-        code: "FORBIDDEN",
-        message: "فقط منشئ الطلب يمكنه تعديل الأصناف عند طلب المراجعة"
-      });
-    }
+    // ✅ الحارس المركزي (مستوى الصنف) — نفس منطق deleteItem بالضبط (موحَّد بـpolicy.ts)
+    assertCanPerformItemPOAction("editItem", ctx.user, {
+      itemStatus: oldItem.status,
+      poStatus: po.status,
+      isCreator,
+    });
 
     if (
       oldItem.updatedAt &&
@@ -893,8 +841,6 @@ export const purchaseOrdersRouter = router({
     const po = await db.getPurchaseOrderById(input.purchaseOrderId);
     if (!po) throw new TRPCError({ code: "NOT_FOUND", message: "طلب الشراء غير موجود" });
 
-    const isAdminOrOwner = ctx.user.role === "admin" || ctx.user.role === "owner";
-
     for (const item of input.items) {
       const cost = parseFloat(item.estimatedUnitCost);
       const poItem = (await db.getPOItems(input.purchaseOrderId)).find(i => i.id === item.id);
@@ -902,10 +848,8 @@ export const purchaseOrdersRouter = router({
       if (!poItem?.delegateId) {
         throw new TRPCError({ code: "BAD_REQUEST", message: `الصنف "${poItem?.itemName || item.id}" لا يمكن تسعيره قبل تعيين مندوب له` });
       }
-      // Guard: المندوب يسعّر أصنافه فقط
-      if (!isAdminOrOwner && poItem.delegateId !== ctx.user.id) {
-        throw new TRPCError({ code: "FORBIDDEN", message: `الصنف "${poItem.itemName}" غير مخصص لك` });
-      }
+      // ✅ الحارس المركزي: المندوب يسعّر أصنافه المخصَّصة له فقط (owner/admin يتجاوزان)
+      assertPOItemAssignedToDelegate(ctx.user, poItem);
       const totalCost = cost * (poItem?.quantity || 1);
 
       // ── دائمًا: حفظ السعر فقط يضع الصنف في "estimated" بانتظار إرساله ضمن دفعة ──
@@ -935,9 +879,8 @@ export const purchaseOrdersRouter = router({
 
     const allItems = await db.getPOItems(input.purchaseOrderId);
     // الأصناف الجاهزة للإرسال: مسعّرة (estimated) ولم تُرسل ضمن أي دفعة سابقة (batchId فارغ)
-    const isAdminOrOwner = ctx.user.role === "admin" || ctx.user.role === "owner";
     const readyItems = allItems.filter(
-      i => i.status === "estimated" && !i.batchId && (isAdminOrOwner || i.delegateId === ctx.user.id)
+      i => i.status === "estimated" && !i.batchId && isItemAssignedToPODelegate(ctx.user, i)
     );
 
     if (readyItems.length === 0) {
@@ -998,9 +941,35 @@ export const purchaseOrdersRouter = router({
     return db.getPOPricingBatches(input.purchaseOrderId);
   }),
 
-  getById: protectedProcedure.input(z.object({ id: z.number() })).query(async ({ input }) => {
+  /**
+   * "تحتاجني الآن" — الطلبات التي تنتظر إجراءً من المستخدم الحالي، مع سبب
+   * ظهور كل طلب والإجراء المقترح. يعتمد كليًا على الحارس المركزي لتحديد ما
+   * يستطيع المستخدم فعله، فلا يعرّف أي صلاحية جديدة.
+   */
+  actionableForMe: protectedProcedure.query(async ({ ctx }) => {
+    const allPOs = await db.getPurchaseOrders({});
+    // نطاق الرؤية أولًا — لا يظهر أي طلب لا يملك المستخدم صلاحية رؤيته أصلًا
+    const visible = await filterVisiblePurchaseOrders(ctx.user, allPOs);
+    if (visible.length === 0) return { items: [], total: 0 };
+
+    const poItems = await db.getPOItemsForPOs(visible.map((p: any) => p.id));
+    const actionable = computeActionablePOs(
+      { id: ctx.user.id, role: ctx.user.role },
+      visible as any,
+      poItems as any
+    );
+    return { items: actionable, total: actionable.length };
+  }),
+
+  getById: protectedProcedure.input(z.object({ id: z.number() })).query(async ({ input, ctx }) => {
     const po = await db.getPurchaseOrderById(input.id);
     if (!po) throw new TRPCError({ code: "NOT_FOUND", message: "طلب الشراء غير موجود" });
+
+    // ✅ الحارس المركزي (server/_core/authz) — يستبدل المنطق المكرر الذي كان
+    // هنا سابقًا. نفس القرار بالضبط يُستخدم من list() عبر filterVisiblePurchaseOrders
+    // فلا يمكن أن ينحرف نطاق التفاصيل عن نطاق القائمة.
+    await assertCanViewPurchaseOrder(ctx.user, po);
+
     const items = await db.getPOItems(input.id);
     const comments = await db.getProcurementComments(input.id);
     return { ...po, items, comments };
@@ -1014,8 +983,9 @@ list: protectedProcedure.input(z.object({
 }).optional()).query(async ({ input, ctx }) => {
   const role = ctx.user.role;
 
-  // الأدوار المحدودة: تجاهل فلاتر المستخدم وتثبيت الـ requestedById
-  if (role === "purchase_requester" || role === "food_warehouse_assistant") {
+  // الأدوار المقيّدة بطلباتها الخاصة فقط: تصفية مباشرة بالاستعلام (أداء أفضل،
+  // لا حاجة لجلب كل الطلبات ثم فلترتها).
+  if (OWN_REQUESTS_ONLY_ROLES.includes(role)) {
     return db.getPurchaseOrders({
       status: input?.status,
       dateFrom: input?.dateFrom,
@@ -1024,45 +994,33 @@ list: protectedProcedure.input(z.object({
     });
   }
 
-  // مدير المستودع الغذائي: يشوف فقط طلبات مساعد المستودع الغذائي + طلباته هو شخصياً
-  if (role === "food_warehouse_manager") {
-    const assistantIds = await db.getUserIdsByRole("food_warehouse_assistant");
-    const allowedIds = new Set([...assistantIds, ctx.user.id]);
-    const allPOs = await db.getPurchaseOrders({
-      status: input?.status,
-      dateFrom: input?.dateFrom,
-      dateTo: input?.dateTo,
-    });
-    return allPOs.filter(po => allowedIds.has(po.requestedById));
-  }
+  // ✅ الحارس المركزي (server/_core/authz) — نفس القرار بالضبط المستخدم من
+  // getById عبر assertCanViewPurchaseOrder، فلا يمكن أن ينحرف نطاق القائمة عن
+  // نطاق التفاصيل. فلتر requestedById الاختياري يبقى متاحًا فقط للأدوار التي
+  // كانت تدعمه أصلًا (الأدوار كاملة الصلاحية + أدوار الاعتماد/الاستلام).
+  const supportsRequestedByIdFilter =
+    ["owner", "admin", "maintenance_manager", "purchase_manager", "accountant", "senior_management", "executive_director", "warehouse"].includes(role);
+
+  const allPOs = await db.getPurchaseOrders({
+    status: input?.status,
+    dateFrom: input?.dateFrom,
+    dateTo: input?.dateTo,
+    requestedById: supportsRequestedByIdFilter ? input?.requestedById : undefined,
+  });
+  const visible = await filterVisiblePurchaseOrders(ctx.user, allPOs);
 
   if (role === "delegate") {
-    const items = await db.getPOItemsByDelegate(ctx.user.id);
-    const poIds = Array.from(new Set(items.map(i => i.purchaseOrderId)));
-    if (poIds.length === 0) return [];
-    const allPOs = await db.getPurchaseOrders({
-      status: input?.status,
-      dateFrom: input?.dateFrom,
-      dateTo: input?.dateTo,
-    });
     // itemCount الأصلي = إجمالي أصناف الطلب كله (لكل الأدوار). للمندوب تحديداً
     // يجب أن يعكس عدد أصنافه هو فقط ضمن هذا الطلب، وليس إجمالي كل المناديب.
+    const items = await db.getPOItemsByDelegate(ctx.user.id);
     const myItemCountByPO = new Map<number, number>();
     for (const it of items) {
       myItemCountByPO.set(it.purchaseOrderId, (myItemCountByPO.get(it.purchaseOrderId) ?? 0) + 1);
     }
-    return allPOs
-      .filter(po => poIds.includes(po.id))
-      .map(po => ({ ...po, itemCount: myItemCountByPO.get(po.id) ?? 0 }));
+    return visible.map(po => ({ ...po, itemCount: myItemCountByPO.get(po.id) ?? 0 }));
   }
 
-  // الأدوار الكاملة الصلاحيات: تقبل جميع الفلاتر بما فيها requestedById
-  return db.getPurchaseOrders({
-    status: input?.status,
-    dateFrom: input?.dateFrom,
-    dateTo: input?.dateTo,
-    requestedById: input?.requestedById,
-  });
+  return visible;
 }),
 
   myItems: protectedProcedure.query(async ({ ctx }) => {

@@ -297,13 +297,19 @@ async function writeBackToDirectColumn(
   translatedText: string
 ): Promise<void> {
   try {
-    const columnName = `${fieldName}_${language}`;
+    // ✅ إصلاح: schema.ts الجديد (المسحوب من القاعدة) يسمّي كل حقل مترجَم
+    // بصيغة camelCase كاملة (مثال: itemNameAr) بدل الصيغة القديمة بشرطة سفلية
+    // (itemName_ar). كان هذا السطر يبني الاسم القديم دائماً، فتفشل كل عمليات
+    // حفظ الترجمة صامتة منذ استبدال ملف الـSchema (المفتاح غير المعروف يُتجاهل
+    // بصمت من drizzle .set()، بدون أي خطأ ظاهر).
+    const langSuffix = language.charAt(0).toUpperCase() + language.slice(1);
+    const columnName = `${fieldName}${langSuffix}`;
 
     if (entityType === "TICKET") {
       const validColumns = [
-        "title_ar", "title_en", "title_ur",
-        "description_ar", "description_en", "description_ur",
-        "repairNotes_ar", "repairNotes_en", "repairNotes_ur",
+        "titleAr", "titleEn", "titleUr",
+        "descriptionAr", "descriptionEn", "descriptionUr",
+        "repairNotesAr", "repairNotesEn", "repairNotesUr",
       ];
       if (!validColumns.includes(columnName)) return;
       await db.update(tickets)
@@ -312,8 +318,8 @@ async function writeBackToDirectColumn(
 
     } else if (entityType === "ASSET") {
       const validColumns = [
-        "description_ar", "description_en", "description_ur",
-        "notes_ar", "notes_en", "notes_ur",
+        "descriptionAr", "descriptionEn", "descriptionUr",
+        "notesAr", "notesEn", "notesUr",
       ];
       if (!validColumns.includes(columnName)) return;
       await db.update(assets)
@@ -322,7 +328,7 @@ async function writeBackToDirectColumn(
 
     } else if (entityType === "WORK_ORDER") {
       const validColumns = [
-        "technicianNotes_ar", "technicianNotes_en", "technicianNotes_ur",
+        "technicianNotesAr", "technicianNotesEn", "technicianNotesUr",
       ];
       if (!validColumns.includes(columnName)) return;
       await db.update(pmWorkOrders)
@@ -331,9 +337,9 @@ async function writeBackToDirectColumn(
 
     } else if (entityType === "PO_ITEM") {
       const validColumns = [
-        "itemName_ar", "itemName_en", "itemName_ur",
-        "description_ar", "description_en", "description_ur",
-        "notes_ar", "notes_en", "notes_ur",
+        "itemNameAr", "itemNameEn", "itemNameUr",
+        "descriptionAr", "descriptionEn", "descriptionUr",
+        "notesAr", "notesEn", "notesUr",
       ];
       if (!validColumns.includes(columnName)) return;
       await db.update(purchaseOrderItems)
@@ -342,8 +348,8 @@ async function writeBackToDirectColumn(
 
     } else if (entityType === "PM_PLAN") {
       const validColumns = [
-        "title_ar", "title_en", "title_ur",
-        "description_ar", "description_en", "description_ur",
+        "titleAr", "titleEn", "titleUr",
+        "descriptionAr", "descriptionEn", "descriptionUr",
       ];
       if (!validColumns.includes(columnName)) return;
       await db.update(preventivePlans)
@@ -352,8 +358,8 @@ async function writeBackToDirectColumn(
 
     } else if (entityType === "PM_WORK_ORDER") {
       const validColumns = [
-        "title_ar", "title_en", "title_ur",
-        "technicianNotes_ar", "technicianNotes_en", "technicianNotes_ur",
+        "titleAr", "titleEn", "titleUr",
+        "technicianNotesAr", "technicianNotesEn", "technicianNotesUr",
       ];
       if (!validColumns.includes(columnName)) return;
       await db.update(pmWorkOrders)
@@ -362,7 +368,7 @@ async function writeBackToDirectColumn(
 
     } else if (entityType === "PM_RESULT") {
       const validColumns = [
-        "fixNotes_ar", "fixNotes_en", "fixNotes_ur",
+        "fixNotesAr", "fixNotesEn", "fixNotesUr",
       ];
       if (!validColumns.includes(columnName)) return;
       await db.update(pmExecutionResults)
@@ -371,7 +377,7 @@ async function writeBackToDirectColumn(
 
     } else if (entityType === "PM_SESSION") {
       const validColumns = [
-        "generalNotes_ar", "generalNotes_en", "generalNotes_ur",
+        "generalNotesAr", "generalNotesEn", "generalNotesUr",
       ];
       if (!validColumns.includes(columnName)) return;
       await db.update(pmExecutionSessions)
@@ -379,7 +385,7 @@ async function writeBackToDirectColumn(
         .where(eq(pmExecutionSessions.id, entityId));
 
     } else if (entityType === "PM_CHECKLIST") {
-      const validColumns = ["text_ar", "text_en", "text_ur"];
+      const validColumns = ["textAr", "textEn", "textUr"];
       if (!validColumns.includes(columnName)) return;
       await db.update(pmChecklistItems)
         .set({ [columnName]: translatedText })

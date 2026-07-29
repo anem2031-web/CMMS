@@ -37,8 +37,20 @@ import { sdk } from "./sdk";
 // Allowed roles: owner, admin, maintenance_manager, supervisor, senior_management, accounting
 // ============================================================
 const EXPORT_ALLOWED_ROLES = new Set([
-  "owner", "admin", "maintenance_manager", "supervisor", "senior_management", "accounting"
+  // ⚠️ كان مكتوبًا "accounting" (خطأ إملائي — لا يوجد دور بهذا الاسم بالنظام
+  // إطلاقًا؛ الصحيح "accountant")، ما كان يعطّل صلاحية التصدير عن المحاسب
+  // بصمت رغم أن النية الواضحة منحه إياها. صُحّح بتاريخ 2026-07-28.
+  "owner", "admin", "maintenance_manager", "supervisor", "senior_management", "accountant"
 ]);
+
+/**
+ * تصدير الجرد تحديدًا: نفس الأدوار أعلاه + المستودع.
+ * أمين المستودع يحتاج تصدير الجرد لعمله اليومي، لكن ليس بقية التصديرات
+ * (بلاغات، طلبات شراء، سجل تدقيق...) — قرار صريح من صاحب المشروع 2026-07-28.
+ */
+const INVENTORY_EXPORT_ALLOWED_ROLES = new Set(
+  Array.from(EXPORT_ALLOWED_ROLES).concat("warehouse")
+);
 
 async function requireAuthMiddleware(req: any, res: any, next: any) {
   try {
@@ -53,21 +65,29 @@ async function requireAuthMiddleware(req: any, res: any, next: any) {
   }
 }
 
-async function requireExportRole(req: any, res: any, next: any) {
-  try {
-    const user = await sdk.authenticateRequest(req);
-    if (!user) {
+function makeRequireExportRole(allowedRoles: Set<string>) {
+  return async function requireExportRoleMiddleware(req: any, res: any, next: any) {
+    try {
+      const user = await sdk.authenticateRequest(req);
+      if (!user) {
+        return res.status(401).json({ error: "غير مصرح — يجب تسجيل الدخول أولاً" });
+      }
+      if (!allowedRoles.has(user.role)) {
+        return res.status(403).json({ error: "ليس لديك صلاحية تصدير البيانات" });
+      }
+      req.authenticatedUser = user;
+      next();
+    } catch {
       return res.status(401).json({ error: "غير مصرح — يجب تسجيل الدخول أولاً" });
     }
-    if (!EXPORT_ALLOWED_ROLES.has(user.role)) {
-      return res.status(403).json({ error: "ليس لديك صلاحية تصدير البيانات" });
-    }
-    req.authenticatedUser = user;
-    next();
-  } catch {
-    return res.status(401).json({ error: "غير مصرح — يجب تسجيل الدخول أولاً" });
-  }
+  };
 }
+
+/** التصديرات العامة (بلاغات، طلبات شراء، سجل تدقيق، ...) */
+const requireExportRole = makeRequireExportRole(EXPORT_ALLOWED_ROLES);
+
+/** تصدير الجرد فقط — يشمل المستودع إضافةً للأدوار العامة */
+const requireInventoryExportRole = makeRequireExportRole(INVENTORY_EXPORT_ALLOWED_ROLES);
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -393,7 +413,7 @@ async function startServer() {
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
-  app.get("/api/export/inventory", requireExportRole, async (_req: any, res: any) => {
+  app.get("/api/export/inventory", requireInventoryExportRole, async (_req: any, res: any) => {
     try {
       const buffer = await exportInventoryToExcel();
       res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");

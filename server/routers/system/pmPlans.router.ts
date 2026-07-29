@@ -32,15 +32,15 @@ const FREQ_ADJ_UR: Record<string, string> = {
   annual: "سالانہ",
 };
 
-function buildSubPlanTitles(frequency: string, section: { title: string; title_ar?: string | null; title_en?: string | null; title_ur?: string | null }) {
-  const sectionAr = section.title_ar || section.title;
-  const sectionEn = section.title_en || section.title;
-  const sectionUr = section.title_ur || section.title;
+function buildSubPlanTitles(frequency: string, section: { title: string; titleAr?: string | null; titleEn?: string | null; titleUr?: string | null }) {
+  const sectionAr = section.titleAr || section.title;
+  const sectionEn = section.titleEn || section.title;
+  const sectionUr = section.titleUr || section.title;
   return {
     title: `الصيانة الوقائية ${FREQ_ADJ_AR[frequency] ?? frequency} - ${sectionAr}`,
-    title_ar: `الصيانة الوقائية ${FREQ_ADJ_AR[frequency] ?? frequency} - ${sectionAr}`,
-    title_en: `${FREQ_ADJ_EN[frequency] ?? frequency} Preventive Maintenance - ${sectionEn}`,
-    title_ur: `${FREQ_ADJ_UR[frequency] ?? frequency} احتیاطی دیکھ بھال - ${sectionUr}`,
+    titleAr: `الصيانة الوقائية ${FREQ_ADJ_AR[frequency] ?? frequency} - ${sectionAr}`,
+    titleEn: `${FREQ_ADJ_EN[frequency] ?? frequency} Preventive Maintenance - ${sectionEn}`,
+    titleUr: `${FREQ_ADJ_UR[frequency] ?? frequency} احتیاطی دیکھ بھال - ${sectionUr}`,
   };
 }
 

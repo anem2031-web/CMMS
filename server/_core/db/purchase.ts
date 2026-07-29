@@ -154,11 +154,16 @@ export async function getPurchaseOrders(filters?: {
   }
 
   if (filters?.requestedById) conditions.push(eq(purchaseOrders.requestedById, filters.requestedById));
-  if (filters?.dateFrom) conditions.push(gte(purchaseOrders.createdAt, new Date(filters.dateFrom)));
+  // ✅ الفلترة بتاريخ الإرسال الرسمي لا تاريخ إنشاء المسودة (2026-07-28).
+  // COALESCE: الطلبات القديمة (submittedAt = NULL) تُفلتر بـcreatedAt كما كانت
+  // تمامًا، فلا يتغيّر سلوكها ولا تحتاج تعبئة رجعية.
+  if (filters?.dateFrom) {
+    conditions.push(sql`COALESCE(${purchaseOrders.submittedAt}, ${purchaseOrders.createdAt}) >= ${new Date(filters.dateFrom)}`);
+  }
   if (filters?.dateTo) {
     const to = new Date(filters.dateTo);
     to.setHours(23, 59, 59, 999);
-    conditions.push(lte(purchaseOrders.createdAt, to));
+    conditions.push(sql`COALESCE(${purchaseOrders.submittedAt}, ${purchaseOrders.createdAt}) <= ${to}`);
   }
   const where = conditions.length > 0 ? and(...conditions) : undefined;
 
@@ -175,6 +180,7 @@ export async function getPurchaseOrders(filters?: {
       totalActualCost: purchaseOrders.totalActualCost,
       notes: purchaseOrders.notes,
       createdAt: purchaseOrders.createdAt,
+      submittedAt: purchaseOrders.submittedAt,
       updatedAt: purchaseOrders.updatedAt,
       reviewedById: purchaseOrders.reviewedById,
       reviewedAt: purchaseOrders.reviewedAt,
@@ -187,7 +193,9 @@ export async function getPurchaseOrders(filters?: {
     .from(purchaseOrders)
     .leftJoin(users, eq(purchaseOrders.requestedById, users.id))
     .where(where)
-    .orderBy(desc(purchaseOrders.createdAt));
+    // ✅ الترتيب بتاريخ الإرسال الرسمي لا تاريخ إنشاء المسودة (2026-07-28) —
+    // يمنع ضياع الطلب المُرسَل حديثًا بين الطلبات القديمة إذا بقيت مسودته مدة.
+    .orderBy(sql`COALESCE(${purchaseOrders.submittedAt}, ${purchaseOrders.createdAt}) DESC`);
 
   if (poList.length === 0) return [];
 
@@ -236,13 +244,16 @@ export async function getPurchaseOrders(filters?: {
   }
 
   // استعلام 3: جلب أسماء الأصناف لكل طلب دفعة واحدة (للبحث الديناميكي)
+  // ملاحظة: أسماء مفاتيح الإخراج (itemName_ar/en/ur) أُبقيت كما هي عمداً للتوافق
+  // مع الكود الذي يقرأها لاحقاً بنفس الملف (سطر ~259)؛ المُعدَّل هو فقط اسم خاصية
+  // الجدول المصدر بعد تحديث schema.ts (itemName_ar → itemNameAr، إلخ).
   const itemRows = await db
     .select({
       purchaseOrderId: purchaseOrderItems.purchaseOrderId,
       itemName: purchaseOrderItems.itemName,
-      itemName_ar: purchaseOrderItems.itemName_ar,
-      itemName_en: purchaseOrderItems.itemName_en,
-      itemName_ur: purchaseOrderItems.itemName_ur,
+      itemName_ar: purchaseOrderItems.itemNameAr,
+      itemName_en: purchaseOrderItems.itemNameEn,
+      itemName_ur: purchaseOrderItems.itemNameUr,
     })
     .from(purchaseOrderItems)
     .where(inArray(purchaseOrderItems.purchaseOrderId, poIds));
@@ -630,3 +641,20 @@ export async function trackItemHistory(searchTerm: string, exactMatch: boolean =
   };
 }
 
+
+/**
+ * جلب أصناف عدة طلبات دفعة واحدة — لتفادي استعلام منفصل لكل طلب (N+1)
+ * عند بناء قائمة "تحتاجني الآن".
+ */
+export async function getPOItemsForPOs(poIds: number[]) {
+  const db = await getDb();
+  if (!db || poIds.length === 0) return [];
+  return db
+    .select({
+      id: purchaseOrderItems.id,
+      purchaseOrderId: purchaseOrderItems.purchaseOrderId,
+      status: purchaseOrderItems.status,
+    })
+    .from(purchaseOrderItems)
+    .where(inArray(purchaseOrderItems.purchaseOrderId, poIds));
+}

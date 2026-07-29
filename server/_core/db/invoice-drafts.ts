@@ -292,8 +292,8 @@ export async function processApprovedReceiptItems(
       const internalCode = await getNextInventoryCode();
       const result = await db.insert(inventory).values({
         itemName:        item.itemName,
-        itemName_ar:     item.itemName_ar,
-        itemName_en:     item.itemName_en,
+        itemNameAr:      item.itemName_ar,
+        itemNameEn:      item.itemName_en,
         itemType:        item.itemType || "consumable",
         quantity:        0,
         unit:            item.purchaseUnit || "قطعة",

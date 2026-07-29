@@ -172,7 +172,7 @@ export async function generatePMWorkOrderPDF(workOrderId: number): Promise<Buffe
 
     // ── 4. Technician Notes ───────────────────────────────────────────────────
     section("4. ملاحظات الفني", "#92400e");
-    const notes = wo.technicianNotes_ar || wo.technicianNotes || "لا توجد ملاحظات";
+    const notes = wo.technicianNotesAr || wo.technicianNotes || "لا توجد ملاحظات";
     doc.fillColor("#374151").fontSize(9).font("Helvetica")
       .text(notes, LEFT + 8, doc.y, { width: W - 16 });
     doc.moveDown(1.5);

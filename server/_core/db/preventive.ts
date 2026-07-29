@@ -172,7 +172,7 @@ export async function updateBranch(id: number, data: Partial<InsertPreventivePla
     throw new Error("لا يمكن أن يكون الفرع أباً لنفسه");
   }
   // منع تعديل اسم "قسم الصيانة" إذا كان مرتبطاً بأي خطة فرعية (التصميم الجديد المستقل عن الشجرة)
-  const titleFieldsChanged = ["title", "title_ar", "title_en", "title_ur"].some(
+  const titleFieldsChanged = ["title", "titleAr", "titleEn", "titleUr"].some(
     (f) => (data as any)[f] !== undefined
   );
   if (titleFieldsChanged) {

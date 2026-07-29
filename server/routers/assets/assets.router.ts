@@ -53,14 +53,14 @@ export const assetsRouter = router({
         const lang = await detectLanguage(Object.values(fieldsToTranslate)[0]);
         const translations = await translateFields(fieldsToTranslate, lang);
         if (translations.description) {
-          assetTranslation.description_ar = translations.description.ar;
-          assetTranslation.description_en = translations.description.en;
-          assetTranslation.description_ur = translations.description.ur;
+          assetTranslation.descriptionAr = translations.description.ar;
+          assetTranslation.descriptionEn = translations.description.en;
+          assetTranslation.descriptionUr = translations.description.ur;
         }
         if (translations.notes) {
-          assetTranslation.notes_ar = translations.notes.ar;
-          assetTranslation.notes_en = translations.notes.en;
-          assetTranslation.notes_ur = translations.notes.ur;
+          assetTranslation.notesAr = translations.notes.ar;
+          assetTranslation.notesEn = translations.notes.en;
+          assetTranslation.notesUr = translations.notes.ur;
         }
         assetTranslation.originalLanguage = lang;
       } catch (e) {
@@ -130,14 +130,14 @@ export const assetsRouter = router({
         const detectedLang = await detectLanguage(textForDetection) as SupportedLanguage;
         const translations = await translateFields(assetFieldsToTranslate, detectedLang);
         if (translations.description) {
-          assetTranslation.description_ar = translations.description.ar;
-          assetTranslation.description_en = translations.description.en;
-          assetTranslation.description_ur = translations.description.ur;
+          assetTranslation.descriptionAr = translations.description.ar;
+          assetTranslation.descriptionEn = translations.description.en;
+          assetTranslation.descriptionUr = translations.description.ur;
         }
         if (translations.notes) {
-          assetTranslation.notes_ar = translations.notes.ar;
-          assetTranslation.notes_en = translations.notes.en;
-          assetTranslation.notes_ur = translations.notes.ur;
+          assetTranslation.notesAr = translations.notes.ar;
+          assetTranslation.notesEn = translations.notes.en;
+          assetTranslation.notesUr = translations.notes.ur;
         }
       } catch (e) {
         console.error("[Asset] Update translation failed:", e);

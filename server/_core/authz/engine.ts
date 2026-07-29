@@ -1,0 +1,256 @@
+/**
+ * ══════════════════════════════════════════════════════════════════════════
+ * الحارس المركزي لطلبات الشراء — الطبقة 2: محرك القرار (Engine / PDP)
+ * ══════════════════════════════════════════════════════════════════════════
+ *
+ * دوال نقية (Pure Functions) — بلا أي استعلام قاعدة بيانات هنا عمدًا، حتى تبقى
+ * قابلة للاختبار بدون mock معقّد وبدون أي تكلفة أداء إضافية (نفس مبدأ التصميم
+ * المتفق عليه: القرار يُبنى على بيانات already-loaded، لا استعلامات جديدة).
+ *
+ * أي استعلام DB مطلوب لتغذية هذه الدوال (مثال: قائمة IDs المندوب المخصَّصة له،
+ * أو معرّفات مساعدي المستودع الغذائي) تُجلب من الراوتر أو من guard.ts، وتُمرَّر
+ * هنا كبيانات جاهزة فقط.
+ *
+ * Default Deny: أي دور غير موجود بـVISIBILITY_POLICY يُرفض تلقائيًا (رجوع false).
+ */
+
+import { TRPCError } from "@trpc/server";
+import {
+  ACTION_POLICY,
+  BYPASS_ALL_ROLES,
+  ITEM_ACTION_POLICY,
+  ITEM_STATUS_ACTION_POLICY,
+  VISIBILITY_POLICY,
+  type ActionName,
+  type POStatus,
+  type Role,
+} from "./policy";
+
+// ──────────────────────────────────────────────────────────────────────────
+// الرؤية (Visibility) — list() و getById() يستدعيان نفس هذه الدالة بالضبط
+// ──────────────────────────────────────────────────────────────────────────
+
+export interface VisibilityContext {
+  role: string;
+  userId: number;
+  /** مطلوبة فقط لدور food_warehouse_manager: معرّفات مستخدمي food_warehouse_assistant */
+  assistantUserIds?: number[];
+  /** مطلوبة فقط لدور delegate: معرّفات الطلبات التي له فيها صنف مخصَّص */
+  delegateAssignedPoIds?: number[];
+}
+
+export interface POVisibilitySubject {
+  id: number;
+  status: string;
+  requestedById: number | null;
+}
+
+/**
+ * هل يملك هذا المستخدم صلاحية الاطلاع على هذا الطلب؟ (تُستخدم من getById)
+ */
+export function isPOVisible(ctx: VisibilityContext, po: POVisibilitySubject): boolean {
+  if (BYPASS_ALL_ROLES.includes(ctx.role as Role)) return true;
+
+  const rule = VISIBILITY_POLICY[ctx.role];
+  if (!rule) return false; // Default Deny: دور غير معرَّف بالسياسة
+
+  switch (rule.kind) {
+    case "all":
+      return true;
+    case "own":
+      return po.requestedById === ctx.userId;
+    case "own_plus_role":
+      return po.requestedById === ctx.userId || (ctx.assistantUserIds ?? []).includes(po.requestedById ?? -1);
+    case "assigned_items_only":
+      return (ctx.delegateAssignedPoIds ?? []).includes(po.id);
+    case "status_exact":
+      return po.status === rule.status;
+    case "status_range":
+      return !rule.excludedStatuses.includes(po.status as POStatus);
+    default:
+      return false; // exhaustiveness safety net
+  }
+}
+
+/**
+ * يفلتر قائمة طلبات كاملة لنفس نطاق isPOVisible بالضبط (تُستخدم من list())
+ * — نفس الدالة، نفس القرار، فلا يمكن أن ينحرف نطاق القائمة عن نطاق التفاصيل.
+ */
+export function filterVisiblePOs<T extends POVisibilitySubject>(ctx: VisibilityContext, pos: T[]): T[] {
+  return pos.filter((po) => isPOVisible(ctx, po));
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// الإجراءات (Actions)
+// ──────────────────────────────────────────────────────────────────────────
+
+export interface ActionContext {
+  role: string;
+  userId: number;
+  /** هل منفّذ الإجراء هو منشئ الطلب؟ (يحدده الراوتر، الحارس لا يفترضه) */
+  isCreator?: boolean;
+}
+
+export interface POActionSubject {
+  status: string;
+}
+
+/**
+ * هل يملك هذا المستخدم صلاحية تنفيذ هذا الإجراء على هذا الطلب (بحالته الحالية)؟
+ * لإجراءات لا تتطلب طلبًا محدَّدًا بعد (مثل create)، مرّر po كـundefined.
+ */
+export function canPerformAction(action: ActionName, ctx: ActionContext, po?: POActionSubject): boolean {
+  if (BYPASS_ALL_ROLES.includes(ctx.role as Role)) return true;
+
+  const clauses = ACTION_POLICY[action];
+  if (!clauses) return false; // Default Deny: إجراء غير معرَّف بالسياسة
+
+  return clauses.some((clause) => {
+    if (!clause.roles.includes(ctx.role as Role)) return false;
+    if (clause.statuses !== "any") {
+      if (!po) return false; // الإجراء يتطلب حالة طلب لكن ما تم تمرير طلب
+      if (!clause.statuses.includes(po.status as POStatus)) return false;
+    }
+    if (clause.ownership === "creator" && !ctx.isCreator) return false;
+    return true;
+  });
+}
+
+/**
+ * نسخة "ارمِ خطأ" من canPerformAction — تُستخدم مباشرة داخل معالجات tRPC.
+ * هذا هو الاستدعاء الوحيد اللي تحتاجه أغلب الراوترات؛ يفشل بـFORBIDDEN مباشرة
+ * إذا لم يكن الإجراء مسموحًا، تمامًا مثل التحقق اللي كنا نكرره يدويًا بكل ملف.
+ */
+export function assertCanPerformAction(
+  action: ActionName,
+  ctx: ActionContext,
+  po?: POActionSubject,
+  message = "ليس لديك صلاحية لتنفيذ هذا الإجراء بمرحلته الحالية"
+): void {
+  if (!canPerformAction(action, ctx, po)) {
+    throw new TRPCError({ code: "FORBIDDEN", message });
+  }
+}
+
+/** نسخة "ارمِ خطأ" من isPOVisible — تُستخدم مباشرة داخل getById */
+export function assertPOVisible(
+  ctx: VisibilityContext,
+  po: POVisibilitySubject,
+  message = "ليس لديك صلاحية للاطلاع على هذا الطلب"
+): void {
+  if (!isPOVisible(ctx, po)) {
+    throw new TRPCError({ code: "FORBIDDEN", message });
+  }
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// إجراءات مستوى الصنف (Item-level) — editItem / deleteItem
+// ──────────────────────────────────────────────────────────────────────────
+
+export interface ItemActionSubject {
+  /** حالة الصنف نفسه */
+  itemStatus: string;
+  /** حالة الطلب الأب الذي يتبعه الصنف */
+  poStatus: string;
+}
+
+/**
+ * منطق editItem/deleteItem بالضبط كما كان مطبَّقًا أصلًا بالكود قبل الترحيل —
+ * ⚠️ لاحظ أن BYPASS_ALL_ROLES **لا يُطبَّق هنا إطلاقًا**: owner/admin يُعاملان
+ * كأي دور آخر (مذكوران صراحة بـprivilegedRoles)، لأن قاعدة "creatorOnlyPOStatuses"
+ * تستثنيهما فعليًا أيضًا لو لم يكونا منشئ الطلب — هذا سلوك أصلي مقصود، وليس
+ * عيبًا بالترحيل.
+ */
+export function canPerformItemAction(
+  actionName: "editItem" | "deleteItem",
+  ctx: ActionContext,
+  subject: ItemActionSubject
+): boolean {
+  const rule = ITEM_ACTION_POLICY[actionName];
+  if (!rule) return false;
+
+  const creatorException =
+    !!ctx.isCreator &&
+    (rule.creatorExceptionItemStatuses.includes(subject.itemStatus) ||
+      rule.creatorExceptionPOStatuses.includes(subject.poStatus as POStatus));
+
+  if (!creatorException) {
+    if (!rule.privilegedRoles.includes(ctx.role as Role)) return false;
+    if (!rule.privilegedEditableStatuses.includes(subject.poStatus as POStatus)) return false;
+  }
+
+  // استثناء نهائي غير مشروط بالدور — يتجاوز حتى الأدوار المميّزة (owner/admin ضمنًا)
+  if (rule.creatorOnlyPOStatuses.includes(subject.poStatus as POStatus) && !ctx.isCreator) {
+    return false;
+  }
+
+  return true;
+}
+
+export function assertCanPerformItemAction(
+  actionName: "editItem" | "deleteItem",
+  ctx: ActionContext,
+  subject: ItemActionSubject,
+  message?: string
+): void {
+  if (!canPerformItemAction(actionName, ctx, subject)) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: message ?? "ليس لديك صلاحية لتنفيذ هذا الإجراء على هذا الصنف بحالته الحالية",
+    });
+  }
+}
+
+/**
+ * ملكية الصنف للمندوب — تُستخدم من estimateCost/confirmPurchase. أبسط بكثير
+ * من editItem/deleteItem: هنا BYPASS_ALL_ROLES يُطبَّق بشكل طبيعي (owner/admin
+ * يتجاوزان دائمًا، مطابقة للسلوك الأصلي بالكود: `if (!isAdminOrOwner && poItem.delegateId !== ctx.user.id)`).
+ */
+export function isItemAssignedToDelegate(
+  ctx: { role: string; userId: number },
+  item: { delegateId: number | null | undefined }
+): boolean {
+  if (BYPASS_ALL_ROLES.includes(ctx.role as Role)) return true;
+  return item.delegateId === ctx.userId;
+}
+
+export function assertItemAssignedToDelegate(
+  ctx: { role: string; userId: number },
+  item: { delegateId: number | null | undefined; itemName?: string },
+  message?: string
+): void {
+  if (!isItemAssignedToDelegate(ctx, item)) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: message ?? `${item.itemName ? `الصنف "${item.itemName}" ` : "هذا الصنف "}غير مخصص لك`,
+    });
+  }
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// إجراءات تُفحص بحالة الصنف حصرًا (لا حالة الطلب) — confirmDeliveryToWarehouse
+// و confirmDeliveryToRequester. BYPASS_ALL_ROLES يُطبَّق طبيعيًا هنا (owner/admin
+// يتجاوزان، كما بالسلوك الأصلي بالكود — لا استثناء خاص هنا خلافًا لـeditItem/deleteItem).
+// ──────────────────────────────────────────────────────────────────────────
+
+export function canPerformItemStatusAction(
+  actionName: "confirmDeliveryToWarehouse" | "confirmDeliveryToRequester",
+  ctx: ActionContext,
+  itemStatus: string
+): boolean {
+  if (BYPASS_ALL_ROLES.includes(ctx.role as Role)) return true;
+  const clauses = ITEM_STATUS_ACTION_POLICY[actionName];
+  if (!clauses) return false;
+  return clauses.some((clause) => clause.roles.includes(ctx.role as Role) && clause.itemStatuses.includes(itemStatus));
+}
+
+export function assertCanPerformItemStatusAction(
+  actionName: "confirmDeliveryToWarehouse" | "confirmDeliveryToRequester",
+  ctx: ActionContext,
+  itemStatus: string,
+  message = "لا يمكن تنفيذ هذا الإجراء على الصنف بحالته الحالية"
+): void {
+  if (!canPerformItemStatusAction(actionName, ctx, itemStatus)) {
+    throw new TRPCError({ code: "FORBIDDEN", message });
+  }
+}

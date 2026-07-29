@@ -135,7 +135,7 @@ export const receiptsV2Router = router({
         }
         throw new TRPCError({
           code: "INTERNAL_SERVER_ERROR",
-          message: `فشل في تحليل الفاتورة: ${error.message}`,
+          message: error.message,
         });
       }
     }),
@@ -246,8 +246,8 @@ export const receiptsV2Router = router({
             inventoryId: processed.inventoryId,
             // بلا purchaseOrderItemId — لا يوجد بند طلب أصلاً
             itemName: item.itemName,
-            itemName_ar: item.itemName_ar,
-            itemName_en: item.itemName_en,
+            itemNameAr: item.itemName_ar,
+            itemNameEn: item.itemName_en,
             receivedQuantity: item.receivedQuantity.toString(),
             purchaseUnit: item.purchaseUnit,
             unitCost: item.unitCost,
@@ -415,8 +415,8 @@ export const receiptsV2Router = router({
             inventoryId: processed.inventoryId,
             purchaseOrderItemId: item.purchaseOrderItemId,
             itemName: item.itemName,
-            itemName_ar: item.itemName_ar,
-            itemName_en: item.itemName_en,
+            itemNameAr: item.itemName_ar,
+            itemNameEn: item.itemName_en,
             receivedQuantity: item.receivedQuantity.toString(),
             purchaseUnit: item.purchaseUnit,
             unitCost: item.unitCost,
@@ -643,8 +643,8 @@ async function processReceiptItem(params: {
 
     inventoryId = await db.createInventoryItemV2({
       itemName:            item.itemName,
-      itemName_ar:         item.itemName_ar,
-      itemName_en:         item.itemName_en,
+      itemNameAr:         item.itemName_ar,
+      itemNameEn:         item.itemName_en,
       itemType:            item.itemType,
       quantity:            0,
       unit:                item.issueUnit || item.purchaseUnit,

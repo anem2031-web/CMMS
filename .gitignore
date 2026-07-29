@@ -111,4 +111,5 @@ dist/
 build/
 node_modules/
 .env
-uploads/
+uploads/*
+!server/routers/uploads/

@@ -2,12 +2,16 @@ import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { router, protectedProcedure } from "../_shared/procedures";
 import * as db from "../../_core/db";
+import { assertCanAccessAttachments } from "./attachments.access";
 
 export const attachmentsRouter = router({
   list: protectedProcedure.input(z.object({
     entityType: z.string(),
     entityId: z.number(),
-  })).query(async ({ input }) => {
+  })).query(async ({ input, ctx }) => {
+    // ✅ إصلاح IDOR: كان أي مستخدم مسجّل دخول يقدر يستعرض مرفقات أي كيان
+    // بتخمين الرقم، بدون أي تحقق من علاقته به.
+    await assertCanAccessAttachments(ctx.user, input.entityType, input.entityId);
     return db.getAttachments(input.entityType, input.entityId);
   }),
 
@@ -20,6 +24,9 @@ export const attachmentsRouter = router({
     mimeType: z.string().optional(),
     fileSize: z.number().optional(),
   })).mutation(async ({ input, ctx }) => {
+    // ✅ إصلاح IDOR: نفس الفحص المطبَّق بـlist — يمنع رفع مرفقات لكيان لا
+    // يملك المستخدم صلاحية الوصول إليه، أو لنوع كيان غير مدعوم أصلًا.
+    await assertCanAccessAttachments(ctx.user, input.entityType, input.entityId);
     const id = await db.createAttachment({
       entityType: input.entityType,
       entityId: input.entityId,

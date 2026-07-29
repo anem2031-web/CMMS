@@ -4,6 +4,7 @@ import { router, protectedProcedure, managerProcedure } from "../_shared/procedu
 import { detectLanguage, type SupportedLanguage } from "../../services/translation/translation";
 import { queueTranslation, translationCache } from "../../services/translation/translationEngine";
 import * as db from "../../_core/db";
+import { assertTicketVisible, isRoleDeniedFromTickets } from "./tickets.access";
 
 export const ticketsRouter = router({
   list: protectedProcedure.input(z.object({
@@ -18,6 +19,8 @@ export const ticketsRouter = router({
     assignedToId: z.number().optional(), // Phase 2: filter by user-based assignment
   }).optional()).query(async ({ input, ctx }) => {
     const role = ctx.user.role;
+    // ✅ إغلاق فجوة الواجهة/الخادم: أدوار محجوبة عن البلاغات بالواجهة كانت ترى الكل هنا
+    if (isRoleDeniedFromTickets(role)) return [];
     let filters: any = input || {};
     if (role === "operator") filters.reportedById = ctx.user.id;
     else if (role === "technician") filters.assignedToId = ctx.user.id;
@@ -43,6 +46,8 @@ export const ticketsRouter = router({
   }).optional()).query(async ({ input, ctx }) => {
     const role = ctx.user.role;
     const { page = 1, pageSize = 10, quickFilter, sort, ...rest } = input || {};
+    // ✅ إغلاق فجوة الواجهة/الخادم (نفس قاعدة list)
+    if (isRoleDeniedFromTickets(role)) return { items: [], total: 0, page, pageSize, totalPages: 0 } as any;
     let filters: any = rest;
     if (role === "operator") filters.reportedById = ctx.user.id;
     else if (role === "technician") filters.assignedToId = ctx.user.id;
@@ -63,15 +68,20 @@ export const ticketsRouter = router({
     assignedToId: z.number().optional(),
   }).optional()).query(async ({ input, ctx }) => {
     const role = ctx.user.role;
+    // ✅ إغلاق فجوة الواجهة/الخادم (نفس قاعدة list)
+    if (isRoleDeniedFromTickets(role)) return { all: 0, critical: 0, unassigned: 0, stale: 0, ready_for_closure: 0 } as any;
     let filters: any = input || {};
     if (role === "operator") filters.reportedById = ctx.user.id;
     else if (role === "technician") filters.assignedToId = ctx.user.id;
     return db.getTicketsInboxCounts(filters);
   }),
 
-  getById: protectedProcedure.input(z.object({ id: z.number() })).query(async ({ input }) => {
+  getById: protectedProcedure.input(z.object({ id: z.number() })).query(async ({ input, ctx }) => {
     const ticket = await db.getTicketById(input.id);
     if (!ticket) throw new TRPCError({ code: "NOT_FOUND", message: "البلاغ غير موجود" });
+    // ✅ إصلاح: كان أي مستخدم مسجّل دخول يقدر يفتح أي بلاغ برقمه مباشرة، رغم أن
+    // list()/listPaginated تُقيّدان النطاق فعليًا. النطاق هنا مطابق لهما حرفيًا.
+    assertTicketVisible(ctx.user, ticket as any);
     return ticket;
   }),
 

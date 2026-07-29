@@ -65,7 +65,7 @@ export const invoiceDraftRouter = router({
         });
         throw new TRPCError({
           code:    "INTERNAL_SERVER_ERROR",
-          message: `فشل في تحليل الفاتورة: ${err.message}`,
+          message: err.message,
         });
       }
     }),
@@ -131,8 +131,8 @@ export const invoiceDraftRouter = router({
             receiptId:           receiptId!,
             purchaseOrderItemId: item.purchaseOrderItemId,
             itemName:            item.itemName || "صنف غير محدد",
-            itemName_ar:         item.itemName_ar,
-            itemName_en:         item.itemNameEn,
+            itemNameAr:          item.itemName_ar,
+            itemNameEn:          item.itemNameEn,
             receivedQuantity:    (item.quantity || 1).toString(),
             purchaseUnit:        item.unit || "قطعة",
             unitCost:            (item.unitPrice || 0).toString(),

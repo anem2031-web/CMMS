@@ -237,7 +237,7 @@ export default function WarehouseReceiveV2() {
       })();
     },
     onError: (err: any) => {
-      toast.error("فشل في تحليل الفاتورة", { description: err.message });
+      toast.error("تعذّر تحليل الفاتورة", { description: err.message });
     },
   });
 

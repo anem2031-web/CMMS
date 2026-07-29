@@ -101,7 +101,7 @@ export default function PMPlansPanel() {
   );
 
   const localizedSiteName = (r: any) => (language === "en" && r.nameEn) ? r.nameEn : (language === "ur" && r.nameUr) ? r.nameUr : r.name;
-  const localizedBranchTitle = (r: any) => getField({ title: r.title ?? r.branchTitle, title_ar: r.title_ar ?? r.branchTitle_ar, title_en: r.title_en ?? r.branchTitle_en, title_ur: r.title_ur ?? r.branchTitle_ur }, "title");
+  const localizedBranchTitle = (r: any) => getField({ title: r.title ?? r.branchTitle, titleAr: r.title_ar ?? r.branchTitle_ar, titleEn: r.title_en ?? r.branchTitle_en, titleUr: r.title_ur ?? r.branchTitle_ur }, "title");
 
   // ============================================================
   // الخطط الفرعية (تحت بطاقة رئيسية محددة)

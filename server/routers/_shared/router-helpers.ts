@@ -1,5 +1,9 @@
 import * as db from "../../_core/db";
 import { detectLanguage, translateFields, type SupportedLanguage } from "../../services/translation/translation";
+// ⚠️ منقول إلى server/_core/authz/policy.ts (الحارس المركزي، 2026-07-28) — هذا
+// إعادة تصدير فقط للتوافق مع أي كود قديم قد يستورد من هنا؛ التعريف الفعلي
+// (مصدر الحقيقة الوحيد) أصبح بملف policy.ts.
+export { OWN_REQUESTS_ONLY_ROLES } from "../../_core/authz/policy";
 
 export { detectLanguage, translateFields };
 export type { SupportedLanguage };

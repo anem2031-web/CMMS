@@ -163,6 +163,73 @@ export async function analyzeInvoiceFromBase64(
 // ─────────────────────────────────────────────────────────────
 // الدالة المشتركة للتحليل
 // ─────────────────────────────────────────────────────────────
+// ترجمة أخطاء مزوّد الذكاء الاصطناعي إلى رسائل واضحة للمستخدم
+// ─────────────────────────────────────────────────────────────
+//
+// الخلفية: كانت أخطاء Anthropic الخام تصل للمستخدم النهائي كما هي، بنصها
+// الإنجليزي التقني مع request_id — مثال حقيقي واجهه المستخدم:
+//   "فشل في تحليل الفاتورة: 400 {"type":"error","error":{"type":
+//    "invalid_request_error","message":"Your credit balance is too low..."}}"
+// وهي رسالة لا تفيد أمين المستودع ولا تخبره بما يفعله الآن.
+//
+// المبدأ: يُسجَّل الخطأ التقني كاملًا بسجلات الخادم (للتشخيص)، ويُعرض للمستخدم
+// نص عربي واضح يخبره بالبديل المتاح فورًا.
+
+/** يحوّل خطأ المزوّد إلى رسالة عربية واضحة، ويسجّل التفاصيل التقنية بالخادم */
+function toUserFacingOcrError(err: any): Error {
+  const raw = String(err?.message ?? err ?? "");
+  const status = err?.status ?? err?.statusCode;
+  const requestId = err?.request_id ?? err?.requestID;
+
+  // سجل تقني كامل — للخادم فقط، لا يراه المستخدم
+  console.error(
+    `[OCR] Anthropic API error${status ? ` ${status}` : ""}: ${raw}` +
+      (requestId ? ` | request_id=${requestId}` : "")
+  );
+
+  const lower = raw.toLowerCase();
+
+  // نفاد الرصيد / مشكلة اشتراك أو فوترة
+  if (lower.includes("credit balance") || lower.includes("billing") || lower.includes("quota")) {
+    return new Error(
+      "تعذّر تحليل الفاتورة تلقائياً — خدمة التحليل الذكي غير متاحة حالياً.\n" +
+        "يمكنك إدخال بيانات الفاتورة يدوياً والمتابعة بشكل طبيعي.\n" +
+        "إذا تكررت المشكلة، يرجى إبلاغ مسؤول النظام."
+    );
+  }
+
+  // مفتاح غير صالح أو غير مُعدّ
+  if (status === 401 || lower.includes("authentication") || lower.includes("api key")) {
+    return new Error(
+      "تعذّر تحليل الفاتورة تلقائياً — إعدادات خدمة التحليل الذكي غير صحيحة.\n" +
+        "يمكنك إدخال بيانات الفاتورة يدوياً. يرجى إبلاغ مسؤول النظام."
+    );
+  }
+
+  // تجاوز حد الاستخدام المؤقت
+  if (status === 429 || lower.includes("rate limit")) {
+    return new Error(
+      "تعذّر تحليل الفاتورة تلقائياً — الخدمة مشغولة حالياً بسبب كثرة الطلبات.\n" +
+        "يرجى المحاولة بعد قليل، أو إدخال بيانات الفاتورة يدوياً."
+    );
+  }
+
+  // تعطّل مؤقت بخوادم المزوّد
+  if (typeof status === "number" && status >= 500) {
+    return new Error(
+      "تعذّر تحليل الفاتورة تلقائياً — خدمة التحليل الذكي تواجه عطلاً مؤقتاً.\n" +
+        "يرجى المحاولة بعد قليل، أو إدخال بيانات الفاتورة يدوياً."
+    );
+  }
+
+  // أي خطأ آخر غير متوقع من المزوّد
+  return new Error(
+    "تعذّر تحليل الفاتورة تلقائياً — حدث خطأ غير متوقع بخدمة التحليل الذكي.\n" +
+      "يمكنك إدخال بيانات الفاتورة يدوياً. إذا تكررت المشكلة، يرجى إبلاغ مسؤول النظام."
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
 async function analyzeFromBase64(
   base64: string,
   mimeType: string,
@@ -177,29 +244,34 @@ async function analyzeFromBase64(
 
   console.log("[OCR] Calling Anthropic API, mime:", finalMime);
 
-  const response = await client.messages.create({
-    model: "claude-sonnet-4-6",
-    max_tokens: 6000,
-    messages: [
-      {
-        role: "user",
-        content: [
-          {
-            type: "image",
-            source: {
-              type:       "base64",
-              media_type: finalMime as "image/jpeg" | "image/png" | "image/gif" | "image/webp",
-              data:       base64,
+  let response;
+  try {
+    response = await client.messages.create({
+      model: "claude-sonnet-4-6",
+      max_tokens: 6000,
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "image",
+              source: {
+                type:       "base64",
+                media_type: finalMime as "image/jpeg" | "image/png" | "image/gif" | "image/webp",
+                data:       base64,
+              },
             },
-          },
-          {
-            type: "text",
-            text: INVOICE_PROMPT,
-          },
-        ],
-      },
-    ],
-  });
+            {
+              type: "text",
+              text: INVOICE_PROMPT,
+            },
+          ],
+        },
+      ],
+    });
+  } catch (err: any) {
+    throw toUserFacingOcrError(err);
+  }
 
   console.log("[OCR] Anthropic responded, blocks:", response.content?.length);
 

@@ -4,18 +4,27 @@ import { useMemo } from "react";
 
 type SupportedLanguage = "ar" | "en" | "ur";
 
+// ✅ إصلاح: drizzle/schema.ts (بعد المزامنة مع قاعدة الإنتاج) يسمّي كل حقل
+// مترجَم بصيغة camelCase كاملة (مثال: itemNameAr) بدل الصيغة القديمة بشرطة
+// سفلية (itemName_ar) — اسم العمود الحقيقي بقاعدة البيانات لم يتغيّر، فقط
+// اسم الخاصية اللي يستخدمها الكود. كانت كل الدوال بهذا الملف تبني المفتاح
+// القديم، فتفشل صامتة بإيجاد أي ترجمة بردود الـAPI الحالية منذ مزامنة الـSchema.
+function buildTranslatedKey(fieldName: string, lang: string): string {
+  return `${fieldName}${lang.charAt(0).toUpperCase()}${lang.slice(1)}`;
+}
+
 export function useTranslatedField() {
   const { language } = useLanguage();
 
   /**
    * المسار A: قراءة من الأعمدة المباشرة في السجل
-   * يُستخدم للـ entities التي تكتب في _ar/_en/_ur مباشرة
+   * يُستخدم للـ entities التي تكتب في Ar/En/Ur مباشرة
    */
   function getField(record: Record<string, any>, fieldName: string): string {
     if (!record) return "";
 
     // 1. جرب العمود المباشر للغة الحالية
-    const translatedKey = `${fieldName}_${language}`;
+    const translatedKey = buildTranslatedKey(fieldName, language);
     const translatedValue = record[translatedKey];
     if (translatedValue && translatedValue.trim().length > 0) {
       return translatedValue;
@@ -27,7 +36,7 @@ export function useTranslatedField() {
 
   function getFieldForLang(record: Record<string, any>, fieldName: string, lang: SupportedLanguage): string {
     if (!record) return "";
-    const translatedKey = `${fieldName}_${lang}`;
+    const translatedKey = buildTranslatedKey(fieldName, lang);
     const translatedValue = record[translatedKey];
     if (translatedValue && translatedValue.trim().length > 0) {
       return translatedValue;
@@ -39,16 +48,16 @@ export function useTranslatedField() {
     if (!record) return false;
     const langs: SupportedLanguage[] = ["ar", "en", "ur"];
     return langs.some((lang) => {
-      const key = `${fieldName}_${lang}`;
+      const key = buildTranslatedKey(fieldName, lang);
       return record[key] && record[key].trim().length > 0;
     });
   }
 
   function getAllTranslations(record: Record<string, any>, fieldName: string): Record<SupportedLanguage, string> {
     return {
-      ar: record[`${fieldName}_ar`] || record[fieldName] || "",
-      en: record[`${fieldName}_en`] || record[fieldName] || "",
-      ur: record[`${fieldName}_ur`] || record[fieldName] || "",
+      ar: record[buildTranslatedKey(fieldName, "ar")] || record[fieldName] || "",
+      en: record[buildTranslatedKey(fieldName, "en")] || record[fieldName] || "",
+      ur: record[buildTranslatedKey(fieldName, "ur")] || record[fieldName] || "",
     };
   }
 
@@ -95,7 +104,7 @@ export function useResolvedTranslation(
 
       // 1. إذا لا يحتاج ترجمة (نفس اللغة) — أرجع مباشرة
       if (!shouldFetch) {
-        const directKey = `${fieldName}_${language}`;
+        const directKey = buildTranslatedKey(fieldName, language);
         return record?.[directKey] || originalValue;
       }
 
@@ -108,7 +117,7 @@ export function useResolvedTranslation(
       }
 
       // 3. سقط على الأعمدة المباشرة (النظام القديم)
-      const directKey = `${fieldName}_${language}`;
+      const directKey = buildTranslatedKey(fieldName, language);
       if (record?.[directKey] && record[directKey].trim().length > 0) {
         return record[directKey];
       }

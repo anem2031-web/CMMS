@@ -3,6 +3,7 @@ import { z } from "zod";
 import { router, protectedProcedure, managerProcedure, accountantProcedure, managementProcedure } from "../_shared/procedures";
 import * as db from "../../_core/db";
 import { notifyItemRejection } from "../_shared/router-helpers";
+import { assertCanPerformPOAction } from "../../_core/authz/guard";
 
 export const approvalsRouter = router({
   approveAccounting: accountantProcedure.input(z.object({
@@ -13,6 +14,11 @@ export const approvalsRouter = router({
     rejectionReason: z.string().optional(),
   })).mutation(async ({ input, ctx }) => {
     const po = await db.getPurchaseOrderById(input.id);
+    if (!po) throw new TRPCError({ code: "NOT_FOUND", message: "طلب الشراء غير موجود" });
+    // ✅ إصلاح: لم يكن هناك أي تحقق من مرحلة الطلب سابقًا — أي محاسب يقدر
+    // يستدعي هذا الإجراء على طلب تجاوز مرحلة المحاسبة من زمان (معتمد، مرفوض،
+    // مشترى...). الآن يُشترط أن يكون الطلب بالضبط بمرحلة pending_accounting.
+    assertCanPerformPOAction("approveAccounting", ctx.user, po);
     const items = await db.getPOItems(input.id);
     
     // Process item rejections if any
@@ -267,14 +273,13 @@ export const approvalsRouter = router({
     rejectedItemIds: z.array(z.number()).optional(),
     rejectionReason: z.string().optional(),
   })).mutation(async ({ input, ctx }) => {
-
-    if (ctx.user.role === "executive_director") {
-      throw new TRPCError({
-        code: "FORBIDDEN",
-       message: "المدير التنفيذي لديه صلاحية استعراض فقط"
-    });
-  }
     const po = await db.getPurchaseOrderById(input.id);
+    if (!po) throw new TRPCError({ code: "NOT_FOUND", message: "طلب الشراء غير موجود" });
+    // ✅ الحارس المركزي: يستبدل الفحص اليدوي لاستثناء executive_director (نفس
+    // النتيجة، موحَّدة بـpolicy.ts)، ويضيف فحصًا كان غائبًا تمامًا: يُشترط أن
+    // يكون الطلب بالضبط بمرحلة pending_management (كان أي senior_management
+    // يقدر يعتمد طلبًا تجاوز هذي المرحلة من زمان).
+    assertCanPerformPOAction("approveManagement", ctx.user, po);
     const items = await db.getPOItems(input.id);
 
     // Process item rejections if any
@@ -432,6 +437,13 @@ export const approvalsRouter = router({
     reason: z.string().min(1),
   })).mutation(async ({ input, ctx }) => {
     const poReject = await db.getPurchaseOrderById(input.id);
+    if (!poReject) throw new TRPCError({ code: "NOT_FOUND", message: "طلب الشراء غير موجود" });
+
+    // ✅ الحارس المركزي (server/_core/authz) — يستبدل الفحص اليدوي الذي كان هنا
+    // سابقًا. القاعدة (accountant فقط بـpending_accounting، senior_management
+    // فقط بـpending_management، admin/owner دائمًا) معرَّفة الآن بـpolicy.ts فقط.
+    assertCanPerformPOAction("reject", ctx.user, poReject);
+
     await db.updatePurchaseOrder(input.id, { status: "rejected", rejectedById: ctx.user.id, rejectedAt: new Date(), rejectionReason: input.reason });
     await db.createProcurementComment({
       purchaseOrderId: input.id,
@@ -463,17 +475,16 @@ export const approvalsRouter = router({
       rejectionReason: z.string().optional(),
     })),
   })).mutation(async ({ input, ctx }) => {
-    const isStandardManager = ["maintenance_manager", "purchase_manager", "owner", "admin"].includes(ctx.user.role);
-    const isFoodWarehouseManager = ctx.user.role === "food_warehouse_manager";
-    if (!isStandardManager && !isFoodWarehouseManager) {
-      throw new TRPCError({ code: "FORBIDDEN", message: "ليس لديك صلاحية لهذا الإجراء" });
-    }
-
     const po = await db.getPurchaseOrderById(input.poId);
     if (!po) throw new TRPCError({ code: "NOT_FOUND", message: "طلب الشراء غير موجود" });
 
-    // مدير المستودع الغذائي: مقيّد بطلبات مساعد المستودع الغذائي أو طلباته هو شخصياً فقط
-    if (isFoodWarehouseManager) {
+    // ✅ الحارس المركزي: يتحقق من الدور + مرحلة الطلب (pending_review)
+    assertCanPerformPOAction("reviewItems", ctx.user, po);
+
+    // مدير المستودع الغذائي: مقيّد إضافيًا بطلبات مساعد المستودع الغذائي أو
+    // طلباته هو شخصياً فقط — هذا قيد ملكية خاص بالدور، غير معرَّف بـpolicy.ts
+    // العام (نفس نمط getById لهذا الدور)، فيُفحص هنا إضافةً على فحص الحارس.
+    if (ctx.user.role === "food_warehouse_manager") {
       const requester = po.requestedById ? await db.getUserById(po.requestedById) : null;
       const isOwnRequest = po.requestedById === ctx.user.id;
       const isAssistantRequest = (requester as any)?.role === "food_warehouse_assistant";
@@ -482,9 +493,6 @@ export const approvalsRouter = router({
       }
     }
 
-    if (po.status !== "pending_review") {
-      throw new TRPCError({ code: "BAD_REQUEST", message: "طلب الشراء ليس في مرحلة المراجعة" });
-    }
     // ── Atomic validation: fetch all DB items for this PO before any updates ──
     const dbItems = await db.getPOItems(input.poId);
     // A) Count check: submitted items must equal DB items (no partial submission)

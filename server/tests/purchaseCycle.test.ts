@@ -430,6 +430,7 @@ describe("Purchase Cycle - 3-Step Flow", () => {
 
     it("should reject entire PO if all items are rejected during accounting", async () => {
       db._setupScenario();
+      db._pos.find((p: any) => p.id === 10).status = "pending_accounting";
       const caller = appRouter.createCaller(createContext("accountant", 7));
       
       // Mock getPOItems to return all rejected for the second call
@@ -570,6 +571,7 @@ describe("Item Rejection Attribution (name + reason)", () => {
 
   it("approveAccounting: all-items-rejected cascade message includes rejecter's name and reason", async () => {
     db._setupScenario();
+    db._pos.find((p: any) => p.id === 10).status = "pending_accounting";
     const caller = appRouter.createCaller(createContext("accountant", 7));
 
     db.getPOItems.mockImplementationOnce(async () => db._items)
@@ -594,6 +596,7 @@ describe("Item Rejection Attribution (name + reason)", () => {
 
   it("approveManagement: notifies requester per rejected item with name and reason", async () => {
     db._setupScenario();
+    db._pos.find((p: any) => p.id === 10).status = "pending_management";
     const caller = appRouter.createCaller(createContext("senior_management", 8));
 
     await caller.purchaseOrders.approveManagement({

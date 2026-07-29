@@ -108,9 +108,9 @@ function buildTicketsWhere(filters?: TicketListFilters) {
   if (filters?.reportedById) conditions.push(eq(tickets.reportedById, filters.reportedById));
   if (filters?.search) conditions.push(or(
     like(tickets.title, `%${filters.search}%`),
-    like(tickets.title_ar, `%${filters.search}%`),
-    like(tickets.title_en, `%${filters.search}%`),
-    like(tickets.title_ur, `%${filters.search}%`),
+    like(tickets.titleAr, `%${filters.search}%`),
+    like(tickets.titleEn, `%${filters.search}%`),
+    like(tickets.titleUr, `%${filters.search}%`),
     like(tickets.ticketNumber, `%${filters.search}%`)
   ));
   if (filters?.category) conditions.push(eq(tickets.category, filters.category as any));

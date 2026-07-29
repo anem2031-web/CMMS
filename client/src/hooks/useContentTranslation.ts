@@ -126,7 +126,10 @@ export function getLocalizedItemField(
   fieldName: string,
   language: string
 ): string {
-  const translated = item[`${fieldName}_${language}`];
+  // ✅ إصلاح: نفس مشكلة useTranslatedField.ts — الخاصية الآن camelCase
+  // (مثال: itemNameAr) بدل الصيغة القديمة بشرطة سفلية (itemName_ar).
+  const langSuffix = language.charAt(0).toUpperCase() + language.slice(1);
+  const translated = item[`${fieldName}${langSuffix}`];
   if (translated && typeof translated === "string" && translated.trim().length > 0) {
     return translated.trim();
   }

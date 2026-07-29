@@ -57,6 +57,12 @@ export default function PurchaseOrders() {
   const PAGE_SIZE = 10;
   const [currentPage, setCurrentPage] = useState(1);
 
+  // ── عرض "تحتاجني الآن" (افتراضي) مقابل "جميع الطلبات" ──
+  const [view, setView] = useState<"actionable" | "all">("actionable");
+  const { data: actionable, isLoading: actionableLoading } =
+    trpc.purchaseOrders.actionableForMe.useQuery();
+  const actionableItems = actionable?.items ?? [];
+
   const canDelete = user && ["owner", "admin"].includes(user.role);
   const canFilterByUser = user && FULL_ACCESS_ROLES.includes(user.role);
 
@@ -146,6 +152,76 @@ export default function PurchaseOrders() {
           </Button>
         </div>
       </div>
+
+      {/* ── ملخص + تبويبا العرض ─────────────────────────────────── */}
+      {actionableLoading ? (
+        <Skeleton className="h-6 w-64" />
+      ) : (
+        <p className="text-base font-medium">
+          {actionableItems.length > 0
+            ? `لديك ${actionableItems.length} ${actionableItems.length === 1 ? "طلب يحتاج" : "طلبات تحتاج"} تدخلك`
+            : "لا توجد طلبات تحتاج تدخلك حالياً"}
+        </p>
+      )}
+
+      <div className="flex gap-2 flex-wrap">
+        <Button
+          variant={view === "actionable" ? "default" : "outline"}
+          size="sm"
+          onClick={() => setView("actionable")}
+        >
+          تحتاجني الآن {actionableItems.length > 0 && `(${actionableItems.length})`}
+        </Button>
+        <Button
+          variant={view === "all" ? "default" : "outline"}
+          size="sm"
+          onClick={() => setView("all")}
+        >
+          جميع الطلبات
+        </Button>
+      </div>
+
+      {/* ── قائمة "تحتاجني الآن" ──────────────────────────────────── */}
+      {view === "actionable" && (
+        <div className="space-y-2">
+          {actionableLoading ? (
+            <>
+              <Skeleton className="h-20 w-full" />
+              <Skeleton className="h-20 w-full" />
+            </>
+          ) : actionableItems.length === 0 ? (
+            <Card>
+              <CardContent className="py-10 text-center text-muted-foreground">
+                <Package className="w-10 h-10 mx-auto mb-3 opacity-40" />
+                لا توجد طلبات تنتظر إجراءً منك حالياً.
+              </CardContent>
+            </Card>
+          ) : (
+            actionableItems.map((it: any) => (
+              <Card key={it.id} className="hover:shadow-sm transition-shadow">
+                <CardContent className="py-4 flex items-center justify-between gap-4 flex-wrap">
+                  <div className="min-w-0">
+                    <div className="font-semibold">{it.poNumber}</div>
+                    <div className="text-sm text-muted-foreground mt-0.5">{it.reason}</div>
+                    {it.itemsSummary && (
+                      <div className="text-xs text-muted-foreground mt-1">{it.itemsSummary}</div>
+                    )}
+                  </div>
+                  <Button
+                    size="sm"
+                    onClick={() => setLocation(`/purchase-orders/${it.id}`)}
+                  >
+                    {it.actionLabel}
+                  </Button>
+                </CardContent>
+              </Card>
+            ))
+          )}
+        </div>
+      )}
+
+      {/* ── العرض الكامل (الجدول والفلاتر الحالية كما هي) ─────────── */}
+      {view === "all" && (<>
 
       {/* خانة البحث الديناميكية */}
       <div className="relative">
@@ -368,6 +444,8 @@ export default function PurchaseOrders() {
           </Pagination>
         </div>
       )}
+
+      </>)}
 
       {/* Delete Confirmation Dialog */}
       <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>

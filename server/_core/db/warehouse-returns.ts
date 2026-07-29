@@ -487,8 +487,8 @@ export async function updateOcrJob(id: number, data: {
 
 export async function createInventoryItemV2(data: {
   itemName:           string;
-  itemName_ar?:       string;
-  itemName_en?:       string;
+  itemNameAr?:       string;
+  itemNameEn?:       string;
   itemType?:          string;
   quantity:           number;
   unit?:              string;
@@ -610,8 +610,8 @@ export async function createWarehouseReceiptItem(data: {
   inventoryId?:         number;
   purchaseOrderItemId?: number;
   itemName:             string;
-  itemName_ar?:         string;
-  itemName_en?:         string;
+  itemNameAr?:         string;
+  itemNameEn?:         string;
   receivedQuantity:     string;
   purchaseUnit?:        string;
   unitCost:             string;
