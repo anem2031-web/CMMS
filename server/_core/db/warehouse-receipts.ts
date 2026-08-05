@@ -104,8 +104,8 @@ export async function getNextItemBarcode(): Promise<string> {
   return result[0];
 }
 
-export async function getNextDeliveryNumber(): Promise<string> {
-  const db = await getDb();
+export async function getNextDeliveryNumber(tx?: any): Promise<string> {
+  const db = tx || await getDb();
   const year = new Date().getFullYear();
   if (!db) return `DLV-${year}-0001`;
   // نُدرج سجلاً جديداً في جدول العداد — قاعدة البيانات تضمن AUTO_INCREMENT فريداً حتى مع الطلبات المتزامنة

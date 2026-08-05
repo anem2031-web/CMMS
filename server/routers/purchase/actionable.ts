@@ -22,7 +22,7 @@
  */
 
 import { canPerformAction, canPerformItemAction } from "../../_core/authz/engine";
-import { PO_STATUS } from "../../_core/authz/policy";
+import { PO_STATUS, type ActionName } from "../../_core/authz/policy";
 
 /** حالات الأصناف التي تتطلب قرارًا من منشئ الطلب */
 const ITEM_STATUSES_NEEDING_CREATOR = ["needs_item_revision", "purchase_cancelled"];
@@ -54,29 +54,54 @@ interface POInput {
 interface ItemInput {
   purchaseOrderId: number;
   status: string;
+  delegateId?: number | null;
+  batchId?: number | null;
+  delegateChangeRequestedAt?: string | Date | null;
 }
 
 /**
  * ترجمة حالة الطلب إلى سبب مفهوم + إجراء، للفئة الأولى (مرحلة الدور).
  * تُرجع null إذا لم يكن للمستخدم إجراء بهذي المرحلة.
  */
-function describeStageAction(ctx: UserCtx, po: POInput): { reason: string; actionLabel: string } | null {
-  const subject = { status: po.status };
-  const actionCtx = { role: ctx.role, userId: ctx.id };
+/**
+ * خريطة المرحلة ← الإجراء المطلوب فيها. مرتبة بترتيب دورة الحياة.
+ * ملاحظة: تُقاد بحالة الطلب أولًا (لا بما يستطيع المستخدم فعله)، لأن
+ * owner/admin يتجاوزان كل فحوصات الحارس — فلو اعتمدنا على `canPerformAction`
+ * وحده لتحديد **أي** إجراء، لأعاد لهما دائمًا أول بند بالقائمة، فتظهر لهما كل
+ * الطلبات بسبب واحد مضلّل. (خلل اكتُشف بالاستخدام الفعلي وصُحّح 2026-07-30.)
+ */
+const STAGE_ACTIONS: Array<{
+  status: string;
+  action: ActionName;
+  /** السبب المعروض لمن يملك الإجراء فعلًا */
+  ownReason: string;
+  /** السبب المعروض للمشرف (owner/admin) — صادق عن الجهة المنتظَرة */
+  supervisorReason: string;
+  actionLabel: string;
+}> = [
+  { status: PO_STATUS.PENDING_REVIEW,     action: "reviewItems",       ownReason: "يحتاج مراجعتك وتوزيع الأصناف", supervisorReason: "بانتظار مراجعة مدير الصيانة", actionLabel: "راجع" },
+  { status: PO_STATUS.PENDING_ESTIMATE,   action: "estimateCost",      ownReason: "بانتظار تسعيرك",               supervisorReason: "بانتظار تسعير المندوب",       actionLabel: "تسعير" },
+  { status: PO_STATUS.PENDING_ACCOUNTING, action: "approveAccounting", ownReason: "يحتاج اعتمادك المحاسبي",       supervisorReason: "بانتظار اعتماد الحسابات",     actionLabel: "اعتمد" },
+  { status: PO_STATUS.PENDING_MANAGEMENT, action: "approveManagement", ownReason: "يحتاج اعتمادك الإداري",        supervisorReason: "بانتظار اعتماد الإدارة العليا", actionLabel: "اعتمد" },
+  { status: PO_STATUS.APPROVED,           action: "confirmPurchase",   ownReason: "بانتظار تنفيذ الشراء",          supervisorReason: "بانتظار شراء المندوب",        actionLabel: "تنفيذ الشراء" },
+  { status: PO_STATUS.PARTIAL_PURCHASE,   action: "confirmPurchase",   ownReason: "بانتظار إكمال الشراء",          supervisorReason: "بانتظار إكمال شراء المندوب",  actionLabel: "إكمال الشراء" },
+];
 
-  if (canPerformAction("reviewItems", actionCtx, subject)) {
-    return { reason: "يحتاج مراجعتك وتوزيع الأصناف", actionLabel: "راجع" };
+const SUPERVISOR_ROLES = ["owner", "admin"];
+
+function describeStageAction(ctx: UserCtx, po: POInput): { reason: string; actionLabel: string } | null {
+  const stage = STAGE_ACTIONS.find((s) => s.status === po.status);
+  if (!stage) return null;
+
+  // المشرف (owner/admin): يرى كل مرحلة بسبب صادق عن الجهة المنتظَرة فعلًا،
+  // بدل رسالة موحّدة مضلّلة — قرار صاحب المشروع: صلاحياتهما مطلقة على كل شيء.
+  if (SUPERVISOR_ROLES.includes(ctx.role)) {
+    return { reason: stage.supervisorReason, actionLabel: stage.actionLabel };
   }
-  if (canPerformAction("approveAccounting", actionCtx, subject)) {
-    return { reason: "يحتاج اعتمادك المحاسبي", actionLabel: "اعتمد" };
-  }
-  if (canPerformAction("approveManagement", actionCtx, subject)) {
-    return { reason: "يحتاج اعتمادك الإداري", actionLabel: "اعتمد" };
-  }
-  if (canPerformAction("confirmPurchase", actionCtx, subject)) {
-    return { reason: "بانتظار تنفيذ الشراء", actionLabel: "تنفيذ الشراء" };
-  }
-  return null;
+
+  // باقي الأدوار: يظهر الطلب فقط إن كان الدور يملك هذا الإجراء فعلًا
+  const canAct = canPerformAction(stage.action, { role: ctx.role, userId: ctx.id }, { status: po.status });
+  return canAct ? { reason: stage.ownReason, actionLabel: stage.actionLabel } : null;
 }
 
 /** يبني ملخص الأصناف: "تم شراء 3 من 5" — يُعرض فقط عند وجود تقدم جزئي فعلي */
@@ -115,11 +140,39 @@ export function computeActionablePOs(
     const isCreator = po.requestedById === ctx.id;
     const itemsSummary = buildItemsSummary(poItems);
 
-    // ── الفئة 2: طلب رُدّ لمنشئه للمراجعة ─────────────────────────────
-    if (po.status === PO_STATUS.REVISION_NEEDED && isCreator) {
+    // ── طلب تغيير مندوب صنف — بانتظار قرار مدير الصيانة ─────────────
+    const delegateChangeItems = poItems.filter((i) => Boolean(i.delegateChangeRequestedAt));
+    if (delegateChangeItems.length > 0 && ["maintenance_manager", "general_maintenance_manager", "construction_procurement_manager", "owner", "admin"].includes(ctx.role)) {
       result.push({
         id: po.id, poNumber: po.poNumber, status: po.status,
-        reason: "رُدّ إليك للمراجعة",
+        reason: `طلب تغيير مندوب — ${delegateChangeItems.length} من ${poItems.length} أصناف`,
+        actionLabel: "اختيار مندوب",
+        itemsSummary,
+      });
+      continue;
+    }
+
+    // ── الفئة 4: مسودة لم تُرسل بعد — بانتظار منشئها لإكمالها ──────────
+    // (أُضيفت 2026-07-30: المسودة **بانتظار إجراء منشئها فعلًا** — هو من يُكملها
+    //  ويرسلها — لكنها كانت لا تظهر بالتبويب إطلاقًا، فيفتح المستخدم الصفحة
+    //  ويجدها فارغة رغم وجود مسودة لم يُكملها. اكتُشف بالاستخدام الفعلي.)
+    if (po.status === PO_STATUS.DRAFT) {
+      if (isCreator || SUPERVISOR_ROLES.includes(ctx.role)) {
+        result.push({
+          id: po.id, poNumber: po.poNumber, status: po.status,
+          reason: isCreator ? "مسودة لم تُرسل بعد" : "مسودة لم يُرسلها منشئها بعد",
+          actionLabel: isCreator ? "إكمال وإرسال" : "فتح",
+          itemsSummary,
+        });
+      }
+      continue;
+    }
+
+    // ── الفئة 2: طلب رُدّ لمنشئه للمراجعة ─────────────────────────────
+    if (po.status === PO_STATUS.REVISION_NEEDED && (isCreator || SUPERVISOR_ROLES.includes(ctx.role))) {
+      result.push({
+        id: po.id, poNumber: po.poNumber, status: po.status,
+        reason: isCreator ? "رُدّ إليك للمراجعة" : "رُدّ لمنشئه للمراجعة",
         actionLabel: "تعديل وإعادة إرسال",
         itemsSummary,
       });
@@ -146,6 +199,30 @@ export function computeActionablePOs(
         });
         continue;
       }
+    }
+
+    // حماية للبيانات القديمة: إذا بقيت حالة الطلب بانتظار الحسابات/الإدارة
+    // رغم أن جميع أصنافه أصبحت cancelled/rejected، فلا يوجد إجراء حقيقي ويجب
+    // ألا يظهر في "بانتظار إجرائي". مسارات الإلغاء الجديدة تغلق الدفعة والطلب
+    // فورًا، وهذا الشرط يمنع ظهور السجلات القديمة المعلقة.
+    if (
+      [PO_STATUS.PENDING_ACCOUNTING, PO_STATUS.PENDING_MANAGEMENT].includes(po.status as any) &&
+      poItems.length > 0 &&
+      poItems.every((i) => ["cancelled", "rejected"].includes(i.status))
+    ) {
+      continue;
+    }
+
+    // عند مرحلة التسعير لا يظهر الطلب للمندوب كإجراء مطلوب إذا كانت كل
+    // أصنافه المعلّقة مجمّدة بانتظار تغيير المندوب.
+    if (ctx.role === "delegate" && po.status === PO_STATUS.PENDING_ESTIMATE) {
+      const hasUnblockedAssignedItem = poItems.some((i) =>
+        i.delegateId === ctx.id &&
+        !i.delegateChangeRequestedAt &&
+        !i.batchId &&
+        ["pending", "estimated"].includes(i.status)
+      );
+      if (!hasUnblockedAssignedItem) continue;
     }
 
     // ── الفئة 1: طلب بمرحلة يستطيع دور المستخدم التصرف فيها ───────────

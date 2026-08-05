@@ -6,6 +6,10 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import { TRPCError } from "@trpc/server";
 import type { TrpcContext } from "../_core/context";
 import type { AuthenticatedUser } from "../_core/context";
+import {
+  canGateApproveExternalEntry,
+  canWarehouseReceiveExternalAsset,
+} from "../../shared/externalMaintenanceWorkflow";
 
 // ============================================================
 // Helpers
@@ -102,42 +106,15 @@ describe("Batching Limit: max 15 items per Purchase Order", () => {
 });
 
 // ============================================================
-// Test 2: Path C Status Fix - Gate Entry → ready_for_closure
+// Test 2: Path C custody gates after external repair
 // ============================================================
 
-describe("Path C Status Fix: Gate Entry moves ticket to ready_for_closure", () => {
-  it("should transition ticket to ready_for_closure (not repaired) after gate entry", () => {
-    // Simulate the approveGateEntry logic
-    const approveGateEntry = (ticket: any, user: any) => {
-      if (ticket.maintenancePath !== "C") {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "هذا البلاغ ليس في المسار C" });
-      }
-      if (ticket.status !== "out_for_repair") {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "البلاغ ليس في حالة خارج للإصلاح" });
-      }
-      // FIXED: was "repaired", now "ready_for_closure"
-      return { ...ticket, status: "ready_for_closure", gateEntryApprovedById: user.id };
-    };
-
-    const ticket = { id: 1, status: "out_for_repair", maintenancePath: "C" };
-    const user = makeUser({ role: "gate_security" });
-    const result = approveGateEntry(ticket, user);
-
-    expect(result.status).toBe("ready_for_closure");
-    expect(result.status).not.toBe("repaired");
-    expect(result.gateEntryApprovedById).toBe(user.id);
-  });
-
-  it("should reject gate entry for non-Path-C tickets", () => {
-    const approveGateEntry = (ticket: any) => {
-      if (ticket.maintenancePath !== "C") {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "هذا البلاغ ليس في المسار C" });
-      }
-      return { ...ticket, status: "ready_for_closure" };
-    };
-
-    const ticket = { id: 2, status: "out_for_repair", maintenancePath: "A" };
-    expect(() => approveGateEntry(ticket)).toThrowError(TRPCError);
+describe("Path C: gate entry precedes warehouse receipt and technician handover", () => {
+  it("does not send the ticket directly to closure after gate entry", () => {
+    expect(canGateApproveExternalEntry("purchase_cycle")).toBe(false);
+    expect(canGateApproveExternalEntry("waiting_gate_entry")).toBe(true);
+    expect(canWarehouseReceiveExternalAsset("waiting_gate_entry")).toBe(false);
+    expect(canWarehouseReceiveExternalAsset("waiting_warehouse_receipt")).toBe(true);
   });
 });
 

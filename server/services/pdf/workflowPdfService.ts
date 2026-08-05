@@ -298,7 +298,9 @@ export async function generateWorkflowGuidePDF(): Promise<Buffer> {
 
     const roles = [
       ["supervisor", "Eng. Khaled", "Triage tickets, approve POs, close Path A tickets"],
-      ["maintenance_manager", "Abdel Fattah", "Approve work start, select path, close Path B/C"],
+      ["maintenance_manager", "Legacy Manager", "Original full maintenance-manager capabilities"],
+      ["general_maintenance_manager", "General Maintenance", "Tickets, triage and maintenance operations; no warehouse/catalog/construction modules"],
+      ["construction_procurement_manager", "Construction & Procurement", "Purchasing, catalog and construction; no tickets, triage, asset scan or warehouse modules"],
       ["technician", "Field Staff", "Execute repairs, upload after-repair photos"],
       ["gate_security", "Gate Guard", "Approve asset exit/entry for Path C"],
       ["delegate", "Procurement", "Confirm purchases, upload receipts, transport assets"],

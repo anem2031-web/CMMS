@@ -1,7 +1,7 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { eq, asc, count, sql, and } from "drizzle-orm";
-import { router, protectedProcedure } from "../_shared/procedures";
+import { router, constructionProcedure } from "../_shared/procedures";
 import { getDb } from "../../_core/db";
 import {
   constructionPhases,
@@ -34,7 +34,7 @@ async function assertPhaseAccess(phaseId: number, userId: number, requireEdit = 
 
 export const phasesRouter = router({
 
-  list: protectedProcedure
+  list: constructionProcedure
     .input(z.object({ projectId: z.number() }))
     .query(async ({ input }) => {
       const db = await getDb(); if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB not available" });
@@ -62,14 +62,14 @@ export const phasesRouter = router({
       }));
     }),
 
-  getById: protectedProcedure
+  getById: constructionProcedure
     .input(z.object({ id: z.number() }))
     .query(async ({ input, ctx }) => {
       const phase = await assertPhaseAccess(input.id, ctx.user.id);
       return phase;
     }),
 
-  create: protectedProcedure
+  create: constructionProcedure
     .input(z.object({
       projectId: z.number(),
       name: z.string().min(1),
@@ -100,7 +100,7 @@ export const phasesRouter = router({
       return { id: Number((result as any)?.insertId ?? (result as any)?.[0]?.insertId ?? 0) };
     }),
 
-  update: protectedProcedure
+  update: constructionProcedure
     .input(z.object({
       id: z.number(),
       name: z.string().optional(),
@@ -127,7 +127,7 @@ export const phasesRouter = router({
       return { success: true };
     }),
 
-  delete: protectedProcedure
+  delete: constructionProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input, ctx }) => {
       const db = await getDb(); if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB not available" });
@@ -136,7 +136,7 @@ export const phasesRouter = router({
       return { success: true };
     }),
 
-  reorder: protectedProcedure
+  reorder: constructionProcedure
     .input(z.object({
       projectId: z.number(),
       orderedIds: z.array(z.number()),
@@ -154,7 +154,7 @@ export const phasesRouter = router({
     }),
 
   // Recalculate phase progress from its tasks
-  recalculateProgress: protectedProcedure
+  recalculateProgress: constructionProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
       const db = await getDb(); if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB not available" });

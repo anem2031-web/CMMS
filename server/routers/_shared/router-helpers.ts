@@ -28,7 +28,7 @@ export async function notifyManagers(
   notification: { title: string; message: string; type: string; relatedTicketId?: number; relatedPOId?: number },
   excludeUserId?: number
 ) {
-  const managers = await db.getManagerUsers();
+  const managers = await db.getOperationalManagerUsers();
   for (const mgr of managers) {
     if (excludeUserId && mgr.id === excludeUserId) continue;
     await db.createNotification({ userId: mgr.id, ...notification });

@@ -25,9 +25,11 @@ import { runPMWorkOrderReminderJob } from "../jobs/pm-reminder";
 import { runSlaOverduePushJob } from "../jobs/sla-overdue-push";
 import { runBackupCleanupJob } from "../jobs/backup-cleanup";
 import { runConstructionAutomation } from "../jobs/construction-automation";
-import { getDb } from "./db";
+import { getDb, getTicketById } from "./db";
 import { generatePMWorkOrderPDF } from "../services/pdf/pmWorkOrderPdfService";
-import { generateTicketPDF } from "../services/pdf/ticketPdfService";
+import { generateTicketPDF, type TicketPdfDocumentType } from "../services/pdf/ticketPdfService";
+import { assertTicketReadable } from "../routers/tickets/tickets.access";
+import { canDownloadTicketArchive, canPrintTicketTask } from "@shared/ticketUiRules";
 import { htmlToPdf } from "../services/pdf/htmlToPdfService";
 import { sdk } from "./sdk";
 
@@ -40,7 +42,7 @@ const EXPORT_ALLOWED_ROLES = new Set([
   // ⚠️ كان مكتوبًا "accounting" (خطأ إملائي — لا يوجد دور بهذا الاسم بالنظام
   // إطلاقًا؛ الصحيح "accountant")، ما كان يعطّل صلاحية التصدير عن المحاسب
   // بصمت رغم أن النية الواضحة منحه إياها. صُحّح بتاريخ 2026-07-28.
-  "owner", "admin", "maintenance_manager", "supervisor", "senior_management", "accountant"
+  "owner", "admin", "maintenance_manager", "general_maintenance_manager", "construction_procurement_manager", "supervisor", "senior_management", "accountant"
 ]);
 
 /**
@@ -48,9 +50,10 @@ const EXPORT_ALLOWED_ROLES = new Set([
  * أمين المستودع يحتاج تصدير الجرد لعمله اليومي، لكن ليس بقية التصديرات
  * (بلاغات، طلبات شراء، سجل تدقيق...) — قرار صريح من صاحب المشروع 2026-07-28.
  */
-const INVENTORY_EXPORT_ALLOWED_ROLES = new Set(
-  Array.from(EXPORT_ALLOWED_ROLES).concat("warehouse")
-);
+const INVENTORY_EXPORT_ALLOWED_ROLES = new Set([
+  "owner", "admin", "maintenance_manager", "supervisor",
+  "senior_management", "accountant", "warehouse",
+]);
 
 async function requireAuthMiddleware(req: any, res: any, next: any) {
   try {
@@ -83,8 +86,15 @@ function makeRequireExportRole(allowedRoles: Set<string>) {
   };
 }
 
-/** التصديرات العامة (بلاغات، طلبات شراء، سجل تدقيق، ...) */
+/** التصديرات العامة (طلبات الشراء والتقارير وغيرها). */
 const requireExportRole = makeRequireExportRole(EXPORT_ALLOWED_ROLES);
+
+/** تصدير البلاغات مستبعد من دور مدير الإنشاءات والمشتريات. */
+const TICKET_EXPORT_ALLOWED_ROLES = new Set([
+  "owner", "admin", "maintenance_manager", "general_maintenance_manager",
+  "supervisor", "senior_management", "accountant",
+]);
+const requireTicketExportRole = makeRequireExportRole(TICKET_EXPORT_ALLOWED_ROLES);
 
 /** تصدير الجرد فقط — يشمل المستودع إضافةً للأدوار العامة */
 const requireInventoryExportRole = makeRequireExportRole(INVENTORY_EXPORT_ALLOWED_ROLES);
@@ -369,7 +379,7 @@ async function startServer() {
   // ============================================================
   // C-01 FIX: تأمين جميع Export endpoints بمصادقة + صلاحية
   // ============================================================
-  app.get("/api/export/tickets", requireExportRole, async (_req: any, res: any) => {
+  app.get("/api/export/tickets", requireTicketExportRole, async (_req: any, res: any) => {
     try {
       const buffer = await exportTicketsToExcel();
       res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
@@ -472,16 +482,43 @@ async function startServer() {
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
-  // Ticket PDF report — isolated Puppeteer-based PDF generation (auth required)
+  // Ticket documents: active task sheet + closed archival record.
+  // Visibility is enforced here as well as in the UI so direct URL access cannot bypass the workflow.
   app.get("/api/tickets/:id/pdf", requireAuthMiddleware, async (req: any, res: any) => {
     try {
       const ticketId = parseInt(req.params.id);
       if (isNaN(ticketId)) return res.status(400).json({ error: "رقم البلاغ غير صحيح" });
-      const buffer = await generateTicketPDF(ticketId);
+
+      const documentType: TicketPdfDocumentType = req.query.document === "archive" ? "archive" : "task";
+      const ticket = await getTicketById(ticketId);
+      if (!ticket) return res.status(404).json({ error: "البلاغ غير موجود" });
+
+      try {
+        await assertTicketReadable(req.authenticatedUser, ticket as any);
+      } catch {
+        return res.status(403).json({ error: "ليس لديك صلاحية للاطلاع على مستندات هذا البلاغ" });
+      }
+
+      if (documentType === "archive") {
+        if (!canDownloadTicketArchive(req.authenticatedUser.role, ticket.status)) {
+          return res.status(403).json({ error: "التقرير الأرشيفي متاح بعد إغلاق البلاغ للأدوار المخولة فقط" });
+        }
+      } else if (!canPrintTicketTask(req.authenticatedUser.role, ticket.status)) {
+        return res.status(403).json({ error: "طباعة المهمة متاحة بعد تصنيف البلاغ وفق الصلاحيات المحددة" });
+      }
+
+      const buffer = await generateTicketPDF(ticketId, documentType);
       res.setHeader("Content-Type", "application/pdf");
-      res.setHeader("Content-Disposition", `inline; filename=ticket-${ticketId}-${Date.now()}.pdf`);
+      const disposition = documentType === "archive" ? "attachment" : "inline";
+      res.setHeader(
+        "Content-Disposition",
+        `${disposition}; filename=ticket-${documentType}-${ticket.ticketNumber}-${Date.now()}.pdf`,
+      );
       res.send(buffer);
-    } catch (e: any) { res.status(500).json({ error: e.message }); }
+    } catch (e: any) {
+      console.error("[Ticket PDF]", e);
+      res.status(500).json({ error: e.message || "تعذر إنشاء مستند البلاغ" });
+    }
   });
 
   // ============================================================

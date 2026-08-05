@@ -140,11 +140,11 @@ export default function PurchaseOrderDetail() {
       refetch(); refetchBatches();
       printPurchasePdf(variables.batchId);
     },
-    onError: (e: any) => toast.error(e.message),
+    onError: (e: any) => { toast.error(e.message); refetch(); refetchBatches(); },
   });
   const approveManagementBatchMut = trpc.purchaseOrders.approveManagementBatch.useMutation({
     onSuccess: () => { toast.success("تم اعتماد الدفعة"); refetch(); refetchBatches(); },
-    onError: (e: any) => toast.error(e.message),
+    onError: (e: any) => { toast.error(e.message); refetch(); refetchBatches(); },
   });
   const reviewItemsMut = trpc.purchaseOrders.reviewItems.useMutation({ onSuccess: () => { toast.success(t.common.confirm); refetch(); }, onError: (e) => toast.error(e.message) });
   const approveAccMut = trpc.purchaseOrders.approveAccounting.useMutation({
@@ -164,7 +164,15 @@ export default function PurchaseOrderDetail() {
   });
   const receiveItemMut = trpc.purchaseOrders.confirmDeliveryToWarehouse.useMutation({ onSuccess: () => { toast.success(t.common.confirm); refetch(); }, onError: (e: any) => toast.error(e.message) });
   const editItemMut = trpc.purchaseOrders.editItem.useMutation({ onSuccess: () => { toast.success(t.common.savedSuccessfully); setEditingItem(null); refetch(); }, onError: (e: any) => toast.error(e.message) });
-  const cancelItemMut = trpc.purchaseOrders.cancelItem.useMutation({ onSuccess: () => { toast.success(t.purchaseOrders.cancelItemSuccess); refetch(); }, onError: (e: any) => toast.error(e.message) });
+  const editAndResubmitReturnedItemMut = trpc.purchaseOrders.editAndResubmitReturnedItem.useMutation({
+    onSuccess: () => {
+      toast.success(t.purchaseOrders.itemSavedAndResubmitted);
+      setEditingItem(null);
+      refetch();
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
+  const cancelItemMut = trpc.purchaseOrders.cancelItem.useMutation({ onSuccess: () => { toast.success(t.purchaseOrders.cancelItemSuccess); refetch(); refetchBatches(); }, onError: (e: any) => toast.error(e.message) });
   const requestItemRevisionMut = trpc.purchaseOrders.requestItemRevision.useMutation({
   onSuccess: () => {
     toast.success(t.purchaseOrders.itemRevisionRequested);
@@ -172,6 +180,24 @@ export default function PurchaseOrderDetail() {
   },
   onError: (e: any) => toast.error(e.message)
 });
+
+  const requestDelegateChangeMut = trpc.purchaseOrders.requestDelegateChange.useMutation({
+    onSuccess: () => {
+      toast.success("تم إرسال طلب تغيير المندوب إلى مدير الصيانة");
+      setDelegateChangeDialogItem(null);
+      setDelegateChangeReason("");
+      refetch();
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
+
+  const resolveDelegateChangeMut = trpc.purchaseOrders.resolveDelegateChange.useMutation({
+    onSuccess: () => {
+      toast.success("تم تعيين مندوب الصنف");
+      refetch();
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
 
 const submitDraftMut = trpc.purchaseOrders.submitDraft.useMutation({
     onSuccess: () => { toast.success(t.purchaseOrders.submitDraftSuccess); refetch(); },
@@ -212,8 +238,15 @@ const submitDraftMut = trpc.purchaseOrders.submitDraft.useMutation({
   const [selectedRevisionItemId, setSelectedRevisionItemId] = useState<number | null>(null);
   const [itemRevisionReason, setItemRevisionReason] = useState("");
   const [isItemRevisionDialogOpen, setIsItemRevisionDialogOpen] = useState(false);
+  const [delegateChangeDialogItem, setDelegateChangeDialogItem] = useState<any>(null);
+  const [delegateChangeReason, setDelegateChangeReason] = useState("");
+  const [delegateSelections, setDelegateSelections] = useState<Record<number, string>>({});
   const [editForm, setEditForm] = useState<{ itemName: string; description: string; quantity: number; estimatedUnitCost: string; unit: string; photoUrl: string; notes: string }>({ itemName: "", description: "", quantity: 1, estimatedUnitCost: "", unit: "", photoUrl: "", notes: "" });
   const [reviewDecisions, setReviewDecisions] = useState<Record<number, { action: "approve" | "reject"; delegateId?: number; rejectionReason?: string }>>({});
+  const reviewableItems = useMemo(
+    () => (po?.items || []).filter((item: any) => !["cancelled", "rejected"].includes(item.status)),
+    [po?.items]
+  );
 
   const [bulkDelegateId, setBulkDelegateId] = useState<string | undefined>(undefined);
   const [lateRejections, setLateRejections] = useState<Record<number, boolean>>({});
@@ -221,8 +254,8 @@ const submitDraftMut = trpc.purchaseOrders.submitDraft.useMutation({
 
   const handleBulkApprove = () => {
     const newReviewDecisions: Record<number, { action: "approve" | "reject"; delegateId?: number; rejectionReason?: string }> = {};
-    if (po?.items) {
-      po.items.forEach((item: any) => {
+    if (reviewableItems.length > 0) {
+      reviewableItems.forEach((item: any) => {
         newReviewDecisions[item.id] = { action: "approve" };
       });
       setReviewDecisions(newReviewDecisions);
@@ -231,8 +264,8 @@ const submitDraftMut = trpc.purchaseOrders.submitDraft.useMutation({
 
   const handleBulkAssignDelegate = (delegateId: number) => {
     const newReviewDecisions = { ...reviewDecisions };
-    if (po?.items) {
-      po.items.forEach((item: any) => {
+    if (reviewableItems.length > 0) {
+      reviewableItems.forEach((item: any) => {
         if (newReviewDecisions[item.id]?.action === "approve") {
           newReviewDecisions[item.id] = { ...newReviewDecisions[item.id], delegateId: delegateId };
         }
@@ -328,22 +361,43 @@ const submitDraftMut = trpc.purchaseOrders.submitDraft.useMutation({
     onError: (e) => toast.error(e.message)
   });
 
-  const readyToSubmitCount = (po?.items || []).filter((i: any) => i.status === "estimated" && !i.batchId).length;
+  const readyToSubmitCount = (po?.items || []).filter((i: any) => i.status === "estimated" && !i.batchId && !i.delegateChangeRequestedAt).length;
   const isAdminOrOwner = role === "admin" || role === "owner";
   const isDelegate = role === "delegate" || isAdminOrOwner;
   const isAccountant = role === "accountant" || isAdminOrOwner;
   const isManagement = role === "senior_management" || role === "executive_director" || isAdminOrOwner;
   const isWarehouse = role === "warehouse" || isAdminOrOwner;
-  const isManager = role === "maintenance_manager" || role === "purchase_manager" || role === "food_warehouse_manager" || isAdminOrOwner;
-  const canCancelItem = role === "senior_management" || role === "maintenance_manager" || isAdminOrOwner;
+  const isMaintenanceManagerVariant = ["maintenance_manager", "general_maintenance_manager", "construction_procurement_manager"].includes(role);
+  const isManager = isMaintenanceManagerVariant || role === "purchase_manager" || role === "food_warehouse_manager" || isAdminOrOwner;
+  const canCancelItem = isAdminOrOwner ||
+    (isMaintenanceManagerVariant && ["draft", "pending_review"].includes(po?.status || "")) ||
+    (role === "senior_management" && po?.status === "pending_management");
   // الأدوار المسموح لها بتعديل أصناف طلب الشراء بشكل عام (يطابق صلاحية editItem في السيرفر)
-  const canEditItems = role === "maintenance_manager" || isAdminOrOwner;
+  const canEditItems = isMaintenanceManagerVariant || isAdminOrOwner;
+  const canManageDelegateChange = isMaintenanceManagerVariant || isAdminOrOwner;
+  const delegateUsers = (users || []).filter((u: any) => u.role === "delegate");
   const isRequester = String(po?.requestedById) === String(userId);
+  // الأصناف التي أعادها المندوب لاتخاذ قرار: القرار النهائي للمنشئ أو owner/admin.
+  // مدير الصيانة يحتفظ بصلاحية التعديل الحالية، لكنه لا يعيد الإرسال ولا يلغي نهائياً نيابة عن المنشئ.
+  const canResolveReturnedItem = isRequester || isAdminOrOwner;
+  const canEditReturnedItem = canResolveReturnedItem || (
+    isMaintenanceManagerVariant &&
+    ["draft", "pending_review"].includes(po?.status || "")
+  );
+  const isEditingReturnedItem = !!editingItem &&
+    canResolveReturnedItem &&
+    ["needs_item_revision", "purchase_cancelled"].includes(editingItem.status);
+
+  const getLastKnownUpdatedAt = (item: any): string | undefined => {
+    if (!item?.updatedAt) return undefined;
+    const value = item.updatedAt instanceof Date ? item.updatedAt : new Date(item.updatedAt);
+    return Number.isNaN(value.getTime()) ? undefined : value.toISOString();
+  };
 const visibleItems = useMemo(() => {
   if (!po?.items) return [];
 
   // owner/admin/maintenance_manager لديهم صلاحية تعديل الأصناف بشكل عام، فيرون كل الأصناف
-  if (isAdminOrOwner || role === "maintenance_manager") return po.items;
+  if (isAdminOrOwner || isMaintenanceManagerVariant) return po.items;
 
   if (role === "delegate") {
     return po.items.filter(
@@ -699,11 +753,17 @@ const visibleItems = useMemo(() => {
                       <img src={item.photoUrl} alt="" className={`w-16 h-16 rounded-lg object-cover border ${isCancelled ? "opacity-40 grayscale" : ""}`} />
                     </button>
                   )}
-                  {/* Edit button - only for editable statuses, and only for allowed roles */}
-                  {po && (
-                    (canEditItems && ['draft', 'pending_review', 'pending_estimate', 'pending_accounting'].includes(po.status)) ||
-                    (isRequester && po.status === 'revision_needed')
-                  ) && ['pending', 'estimated', 'approved'].includes(item.status) && (
+                  {/* cancelled سجل نهائي مرجعي لا يظهر له تعديل حتى لـ owner/admin.
+                      بقية الأصناف تبقى مقيدة بسياسة المرحلة/الملكية الحالية. */}
+                  {po && !isCancelledRaw && (
+                    isAdminOrOwner ||
+                    (
+                      (
+                        (canEditItems && ['draft', 'pending_review'].includes(po.status)) ||
+                        (isRequester && po.status === 'revision_needed')
+                      ) && ['pending', 'estimated', 'approved'].includes(item.status)
+                    )
+                  ) && (
                     <Button variant="ghost" size="icon" className="shrink-0 h-8 w-8" onClick={() => {
                       setEditingItem(item);
                       setEditForm({ itemName: item.itemName, description: item.description || "", quantity: item.quantity, estimatedUnitCost: item.estimatedUnitCost || "", unit: item.unit || "", photoUrl: item.photoUrl || "", notes: item.notes || "" });
@@ -776,6 +836,68 @@ const visibleItems = useMemo(() => {
                   </div>
                 )}
 
+{item.delegateChangeRequestedAt && (
+  <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 space-y-3">
+    <div className="flex items-start justify-between gap-3 flex-wrap">
+      <div className="space-y-1">
+        <p className="text-sm font-semibold text-blue-900 flex items-center gap-1.5">
+          <User className="w-4 h-4" /> طلب تغيير مندوب معلّق
+        </p>
+        <p className="text-xs text-blue-800">
+          المندوب الحالي: <strong>{delegate?.name || "غير محدد"}</strong>
+        </p>
+        <p className="text-xs text-blue-800 whitespace-pre-wrap">
+          السبب: <strong>{item.delegateChangeReason || "لم يُذكر سبب"}</strong>
+        </p>
+        <p className="text-[11px] text-blue-600">
+          تاريخ الطلب: {new Date(item.delegateChangeRequestedAt).toLocaleString(locale)}
+        </p>
+      </div>
+      {!canManageDelegateChange && (
+        <Badge className="bg-blue-100 text-blue-800">بانتظار مدير الصيانة</Badge>
+      )}
+    </div>
+
+    {canManageDelegateChange && (
+      <div className="flex flex-col sm:flex-row gap-2 sm:items-end border-t border-blue-200 pt-3">
+        <div className="flex-1 space-y-1">
+          <Label className="text-xs text-blue-900">اختيار المندوب المسؤول</Label>
+          <Select
+            value={delegateSelections[item.id] || String(item.delegateId || "")}
+            onValueChange={(value) => setDelegateSelections((prev) => ({ ...prev, [item.id]: value }))}
+          >
+            <SelectTrigger className="bg-white">
+              <SelectValue placeholder="اختر المندوب" />
+            </SelectTrigger>
+            <SelectContent>
+              {delegateUsers
+                .filter((delegateUser: any) => delegateUser.id === item.delegateId || (delegateUser.isActive !== 0 && delegateUser.isActive !== false))
+                .map((delegateUser: any) => (
+                <SelectItem key={delegateUser.id} value={String(delegateUser.id)}>
+                  {delegateUser.name || delegateUser.username || `مندوب #${delegateUser.id}`}
+                  {delegateUser.id === item.delegateId ? " — الحالي" : ""}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <Button
+          size="sm"
+          disabled={resolveDelegateChangeMut.isPending || !(delegateSelections[item.id] || item.delegateId)}
+          onClick={() => {
+            const selected = Number(delegateSelections[item.id] || item.delegateId);
+            if (!selected) return;
+            resolveDelegateChangeMut.mutate({ itemId: item.id, delegateId: selected });
+          }}
+        >
+          {resolveDelegateChangeMut.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
+          تعيين المندوب
+        </Button>
+      </div>
+    )}
+  </div>
+)}
+
 {isMyItem && item.status === "estimated" && !item.batchId && (
   <div className="bg-teal-50 border border-teal-200 rounded-lg p-2.5 flex items-center justify-between gap-2">
     <p className="text-xs text-teal-800 flex items-center gap-1.5">
@@ -787,7 +909,7 @@ const visibleItems = useMemo(() => {
   </div>
 )}
 
-{isMyItem && item.status === "pending" && !item.batchId && (
+{isMyItem && item.status === "pending" && !item.batchId && !item.delegateChangeRequestedAt && (
   <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 space-y-2">
     <p className="text-xs font-medium text-amber-800 flex items-center gap-1.5">
       <DollarSign className="w-3.5 h-3.5" /> {t.purchaseOrders.estimatedUnitCost}:
@@ -854,6 +976,19 @@ const visibleItems = useMemo(() => {
       >
         طلب مراجعة
       </Button>
+
+      {role === "delegate" && item.delegateId === userId && !item.estimatedUnitCost && (
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => {
+            setDelegateChangeDialogItem(item);
+            setDelegateChangeReason("");
+          }}
+        >
+          تغيير المندوب
+        </Button>
+      )}
     </div>
   </div>
 )}
@@ -872,39 +1007,56 @@ const visibleItems = useMemo(() => {
       </div>
     )}
 
-    {(isAdminOrOwner || role === "maintenance_manager" || String(po.requestedById) === String(userId)) && (
-    <div className="flex gap-2">
-      <Button
-        variant="outline"
-        size="sm"
-        onClick={() => {
-          setEditingItem(item);
-          setEditForm({
-            itemName: item.itemName || "",
-            description: item.description || "",
-            quantity: item.quantity || 1,
-            estimatedUnitCost: item.estimatedUnitCost?.toString() || "",
-            unit: item.unit || "",
-            photoUrl: item.photoUrl || "",
-            notes: item.notes || "",
-          });
-        }}
-      >
-        تعديل الصنف
-      </Button>
+    {canEditReturnedItem && (
+      <div className="flex flex-wrap gap-2">
+        {canEditReturnedItem && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              setEditingItem(item);
+              setEditForm({
+                itemName: item.itemName || "",
+                description: item.description || "",
+                quantity: item.quantity || 1,
+                estimatedUnitCost: item.estimatedUnitCost?.toString() || "",
+                unit: item.unit || "",
+                photoUrl: item.photoUrl || "",
+                notes: item.notes || "",
+              });
+            }}
+          >
+            تعديل الصنف
+          </Button>
+        )}
 
-      <Button
-        size="sm"
-        onClick={() =>
-          resubmitItemRevisionMut.mutate({
-            itemId: item.id,
-          })
-        }
-        disabled={resubmitItemRevisionMut.isPending}
-      >
-        إعادة إرسال الصنف
-      </Button>
-    </div>
+        {canResolveReturnedItem && (
+          <>
+            <Button
+              size="sm"
+              onClick={() => resubmitItemRevisionMut.mutate({ itemId: item.id })}
+              disabled={resubmitItemRevisionMut.isPending}
+            >
+              {resubmitItemRevisionMut.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
+              إعادة إرسال الصنف
+            </Button>
+
+            <Button
+              size="sm"
+              variant="destructive"
+              onClick={() => {
+                if (confirm(t.purchaseOrders.confirmCancelItem)) {
+                  finalizeCancelledItemMut.mutate({ itemId: item.id });
+                }
+              }}
+              disabled={finalizeCancelledItemMut.isPending}
+            >
+              {finalizeCancelledItemMut.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
+              إلغاء نهائي
+            </Button>
+          </>
+        )}
+      </div>
     )}
   </div>
 )}
@@ -927,50 +1079,56 @@ const visibleItems = useMemo(() => {
       </div>
     )}
 
-    {(isAdminOrOwner || role === "maintenance_manager" || String(po.requestedById) === String(userId)) && (
-    <div className="flex flex-wrap gap-2">
-      <Button
-        variant="outline"
-        size="sm"
-        onClick={() => {
-          setEditingItem(item);
-          setEditForm({
-            itemName: item.itemName || "",
-            description: item.description || "",
-            quantity: item.quantity || 1,
-            estimatedUnitCost: item.estimatedUnitCost?.toString() || "",
-            unit: item.unit || "",
-            photoUrl: item.photoUrl || "",
-            notes: item.notes || "",
-          });
-        }}
-      >
-        تعديل الصنف
-      </Button>
+    {canEditReturnedItem && (
+      <div className="flex flex-wrap gap-2">
+        {canEditReturnedItem && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              setEditingItem(item);
+              setEditForm({
+                itemName: item.itemName || "",
+                description: item.description || "",
+                quantity: item.quantity || 1,
+                estimatedUnitCost: item.estimatedUnitCost?.toString() || "",
+                unit: item.unit || "",
+                photoUrl: item.photoUrl || "",
+                notes: item.notes || "",
+              });
+            }}
+          >
+            تعديل الصنف
+          </Button>
+        )}
 
-      <Button
-        size="sm"
-        onClick={() => resubmitCancelledPurchaseMut.mutate({ itemId: item.id })}
-        disabled={resubmitCancelledPurchaseMut.isPending}
-      >
-        {resubmitCancelledPurchaseMut.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
-        إعادة إرسال للمندوب للشراء
-      </Button>
+        {canResolveReturnedItem && (
+          <>
+            <Button
+              size="sm"
+              onClick={() => resubmitCancelledPurchaseMut.mutate({ itemId: item.id })}
+              disabled={resubmitCancelledPurchaseMut.isPending}
+            >
+              {resubmitCancelledPurchaseMut.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
+              إعادة إرسال للمندوب للشراء
+            </Button>
 
-      <Button
-        size="sm"
-        variant="destructive"
-        onClick={() => {
-          if (confirm(t.purchaseOrders.confirmCancelItem)) {
-            finalizeCancelledItemMut.mutate({ itemId: item.id });
-          }
-        }}
-        disabled={finalizeCancelledItemMut.isPending}
-      >
-        {finalizeCancelledItemMut.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
-        إلغاء نهائي
-      </Button>
-    </div>
+            <Button
+              size="sm"
+              variant="destructive"
+              onClick={() => {
+                if (confirm(t.purchaseOrders.confirmCancelItem)) {
+                  finalizeCancelledItemMut.mutate({ itemId: item.id });
+                }
+              }}
+              disabled={finalizeCancelledItemMut.isPending}
+            >
+              {finalizeCancelledItemMut.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
+              إلغاء نهائي
+            </Button>
+          </>
+        )}
+      </div>
     )}
   </div>
 )}
@@ -1220,8 +1378,8 @@ const visibleItems = useMemo(() => {
 
       {isManager && po.status === "pending_review" && (() => {
         const delegates = users?.filter((u: any) => u.role === "delegate") || [];
-        const allDecided = po.items?.every((item: any) => reviewDecisions[item.id]?.action) || false;
-        const isValid = po.items?.every((item: any) => {
+        const allDecided = reviewableItems.length > 0 && reviewableItems.every((item: any) => reviewDecisions[item.id]?.action);
+        const isValid = reviewableItems.length > 0 && reviewableItems.every((item: any) => {
           const d = reviewDecisions[item.id];
           if (!d) return false;
           if (d.action === "approve") return !!d.delegateId;
@@ -1238,7 +1396,7 @@ const visibleItems = useMemo(() => {
                 <Button
                   size="sm"
                   onClick={handleBulkApprove}
-                  disabled={!po.items?.length}
+                  disabled={reviewableItems.length === 0}
                   className="flex-1"
                 >
                   {t.purchaseOrders.approveAll}
@@ -1249,7 +1407,7 @@ const visibleItems = useMemo(() => {
                     setBulkDelegateId(v);
                     handleBulkAssignDelegate(parseInt(v));
                   }}
-                  disabled={!po.items?.length || !Object.values(reviewDecisions).some(d => d.action === "approve")}
+                  disabled={reviewableItems.length === 0 || !Object.values(reviewDecisions).some(d => d.action === "approve")}
                 >
                   <SelectTrigger className="flex-1 bg-white"><SelectValue placeholder={t.purchaseOrders.assignDelegateToAll} /></SelectTrigger>
                   <SelectContent>
@@ -1257,7 +1415,7 @@ const visibleItems = useMemo(() => {
                   </SelectContent>
                 </Select>
               </div>
-              {po.items?.map((item: any) => {
+              {reviewableItems.map((item: any) => {
                 const decision = reviewDecisions[item.id] || {};
                 return (
                   <div key={item.id} className="border rounded-lg p-3 space-y-3 bg-white">
@@ -1318,7 +1476,7 @@ const visibleItems = useMemo(() => {
                 className="w-full gap-1.5"
                 disabled={!allDecided || !isValid || reviewItemsMut.isPending}
                 onClick={() => {
-                  const items = (po.items || []).map((item: any) => {
+                  const items = reviewableItems.map((item: any) => {
                     const d = reviewDecisions[item.id];
                     return {
                       id: item.id,
@@ -1341,7 +1499,20 @@ const visibleItems = useMemo(() => {
       {(() => {
         // تتبّع حالة الدفعات متاح لكل الأدوار اللي تقدر تشوف الطلب أصلاً — عرض فقط،
         // أزرار الاعتماد/الرفض/التصدير تفضل مقيّدة بصلاحياتها الأصلية زي ما هي.
-        const visibleBatches = (pricingBatches as any[]);
+        const visibleBatches = (pricingBatches as any[]).map((batch: any) => {
+          const batchItems = (po?.items || []).filter((item: any) => item.batchId === batch.id);
+          const activeItemCount = batchItems.filter(
+            (item: any) => !["cancelled", "rejected"].includes(item.status)
+          ).length;
+          const isAutoClosed = ["pending_accounting", "pending_management"].includes(batch.status) && activeItemCount === 0;
+          return {
+            ...batch,
+            originalStatus: batch.status,
+            status: isAutoClosed ? "rejected" : batch.status,
+            activeItemCount,
+            isAutoClosed,
+          };
+        });
         if (visibleBatches.length === 0) return null;
         const approvedCount = visibleBatches.filter((b: any) => b.status === "approved").length;
         const rejectedCount = visibleBatches.filter((b: any) => b.status === "rejected").length;
@@ -1360,7 +1531,10 @@ const visibleItems = useMemo(() => {
               <div key={batch.id} className="bg-white rounded-lg border p-3 flex flex-col gap-2">
                 <div className="flex items-center justify-between flex-wrap gap-2">
                   <div>
-                    <p className="text-sm font-bold">دفعة رقم {batch.batchNumber} — {batch.itemCount} صنف</p>
+                    <p className="text-sm font-bold">
+                      دفعة رقم {batch.batchNumber} — {batch.itemCount} صنف
+                      {batch.isAutoClosed ? " — لا توجد أصناف فعّالة" : ""}
+                    </p>
                     <p className="text-xs text-muted-foreground">
                       الإجمالي: {Number(batch.totalEstimatedCost || 0).toLocaleString("ar-SA")} ر.س.
                     </p>
@@ -1378,7 +1552,8 @@ const visibleItems = useMemo(() => {
                       "bg-orange-100 text-orange-700"
                     }
                   >
-                    {batch.status === "pending_accounting" ? "بانتظار الحسابات" :
+                    {batch.isAutoClosed ? "ملغاة — جميع الأصناف ملغاة أو مرفوضة" :
+                     batch.status === "pending_accounting" ? "بانتظار الحسابات" :
                      batch.status === "pending_management" ? "بانتظار الإدارة" :
                      batch.status === "approved" ? "معتمدة" : "مرفوضة"}
                   </Badge>
@@ -1712,6 +1887,55 @@ const visibleItems = useMemo(() => {
   </DialogContent>
 </Dialog>
 
+      <Dialog
+        open={!!delegateChangeDialogItem}
+        onOpenChange={(open) => {
+          if (!open) {
+            setDelegateChangeDialogItem(null);
+            setDelegateChangeReason("");
+          }
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>طلب تغيير مندوب الصنف</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <p className="text-sm text-muted-foreground">
+              سيتم إيقاف تسعير الصنف مؤقتًا وإرسال الطلب إلى مدير الصيانة لاختيار المندوب المسؤول.
+            </p>
+            <div className="rounded-lg bg-muted/40 border p-2 text-sm">
+              الصنف: <strong>{delegateChangeDialogItem?.itemName}</strong>
+            </div>
+            <div className="space-y-2">
+              <Label>سبب طلب التغيير *</Label>
+              <Textarea
+                value={delegateChangeReason}
+                onChange={(e) => setDelegateChangeReason(e.target.value)}
+                placeholder="اكتب سبب عدم تمكنك من متابعة تسعير هذا الصنف"
+                rows={4}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDelegateChangeDialogItem(null)}>إلغاء</Button>
+            <Button
+              disabled={delegateChangeReason.trim().length < 5 || requestDelegateChangeMut.isPending}
+              onClick={() => {
+                if (!delegateChangeDialogItem) return;
+                requestDelegateChangeMut.mutate({
+                  itemId: delegateChangeDialogItem.id,
+                  reason: delegateChangeReason.trim(),
+                });
+              }}
+            >
+              {requestDelegateChangeMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+              إرسال الطلب
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Edit Item Dialog */}
       <Dialog open={!!editingItem} onOpenChange={(open) => { if (!open) setEditingItem(null); }}>
         <DialogContent className="max-w-md">
@@ -1763,29 +1987,62 @@ const visibleItems = useMemo(() => {
               <Textarea value={editForm.notes} onChange={e => setEditForm(p => ({ ...p, notes: e.target.value }))} rows={2} />
             </div>
           </div>
-          <DialogFooter>
+          <DialogFooter className="flex-wrap gap-2">
             <Button variant="outline" onClick={() => setEditingItem(null)}>{t.common.cancel}</Button>
-            <Button onClick={() => {
-              if (!editingItem) return;
-              editItemMut.mutate({
-                lastKnownUpdatedAt: editingItem.updatedAt?.toISOString(),
-
-                id: editingItem.id,
-                purchaseOrderId: po.id,
-                itemName: editForm.itemName,
-                description: editForm.description,
-                quantity: editForm.quantity,
-                estimatedUnitCost:
-                 ['approved', 'partial_purchase', 'purchased', 'received'].includes(po.status)
-                   ? undefined
-                   : (editForm.estimatedUnitCost || undefined),
-                unit: editForm.unit || undefined,
-                photoUrl: editForm.photoUrl || undefined,
-                notes: editForm.notes || undefined,
-              });
-            }} disabled={editItemMut.isPending}>
-              {editItemMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : t.common.save}
+            <Button
+              variant={isEditingReturnedItem ? "outline" : "default"}
+              onClick={() => {
+                if (!editingItem) return;
+                editItemMut.mutate({
+                  lastKnownUpdatedAt: getLastKnownUpdatedAt(editingItem),
+                  id: editingItem.id,
+                  purchaseOrderId: po.id,
+                  itemName: editForm.itemName,
+                  description: editForm.description,
+                  quantity: editForm.quantity,
+                  estimatedUnitCost:
+                    ['approved', 'partial_purchase', 'purchased', 'received'].includes(po.status)
+                      ? undefined
+                      : (editForm.estimatedUnitCost || undefined),
+                  unit: editForm.unit || undefined,
+                  photoUrl: editForm.photoUrl || undefined,
+                  notes: editForm.notes || undefined,
+                });
+              }}
+              disabled={editItemMut.isPending || editAndResubmitReturnedItemMut.isPending}
+            >
+              {editItemMut.isPending
+                ? <Loader2 className="w-4 h-4 animate-spin" />
+                : (isEditingReturnedItem ? t.purchaseOrders.saveOnly : t.common.save)}
             </Button>
+
+            {isEditingReturnedItem && (
+              <Button
+                onClick={() => {
+                  if (!editingItem) return;
+                  editAndResubmitReturnedItemMut.mutate({
+                    lastKnownUpdatedAt: getLastKnownUpdatedAt(editingItem),
+                    id: editingItem.id,
+                    purchaseOrderId: po.id,
+                    itemName: editForm.itemName,
+                    description: editForm.description,
+                    quantity: editForm.quantity,
+                    estimatedUnitCost:
+                      ['approved', 'partial_purchase', 'purchased', 'received'].includes(po.status)
+                        ? undefined
+                        : (editForm.estimatedUnitCost || undefined),
+                    unit: editForm.unit || undefined,
+                    photoUrl: editForm.photoUrl || undefined,
+                    notes: editForm.notes || undefined,
+                  });
+                }}
+                disabled={editItemMut.isPending || editAndResubmitReturnedItemMut.isPending}
+              >
+                {editAndResubmitReturnedItemMut.isPending
+                  ? <Loader2 className="w-4 h-4 animate-spin" />
+                  : t.purchaseOrders.saveAndResubmit}
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>

@@ -15,6 +15,8 @@ export const buildDeliveryReceiptHtml = (data: {
     warehousePhotoUrl?: string;
     deliveredByName: string;
     deliveredToName: string;
+    assignedTechnicianName?: string;
+    ticketNumber?: string;
     notes?: string;
     poNumber?: string;
     deliveryNumber?: string;
@@ -60,7 +62,7 @@ export const buildDeliveryReceiptHtml = (data: {
   .field { display: flex; flex-direction: column; gap: 2px; }
   .field-label { font-size: 10px; color: #777; }
   .field-value { font-size: 13px; font-weight: 600; color: #111; }
-  .parties { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+  .parties { display: grid; grid-template-columns: repeat(auto-fit,minmax(180px,1fr)); gap: 16px; margin-bottom: 16px; }
   .party-box { border: 1px solid #dde3ea; border-radius: 8px; padding: 12px 14px; }
   .party-role { font-size: 10px; color: #777; margin-bottom: 4px; }
   .party-name { font-size: 15px; font-weight: 700; color: #1e3a5f; }
@@ -98,6 +100,7 @@ export const buildDeliveryReceiptHtml = (data: {
       <div>التاريخ: <strong>${data.deliveredAt}</strong></div>
       ${data.deliveryNumber ? "<div><span class=\"badge\">" + data.deliveryNumber + "</span></div>" : ""}
       ${data.poNumber ? "<div>أمر شراء: <strong>" + data.poNumber + "</strong></div>" : ""}
+      ${data.ticketNumber ? "<div>البلاغ: <strong>" + data.ticketNumber + "</strong></div>" : ""}
     </div>
   </div>
 
@@ -106,8 +109,12 @@ export const buildDeliveryReceiptHtml = (data: {
       <div class="party-role">المُسلِّم</div>
       <div class="party-name">${data.deliveredByName}</div>
     </div>
+    ${data.assignedTechnicianName ? `<div class="party-box">
+      <div class="party-role">الفني المسند للبلاغ</div>
+      <div class="party-name">${data.assignedTechnicianName}</div>
+    </div>` : ""}
     <div class="party-box">
-      <div class="party-role">المُستلِم (الفني)</div>
+      <div class="party-role">الفني المستلم فعليًا</div>
       <div class="party-name">${data.deliveredToName}</div>
     </div>
   </div>

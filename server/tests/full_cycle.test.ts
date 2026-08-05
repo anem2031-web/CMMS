@@ -8,6 +8,12 @@ import { describe, expect, it, vi } from "vitest";
 import { TRPCError } from "@trpc/server";
 import type { TrpcContext } from "../_core/context";
 import type { AuthenticatedUser } from "../_core/context";
+import {
+  canGateApproveExternalEntry,
+  canGateApproveExternalExit,
+  canWarehouseHandOverExternalAsset,
+  canWarehouseReceiveExternalAsset,
+} from "../../shared/externalMaintenanceWorkflow";
 
 // ============================================================
 // Helpers
@@ -127,25 +133,30 @@ function closeByManager(ticket: any, user: AuthenticatedUser) {
   return { ...ticket, status: "closed", closedAt: new Date() };
 }
 
-function approveGateExit(ticket: any, user: AuthenticatedUser) {
+function approveGateExit(job: any, ticket: any, user: AuthenticatedUser) {
   if (!["gate_security", "owner", "admin"].includes(user.role)) {
     throw new TRPCError({ code: "FORBIDDEN", message: "ليس لديك صلاحية" });
   }
-  if (ticket.maintenancePath !== "C") {
-    throw new TRPCError({ code: "BAD_REQUEST", message: "هذا الإجراء للمسار C فقط" });
+  if (ticket.maintenancePath !== "C" || !canGateApproveExternalExit(job.status)) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "وثيقة المستودع أو مرحلة الخروج غير مكتملة" });
   }
-  return { ...ticket, status: "out_for_repair", gateExitApprovedById: user.id };
+  return {
+    ticket: { ...ticket, status: "out_for_repair", gateExitApprovedById: user.id },
+    job: { ...job, status: "purchase_cycle", gateExitApprovedById: user.id },
+  };
 }
 
-function approveGateEntry(ticket: any, user: AuthenticatedUser) {
+function approveGateEntry(job: any, ticket: any, user: AuthenticatedUser) {
   if (!["gate_security", "owner", "admin"].includes(user.role)) {
     throw new TRPCError({ code: "FORBIDDEN", message: "ليس لديك صلاحية" });
   }
-  if (ticket.maintenancePath !== "C") {
-    throw new TRPCError({ code: "BAD_REQUEST", message: "هذا الإجراء للمسار C فقط" });
+  if (ticket.maintenancePath !== "C" || !canGateApproveExternalEntry(job.status)) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "الصيانة الخارجية لم تكتمل أو مرحلة الدخول غير صحيحة" });
   }
-  // ✅ Correct: moves to ready_for_closure (NOT repaired)
-  return { ...ticket, status: "ready_for_closure", gateEntryApprovedById: user.id };
+  return {
+    ticket: { ...ticket, gateEntryApprovedById: user.id },
+    job: { ...job, status: "waiting_warehouse_receipt", gateEntryApprovedById: user.id },
+  };
 }
 
 // ============================================================
@@ -267,59 +278,51 @@ describe("Path B: Full Cycle - Internal + Procurement", () => {
 // ============================================================
 // PATH C: External Maintenance
 // ============================================================
-describe("Path C: Full Cycle - External Maintenance (Gate Protocol)", () => {
+describe("Path C: Full Cycle - Warehouse, Gate, Delegate and Reinstall", () => {
   const khaled = makeUser({ id: 2, role: "supervisor", name: "Eng. Khaled" });
   const abdelFattah = makeUser({ id: 3, role: "maintenance_manager", name: "Abdel Fattah" });
   const gateSecurity = makeUser({ id: 5, role: "gate_security", name: "Gate Guard" });
 
-  it("Step 4: Manager approves Path C - requires justification", () => {
+  it("requires justification when the manager selects Path C", () => {
     const ticket = makeTicket({ status: "inspected" });
-    expect(() => approveWork(ticket, abdelFattah, { maintenancePath: "C" }))
-      .toThrowError(/مبرر/);
+    expect(() => approveWork(ticket, abdelFattah, { maintenancePath: "C" })).toThrowError(/مبرر/);
   });
 
-  it("Step 4: Manager approves Path C with justification → work_approved", () => {
-    const ticket = makeTicket({ status: "inspected" });
-    const result = approveWork(ticket, abdelFattah, { maintenancePath: "C", justification: "لا تتوفر قطع الغيار محلياً" });
-    expect(result.status).toBe("work_approved");
-    expect(result.maintenancePath).toBe("C");
-  });
-
-  it("Step 5 ✅ GATE PROTOCOL: Gate Security approves exit → out_for_repair", () => {
+  it("does not let the gate approve exit before warehouse preparation", () => {
     const ticket = makeTicket({ status: "work_approved", maintenancePath: "C" });
-    const result = approveGateExit(ticket, gateSecurity);
-    expect(result.status).toBe("out_for_repair");
-    expect(result.gateExitApprovedById).toBe(gateSecurity.id);
+    const job = { status: "waiting_warehouse_preparation" };
+    expect(() => approveGateExit(job, ticket, gateSecurity)).toThrowError(TRPCError);
   });
 
-  it("Step 5 ❌ GATE VIOLATION: Non-gate-security cannot approve exit", () => {
+  it("moves to the delegate purchase cycle only after gate exit", () => {
     const ticket = makeTicket({ status: "work_approved", maintenancePath: "C" });
-    expect(() => approveGateExit(ticket, abdelFattah)).toThrowError(TRPCError);
-    expect(() => approveGateExit(ticket, khaled)).toThrowError(TRPCError);
+    const job = { status: "waiting_gate_exit", exitDocumentNumber: "EXT-OUT-2026-00001" };
+    const result = approveGateExit(job, ticket, gateSecurity);
+    expect(result.ticket.status).toBe("out_for_repair");
+    expect(result.job.status).toBe("purchase_cycle");
   });
 
-  it("Step 5 ❌ GATE VIOLATION: Cannot approve exit for non-Path-C ticket", () => {
-    const ticket = makeTicket({ status: "work_approved", maintenancePath: "A" });
-    expect(() => approveGateExit(ticket, gateSecurity)).toThrowError(TRPCError);
-  });
-
-  it("Step 6 ✅ GATE PROTOCOL: Gate Security approves entry → ready_for_closure (NOT repaired)", () => {
+  it("does not let the gate approve entry until the delegate completes the approved cycle", () => {
     const ticket = makeTicket({ status: "out_for_repair", maintenancePath: "C" });
-    const result = approveGateEntry(ticket, gateSecurity);
-    // ✅ Critical: Must be ready_for_closure, NOT repaired
-    expect(result.status).toBe("ready_for_closure");
-    expect(result.status).not.toBe("repaired");
-    expect(result.gateEntryApprovedById).toBe(gateSecurity.id);
+    expect(() => approveGateEntry({ status: "purchase_cycle" }, ticket, gateSecurity)).toThrowError(TRPCError);
   });
 
-  it("Step 7 ✅ CLOSURE RIGHT: Only Manager (Abdel Fattah) can close Path C", () => {
-    const ticket = makeTicket({ status: "ready_for_closure", maintenancePath: "C" });
-    const result = closeByManager(ticket, abdelFattah);
-    expect(result.status).toBe("closed");
+  it("sends the returned asset to warehouse receipt after gate entry, not directly to closure", () => {
+    const ticket = makeTicket({ status: "out_for_repair", maintenancePath: "C" });
+    const result = approveGateEntry({ status: "waiting_gate_entry" }, ticket, gateSecurity);
+    expect(result.ticket.status).toBe("out_for_repair");
+    expect(result.job.status).toBe("waiting_warehouse_receipt");
+    expect(canWarehouseReceiveExternalAsset(result.job.status)).toBe(true);
   });
 
-  it("Step 7 ❌ CLOSURE VIOLATION: Supervisor cannot close Path C", () => {
+  it("requires warehouse receipt then handover before reinstall", () => {
+    expect(canWarehouseHandOverExternalAsset("waiting_warehouse_receipt")).toBe(false);
+    expect(canWarehouseHandOverExternalAsset("waiting_technician_handover")).toBe(true);
+  });
+
+  it("allows only the manager side to close Path C after reinstall evidence", () => {
     const ticket = makeTicket({ status: "ready_for_closure", maintenancePath: "C" });
+    expect(closeByManager(ticket, abdelFattah).status).toBe("closed");
     expect(() => closeByManager(ticket, khaled)).toThrowError(TRPCError);
   });
 });

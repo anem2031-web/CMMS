@@ -66,6 +66,8 @@ export const ROLE = {
   FOOD_WAREHOUSE_ASSISTANT: "food_warehouse_assistant",
   FOOD_WAREHOUSE_MANAGER: "food_warehouse_manager",
   MAINTENANCE_MANAGER: "maintenance_manager",
+  GENERAL_MAINTENANCE_MANAGER: "general_maintenance_manager",
+  CONSTRUCTION_PROCUREMENT_MANAGER: "construction_procurement_manager",
   PURCHASE_MANAGER: "purchase_manager",
   DELEGATE: "delegate",
   ACCOUNTANT: "accountant",
@@ -83,8 +85,23 @@ export type Role = (typeof ROLE)[keyof typeof ROLE];
 /** الأدوار التي تتجاوز كل قواعد هذا الملف دائمًا (لا تحتاج ذكرها بكل قاعدة) */
 export const BYPASS_ALL_ROLES: Role[] = [ROLE.OWNER, ROLE.ADMIN];
 
+/** طلب تغيير مندوب الصنف يقدمه المندوب الحالي، ويُحسم بواسطة مدير الصيانة أو الإدارة. */
+export const DELEGATE_CHANGE_REQUEST_ROLES: Role[] = [ROLE.DELEGATE];
+export const DELEGATE_CHANGE_RESOLVER_ROLES: Role[] = [
+  ROLE.MAINTENANCE_MANAGER,
+  ROLE.GENERAL_MAINTENANCE_MANAGER,
+  ROLE.CONSTRUCTION_PROCUREMENT_MANAGER,
+  ROLE.OWNER,
+  ROLE.ADMIN,
+];
+
 /** الأدوار كاملة الصلاحية للإشراف (ترى كل شيء، لكن ليست bypass لكل الإجراءات) */
-export const FULL_VISIBILITY_MANAGER_ROLES: Role[] = [ROLE.MAINTENANCE_MANAGER, ROLE.PURCHASE_MANAGER];
+export const FULL_VISIBILITY_MANAGER_ROLES: Role[] = [
+  ROLE.MAINTENANCE_MANAGER,
+  ROLE.GENERAL_MAINTENANCE_MANAGER,
+  ROLE.CONSTRUCTION_PROCUREMENT_MANAGER,
+  ROLE.PURCHASE_MANAGER,
+];
 
 /** أدوار لا علاقة وظيفية لها بدورة الشراء — نطاقها دائمًا "طلباتها الخاصة فقط" */
 export const OWN_REQUESTS_ONLY_ROLES: Role[] = [
@@ -97,7 +114,8 @@ export const OWN_REQUESTS_ONLY_ROLES: Role[] = [
 ];
 
 // ──────────────────────────────────────────────────────────────────────────
-// سياسة الرؤية (Visibility) — تحدد أي طلبات يرى كل دور، بالقائمة والتفاصيل معًا
+// سياسة الرؤية (Visibility) — تحدد نطاق العمل الوظيفي لكل دور. يضيف engine.ts
+// إلى هذا النطاق قاعدة عامة مستقلة: كل دور معرَّف يرى طلباته الشخصية بكل المراحل.
 // ──────────────────────────────────────────────────────────────────────────
 
 export type VisibilityRule =
@@ -115,6 +133,8 @@ export type VisibilityRule =
  */
 export const VISIBILITY_POLICY: Record<string, VisibilityRule> = {
   [ROLE.MAINTENANCE_MANAGER]: { kind: "all" },
+  [ROLE.GENERAL_MAINTENANCE_MANAGER]: { kind: "all" },
+  [ROLE.CONSTRUCTION_PROCUREMENT_MANAGER]: { kind: "all" },
   [ROLE.PURCHASE_MANAGER]: { kind: "all" },
 
   [ROLE.PURCHASE_REQUESTER]: { kind: "own" },
@@ -141,11 +161,19 @@ export const VISIBILITY_POLICY: Record<string, VisibilityRule> = {
     excludedStatuses: [PO_STATUS.DRAFT, PO_STATUS.PENDING_REVIEW, PO_STATUS.PENDING_ESTIMATE, PO_STATUS.PENDING_ACCOUNTING],
   },
 
+  // المستودع يرى طلبات الآخرين فقط ضمن مراحل عمله الفعلية. قاعدة الملكية
+  // العامة في engine.ts تبقي طلباته الشخصية ظاهرة له في جميع المراحل.
   [ROLE.WAREHOUSE]: {
     kind: "status_range",
     excludedStatuses: [
-      PO_STATUS.DRAFT, PO_STATUS.PENDING_REVIEW, PO_STATUS.PENDING_ESTIMATE,
-      PO_STATUS.PENDING_ACCOUNTING, PO_STATUS.PENDING_MANAGEMENT, PO_STATUS.APPROVED,
+      PO_STATUS.DRAFT,
+      PO_STATUS.PENDING_REVIEW,
+      PO_STATUS.PENDING_ESTIMATE,
+      PO_STATUS.PENDING_ACCOUNTING,
+      PO_STATUS.PENDING_MANAGEMENT,
+      PO_STATUS.APPROVED,
+      PO_STATUS.REJECTED,
+      PO_STATUS.REVISION_NEEDED,
     ],
   },
 };
@@ -162,6 +190,7 @@ export type ActionName =
   | "reviewItems"
   | "editItem"
   | "deleteItem"
+  | "cancelItem"
   | "estimateCost"
   | "submitPricedBatch"
   | "approveAccounting"
@@ -196,7 +225,12 @@ export const ACTION_POLICY: Record<ActionName, ActionClause[]> = {
   deleteOrder: [{ roles: [], statuses: "any" }], // owner/admin فقط — bypass، لا بند إضافي
 
   reviewItems: [
-    { roles: [ROLE.MAINTENANCE_MANAGER, ROLE.PURCHASE_MANAGER], statuses: [PO_STATUS.PENDING_REVIEW] },
+    { roles: [
+      ROLE.MAINTENANCE_MANAGER,
+      ROLE.GENERAL_MAINTENANCE_MANAGER,
+      ROLE.CONSTRUCTION_PROCUREMENT_MANAGER,
+      ROLE.PURCHASE_MANAGER,
+    ], statuses: [PO_STATUS.PENDING_REVIEW] },
     { roles: [ROLE.FOOD_WAREHOUSE_MANAGER], statuses: [PO_STATUS.PENDING_REVIEW] }, // مقيّد إضافيًا بنطاق الملكية بـengine.ts
   ],
 
@@ -205,6 +239,17 @@ export const ACTION_POLICY: Record<ActionName, ActionClause[]> = {
   // عبر canPerformItemAction وليس canPerformAction.
   editItem: [],
   deleteItem: [],
+
+  // إلغاء الصنف الإداري مرتبط بمرحلة الدور: مدير الصيانة قبل التسعير،
+  // والإدارة العليا في مرحلة اعتماد الإدارة. owner/admin يتجاوزان دائمًا.
+  cancelItem: [
+    { roles: [
+      ROLE.MAINTENANCE_MANAGER,
+      ROLE.GENERAL_MAINTENANCE_MANAGER,
+      ROLE.CONSTRUCTION_PROCUREMENT_MANAGER,
+    ], statuses: [PO_STATUS.DRAFT, PO_STATUS.PENDING_REVIEW] },
+    { roles: [ROLE.SENIOR_MANAGEMENT], statuses: [PO_STATUS.PENDING_MANAGEMENT] },
+  ],
 
   estimateCost: [{ roles: [ROLE.DELEGATE], statuses: "any" }], // مقيّد إضافيًا بملكية الصنف بـengine.ts (isItemAssignedToDelegate)
   submitPricedBatch: [{ roles: [ROLE.DELEGATE], statuses: "any" }],
@@ -239,14 +284,13 @@ export const ACTION_POLICY: Record<ActionName, ActionClause[]> = {
 //     (الطلب كله بحالة revision_needed) — بغض النظر عن دوره.
 //  2. غير ذلك: يُشترط أن يكون بأحد الأدوار المميّزة، وأن تكون حالة الطلب من
 //     ضمن الحالات القابلة للتعديل.
-//  3. ⚠️ استثناء نهائي غير مشروط بالدور: لو حالة الطلب revision_needed، يُمنع
-//     أي شخص ليس منشئ الطلب — حتى لو كان مميّزًا، وحتى owner/admin أنفسهم لا
-//     يتجاوزون هذا الشرط (خلافًا للقاعدة العامة بباقي الحارس). هذا مطابق
-//     تمامًا للسلوك الأصلي بالكود قبل هذا الترحيل.
+//  3. لو حالة الطلب revision_needed، تُقصر الصلاحية على المنشئ لبقية الأدوار.
+//     owner/admin يتجاوزان هذه القيود من engine.ts وفق قاعدة BYPASS_ALL_ROLES
+//     الموحدة على كل إجراءات الطلب والصنف.
 
 export interface ItemActionRule {
-  /** الأدوار المميّزة المسموح لها بالتصرف بمعزل عن كونها منشئ الطلب (owner/admin
-   *  مذكورتان صراحة هنا، وليس عبر BYPASS_ALL_ROLES، بسبب الاستثناء #3 أعلاه) */
+  /** الأدوار المميّزة غير bypass المسموح لها بالتصرف بمعزل عن كونها منشئ الطلب.
+   * owner/admin لا يحتاجان ذكرًا هنا لأن engine.ts يمنحهما تجاوزًا مطلقًا أولًا. */
   privilegedRoles: Role[];
   /** حالات الطلب المسموح للأدوار المميّزة التصرف فيها */
   privilegedEditableStatuses: POStatus[];
@@ -254,25 +298,36 @@ export interface ItemActionRule {
   creatorExceptionItemStatuses: string[];
   /** حالات الطلب التي تمنح منشئ الطلب استثناءً (بغض النظر عن حالة الصنف) */
   creatorExceptionPOStatuses: POStatus[];
-  /** حالات طلب مقصورة على منشئ الطلب حصرًا — تُطبَّق أخيرًا وتتجاوز حتى الأدوار المميّزة */
+  /** حالات طلب مقصورة على منشئ الطلب حصرًا لبقية الأدوار غير bypass */
   creatorOnlyPOStatuses: POStatus[];
 }
 
+/** حالات الصنف التي يُعاد فيها القرار إلى منشئ الطلب. */
+export const CREATOR_RETURNED_ITEM_STATUSES = ["needs_item_revision", "purchase_cancelled"] as const;
+export type CreatorReturnedItemStatus = (typeof CREATOR_RETURNED_ITEM_STATUSES)[number];
+
 export const ITEM_ACTION_POLICY: Record<"editItem" | "deleteItem", ItemActionRule> = {
   editItem: {
-    privilegedRoles: [ROLE.OWNER, ROLE.ADMIN, ROLE.MAINTENANCE_MANAGER],
+    privilegedRoles: [
+      ROLE.MAINTENANCE_MANAGER,
+      ROLE.GENERAL_MAINTENANCE_MANAGER,
+      ROLE.CONSTRUCTION_PROCUREMENT_MANAGER,
+    ],
     privilegedEditableStatuses: [
-      PO_STATUS.DRAFT, PO_STATUS.PENDING_REVIEW, PO_STATUS.PENDING_ESTIMATE,
-      PO_STATUS.PENDING_ACCOUNTING, PO_STATUS.REVISION_NEEDED,
+      PO_STATUS.DRAFT, PO_STATUS.PENDING_REVIEW, PO_STATUS.REVISION_NEEDED,
     ],
     creatorExceptionItemStatuses: ["needs_item_revision", "purchase_cancelled"],
     creatorExceptionPOStatuses: [PO_STATUS.REVISION_NEEDED],
     creatorOnlyPOStatuses: [PO_STATUS.REVISION_NEEDED],
   },
   deleteItem: {
-    privilegedRoles: [ROLE.OWNER, ROLE.ADMIN, ROLE.MAINTENANCE_MANAGER],
+    privilegedRoles: [
+      ROLE.MAINTENANCE_MANAGER,
+      ROLE.GENERAL_MAINTENANCE_MANAGER,
+      ROLE.CONSTRUCTION_PROCUREMENT_MANAGER,
+    ],
     privilegedEditableStatuses: [
-      PO_STATUS.DRAFT, PO_STATUS.PENDING_REVIEW, PO_STATUS.PENDING_ESTIMATE, PO_STATUS.PENDING_ACCOUNTING,
+      PO_STATUS.DRAFT, PO_STATUS.PENDING_REVIEW,
     ],
     creatorExceptionItemStatuses: ["needs_item_revision", "purchase_cancelled"],
     creatorExceptionPOStatuses: [PO_STATUS.REVISION_NEEDED],

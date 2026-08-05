@@ -4,6 +4,37 @@ import { router, protectedProcedure, managerProcedure, accountantProcedure, mana
 import * as db from "../../_core/db";
 import { notifyItemRejection } from "../_shared/router-helpers";
 import { assertCanPerformPOAction } from "../../_core/authz/guard";
+import { getActivePricingBatchItems, rejectPricingBatchIfEmpty } from "./pricing-batch-state";
+import { syncPathBTicketFromPurchaseOrder } from "./ticket-purchase-workflow";
+
+async function rejectPurchaseOrderIfAllItemsTerminal(
+  po: any,
+  actor: { id: number; name?: string | null },
+  reason: string
+): Promise<boolean> {
+  const allItems = await db.getPOItems(po.id);
+  const allTerminal = allItems.length > 0 && allItems.every((item) =>
+    ["cancelled", "rejected"].includes(item.status)
+  );
+  if (!allTerminal) return false;
+
+  if (po.status !== "rejected") {
+    await db.updatePurchaseOrder(po.id, {
+      status: "rejected",
+      rejectedById: actor.id,
+      rejectedAt: new Date(),
+      rejectionReason: reason,
+    });
+    await db.createNotification({
+      userId: po.requestedById,
+      title: "❌ طلب شراء مرفوض",
+      message: `تم إغلاق طلب الشراء رقم ${po.poNumber || po.id} لأن جميع أصنافه أُلغيت أو رُفضت.`,
+      type: "error",
+      relatedPOId: po.id,
+    });
+  }
+  return true;
+}
 
 export const approvalsRouter = router({
   approveAccounting: accountantProcedure.input(z.object({
@@ -28,10 +59,13 @@ export const approvalsRouter = router({
         const item = items.find(i => i.id === itemId);
         if (item) {
           const reason = input.rejectionReason || "مرفوض من قبل الحسابات";
-          await db.updatePOItem(itemId, { 
-            status: "rejected", 
-            managementRejectionReason: reason
+          const updated = await db.updatePOItemIfNotTerminal(itemId, {
+            status: "rejected",
+            managementRejectionReason: reason,
           });
+          if (!updated) {
+            throw new TRPCError({ code: "CONFLICT", message: `الصنف "${item.itemName}" ملغى أو تغيرت حالته؛ قم بتحديث الصفحة` });
+          }
           await db.createAuditLog({ 
             userId: ctx.user.id, 
             action: "reject_po_item", 
@@ -94,6 +128,7 @@ export const approvalsRouter = router({
       }
     }
     
+    await syncPathBTicketFromPurchaseOrder(input.id, ctx.user.id, "تم اعتماد طلب الشراء من الحسابات");
     await db.createAuditLog({ userId: ctx.user.id, action: "approve_accounting", entityType: "purchase_order", entityId: input.id });
     return { success: true };
   }),
@@ -116,6 +151,12 @@ export const approvalsRouter = router({
     if (!po) throw new TRPCError({ code: "NOT_FOUND", message: "طلب الشراء غير موجود" });
 
     const batchItems = (await db.getPOItems(batch.purchaseOrderId)).filter(i => i.batchId === batch.id);
+    if (await rejectPricingBatchIfEmpty(batch, { actorId: ctx.user.id, actorName: ctx.user.name })) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: "تم إغلاق هذه الدفعة لأن جميع أصنافها أُلغيت أو رُفضت؛ لا يوجد شيء لاعتماده",
+      });
+    }
 
     // معالجة رفض أصناف ضمن الدفعة (إن وجدت)
     if (input.rejectedItemIds && input.rejectedItemIds.length > 0) {
@@ -123,7 +164,10 @@ export const approvalsRouter = router({
         const item = batchItems.find(i => i.id === itemId);
         if (item) {
           const reason = input.rejectionReason || "مرفوض من قبل الحسابات";
-          await db.updatePOItem(itemId, { status: "rejected", managementRejectionReason: reason });
+          const updated = await db.updatePOItemIfNotTerminal(itemId, { status: "rejected", managementRejectionReason: reason });
+          if (!updated) {
+            throw new TRPCError({ code: "CONFLICT", message: `الصنف "${item.itemName}" ملغى أو تغيرت حالته؛ قم بتحديث الصفحة` });
+          }
           await notifyItemRejection({
             poId: po.id, poNumber: po.poNumber, requestedById: po.requestedById,
             itemName: item.itemName, actorId: ctx.user.id, actorName: ctx.user.name || "مستخدم",
@@ -133,14 +177,18 @@ export const approvalsRouter = router({
       }
     }
 
-    const allBatchRejected = batchItems.every(i =>
-      input.rejectedItemIds?.includes(i.id) || i.status === "rejected" || i.status === "cancelled"
-    );
+    const refreshedAccountingBatchItems = (await db.getPOItems(batch.purchaseOrderId)).filter(i => i.batchId === batch.id);
+    const allBatchRejected = getActivePricingBatchItems(refreshedAccountingBatchItems).length === 0;
 
     if (allBatchRejected) {
       await db.updatePOPricingBatch(batch.id, {
         status: "rejected", rejectedById: ctx.user.id, rejectedAt: new Date(), rejectionReason: input.rejectionReason,
       });
+      await rejectPurchaseOrderIfAllItemsTerminal(
+        po,
+        ctx.user,
+        input.rejectionReason || `تم إغلاق جميع أصناف الطلب أثناء اعتماد الحسابات بواسطة ${ctx.user.name || "مستخدم"}`
+      );
     } else {
       // مبلغ العهدة إلزامي عند اعتماد الدفعة فعلياً (غير مطلوب في حالة رفض الدفعة بالكامل أعلاه)
       const custodyValue = input.custodyAmount ? parseFloat(input.custodyAmount) : NaN;
@@ -176,6 +224,11 @@ export const approvalsRouter = router({
       }
     }
 
+    await syncPathBTicketFromPurchaseOrder(
+      po.id,
+      ctx.user.id,
+      "تم اعتماد دفعة تسعير من الحسابات",
+    );
     await db.createAuditLog({
       userId: ctx.user.id, action: "approve_accounting_batch",
       entityType: "po_pricing_batch", entityId: batch.id,
@@ -202,13 +255,22 @@ export const approvalsRouter = router({
     const po = await db.getPurchaseOrderById(batch.purchaseOrderId);
     if (!po) throw new TRPCError({ code: "NOT_FOUND", message: "طلب الشراء غير موجود" });
     const batchItems = (await db.getPOItems(batch.purchaseOrderId)).filter(i => i.batchId === batch.id);
+    if (await rejectPricingBatchIfEmpty(batch, { actorId: ctx.user.id, actorName: ctx.user.name })) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: "تم إغلاق هذه الدفعة لأن جميع أصنافها أُلغيت أو رُفضت؛ لا يوجد شيء لاعتماده",
+      });
+    }
 
     if (input.rejectedItemIds && input.rejectedItemIds.length > 0) {
       for (const itemId of input.rejectedItemIds) {
         const item = batchItems.find(i => i.id === itemId);
         if (item) {
           const reason = input.rejectionReason || "مرفوض من قبل الإدارة";
-          await db.updatePOItem(itemId, { status: "rejected", managementRejectionReason: reason });
+          const updated = await db.updatePOItemIfNotTerminal(itemId, { status: "rejected", managementRejectionReason: reason });
+          if (!updated) {
+            throw new TRPCError({ code: "CONFLICT", message: `الصنف "${item.itemName}" ملغى أو تغيرت حالته؛ قم بتحديث الصفحة` });
+          }
           await notifyItemRejection({
             poId: po.id, poNumber: po.poNumber, requestedById: po.requestedById,
             itemName: item.itemName, actorId: ctx.user.id, actorName: ctx.user.name || "مستخدم",
@@ -218,20 +280,24 @@ export const approvalsRouter = router({
       }
     }
 
-    const allBatchRejected = batchItems.every(i =>
-      input.rejectedItemIds?.includes(i.id) || i.status === "rejected" || i.status === "cancelled"
-    );
+    const refreshedManagementBatchItems = (await db.getPOItems(batch.purchaseOrderId)).filter(i => i.batchId === batch.id);
+    const allBatchRejected = getActivePricingBatchItems(refreshedManagementBatchItems).length === 0;
 
     if (allBatchRejected) {
       await db.updatePOPricingBatch(batch.id, {
         status: "rejected", rejectedById: ctx.user.id, rejectedAt: new Date(), rejectionReason: input.rejectionReason,
       });
+      await rejectPurchaseOrderIfAllItemsTerminal(
+        po,
+        ctx.user,
+        input.rejectionReason || `تم إغلاق جميع أصناف الطلب أثناء اعتماد الإدارة بواسطة ${ctx.user.name || "مستخدم"}`
+      );
     } else {
       await db.updatePOPricingBatch(batch.id, {
         status: "approved", managementApprovedById: ctx.user.id, managementApprovedAt: new Date(), managementNotes: input.notes,
       });
 
-      for (const item of batchItems) {
+      for (const item of refreshedManagementBatchItems) {
         if (item.status !== "rejected" && item.status !== "cancelled") {
           await db.updatePOItem(item.id, { status: "approved" });
         }
@@ -244,12 +310,15 @@ export const approvalsRouter = router({
         await db.updatePurchaseOrder(po.id, { status: "approved", managementApprovedById: ctx.user.id, managementApprovedAt: new Date() });
       }
 
-      const delegateIds = Array.from(new Set(batchItems.filter(i => i.delegateId && i.status === "approved").map(i => i.delegateId!)));
+      const approvedBatchItems = (await db.getPOItems(batch.purchaseOrderId)).filter(
+        i => i.batchId === batch.id && i.status === "approved"
+      );
+      const delegateIds = Array.from(new Set(approvedBatchItems.filter(i => i.delegateId).map(i => i.delegateId!)));
       const custodyInfoBatch = batch.custodyAmount
         ? ` مبلغ العهدة المُصرف لك: ${Number(batch.custodyAmount).toLocaleString("ar-SA")} ر.س.`
         : "";
       for (const dId of delegateIds) {
-        const delegateItems = batchItems.filter(i => i.delegateId === dId);
+        const delegateItems = approvedBatchItems.filter(i => i.delegateId === dId);
         const itemNames = delegateItems.map(i => i.itemName).join("، ");
         await db.createNotification({
           userId: dId,
@@ -260,6 +329,11 @@ export const approvalsRouter = router({
       }
     }
 
+    await syncPathBTicketFromPurchaseOrder(
+      po.id,
+      ctx.user.id,
+      "تم اعتماد دفعة تسعير من الإدارة",
+    );
     await db.createAuditLog({
       userId: ctx.user.id, action: "approve_management_batch",
       entityType: "po_pricing_batch", entityId: batch.id,
@@ -289,10 +363,13 @@ export const approvalsRouter = router({
         const item = items.find(i => i.id === itemId);
         if (item) {
           const reason = input.rejectionReason || "مرفوض من قبل الإدارة";
-          await db.updatePOItem(itemId, { 
-            status: "rejected", 
-            managementRejectionReason: reason
+          const updated = await db.updatePOItemIfNotTerminal(itemId, {
+            status: "rejected",
+            managementRejectionReason: reason,
           });
+          if (!updated) {
+            throw new TRPCError({ code: "CONFLICT", message: `الصنف "${item.itemName}" ملغى أو تغيرت حالته؛ قم بتحديث الصفحة` });
+          }
           await db.createAuditLog({ 
             userId: ctx.user.id, 
             action: "reject_po_item", 
@@ -337,6 +414,7 @@ export const approvalsRouter = router({
         await db.createNotification({ userId: po.requestedById, title: "❌ طلب شراء مرفوض", message: `تم رفض جميع أصناف طلب الشراء رقم ${po.poNumber || input.id} من قبل الإدارة بواسطة ${ctx.user.name}.${input.rejectionReason ? ` السبب: ${input.rejectionReason}` : ""}`, type: "error", relatedPOId: input.id });
       }
       
+      await syncPathBTicketFromPurchaseOrder(input.id, ctx.user.id, "رُفضت جميع أصناف طلب الشراء");
       await db.createAuditLog({ userId: ctx.user.id, action: "approve_management", entityType: "purchase_order", entityId: input.id, newValues: { status: "rejected_all_items" } });
       return { success: true };
     }
@@ -396,7 +474,7 @@ export const approvalsRouter = router({
 
     // If no delegates assigned, notify managers
     if (delegateIds.length === 0) {
-      const managers = await db.getManagerUsers();
+      const managers = await db.getPurchaseManagerUsers();
       for (const mgr of managers) {
         await db.createNotification({
           userId: mgr.id,
@@ -407,27 +485,8 @@ export const approvalsRouter = router({
         });
       }
     }
-    // Update ticket (Path C: keep at work_approved, notify gate security)
-    if (po?.ticketId) {
-      const ticketForPath = await db.getTicketById(po.ticketId);
-      if (ticketForPath?.maintenancePath === "C") {
-        // Path C: do NOT change ticket status — gate security must approve exit first
-        const gateUsers = await db.getUsersByRole("gate_security");
-        for (const g of gateUsers) {
-          await db.createNotification({
-            userId: g.id,
-            title: "🚪 أصل بانتظار الموافقة على الخروج",
-            message: `البلاغ ${ticketForPath.ticketNumber} - تمت الموافقة على تكلفة الإصلاح، الأصل جاهز للخروج`,
-            type: "info",
-            relatedTicketId: po.ticketId
-          });
-        }
-      } else {
-        // Path A or B: normal behavior
-        await db.updateTicket(po.ticketId, { status: "purchase_approved" });
-        await db.addTicketStatusHistory({ ticketId: po.ticketId, fromStatus: "purchase_pending_management", toStatus: "purchase_approved", changedById: ctx.user.id });
-      }
-    }
+    // المسار C يبقى لدى المندوب بعد الاعتماد، ولا تُخطر الحراسة بالدخول إلا بعد تأكيد اكتمال الصيانة الخارجية.
+    await syncPathBTicketFromPurchaseOrder(input.id, ctx.user.id, "تم اعتماد طلب الشراء من الإدارة");
     await db.createAuditLog({ userId: ctx.user.id, action: "approve_management", entityType: "purchase_order", entityId: input.id });
     return { success: true };
   }),
@@ -457,12 +516,13 @@ export const approvalsRouter = router({
     if (poReject?.requestedById && poReject.requestedById !== ctx.user.id) {
       await db.createNotification({ userId: poReject.requestedById, title: "❌ تم رفض طلب الشراء", message: `تم رفض طلب الشراء رقم ${poReject.poNumber} بواسطة ${ctx.user.name}. السبب: ${input.reason}`, type: "critical", relatedPOId: input.id });
     }
-    const managersReject = await db.getManagerUsers();
+    const managersReject = await db.getPurchaseManagerUsers();
     for (const mgr of managersReject) {
       if (mgr.id !== ctx.user.id) {
         await db.createNotification({ userId: mgr.id, title: "❌ رفض طلب شراء", message: `تم رفض طلب الشراء رقم ${poReject?.poNumber || input.id} بواسطة ${ctx.user.name}. السبب: ${input.reason}`, type: "critical", relatedPOId: input.id });
       }
     }
+    await syncPathBTicketFromPurchaseOrder(input.id, ctx.user.id, "تم رفض طلب الشراء");
     return { success: true };
   }),
 
@@ -493,21 +553,30 @@ export const approvalsRouter = router({
       }
     }
 
-    // ── Atomic validation: fetch all DB items for this PO before any updates ──
-    const dbItems = await db.getPOItems(input.poId);
-    // A) Count check: submitted items must equal DB items (no partial submission)
-    if (input.items.length !== dbItems.length) {
-      throw new TRPCError({ code: "BAD_REQUEST", message: `يجب مراجعة جميع الأصناف (${dbItems.length} صنف). تم إرسال ${input.items.length} فقط` });
-    }
-// B) Ownership check: every submitted item.id must belong to this PO
-      const dbItemIds = new Set(dbItems.map((i: any) => i.id));
-      for (const reviewItem of input.items) {
-        if (!dbItemIds.has(reviewItem.id)) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: `الصنف رقم ${reviewItem.id} لا ينتمي لطلب الشراء هذا` });
-        }
+    // جميع قرارات المراجعة وتغيير حالة الطلب تُنفذ داخل معاملة واحدة. كما أن
+    // كل تحديث صنف مشروط ببقائه غير cancelled/rejected لحظة الكتابة، حتى لا
+    // يعيد سباق تزامن مع الإلغاء تنشيط الصنف بعد إلغائه.
+    const result = await db.withTransaction(async (tx: any) => {
+      const dbItems = await db.getPOItems(input.poId, tx);
+      const reviewableItems = dbItems.filter(
+        (item: any) => !["cancelled", "rejected"].includes(item.status)
+      );
+
+      if (input.items.length !== reviewableItems.length) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `يجب مراجعة جميع الأصناف القابلة للمراجعة (${reviewableItems.length} صنف). تم إرسال ${input.items.length} فقط`,
+        });
       }
-      // ── Validate each item action ──
+
+      const reviewableById = new Map(reviewableItems.map((item: any) => [item.id, item]));
       for (const reviewItem of input.items) {
+        if (!reviewableById.has(reviewItem.id)) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `الصنف رقم ${reviewItem.id} غير قابل للمراجعة أو لا ينتمي لطلب الشراء هذا`,
+          });
+        }
         if (reviewItem.action === "approve" && !reviewItem.delegateId) {
           throw new TRPCError({ code: "BAD_REQUEST", message: `الصنف رقم ${reviewItem.id}: يجب تعيين مندوب للأصناف المعتمدة` });
         }
@@ -515,59 +584,104 @@ export const approvalsRouter = router({
           throw new TRPCError({ code: "BAD_REQUEST", message: `الصنف رقم ${reviewItem.id}: يجب إدخال سبب رفض الأصناف المرفوضة` });
         }
       }
-      // Apply per-item decisions
+
+      const rejectedEvents: Array<{ itemName: string; reason: string }> = [];
       for (const reviewItem of input.items) {
-        if (reviewItem.action === "approve") {
-          await db.updatePOItem(reviewItem.id, {
-            status: "pending",
-            delegateId: reviewItem.delegateId,
-            managementRejectionReason: null,
+        const currentItem: any = reviewableById.get(reviewItem.id);
+        const updated = reviewItem.action === "approve"
+          ? await db.updatePOItemIfNotTerminal(reviewItem.id, {
+              status: "pending",
+              delegateId: reviewItem.delegateId,
+              managementRejectionReason: null,
+            }, tx)
+          : await db.updatePOItemIfNotTerminal(reviewItem.id, {
+              status: "rejected",
+              managementRejectionReason: reviewItem.rejectionReason,
+            }, tx);
+
+        if (!updated) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: `تغيرت حالة الصنف "${currentItem?.itemName || reviewItem.id}" أثناء المراجعة؛ قم بتحديث الصفحة`,
           });
-        } else {
-          await db.updatePOItem(reviewItem.id, {
-            status: "rejected",
-            managementRejectionReason: reviewItem.rejectionReason,
+        }
+        if (reviewItem.action === "reject") {
+          rejectedEvents.push({
+            itemName: currentItem.itemName,
+            reason: reviewItem.rejectionReason!,
           });
-          const rejectedItem = dbItems.find((i: any) => i.id === reviewItem.id);
-          if (rejectedItem) {
-            await notifyItemRejection({
-              poId: po.id,
-              poNumber: po.poNumber,
-              requestedById: po.requestedById,
-              itemName: rejectedItem.itemName,
-              actorId: ctx.user.id,
-              actorName: ctx.user.name || "مستخدم",
-              actorRole: ctx.user.role,
-              reason: reviewItem.rejectionReason!,
-              kind: "rejected",
-            });
-          }
         }
       }
-      // Determine new PO status
-      const allItems = await db.getPOItems(input.poId);
-      const hasApproved = allItems.some(i => i.status === "pending");
-      const allRejected = allItems.every(i => i.status === "rejected" || i.status === "cancelled");
+
+      const allItems = await db.getPOItems(input.poId, tx);
+      const hasApproved = allItems.some((item: any) => item.status === "pending");
+      const allRejected = allItems.every((item: any) => item.status === "rejected" || item.status === "cancelled");
+
       if (allRejected) {
-        await db.updatePurchaseOrder(input.poId, { status: "rejected", rejectedById: ctx.user.id, rejectedAt: new Date(), rejectionReason: `تم رفض جميع الأصناف بواسطة ${ctx.user.name}` });
-        if (po.requestedById && po.requestedById !== ctx.user.id) {
-          await db.createNotification({ userId: po.requestedById, title: "❌ تم رفض جميع أصناف طلب الشراء", message: `تم رفض جميع أصناف طلب الشراء رقم ${po.poNumber} بواسطة ${ctx.user.name}.`, type: "critical", relatedPOId: input.poId });
-        }
-} else if (hasApproved) {
+        await db.updatePurchaseOrder(input.poId, {
+          status: "rejected",
+          rejectedById: ctx.user.id,
+          rejectedAt: new Date(),
+          rejectionReason: `تم رفض جميع الأصناف بواسطة ${ctx.user.name}`,
+        }, tx);
+      } else if (hasApproved) {
         await db.updatePurchaseOrder(input.poId, {
           status: "pending_estimate",
           reviewedById: ctx.user.id,
           reviewedAt: new Date(),
-        });
-        const approvedItems = allItems.filter(i => i.status === "pending" && i.delegateId);
-        const delegateIds = Array.from(new Set(approvedItems.map(i => i.delegateId!)));
-        for (const dId of delegateIds) {
-          const delegateItems = approvedItems.filter(i => i.delegateId === dId);
-          const itemNames = delegateItems.map(i => i.itemName).join("، ");
-          await db.createNotification({ userId: dId, title: "طلب شراء جديد — ابدأ التسعير", message: `تم تخصيص الأصناف التالية لك في طلب الشراء ${po.poNumber}: ${itemNames}`, type: "info", relatedPOId: input.poId });
-        }
+        }, tx);
       }
-      await db.createAuditLog({ userId: ctx.user.id, action: "review_po_items", entityType: "purchase_order", entityId: input.poId });
-      return { success: true };
+
+      return {
+        allRejected,
+        hasApproved,
+        rejectedEvents,
+        approvedItems: allItems.filter((item: any) => item.status === "pending" && item.delegateId),
+      };
+    });
+
+    // الإشعارات تُرسل بعد نجاح المعاملة فقط، حتى لا تصل رسائل عن قرار تم rollback له.
+    for (const rejectedEvent of result.rejectedEvents) {
+      await notifyItemRejection({
+        poId: po.id,
+        poNumber: po.poNumber,
+        requestedById: po.requestedById,
+        itemName: rejectedEvent.itemName,
+        actorId: ctx.user.id,
+        actorName: ctx.user.name || "مستخدم",
+        actorRole: ctx.user.role,
+        reason: rejectedEvent.reason,
+        kind: "rejected",
+      });
+    }
+
+    if (result.allRejected) {
+      if (po.requestedById && po.requestedById !== ctx.user.id) {
+        await db.createNotification({
+          userId: po.requestedById,
+          title: "❌ تم رفض جميع أصناف طلب الشراء",
+          message: `تم رفض جميع أصناف طلب الشراء رقم ${po.poNumber} بواسطة ${ctx.user.name}.`,
+          type: "critical",
+          relatedPOId: input.poId,
+        });
+      }
+    } else if (result.hasApproved) {
+      const delegateIds = Array.from(new Set(result.approvedItems.map((item: any) => item.delegateId as number)));
+      for (const delegateId of delegateIds) {
+        const delegateItems = result.approvedItems.filter((item: any) => item.delegateId === delegateId);
+        const itemNames = delegateItems.map((item: any) => item.itemName).join("، ");
+        await db.createNotification({
+          userId: delegateId,
+          title: "طلب شراء جديد — ابدأ التسعير",
+          message: `تم تخصيص الأصناف التالية لك في طلب الشراء ${po.poNumber}: ${itemNames}`,
+          type: "info",
+          relatedPOId: input.poId,
+        });
+      }
+    }
+
+    await syncPathBTicketFromPurchaseOrder(input.poId, ctx.user.id, "تمت مراجعة أصناف طلب الشراء");
+    await db.createAuditLog({ userId: ctx.user.id, action: "review_po_items", entityType: "purchase_order", entityId: input.poId });
+    return { success: true };
     }),
 });

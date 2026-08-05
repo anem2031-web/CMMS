@@ -6,7 +6,7 @@ import * as db from "../../_core/db";
 import * as ideasDb from "../../services/improvement-ideas/improvementIdeas";
 
 // الأدوار صاحبة الرؤية الكاملة (الفرز + التصنيف + اتخاذ القرار النهائي مجتمعين برؤية كل المقترحات)
-const FULL_VISIBILITY_ROLES = ["maintenance_manager", "senior_management", "executive_director", "owner", "admin"];
+const FULL_VISIBILITY_ROLES = ["maintenance_manager", "general_maintenance_manager", "construction_procurement_manager", "senior_management", "executive_director", "owner", "admin"];
 
 // الموظف العادي لا يرى إلا حالة مقترحه فقط — بدون أي بيانات داخلية عن المراجعة أو القرار
 function sanitizeForEmployee(idea: any) {
@@ -72,7 +72,7 @@ export const improvementIdeasRouter = router({
     await db.createAuditLog({ userId: ctx.user.id, action: "create_improvement_idea", entityType: "improvement_idea", entityId: id! });
 
     // إشعار الأدوار صاحبة صلاحية الفرز والتصنيف فقط (مدير الصيانة + owner/admin)
-    const managers = await db.getManagerUsers();
+    const managers = await db.getOperationalManagerUsers();
     for (const u of managers) {
       await db.createNotification({ userId: u.id, title: "فكرة تحسين جديدة", message: `${requestNumber} - ${input.title} بانتظار الفرز والتصنيف`, type: "info" });
     }
@@ -155,7 +155,7 @@ export const improvementIdeasRouter = router({
     });
 
     if (input.decision === "approved") {
-      const managers = await db.getManagerUsers();
+      const managers = await db.getOperationalManagerUsers();
       for (const u of managers) {
         await db.createNotification({ userId: u.id, title: "فكرة معتمدة بانتظار التحويل", message: `${idea.requestNumber} - ${idea.title}`, type: "success" });
       }

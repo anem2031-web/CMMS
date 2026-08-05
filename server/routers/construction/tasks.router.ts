@@ -1,7 +1,7 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { eq, desc, asc, and, like, or, count, sql, inArray } from "drizzle-orm";
-import { router, protectedProcedure } from "../_shared/procedures";
+import { router, constructionProcedure } from "../_shared/procedures";
 import { getDb } from "../../_core/db";
 import {
   constructionTasks,
@@ -52,7 +52,7 @@ async function recalculateParentProgress(db: NonNullable<Awaited<ReturnType<type
 export const tasksRouter = router({
 
   // List tasks with filters
-  list: protectedProcedure
+  list: constructionProcedure
     .input(z.object({
       projectId: z.number().optional(),
       phaseId: z.number().optional(),
@@ -107,7 +107,7 @@ export const tasksRouter = router({
     }),
 
   // Kanban board data — all tasks grouped by status
-  kanban: protectedProcedure
+  kanban: constructionProcedure
     .input(z.object({
       projectId: z.number(),
       phaseId: z.number().optional(),
@@ -134,7 +134,7 @@ export const tasksRouter = router({
     }),
 
   // Gantt data — tasks with dates and dependencies
-  gantt: protectedProcedure
+  gantt: constructionProcedure
     .input(z.object({ projectId: z.number() }))
     .query(async ({ input }) => {
       const db = await getDb(); if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB not available" });
@@ -144,7 +144,7 @@ export const tasksRouter = router({
       return tasks;
     }),
 
-  getById: protectedProcedure
+  getById: constructionProcedure
     .input(z.object({ id: z.number() }))
     .query(async ({ input }) => {
       const db = await getDb(); if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB not available" });
@@ -174,7 +174,7 @@ export const tasksRouter = router({
       return { ...task, comments, timeLogs, fieldValues, totalLoggedMinutes: totalMinutes };
     }),
 
-  create: protectedProcedure
+  create: constructionProcedure
     .input(z.object({
       activityId: z.number(),
       phaseId: z.number(),
@@ -214,7 +214,7 @@ export const tasksRouter = router({
       return { id: Number((result as any)?.insertId ?? (result as any)?.[0]?.insertId ?? 0), taskNumber };
     }),
 
-  update: protectedProcedure
+  update: constructionProcedure
     .input(z.object({
       id: z.number(),
       title: z.string().optional(),
@@ -249,7 +249,7 @@ export const tasksRouter = router({
     }),
 
   // Change status — most critical mutation
-  changeStatus: protectedProcedure
+  changeStatus: constructionProcedure
     .input(z.object({
       id: z.number(),
       status: z.enum(["new", "in_progress", "pending_approval", "pending_materials", "on_hold", "completed"]),
@@ -294,7 +294,7 @@ export const tasksRouter = router({
     }),
 
   // Bulk status change
-  bulkChangeStatus: protectedProcedure
+  bulkChangeStatus: constructionProcedure
     .input(z.object({
       ids: z.array(z.number()),
       status: z.enum(["new", "in_progress", "pending_approval", "pending_materials", "on_hold", "completed"]),
@@ -313,7 +313,7 @@ export const tasksRouter = router({
       return { success: true, count: input.ids.length };
     }),
 
-  delete: protectedProcedure
+  delete: constructionProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
       const db = await getDb(); if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB not available" });

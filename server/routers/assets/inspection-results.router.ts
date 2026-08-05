@@ -1,8 +1,14 @@
+import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { router, protectedProcedure } from "../_shared/procedures";
 import * as db from "../../_core/db";
+import { assertTicketReadable } from "../tickets/tickets.access";
 
 export const inspectionResultsRouter = router({
+  /**
+   * Direct creation is intentionally disabled. Ticket inspections must pass
+   * through tickets.inspectTicket so assignment, review and audit rules apply.
+   */
   create: protectedProcedure.input(z.object({
     ticketId: z.number(),
     assetId: z.number().optional(),
@@ -12,21 +18,19 @@ export const inspectionResultsRouter = router({
     rootCause: z.string().optional(),
     findings: z.string().optional(),
     recommendedAction: z.string().optional(),
-  })).mutation(async ({ input, ctx }) => {
-    const result = await db.createInspectionResult({
-      ...input,
-      inspectorId: ctx.user.id, // always use authenticated user, ignore input.inspectorId
-      severity: input.severity ?? "medium",
-      rootCause: input.rootCause ?? "",
-      findings: input.findings ?? "",
-      recommendedAction: input.recommendedAction ?? "",
+  })).mutation(async () => {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "استخدم إجراء تسجيل نتيجة الفحص داخل البلاغ",
     });
-    return result;
   }),
 
   listByTicket: protectedProcedure.input(z.object({
     ticketId: z.number(),
-  })).query(async ({ input }) => {
+  })).query(async ({ input, ctx }) => {
+    const ticket = await db.getTicketById(input.ticketId);
+    if (!ticket) throw new TRPCError({ code: "NOT_FOUND" });
+    await assertTicketReadable(ctx.user, ticket as any);
     return db.getInspectionResultsByTicket(input.ticketId);
   }),
 

@@ -309,6 +309,8 @@ export default function Home() {
   if (role && role !== "admin" && role !== "owner") {
     const roleRedirect: Record<string, string> = {
       maintenance_manager: "/tickets",
+      general_maintenance_manager: "/tickets",
+      construction_procurement_manager: "/tickets?tab=construction",
       supervisor: "/tickets",
       technician: "/tickets",
       accountant: "/purchase-orders",
@@ -341,7 +343,7 @@ export default function Home() {
     const trend = stats?.trend7 || [];
 
     const isAdminOrOwner = ["admin", "owner", "senior_management"].includes(role as string);
-    const isManager = (role as string) === "maintenance_manager";
+    const isManager = ["maintenance_manager", "general_maintenance_manager", "construction_procurement_manager"].includes(role as string);
     const isSupervisor = (role as string) === "supervisor";
     const isTechnician = ["technician", "operator"].includes(role as string);
     const isGate = (role as string) === "gate_security";
@@ -381,7 +383,7 @@ export default function Home() {
           color: "text-blue-600 bg-blue-50 dark:bg-blue-950/30",
           sparkColor: "#3b82f6",
           trend,
-          onDrilldown: () => openSlideover("بلاغاتي النشطة", { status: "assigned" }),
+          onDrilldown: () => openSlideover("بلاغاتي النشطة", { status: "open" }),
         },
         {
           id: "closed_today",
@@ -591,7 +593,7 @@ export default function Home() {
   }, [stats, role, t, language, setLocation, openSlideover]);
 
   // Roles that should see PM summary card
-  const showPMSummary = ["admin", "owner", "senior_management", "executive_director", "maintenance_manager", "supervisor"].includes(role);
+  const showPMSummary = ["admin", "owner", "senior_management", "executive_director", "maintenance_manager", "general_maintenance_manager", "construction_procurement_manager", "supervisor"].includes(role);
 
   const greeting = language === "en"
     ? `Welcome, ${user?.name || "User"}`

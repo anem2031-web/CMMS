@@ -1,7 +1,7 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { eq, asc, and, sql, count } from "drizzle-orm";
-import { router, protectedProcedure } from "../_shared/procedures";
+import { router, constructionProcedure } from "../_shared/procedures";
 import { getDb } from "../../_core/db";
 import {
   constructionActivities,
@@ -13,7 +13,7 @@ import {
 
 export const activitiesRouter = router({
 
-  list: protectedProcedure
+  list: constructionProcedure
     .input(z.object({ phaseId: z.number() }))
     .query(async ({ input }) => {
       const db = await getDb(); if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB not available" });
@@ -38,7 +38,7 @@ export const activitiesRouter = router({
       }));
     }),
 
-  listByProject: protectedProcedure
+  listByProject: constructionProcedure
     .input(z.object({ projectId: z.number() }))
     .query(async ({ input }) => {
       const db = await getDb(); if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB not available" });
@@ -47,7 +47,7 @@ export const activitiesRouter = router({
         .orderBy(asc(constructionActivities.orderIndex));
     }),
 
-  create: protectedProcedure
+  create: constructionProcedure
     .input(z.object({
       phaseId: z.number(),
       projectId: z.number(),
@@ -78,7 +78,7 @@ export const activitiesRouter = router({
       return { id: Number((result as any)?.insertId ?? (result as any)?.[0]?.insertId ?? 0) };
     }),
 
-  update: protectedProcedure
+  update: constructionProcedure
     .input(z.object({
       id: z.number(),
       name: z.string().optional(),
@@ -105,7 +105,7 @@ export const activitiesRouter = router({
       return { success: true };
     }),
 
-  delete: protectedProcedure
+  delete: constructionProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
       const db = await getDb(); if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB not available" });
@@ -113,7 +113,7 @@ export const activitiesRouter = router({
       return { success: true };
     }),
 
-  reorder: protectedProcedure
+  reorder: constructionProcedure
     .input(z.object({
       phaseId: z.number(),
       orderedIds: z.array(z.number()),

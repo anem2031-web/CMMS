@@ -5,6 +5,7 @@
 
 export type * from "../drizzle/schema";
 export * from "./_core/errors";
+export * from "./roles";
 
 // Shared types and constants for CMMS
 
@@ -12,6 +13,8 @@ export const ROLE_LABELS: Record<string, string> = {
   operator: "موظف تشغيل",
   technician: "فني صيانة",
   maintenance_manager: "مدير صيانة",
+  general_maintenance_manager: "مدير الصيانة العامة والتشغيل",
+  construction_procurement_manager: "مدير الإنشاءات والمشتريات",
   purchase_manager: "مسؤول طلبات شراء",
   delegate: "مندوب مشتريات",
   accountant: "حسابات",
@@ -110,6 +113,8 @@ export const ROLE_PERMISSIONS: Record<string, string[]> = {
   operator: ["create_ticket", "view_own_tickets"],
   technician: ["view_assigned_tickets", "update_ticket_repair", "use_inventory"],
   maintenance_manager: ["view_all_tickets", "approve_ticket", "assign_ticket", "create_purchase_order", "close_ticket"],
+  general_maintenance_manager: ["view_all_tickets", "approve_ticket", "assign_ticket", "create_purchase_order", "close_ticket"],
+  construction_procurement_manager: ["create_purchase_order", "view_purchase_orders", "assign_delegate", "manage_construction", "view_assigned_construction_tickets", "manage_assigned_construction_tickets", "assign_ticket"],
   purchase_manager: ["create_purchase_order", "view_purchase_orders", "assign_delegate"],
   delegate: ["view_assigned_items", "estimate_cost", "confirm_purchase", "upload_invoice"],
   accountant: ["approve_accounting", "view_purchase_orders", "view_reports"],

@@ -26,7 +26,7 @@ export const attachmentsRouter = router({
   })).mutation(async ({ input, ctx }) => {
     // ✅ إصلاح IDOR: نفس الفحص المطبَّق بـlist — يمنع رفع مرفقات لكيان لا
     // يملك المستخدم صلاحية الوصول إليه، أو لنوع كيان غير مدعوم أصلًا.
-    await assertCanAccessAttachments(ctx.user, input.entityType, input.entityId);
+    await assertCanAccessAttachments(ctx.user, input.entityType, input.entityId, "write");
     const id = await db.createAttachment({
       entityType: input.entityType,
       entityId: input.entityId,
@@ -50,8 +50,12 @@ export const attachmentsRouter = router({
   delete: protectedProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
     const attachment = await db.getAttachmentById(input.id);
     if (!attachment) throw new TRPCError({ code: "NOT_FOUND", message: "المرفق غير موجود" });
-    // Only owner/admin/manager or the uploader can delete
-    const canDelete = ["owner", "admin", "maintenance_manager"].includes(ctx.user.role) || attachment.uploadedById === ctx.user.id;
+    // Verify entity access first, then allow the matching manager role or uploader.
+    await assertCanAccessAttachments(ctx.user, attachment.entityType, attachment.entityId, "write");
+    const managerRoles = attachment.entityType === "ticket"
+      ? ["owner", "admin", "maintenance_manager", "general_maintenance_manager", "construction_procurement_manager"]
+      : ["owner", "admin", "maintenance_manager", "general_maintenance_manager", "construction_procurement_manager"];
+    const canDelete = managerRoles.includes(ctx.user.role) || attachment.uploadedById === ctx.user.id;
     if (!canDelete) throw new TRPCError({ code: "FORBIDDEN", message: "ليس لديك صلاحية لحذف هذا المرفق" });
     await db.deleteAttachment(input.id);
     await db.createAuditLog({

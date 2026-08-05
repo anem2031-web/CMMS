@@ -44,6 +44,7 @@ import {
   inventorySettlementNumberCounter,
 } from "../../../drizzle/schema";
 import { ENV } from '../env';
+import { MAINTENANCE_RESPONSIBLE_DEPARTMENT } from "@shared/roles";
 
 
 import { getDb } from "./client";
@@ -87,7 +88,7 @@ export async function createTicket(data: any) {
   return result[0].insertId;
 }
 
-type TicketListFilters = { status?: string; priority?: string; siteId?: number; sectionId?: number; assetId?: number; assignedToId?: number; assignedTechnicianId?: number; reportedById?: number; search?: string; category?: string };
+type TicketListFilters = { status?: string; priority?: string; siteId?: number; sectionId?: number; assetId?: number; assignedToId?: number; assignedTechnicianId?: number; reportedById?: number; search?: string; category?: string; maintenanceResponsibleDepartment?: string; maintenanceResponsibleManagerId?: number };
 
 // شرط الفلترة المشترك بين getTickets (بدون صفحات) وgetTicketsPaginated (مع صفحات)
 function buildTicketsWhere(filters?: TicketListFilters) {
@@ -106,6 +107,8 @@ function buildTicketsWhere(filters?: TicketListFilters) {
   if (filters?.assignedToId) conditions.push(eq(tickets.assignedToId, filters.assignedToId));
   if (filters?.assignedTechnicianId) conditions.push(eq(tickets.assignedTechnicianId, filters.assignedTechnicianId));
   if (filters?.reportedById) conditions.push(eq(tickets.reportedById, filters.reportedById));
+  if (filters?.maintenanceResponsibleDepartment) conditions.push(eq(tickets.maintenanceResponsibleDepartment, filters.maintenanceResponsibleDepartment as any));
+  if (filters?.maintenanceResponsibleManagerId) conditions.push(eq(tickets.maintenanceResponsibleManagerId, filters.maintenanceResponsibleManagerId));
   if (filters?.search) conditions.push(or(
     like(tickets.title, `%${filters.search}%`),
     like(tickets.titleAr, `%${filters.search}%`),
@@ -295,6 +298,35 @@ export async function updateTicket(id: number, data: any) {
   const db = await getDb();
   if (!db) return;
   await db.update(tickets).set(data).where(eq(tickets.id, id));
+}
+
+/**
+ * Notification recipients for the current ticket route.
+ * Construction tickets notify the explicitly routed construction manager;
+ * general/unclassified tickets notify the general-maintenance manager family.
+ * Legacy manager + owner/admin remain included for compatibility/oversight.
+ */
+export async function getTicketWorkflowManagerUsers(ticket: {
+  maintenanceResponsibleDepartment?: string | null;
+  maintenanceResponsibleManagerId?: number | null;
+}) {
+  const db = await getDb();
+  if (!db) return [];
+
+  const baseRoles = ticket.maintenanceResponsibleDepartment === MAINTENANCE_RESPONSIBLE_DEPARTMENT.CONSTRUCTION
+    ? ["maintenance_manager", "owner", "admin"]
+    : ["maintenance_manager", "general_maintenance_manager", "owner", "admin"];
+
+  const base = await db.select().from(users).where(inArray(users.role, baseRoles as any[]));
+  if (!ticket.maintenanceResponsibleManagerId) return base;
+
+  const routed = await db.select().from(users)
+    .where(eq(users.id, ticket.maintenanceResponsibleManagerId))
+    .limit(1);
+
+  const merged = new Map<number, (typeof base)[number]>();
+  for (const user of [...base, ...routed]) merged.set(user.id, user);
+  return Array.from(merged.values());
 }
 
 // ============================================================

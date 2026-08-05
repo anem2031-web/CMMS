@@ -1,0 +1,405 @@
+import { useMemo, useState } from "react";
+import { trpc } from "@/lib/trpc";
+import { useAuth } from "@/_core/hooks/useAuth";
+import { mediaUrl } from "@/lib/mediaUrl";
+import { printExternalMaintenanceDocument } from "@/lib/printExternalMaintenanceDocument";
+import { Card, CardContent } from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Badge } from "@/components/ui/badge";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Camera, CheckCircle2, FileText, Loader2, PackageCheck, Send, Truck } from "lucide-react";
+import { toast } from "sonner";
+
+// ترتيب مراحل سجل الصيانة الخارجية كما هي مُعرَّفة في shared/externalMaintenanceWorkflow.ts،
+// كل مرحلة مرتبطة (عند توفره) بالحقل الذي يسجّل وقت اكتمالها فعليًا — يُستخدم لرسم الخط الزمني.
+const EXTERNAL_MAINTENANCE_STAGES: { key: string; label: string; tsField?: string }[] = [
+  { key: "waiting_warehouse_preparation", label: "تجهيز المستودع", tsField: "warehousePreparedAt" },
+  { key: "waiting_gate_exit", label: "موافقة الحراسة (خروج)", tsField: "gateExitApprovedAt" },
+  { key: "purchase_cycle", label: "دورة المندوب المالية", tsField: "delegateReadyForReturnAt" },
+  { key: "waiting_gate_entry", label: "موافقة الحراسة (دخول)", tsField: "gateEntryApprovedAt" },
+  { key: "waiting_warehouse_receipt", label: "استلام المستودع", tsField: "warehouseReceivedAt" },
+  { key: "waiting_technician_handover", label: "تسليم للفني", tsField: "handoverAt" },
+  { key: "delivered_for_reinstall", label: "بانتظار بدء التركيب" },
+  { key: "reinstall_in_progress", label: "التركيب قيد التنفيذ" },
+  { key: "ready_for_closure", label: "جاهز للإغلاق" },
+  { key: "closed", label: "مغلق" },
+];
+
+const PAGE_SIZE = 15;
+
+// نفس فكرة الترقيم المستخدم بباقي صفحات دورة الشراء، مع عرض أول/آخر صفحة دائمًا
+// ونقاط "…" بينها بدل نافذة صغيرة فقط حول الصفحة الحالية.
+function Pagination({ total, page, setPage }: { total: number; page: number; setPage: (p: number) => void }) {
+  const pages = Math.ceil(total / PAGE_SIZE);
+  if (pages <= 1) return null;
+
+  const shown = new Set<number>([1, pages]);
+  for (let p = page - 1; p <= page + 1; p++) if (p > 1 && p < pages) shown.add(p);
+  const sorted = Array.from(shown).sort((a, b) => a - b);
+  const items: (number | "gap")[] = [];
+  let prev = 0;
+  for (const p of sorted) {
+    if (prev && p - prev > 1) items.push("gap");
+    items.push(p);
+    prev = p;
+  }
+
+  return (
+    <div className="flex items-center justify-center gap-1 mt-3 flex-wrap">
+      <Button variant="outline" size="sm" disabled={page === 1} onClick={() => setPage(page - 1)}>السابق</Button>
+      {items.map((it, i) => it === "gap" ? (
+        <span key={`gap-${i}`} className="px-1 text-muted-foreground text-sm">…</span>
+      ) : (
+        <Button key={it} variant={it === page ? "default" : "outline"} size="sm" className="w-8 h-8 p-0" onClick={() => setPage(it as number)}>{it}</Button>
+      ))}
+      <Button variant="outline" size="sm" disabled={page === pages} onClick={() => setPage(page + 1)}>التالي</Button>
+    </div>
+  );
+}
+
+function ExternalMaintenanceTimeline({ job }: { job: any }) {
+  const currentIndex = EXTERNAL_MAINTENANCE_STAGES.findIndex(s => s.key === job.status);
+  return (
+    <div className="flex items-start gap-1 overflow-x-auto py-2">
+      {EXTERNAL_MAINTENANCE_STAGES.map((stage, i) => {
+        const done = currentIndex > i;
+        const isCurrent = i === currentIndex;
+        const ts = stage.tsField ? job[stage.tsField] : null;
+        return (
+          <div key={stage.key} className="flex items-start gap-1 flex-1 min-w-[86px]">
+            <div className={`flex flex-col items-center gap-1 w-full ${done || isCurrent ? "text-primary" : "text-muted-foreground/40"}`}>
+              <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 ${
+                isCurrent ? "bg-primary text-primary-foreground ring-2 ring-primary/30" :
+                done ? "bg-primary/20 text-primary" : "bg-muted text-muted-foreground/40"
+              }`}>
+                {done ? "✓" : i + 1}
+              </div>
+              <span className="text-[10px] font-medium text-center leading-tight">{stage.label}</span>
+              {ts && (done || isCurrent) && (
+                <span className="text-[9px] text-muted-foreground">{new Date(ts).toLocaleDateString("ar-SA")}</span>
+              )}
+            </div>
+            {i < EXTERNAL_MAINTENANCE_STAGES.length - 1 && (
+              <div className={`h-px mt-3 flex-1 ${done ? "bg-primary/40" : "bg-muted"}`} />
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+const RECIPIENT_ROLES = new Set([
+  "technician",
+  "supervisor",
+  "maintenance_manager",
+  "general_maintenance_manager",
+  "construction_procurement_manager",
+  "admin",
+  "owner",
+]);
+
+async function uploadFile(file: File): Promise<string> {
+  const formData = new FormData();
+  formData.append("file", file);
+  const response = await fetch("/api/upload", { method: "POST", body: formData });
+  const data = await response.json();
+  if (!response.ok || !data.url) throw new Error(data.error || "فشل رفع الملف");
+  return data.url;
+}
+
+function stageLabel(status: string) {
+  const labels: Record<string, string> = {
+    waiting_gate_exit: "بانتظار موافقة الحراسة على الخروج",
+    purchase_cycle: "لدى المندوب ضمن دورة التسعير والاعتمادات",
+    waiting_gate_entry: "بانتظار موافقة الحراسة على الدخول",
+    waiting_warehouse_receipt: "بانتظار استلام المستودع",
+    waiting_technician_handover: "بانتظار تسليم الأصل للفني",
+    delivered_for_reinstall: "تم التسليم لإعادة التركيب",
+    reinstall_in_progress: "إعادة التركيب قيد التنفيذ",
+    ready_for_closure: "جاهز للإغلاق",
+    closed: "مغلق",
+  };
+  return labels[status] || status;
+}
+
+export default function ExternalMaintenanceWarehouseTab() {
+  const utils = trpc.useUtils();
+  const { user } = useAuth();
+  const { data, isLoading } = trpc.externalMaintenance.listForWarehouse.useQuery();
+  const { data: users = [] } = trpc.users.list.useQuery();
+
+  const [prepareTicket, setPrepareTicket] = useState<any>(null);
+  const [receiveRow, setReceiveRow] = useState<any>(null);
+  const [handoverRow, setHandoverRow] = useState<any>(null);
+  const [uploading, setUploading] = useState<string | null>(null);
+
+  const [prepareForm, setPrepareForm] = useState({
+    assetName: "",
+    assetBeforePhotoUrl: "",
+    assetBeforeCondition: "",
+    delegateId: "",
+    warehouseNotes: "",
+  });
+  const [receiveForm, setReceiveForm] = useState({
+    assetAfterReturnPhotoUrl: "",
+    returnCondition: "",
+    workshopReportUrl: "",
+    notes: "",
+  });
+  const [handoverForm, setHandoverForm] = useState({ actualRecipientId: "", notes: "" });
+
+  const [pagePreparation, setPagePreparation] = useState(1);
+  const [pageReceipt, setPageReceipt] = useState(1);
+  const [pageHandover, setPageHandover] = useState(1);
+  const [pageMonitoring, setPageMonitoring] = useState(1);
+
+  const delegates = useMemo(() => (users as any[]).filter(user => user.role === "delegate" && user.isActive !== 0), [users]);
+  const recipients = useMemo(() => (users as any[]).filter(user => RECIPIENT_ROLES.has(user.role) && user.isActive !== 0), [users]);
+
+  const refetch = () => utils.externalMaintenance.listForWarehouse.invalidate();
+
+  const prepareMut = trpc.externalMaintenance.prepareByWarehouse.useMutation({
+    onSuccess: (result) => {
+      toast.success("تم تجهيز الأصل وإصدار وثيقة الخروج");
+      const row = {
+        job: { ...prepareForm, exitDocumentNumber: result.exitDocumentNumber, warehousePreparedAt: new Date() },
+        ticketNumber: prepareTicket?.ticketNumber,
+        assetRegisteredName: prepareTicket?.assetName,
+        assignedTechnicianName: prepareTicket?.assignedTechnicianName,
+        warehousePreparedByName: user?.name || user?.username,
+        delegateName: delegates.find((d: any) => d.id === Number(prepareForm.delegateId))?.name,
+      };
+      printExternalMaintenanceDocument("exit", row);
+      setPrepareTicket(null);
+      refetch();
+    },
+    onError: (error: any) => toast.error(error.message),
+  });
+
+  const receiveMut = trpc.externalMaintenance.receiveByWarehouse.useMutation({
+    onSuccess: (result) => {
+      toast.success("تم تسجيل استلام الأصل العائد");
+      printExternalMaintenanceDocument("return", {
+        ...receiveRow,
+        warehouseReceivedByName: user?.name || user?.username,
+        job: { ...receiveRow.job, ...receiveForm, returnDocumentNumber: result.returnDocumentNumber, warehouseReceivedAt: new Date() },
+      });
+      setReceiveRow(null);
+      refetch();
+    },
+    onError: (error: any) => toast.error(error.message),
+  });
+
+  const handoverMut = trpc.externalMaintenance.handoverByWarehouse.useMutation({
+    onSuccess: (result) => {
+      toast.success("تم تسليم الأصل للمستلم وفتح مرحلة إعادة التركيب");
+      const recipient = recipients.find((u: any) => u.id === Number(handoverForm.actualRecipientId));
+      printExternalMaintenanceDocument("handover", {
+        ...handoverRow,
+        actualRecipientName: recipient?.name,
+        handoverByName: user?.name || user?.username,
+        job: { ...handoverRow.job, ...handoverForm, handoverDocumentNumber: result.handoverDocumentNumber, handoverAt: new Date() },
+      });
+      setHandoverRow(null);
+      refetch();
+    },
+    onError: (error: any) => toast.error(error.message),
+  });
+
+  const handleUpload = async (file: File, target: "before" | "after" | "report") => {
+    setUploading(target);
+    try {
+      const url = await uploadFile(file);
+      if (target === "before") setPrepareForm(form => ({ ...form, assetBeforePhotoUrl: url }));
+      if (target === "after") setReceiveForm(form => ({ ...form, assetAfterReturnPhotoUrl: url }));
+      if (target === "report") setReceiveForm(form => ({ ...form, workshopReportUrl: url }));
+      toast.success("تم رفع الملف");
+    } catch (error: any) {
+      toast.error(error.message);
+    } finally {
+      setUploading(null);
+    }
+  };
+
+  const waitingPreparation = data?.waitingPreparation || [];
+  const jobs = (data?.jobs || []) as any[];
+  const waitingReceipt = jobs.filter(row => row.job.status === "waiting_warehouse_receipt");
+  const waitingHandover = jobs.filter(row => row.job.status === "waiting_technician_handover");
+  const monitoring = jobs.filter(row => !["waiting_warehouse_receipt", "waiting_technician_handover"].includes(row.job.status));
+
+  // عرض 15 عملية فقط بكل تبويب دفعة واحدة — يقلّل عدد العناصر المرسومة فعليًا
+  // بالصفحة (خصوصًا تبويب "متابعة المسار C" اللي يرسم خطًا زمنيًا كاملًا لكل بلاغ).
+  const pagedPreparation = waitingPreparation.slice((pagePreparation - 1) * PAGE_SIZE, pagePreparation * PAGE_SIZE);
+  const pagedReceipt = waitingReceipt.slice((pageReceipt - 1) * PAGE_SIZE, pageReceipt * PAGE_SIZE);
+  const pagedHandover = waitingHandover.slice((pageHandover - 1) * PAGE_SIZE, pageHandover * PAGE_SIZE);
+  const pagedMonitoring = monitoring.slice((pageMonitoring - 1) * PAGE_SIZE, pageMonitoring * PAGE_SIZE);
+
+  if (isLoading) return <div className="py-12 text-center text-muted-foreground">جاري تحميل دورة الصيانة الخارجية...</div>;
+
+  return (
+    <div className="space-y-6">
+      <div className="rounded-xl border bg-slate-50 p-4 text-sm text-slate-700">
+        تجهيز الأصل يبدأ من المستودع، ثم موافقة الحراسة على الخروج، ودورة المندوب المالية، وموافقة الحراسة على الدخول، ثم استلام المستودع وتسليم الأصل لإعادة التركيب.
+      </div>
+
+      <Tabs defaultValue="preparation">
+        <TabsList className="grid w-full grid-cols-4">
+          <TabsTrigger value="preparation" className="gap-1.5">
+            <PackageCheck className="w-4 h-4"/>
+            <span className="hidden sm:inline">بانتظار التجهيز للخروج</span>
+            {waitingPreparation.length > 0 && <Badge variant="destructive" className="text-[10px] px-1.5 py-0">{waitingPreparation.length}</Badge>}
+          </TabsTrigger>
+          <TabsTrigger value="receipt" className="gap-1.5">
+            <PackageCheck className="w-4 h-4"/>
+            <span className="hidden sm:inline">عادت وبانتظار الاستلام</span>
+            {waitingReceipt.length > 0 && <Badge variant="destructive" className="text-[10px] px-1.5 py-0">{waitingReceipt.length}</Badge>}
+          </TabsTrigger>
+          <TabsTrigger value="handover" className="gap-1.5">
+            <Send className="w-4 h-4"/>
+            <span className="hidden sm:inline">بانتظار التسليم للتركيب</span>
+            {waitingHandover.length > 0 && <Badge variant="destructive" className="text-[10px] px-1.5 py-0">{waitingHandover.length}</Badge>}
+          </TabsTrigger>
+          <TabsTrigger value="monitoring" className="gap-1.5">
+            <FileText className="w-4 h-4"/>
+            <span className="hidden sm:inline">متابعة المسار C</span>
+            {monitoring.length > 0 && <Badge variant="secondary" className="text-[10px] px-1.5 py-0">{monitoring.length}</Badge>}
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="preparation" className="mt-4 space-y-3">
+          {waitingPreparation.length === 0 ? (
+            <Card><CardContent className="py-7 text-center text-muted-foreground">لا توجد أصول بانتظار التجهيز</CardContent></Card>
+          ) : <>{pagedPreparation.map((ticket: any) => (
+            <Card key={ticket.ticketId} className="border-orange-200">
+              <CardContent className="p-4 flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <div className="font-semibold">{ticket.ticketNumber} — {ticket.ticketTitle}</div>
+                  <div className="text-xs text-muted-foreground mt-1">الأصل: {ticket.assetName || "غير مسجل"} · الفني المسند: {ticket.assignedTechnicianName || "غير مسند"}</div>
+                </div>
+                <Button onClick={() => {
+                  setPrepareTicket(ticket);
+                  setPrepareForm({
+                    assetName: ticket.assetName || ticket.ticketTitle || "",
+                    assetBeforePhotoUrl: ticket.assetPhotoUrl || "",
+                    assetBeforeCondition: "",
+                    delegateId: "",
+                    warehouseNotes: "",
+                  });
+                }} className="gap-2"><Truck className="w-4 h-4"/> تجهيز الأصل</Button>
+              </CardContent>
+            </Card>
+          ))}
+          <Pagination total={waitingPreparation.length} page={pagePreparation} setPage={setPagePreparation} /></>}
+        </TabsContent>
+
+        <TabsContent value="receipt" className="mt-4 space-y-3">
+          {waitingReceipt.length === 0 ? (
+            <Card><CardContent className="py-7 text-center text-muted-foreground">لا توجد أصول بانتظار الاستلام</CardContent></Card>
+          ) : <>{pagedReceipt.map((row: any) => (
+            <Card key={row.job.id} className="border-green-200">
+              <CardContent className="p-4 flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <div className="font-semibold">{row.ticketNumber} — {row.job.assetName}</div>
+                  <div className="text-xs text-muted-foreground mt-1">أعاده: {row.job.gateEntryCarrierName || "—"} · موافقة الدخول: {row.job.gateEntryApprovedAt ? new Date(row.job.gateEntryApprovedAt).toLocaleString("ar-SA") : "—"}</div>
+                </div>
+                <Button onClick={() => { setReceiveRow(row); setReceiveForm({ assetAfterReturnPhotoUrl: "", returnCondition: "", workshopReportUrl: "", notes: "" }); }} className="gap-2"><PackageCheck className="w-4 h-4"/> استلام الأصل</Button>
+              </CardContent>
+            </Card>
+          ))}
+          <Pagination total={waitingReceipt.length} page={pageReceipt} setPage={setPageReceipt} /></>}
+        </TabsContent>
+
+        <TabsContent value="handover" className="mt-4 space-y-3">
+          {waitingHandover.length === 0 ? (
+            <Card><CardContent className="py-7 text-center text-muted-foreground">لا توجد أصول بانتظار التسليم</CardContent></Card>
+          ) : <>{pagedHandover.map((row: any) => (
+            <Card key={row.job.id} className="border-indigo-200">
+              <CardContent className="p-4 flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <div className="font-semibold">{row.ticketNumber} — {row.job.assetName}</div>
+                  <div className="text-xs text-muted-foreground mt-1">الفني المسند للبلاغ: {row.assignedTechnicianName || "غير مسند"}</div>
+                </div>
+                <Button onClick={() => { setHandoverRow(row); setHandoverForm({ actualRecipientId: String(row.ticketAssignedToId || ""), notes: "" }); }} className="gap-2"><Send className="w-4 h-4"/> تسليم الأصل</Button>
+              </CardContent>
+            </Card>
+          ))}
+          <Pagination total={waitingHandover.length} page={pageHandover} setPage={setPageHandover} /></>}
+        </TabsContent>
+
+        <TabsContent value="monitoring" className="mt-4 space-y-3">
+          {monitoring.length === 0 ? (
+            <Card><CardContent className="py-7 text-center text-muted-foreground">لا توجد عمليات أخرى</CardContent></Card>
+          ) : <>{pagedMonitoring.map((row: any) => (
+            <Card key={row.job.id}>
+              <CardContent className="p-4 space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <div className="font-semibold">{row.ticketNumber} — {row.job.assetName}</div>
+                    <div className="flex flex-wrap gap-2 mt-2">
+                      <Badge variant="outline">{stageLabel(row.job.status)}</Badge>
+                      {row.delegateName && <Badge variant="secondary">المندوب: {row.delegateName}</Badge>}
+                      {row.poNumber && <Badge variant="secondary">{row.poNumber}</Badge>}
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    {row.job.exitDocumentNumber && <Button variant="outline" size="sm" onClick={() => printExternalMaintenanceDocument("exit", row)}><FileText className="w-4 h-4 ml-1"/>وثيقة الخروج</Button>}
+                    {row.job.returnDocumentNumber && <Button variant="outline" size="sm" onClick={() => printExternalMaintenanceDocument("return", row)}><FileText className="w-4 h-4 ml-1"/>وثيقة العودة</Button>}
+                    {row.job.handoverDocumentNumber && <Button variant="outline" size="sm" onClick={() => printExternalMaintenanceDocument("handover", row)}><FileText className="w-4 h-4 ml-1"/>وثيقة التسليم</Button>}
+                  </div>
+                </div>
+                <div className="border-t pt-2">
+                  <ExternalMaintenanceTimeline job={row.job} />
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+          <Pagination total={monitoring.length} page={pageMonitoring} setPage={setPageMonitoring} /></>}
+        </TabsContent>
+      </Tabs>
+
+      <Dialog open={!!prepareTicket} onOpenChange={open => !open && setPrepareTicket(null)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader><DialogTitle>تجهيز الأصل للصيانة الخارجية</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <div><Label>اسم الأصل *</Label><Input value={prepareForm.assetName} onChange={e => setPrepareForm(f => ({ ...f, assetName: e.target.value }))}/></div>
+            <div><Label>حالة الأصل قبل الخروج *</Label><Textarea value={prepareForm.assetBeforeCondition} onChange={e => setPrepareForm(f => ({ ...f, assetBeforeCondition: e.target.value }))}/></div>
+            <div><Label>المندوب المسؤول *</Label><select className="w-full border rounded-md h-10 px-3 bg-background" value={prepareForm.delegateId} onChange={e => setPrepareForm(f => ({ ...f, delegateId: e.target.value }))}><option value="">اختر المندوب</option>{delegates.map((u: any) => <option key={u.id} value={u.id}>{u.name}</option>)}</select></div>
+            <div><Label>صورة الأصل قبل الخروج *</Label>{prepareForm.assetBeforePhotoUrl ? <img src={mediaUrl(prepareForm.assetBeforePhotoUrl)} className="max-h-44 rounded border mt-2"/> : null}<Input type="file" accept="image/*" disabled={uploading === "before"} onChange={e => e.target.files?.[0] && handleUpload(e.target.files[0], "before")}/></div>
+            <div><Label>ملاحظات المستودع</Label><Textarea value={prepareForm.warehouseNotes} onChange={e => setPrepareForm(f => ({ ...f, warehouseNotes: e.target.value }))}/></div>
+          </div>
+          <DialogFooter><Button variant="outline" onClick={() => setPrepareTicket(null)}>إلغاء</Button><Button disabled={prepareMut.isPending || !prepareForm.assetName.trim() || !prepareForm.assetBeforeCondition.trim() || !prepareForm.assetBeforePhotoUrl || !prepareForm.delegateId} onClick={() => prepareMut.mutate({ ticketId: prepareTicket.ticketId, assetName: prepareForm.assetName.trim(), assetBeforePhotoUrl: prepareForm.assetBeforePhotoUrl, assetBeforeCondition: prepareForm.assetBeforeCondition.trim(), delegateId: Number(prepareForm.delegateId), warehouseNotes: prepareForm.warehouseNotes.trim() || undefined })}>{prepareMut.isPending ? <Loader2 className="w-4 h-4 animate-spin"/> : <CheckCircle2 className="w-4 h-4 ml-1"/>} حفظ وإصدار الوثيقة</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!receiveRow} onOpenChange={open => !open && setReceiveRow(null)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader><DialogTitle>استلام أصل عائد من الصيانة الخارجية</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <div><Label>حالة الأصل عند العودة *</Label><Textarea value={receiveForm.returnCondition} onChange={e => setReceiveForm(f => ({ ...f, returnCondition: e.target.value }))}/></div>
+            <div><Label>صورة الأصل بعد العودة *</Label>{receiveForm.assetAfterReturnPhotoUrl ? <img src={mediaUrl(receiveForm.assetAfterReturnPhotoUrl)} className="max-h-44 rounded border mt-2"/> : null}<Input type="file" accept="image/*" disabled={uploading === "after"} onChange={e => e.target.files?.[0] && handleUpload(e.target.files[0], "after")}/></div>
+            <div><Label>فاتورة أو تقرير الورشة</Label><Input type="file" disabled={uploading === "report"} onChange={e => e.target.files?.[0] && handleUpload(e.target.files[0], "report")}/></div>
+            <div><Label>ملاحظات المستودع</Label><Textarea value={receiveForm.notes} onChange={e => setReceiveForm(f => ({ ...f, notes: e.target.value }))}/></div>
+          </div>
+          <DialogFooter><Button variant="outline" onClick={() => setReceiveRow(null)}>إلغاء</Button><Button disabled={receiveMut.isPending || !receiveForm.assetAfterReturnPhotoUrl || !receiveForm.returnCondition.trim()} onClick={() => receiveMut.mutate({ jobId: receiveRow.job.id, assetAfterReturnPhotoUrl: receiveForm.assetAfterReturnPhotoUrl, returnCondition: receiveForm.returnCondition.trim(), workshopReportUrl: receiveForm.workshopReportUrl || undefined, notes: receiveForm.notes.trim() || undefined })}>{receiveMut.isPending ? <Loader2 className="w-4 h-4 animate-spin"/> : <PackageCheck className="w-4 h-4 ml-1"/>} تأكيد الاستلام</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!handoverRow} onOpenChange={open => !open && setHandoverRow(null)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader><DialogTitle>تسليم الأصل لإعادة التركيب</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <div className="rounded-md border bg-muted/40 p-3"><div className="text-xs text-muted-foreground">الفني المسند للبلاغ — ثابت للقراءة فقط</div><div className="font-semibold">{handoverRow?.assignedTechnicianName || "غير مسند"}</div></div>
+            <div><Label>الفني أو المسؤول المستلم فعليًا *</Label><select className="w-full border rounded-md h-10 px-3 bg-background" value={handoverForm.actualRecipientId} onChange={e => setHandoverForm(f => ({ ...f, actualRecipientId: e.target.value }))}><option value="">اختر المستلم</option>{recipients.map((u: any) => <option key={u.id} value={u.id}>{u.name} — {u.role}</option>)}</select></div>
+            <div><Label>ملاحظات التسليم</Label><Textarea value={handoverForm.notes} onChange={e => setHandoverForm(f => ({ ...f, notes: e.target.value }))}/></div>
+          </div>
+          <DialogFooter><Button variant="outline" onClick={() => setHandoverRow(null)}>إلغاء</Button><Button disabled={handoverMut.isPending || !handoverForm.actualRecipientId} onClick={() => handoverMut.mutate({ jobId: handoverRow.job.id, actualRecipientId: Number(handoverForm.actualRecipientId), notes: handoverForm.notes.trim() || undefined })}>{handoverMut.isPending ? <Loader2 className="w-4 h-4 animate-spin"/> : <Send className="w-4 h-4 ml-1"/>} تأكيد التسليم</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}

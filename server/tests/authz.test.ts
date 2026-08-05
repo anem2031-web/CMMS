@@ -8,8 +8,11 @@ import {
   canPerformItemAction,
   isItemAssignedToDelegate,
   canPerformItemStatusAction,
+  canResolveCreatorReturnedItem,
+  canRequestPOItemDelegateChange,
+  canResolvePOItemDelegateChange,
 } from "../_core/authz/engine";
-import { PO_STATUS } from "../_core/authz/policy";
+import { PO_STATUS, ROLE } from "../_core/authz/policy";
 
 // ══════════════════════════════════════════════════════════════════════════
 // اختبارات الحارس المركزي — تطابق جدول الصلاحيات المعتمد (v2 + تضييق الحسابات)
@@ -48,14 +51,20 @@ describe("engine.isPOVisible — نطاق الرؤية لكل دور", () => {
     expect(isPOVisible(ctx, po(PO_STATUS.DRAFT, 99))).toBe(false); // شخص غير تابع
   });
 
-  it("delegate يرى فقط الطلبات التي له فيها صنف مخصَّص", () => {
+  it("delegate يرى الطلبات المسندة إليه + طلباته الشخصية", () => {
     const ctx = { role: "delegate", userId: 5, delegateAssignedPoIds: [7, 8] };
     expect(isPOVisible(ctx, { id: 7, status: PO_STATUS.APPROVED, requestedById: 1 })).toBe(true);
-    expect(isPOVisible(ctx, { id: 9, status: PO_STATUS.APPROVED, requestedById: 1 })).toBe(false);
+    expect(isPOVisible(ctx, { id: 9, status: PO_STATUS.DRAFT, requestedById: 5 })).toBe(true);
+    expect(isPOVisible(ctx, { id: 10, status: PO_STATUS.APPROVED, requestedById: 1 })).toBe(false);
   });
 
-  describe("accountant — تطابق تام (تضييق 2026-07-28)", () => {
+  describe("accountant — نطاقه الوظيفي الدقيق + طلباته الشخصية", () => {
     const ctx = { role: "accountant", userId: 3 };
+    it("يرى طلباته الشخصية في جميع المراحل", () => {
+      for (const status of Object.values(PO_STATUS)) {
+        expect(isPOVisible(ctx, po(status, 3))).toBe(true);
+      }
+    });
     it("يرى فقط pending_accounting", () => {
       expect(isPOVisible(ctx, po(PO_STATUS.PENDING_ACCOUNTING))).toBe(true);
     });
@@ -77,8 +86,13 @@ describe("engine.isPOVisible — نطاق الرؤية لكل دور", () => {
     });
   });
 
-  describe("senior_management / executive_director — نطاق (لم يُضيَّق)", () => {
+  describe("senior_management / executive_director — نطاق العمل + طلباتهم الشخصية", () => {
     for (const role of ["senior_management", "executive_director"]) {
+      it(`${role}: يرى طلباته الشخصية قبل pending_management`, () => {
+        const ctx = { role, userId: 4 };
+        expect(isPOVisible(ctx, po(PO_STATUS.DRAFT, 4))).toBe(true);
+        expect(isPOVisible(ctx, po(PO_STATUS.PENDING_ACCOUNTING, 4))).toBe(true);
+      });
       it(`${role}: لا يرى قبل pending_management`, () => {
         const ctx = { role, userId: 4 };
         expect(isPOVisible(ctx, po(PO_STATUS.DRAFT))).toBe(false);
@@ -94,13 +108,35 @@ describe("engine.isPOVisible — نطاق الرؤية لكل دور", () => {
     }
   });
 
-  it("warehouse يرى فقط partial_purchase/purchased/received/closed", () => {
+  it("🔧 إصلاح 2026-07-30: warehouse يرى طلباته الخاصة بأي حالة (دور مزدوج: مستلِم ومُنشئ)", () => {
     const ctx = { role: "warehouse", userId: 6 };
-    expect(isPOVisible(ctx, po(PO_STATUS.APPROVED))).toBe(false);
-    expect(isPOVisible(ctx, po(PO_STATUS.PARTIAL_PURCHASE))).toBe(true);
-    expect(isPOVisible(ctx, po(PO_STATUS.PURCHASED))).toBe(true);
-    expect(isPOVisible(ctx, po(PO_STATUS.RECEIVED))).toBe(true);
-    expect(isPOVisible(ctx, po(PO_STATUS.CLOSED))).toBe(true);
+    // طلبات غيره بمراحل ما قبل الشراء: محجوبة (كما كان)
+    expect(isPOVisible(ctx, po(PO_STATUS.DRAFT, 99))).toBe(false);
+    expect(isPOVisible(ctx, po(PO_STATUS.PENDING_ESTIMATE, 99))).toBe(false);
+    // طلباته هو بنفس المراحل: ظاهرة الآن (كانت محجوبة قبل الإصلاح — خلل حقيقي)
+    expect(isPOVisible(ctx, po(PO_STATUS.DRAFT, 6))).toBe(true);
+    expect(isPOVisible(ctx, po(PO_STATUS.PENDING_ESTIMATE, 6))).toBe(true);
+    expect(isPOVisible(ctx, po(PO_STATUS.PENDING_ACCOUNTING, 6))).toBe(true);
+  });
+
+  it("warehouse يرى طلبات الآخرين في مراحل عمل المستودع الأربع فقط", () => {
+    const ctx = { role: "warehouse", userId: 6 };
+    expect(isPOVisible(ctx, po(PO_STATUS.APPROVED, 99))).toBe(false);
+    expect(isPOVisible(ctx, po(PO_STATUS.PARTIAL_PURCHASE, 99))).toBe(true);
+    expect(isPOVisible(ctx, po(PO_STATUS.PURCHASED, 99))).toBe(true);
+    expect(isPOVisible(ctx, po(PO_STATUS.RECEIVED, 99))).toBe(true);
+    expect(isPOVisible(ctx, po(PO_STATUS.CLOSED, 99))).toBe(true);
+    expect(isPOVisible(ctx, po(PO_STATUS.REJECTED, 99))).toBe(false);
+    expect(isPOVisible(ctx, po(PO_STATUS.REVISION_NEEDED, 99))).toBe(false);
+  });
+
+  it("كل دور يملك صلاحية الإنشاء يمكنه رؤية طلبه الشخصي في جميع الحالات", () => {
+    for (const role of Object.values(ROLE)) {
+      expect(canPerformAction("create", { role, userId: 77 })).toBe(true);
+      for (const status of Object.values(PO_STATUS)) {
+        expect(isPOVisible({ role, userId: 77 }, po(status, 77))).toBe(true);
+      }
+    }
   });
 
   it("دور غير معرَّف بالسياسة يُرفض تلقائيًا (Default Deny)", () => {
@@ -109,14 +145,16 @@ describe("engine.isPOVisible — نطاق الرؤية لكل دور", () => {
 });
 
 describe("engine.filterVisiblePOs — تطابق نطاق list() مع getById() بالضرورة", () => {
-  it("يفلتر قائمة مختلطة الحالات لدور accountant لتبقي فقط pending_accounting", () => {
+  it("يجمع للمحاسب بين pending_accounting وطلباته الشخصية", () => {
     const pos = [
       { id: 1, status: PO_STATUS.DRAFT, requestedById: 1 },
       { id: 2, status: PO_STATUS.PENDING_ACCOUNTING, requestedById: 1 },
       { id: 3, status: PO_STATUS.PENDING_MANAGEMENT, requestedById: 1 },
+      { id: 4, status: PO_STATUS.DRAFT, requestedById: 3 },
+      { id: 5, status: PO_STATUS.CLOSED, requestedById: 3 },
     ];
     const result = filterVisiblePOs({ role: "accountant", userId: 3 }, pos);
-    expect(result.map((p) => p.id)).toEqual([2]);
+    expect(result.map((p) => p.id)).toEqual([2, 4, 5]);
   });
 });
 
@@ -167,10 +205,12 @@ describe("engine.canPerformAction / assertCanPerformAction — الإجراءا�
     expect(canPerformAction("approveManagement", ctx, { status: PO_STATUS.CLOSED })).toBe(false);
   });
 
-  it("editDraft/submitDraft: منشئ الطلب فقط، وحصرًا بحالة draft", () => {
+  it("editDraft/submitDraft: منشئ الطلب فقط لبقية الأدوار، وowner/admin يتجاوزان الملكية والحالة", () => {
     expect(canPerformAction("editDraft", { role: "purchase_requester", userId: 1, isCreator: true }, { status: PO_STATUS.DRAFT })).toBe(true);
     expect(canPerformAction("editDraft", { role: "purchase_requester", userId: 1, isCreator: false }, { status: PO_STATUS.DRAFT })).toBe(false);
     expect(canPerformAction("editDraft", { role: "purchase_requester", userId: 1, isCreator: true }, { status: PO_STATUS.PENDING_REVIEW })).toBe(false);
+    expect(canPerformAction("editDraft", { role: "admin", userId: 99, isCreator: false }, { status: PO_STATUS.DRAFT })).toBe(true);
+    expect(canPerformAction("submitDraft", { role: "owner", userId: 98, isCreator: false }, { status: PO_STATUS.DRAFT })).toBe(true);
   });
 
   it("deleteOrder: owner/admin فقط (لا بند إضافي بالسياسة)", () => {
@@ -182,6 +222,20 @@ describe("engine.canPerformAction / assertCanPerformAction — الإجراءا�
     expect(() =>
       assertCanPerformAction("reject", { role: "technician", userId: 7 }, { status: PO_STATUS.PENDING_MANAGEMENT })
     ).toThrow();
+  });
+
+
+  it("cancelItem مرتبط بمرحلة الدور مع بقاء owner/admin مطلقين", () => {
+    const maint = { role: "maintenance_manager", userId: 8 };
+    const senior = { role: "senior_management", userId: 4 };
+
+    expect(canPerformAction("cancelItem", maint, { status: PO_STATUS.PENDING_REVIEW })).toBe(true);
+    expect(canPerformAction("cancelItem", maint, { status: PO_STATUS.PENDING_ESTIMATE })).toBe(false);
+    expect(canPerformAction("cancelItem", maint, { status: PO_STATUS.PENDING_ACCOUNTING })).toBe(false);
+    expect(canPerformAction("cancelItem", senior, { status: PO_STATUS.PENDING_REVIEW })).toBe(false);
+    expect(canPerformAction("cancelItem", senior, { status: PO_STATUS.PENDING_MANAGEMENT })).toBe(true);
+    expect(canPerformAction("cancelItem", { role: "owner", userId: 9 }, { status: PO_STATUS.APPROVED })).toBe(true);
+    expect(canPerformAction("cancelItem", { role: "admin", userId: 99 }, { status: PO_STATUS.CLOSED })).toBe(true);
   });
 
   it("إجراء غير معرَّف بالسياسة يُرفض تلقائيًا (Default Deny)", () => {
@@ -206,11 +260,23 @@ describe("assertPOVisible", () => {
 describe("engine.canPerformItemAction — editItem/deleteItem (منطق مستوى الصنف)", () => {
   for (const action of ["editItem", "deleteItem"] as const) {
     describe(action, () => {
-      it("maintenance_manager يقدر يعدّل/يحذف بحالات الطلب العادية القابلة للتعديل", () => {
+      it("maintenance_manager يعدّل/يحذف فقط قبل خروج الطلب من مرحلته", () => {
         const ctx = { role: "maintenance_manager", userId: 8, isCreator: false };
         expect(
-          canPerformItemAction(action, ctx, { itemStatus: "pending", poStatus: PO_STATUS.PENDING_ESTIMATE })
+          canPerformItemAction(action, ctx, { itemStatus: "pending", poStatus: PO_STATUS.DRAFT })
         ).toBe(true);
+        expect(
+          canPerformItemAction(action, ctx, { itemStatus: "pending", poStatus: PO_STATUS.PENDING_REVIEW })
+        ).toBe(true);
+        expect(
+          canPerformItemAction(action, ctx, { itemStatus: "pending", poStatus: PO_STATUS.PENDING_ESTIMATE })
+        ).toBe(false);
+        expect(
+          canPerformItemAction(action, ctx, { itemStatus: "pending", poStatus: PO_STATUS.PENDING_ACCOUNTING })
+        ).toBe(false);
+        expect(
+          canPerformItemAction(action, ctx, { itemStatus: "pending", poStatus: PO_STATUS.PENDING_MANAGEMENT })
+        ).toBe(false);
       });
 
       it("منشئ الطلب العادي (غير مميّز) يُمنع بالحالات العادية بدون استثناء مراجعة/إلغاء", () => {
@@ -234,10 +300,25 @@ describe("engine.canPerformItemAction — editItem/deleteItem (منطق مستو
         ).toBe(true);
       });
 
-      it("⚠️ عند po.status=revision_needed: حتى owner/admin يُمنعان إن لم يكونا منشئ الطلب (سلوك أصلي مقصود)", () => {
+      it("owner/admin يتجاوزان الملكية والحالة حتى عند revision_needed", () => {
         const ctxOwner = { role: "owner", userId: 999, isCreator: false };
+        const ctxAdmin = { role: "admin", userId: 998, isCreator: false };
         expect(
           canPerformItemAction(action, ctxOwner, { itemStatus: "pending", poStatus: PO_STATUS.REVISION_NEEDED })
+        ).toBe(true);
+        expect(
+          canPerformItemAction(action, ctxAdmin, { itemStatus: "delivered_to_requester", poStatus: PO_STATUS.CLOSED })
+        ).toBe(true);
+      });
+
+      it("cancelled حالة نهائية غير قابلة للتعديل أو الحذف حتى لـ owner/admin", () => {
+        const ctxOwner = { role: "owner", userId: 999, isCreator: false };
+        const ctxAdmin = { role: "admin", userId: 998, isCreator: false };
+        expect(
+          canPerformItemAction(action, ctxOwner, { itemStatus: "cancelled", poStatus: PO_STATUS.PENDING_REVIEW })
+        ).toBe(false);
+        expect(
+          canPerformItemAction(action, ctxAdmin, { itemStatus: "cancelled", poStatus: PO_STATUS.CLOSED })
         ).toBe(false);
       });
 
@@ -284,6 +365,46 @@ describe("engine.isItemAssignedToDelegate — estimateCost/confirmPurchase", () 
   });
 });
 
+
+describe("engine.canResolveCreatorReturnedItem — حسم الصنف المعاد للمنشئ", () => {
+  it("منشئ الطلب يستطيع حسم طلب مراجعة الصنف أو إلغاء الشراء", () => {
+    const ctx = { role: "purchase_requester", userId: 10 };
+    expect(canResolveCreatorReturnedItem(ctx, { requestedById: 10, itemStatus: "needs_item_revision" })).toBe(true);
+    expect(canResolveCreatorReturnedItem(ctx, { requestedById: 10, itemStatus: "purchase_cancelled" })).toBe(true);
+  });
+
+  it("مستخدم آخر لا يستطيع الحسم حتى لو كان دوره يملك تعديلًا وظيفيًا", () => {
+    expect(
+      canResolveCreatorReturnedItem(
+        { role: "maintenance_manager", userId: 20 },
+        { requestedById: 10, itemStatus: "needs_item_revision" }
+      )
+    ).toBe(false);
+  });
+
+  it("owner/admin يستطيعان الحسم بغض النظر عن المنشئ", () => {
+    for (const role of ["owner", "admin"]) {
+      expect(
+        canResolveCreatorReturnedItem(
+          { role, userId: 999 },
+          { requestedById: 10, itemStatus: "purchase_cancelled" }
+        )
+      ).toBe(true);
+    }
+  });
+
+  it("لا يسمح بالحسم لصنف ليس في حالة عودة للمنشئ حتى مع owner/admin", () => {
+    for (const role of ["purchase_requester", "owner", "admin"]) {
+      expect(
+        canResolveCreatorReturnedItem(
+          { role, userId: 10 },
+          { requestedById: 10, itemStatus: "approved" }
+        )
+      ).toBe(false);
+    }
+  });
+});
+
 describe("engine.canPerformItemStatusAction — confirmDeliveryToWarehouse/confirmDeliveryToRequester (حالة الصنف لا الطلب)", () => {
   it("warehouse يستلم صنفًا حالته purchased فقط", () => {
     const ctx = { role: "warehouse", userId: 6 };
@@ -313,5 +434,38 @@ describe("engine.canPerformItemStatusAction — confirmDeliveryToWarehouse/confi
   it("owner/admin يتجاوزان بأي حالة صنف", () => {
     const ctx = { role: "owner", userId: 999 };
     expect(canPerformItemStatusAction("confirmDeliveryToWarehouse", ctx, "approved")).toBe(true);
+  });
+});
+
+
+describe("تغيير مندوب الصنف قبل التسعير", () => {
+  const base = {
+    delegateId: 10,
+    itemStatus: "pending",
+    batchId: null,
+    estimatedUnitCost: null,
+    delegateChangeRequestedAt: null,
+  };
+
+  it("المندوب الحالي فقط يستطيع إنشاء الطلب قبل التسعير", () => {
+    expect(canRequestPOItemDelegateChange({ role: "delegate", userId: 10 }, base)).toBe(true);
+    expect(canRequestPOItemDelegateChange({ role: "delegate", userId: 11 }, base)).toBe(false);
+    expect(canRequestPOItemDelegateChange({ role: "maintenance_manager", userId: 10 }, base)).toBe(false);
+  });
+
+  it("يُمنع الطلب بعد التسعير أو الإرسال أو مع وجود طلب معلّق", () => {
+    expect(canRequestPOItemDelegateChange({ role: "delegate", userId: 10 }, { ...base, itemStatus: "estimated" })).toBe(false);
+    expect(canRequestPOItemDelegateChange({ role: "delegate", userId: 10 }, { ...base, estimatedUnitCost: "25.00" })).toBe(false);
+    expect(canRequestPOItemDelegateChange({ role: "delegate", userId: 10 }, { ...base, batchId: 7 })).toBe(false);
+    expect(canRequestPOItemDelegateChange({ role: "delegate", userId: 10 }, { ...base, delegateChangeRequestedAt: new Date() })).toBe(false);
+  });
+
+  it("مدير الصيانة وowner/admin يحسمون الطلب، وبقية الأدوار لا", () => {
+    const pendingRequest = { ...base, delegateChangeRequestedAt: new Date() };
+    for (const role of ["maintenance_manager", "owner", "admin"]) {
+      expect(canResolvePOItemDelegateChange({ role, userId: 99 }, pendingRequest)).toBe(true);
+    }
+    expect(canResolvePOItemDelegateChange({ role: "delegate", userId: 10 }, pendingRequest)).toBe(false);
+    expect(canResolvePOItemDelegateChange({ role: "purchase_manager", userId: 20 }, pendingRequest)).toBe(false);
   });
 });

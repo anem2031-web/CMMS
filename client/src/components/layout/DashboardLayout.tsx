@@ -45,6 +45,7 @@ import { trpc } from "@/lib/trpc";
 import { useTranslation } from "@/contexts/LanguageContext";
 import LanguageSwitcher from "@/components/common/LanguageSwitcher";
 import { usePushNotifications } from "@/hooks/usePushNotifications";
+import { canRoleAccessPath } from "@shared/roles";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type MenuItemDef = {
@@ -72,15 +73,15 @@ const NAV_SECTIONS: NavSection[] = [
     icon: ClipboardList,
     items: [
       { icon: Nfc,           labelKey: "nav.scanAsset",    path: "/scan-asset",
-        roles: ["operator","technician","maintenance_manager","supervisor","gate_security","owner","admin"] },
+        roles: ["operator","technician","maintenance_manager","general_maintenance_manager","supervisor","gate_security","owner","admin"] },
       { icon: ClipboardList, labelKey: "nav.tickets",      path: "/tickets",
-        roles: ["operator","technician","maintenance_manager","supervisor","gate_security","delegate","senior_management","executive_director","owner","admin"] },
-      // صندوق البلاغات — واجهة متابعة لنفس البلاغات، نفس أدوار صفحة البلاغات تمامًا
+        roles: ["operator","technician","maintenance_manager","general_maintenance_manager","construction_procurement_manager","supervisor","gate_security","delegate","senior_management","executive_director","owner","admin"] },
+      // صندوق البلاغات — يبقى محجوبًا عن مدير الإنشاءات والمشتريات
       { icon: Inbox,         labelKey: "nav.ticketsInbox", path: "/tickets/inbox",
-        roles: ["operator","technician","maintenance_manager","supervisor","gate_security","delegate","senior_management","executive_director","owner","admin"] },
+        roles: ["operator","technician","maintenance_manager","general_maintenance_manager","supervisor","gate_security","delegate","senior_management","executive_director","owner","admin"] },
       { icon: Lightbulb,     labelKey: "nav.improvementIdeas", path: "/improvement-ideas" },
       { icon: ScanSearch,    labelKey: "nav.triage",       path: "/triage",
-        roles: ["supervisor","maintenance_manager","owner","admin"] },
+        roles: ["maintenance_manager","general_maintenance_manager","owner","admin"] },
       { icon: DoorOpen,      labelKey: "nav.gateSecurity", path: "/gate-security",
         roles: ["gate_security","owner","admin"] },
     ],
@@ -90,12 +91,12 @@ const NAV_SECTIONS: NavSection[] = [
     id: "preventive",
     labelKey: "nav.sections.preventiveMaint",
     icon: CalendarClock,
-    roles: ["technician","supervisor","maintenance_manager","owner","admin"],
+    roles: ["technician","supervisor","maintenance_manager","general_maintenance_manager","construction_procurement_manager","owner","admin"],
     items: [
       { icon: CalendarClock, labelKey: "nav.preventive",      path: "/preventive",
-        roles: ["technician","supervisor","maintenance_manager","owner","admin"] },
+        roles: ["technician","supervisor","maintenance_manager","general_maintenance_manager","construction_procurement_manager","owner","admin"] },
       { icon: Brain,         labelKey: "nav.predictiveMaint", path: "/predictive",
-        roles: ["maintenance_manager","owner","admin"] },
+        roles: ["maintenance_manager","general_maintenance_manager","construction_procurement_manager","owner","admin"] },
     ],
   },
   // 3. اللوجستيات والشراء
@@ -103,7 +104,7 @@ const NAV_SECTIONS: NavSection[] = [
     id: "logistics",
     labelKey: "nav.sections.logistics",
     icon: ShoppingCart,
-    roles: ["delegate","warehouse","accountant","senior_management","executive_director","maintenance_manager","purchase_requester","food_warehouse_manager","food_warehouse_assistant","owner","admin"],
+    roles: ["delegate","warehouse","accountant","senior_management","executive_director","maintenance_manager","general_maintenance_manager","construction_procurement_manager","purchase_requester","food_warehouse_manager","food_warehouse_assistant","owner","admin"],
     items: [
       { icon: ShoppingCart, labelKey: "nav.purchaseOrders", path: "/purchase-orders" },
       { icon: ShoppingBag,  labelKey: "nav.myItems",        path: "/my-items",
@@ -121,6 +122,8 @@ const NAV_SECTIONS: NavSection[] = [
         roles: ["warehouse","owner","admin"] },
       { icon: Truck,        labelKey: "nav.purchaseCycle",  path: "/purchase-cycle",
         roles: ["delegate","warehouse","owner","admin"] },
+      { icon: Wrench,       labelKey: "nav.externalMaintenance", path: "/external-maintenance",
+        roles: ["warehouse","owner","admin"] },
       // مركز المستندات — عرض وإعادة طباعة فقط لكل مستندات المشتريات/المخزون
       { icon: FileStack,    labelKey: "nav.documentsCenter", path: "/documents",
         roles: ["warehouse","accountant","senior_management","executive_director","maintenance_manager","purchase_requester","food_warehouse_manager","food_warehouse_assistant","owner","admin"] },
@@ -133,18 +136,18 @@ const NAV_SECTIONS: NavSection[] = [
     id: "management",
     labelKey: "nav.sections.management",
     icon: Building2,
-    roles: ["supervisor","maintenance_manager","owner","admin"],
+    roles: ["supervisor","maintenance_manager","general_maintenance_manager","construction_procurement_manager","owner","admin"],
     items: [
       { icon: MapPin,    labelKey: "nav.sites",        path: "/sites",
-        roles: ["owner","admin","maintenance_manager"] },
+        roles: ["owner","admin","maintenance_manager","general_maintenance_manager","construction_procurement_manager"] },
       { icon: Building2, labelKey: "nav.sectionsPage",  path: "/sections",
-        roles: ["owner","admin","maintenance_manager"] },
+        roles: ["owner","admin","maintenance_manager","general_maintenance_manager","construction_procurement_manager"] },
       // Phase 5: Legacy external technicians page hidden from sidebar (infrastructure preserved, route still accessible via direct URL)
       // { icon: UserCog, labelKey: "nav.technicians", path: "/technicians", roles: ["owner","admin","maintenance_manager","supervisor"] },
       { icon: HardDrive, labelKey: "nav.assets",        path: "/assets",
-        roles: ["owner","admin","maintenance_manager"] },
+        roles: ["owner","admin","maintenance_manager","general_maintenance_manager","construction_procurement_manager"] },
       { icon: Tag,       labelKey: "nav.assetCategories", path: "/asset-categories",
-        roles: ["owner","admin","maintenance_manager"] },
+        roles: ["owner","admin","maintenance_manager","general_maintenance_manager","construction_procurement_manager"] },
     ],
   },
   // 5. التقارير
@@ -152,24 +155,24 @@ const NAV_SECTIONS: NavSection[] = [
     id: "reports",
     labelKey: "nav.sections.reports",
     icon: BarChart3,
-    roles: ["accountant","senior_management","executive_director","maintenance_manager","owner","admin"],
+    roles: ["accountant","senior_management","executive_director","maintenance_manager","general_maintenance_manager","construction_procurement_manager","owner","admin"],
     items: [
       { icon: BarChart3,     labelKey: "nav.reports",                path: "/reports",
-        roles: ["owner","admin","senior_management","executive_director","accountant","maintenance_manager"] },
+        roles: ["owner","admin","senior_management","executive_director","accountant","maintenance_manager","general_maintenance_manager","construction_procurement_manager"] },
       { icon: ShoppingCart,  labelKey: "nav.purchaseCycleReport",    path: "/reports/purchase-cycle",
-        roles: ["owner","admin","senior_management","executive_director","accountant","maintenance_manager"] },
+        roles: ["owner","admin","senior_management","executive_director","accountant","maintenance_manager","general_maintenance_manager","construction_procurement_manager"] },
       { icon: Wrench,        labelKey: "nav.maintenanceCycleReport", path: "/reports/maintenance-cycle",
-        roles: ["owner","admin","senior_management","executive_director","maintenance_manager"] },
+        roles: ["owner","admin","senior_management","executive_director","maintenance_manager","general_maintenance_manager","construction_procurement_manager"] },
       { icon: Building2,     labelKey: "nav.sectionReport",          path: "/reports/section-report",
-        roles: ["owner","admin","senior_management","executive_director","maintenance_manager"] },
+        roles: ["owner","admin","senior_management","executive_director","maintenance_manager","general_maintenance_manager","construction_procurement_manager"] },
       { icon: CalendarClock, labelKey: "nav.preventiveReport",       path: "/reports/preventive",
-        roles: ["owner","admin","senior_management","executive_director","maintenance_manager"] },
+        roles: ["owner","admin","senior_management","executive_director","maintenance_manager","general_maintenance_manager","construction_procurement_manager"] },
       { icon: UserCog,       labelKey: "nav.technicianReport",       path: "/reports/technicians",
-        roles: ["owner","admin","senior_management","executive_director","maintenance_manager"] },
+        roles: ["owner","admin","senior_management","executive_director","maintenance_manager","general_maintenance_manager","construction_procurement_manager"] },
       { icon: DollarSign,    labelKey: "nav.costReport",              path: "/reports/cost",
         roles: ["owner","admin"] },
       { icon: BarChart3,     labelKey: "nav.inspectionDashboard",     path: "/inspection-dashboard",
-        roles: ["owner","admin","senior_management","executive_director","maintenance_manager"] },
+        roles: ["owner","admin","senior_management","executive_director","maintenance_manager","general_maintenance_manager","construction_procurement_manager"] },
     ],
   },
   // 6. وحدة الكتالوج
@@ -177,10 +180,10 @@ const NAV_SECTIONS: NavSection[] = [
     id: "catalog",
     labelKey: "nav.sections.catalog",
     icon: BookOpen,
-    roles: ["owner", "admin", "maintenance_manager", "purchase_manager", "purchase_requester", "warehouse", "food_warehouse_manager", "food_warehouse_assistant"],
+    roles: ["owner", "admin", "maintenance_manager", "construction_procurement_manager", "purchase_manager", "purchase_requester", "warehouse", "food_warehouse_manager", "food_warehouse_assistant"],
     items: [
       { icon: BookOpen, labelKey: "nav.catalog", path: "/catalog",
-        roles: ["owner", "admin", "maintenance_manager", "purchase_manager", "purchase_requester", "warehouse", "food_warehouse_manager", "food_warehouse_assistant"] },
+        roles: ["owner", "admin", "maintenance_manager", "construction_procurement_manager", "purchase_manager", "purchase_requester", "warehouse", "food_warehouse_manager", "food_warehouse_assistant"] },
     ],
   },
   // 7. وحدة التحليل AI
@@ -188,10 +191,10 @@ const NAV_SECTIONS: NavSection[] = [
     id: "ai",
     labelKey: "nav.sections.aiUnit",
     icon: Brain,
-    roles: ["owner","admin","senior_management","executive_director","maintenance_manager"],
+    roles: ["owner","admin","senior_management","executive_director","maintenance_manager","general_maintenance_manager","construction_procurement_manager"],
     items: [
       { icon: Brain, labelKey: "nav.aiAssistant", path: "/ai-assistant",
-        roles: ["owner","admin","senior_management","executive_director","maintenance_manager"] },
+        roles: ["owner","admin","senior_management","executive_director","maintenance_manager","general_maintenance_manager","construction_procurement_manager"] },
     ],
   },
   // 7. أدوات المسؤول
@@ -211,10 +214,11 @@ const NAV_SECTIONS: NavSection[] = [
     id: "construction",
     labelKey: "nav.sections.construction",
     icon: HardHat,
+    roles: ["owner", "admin", "maintenance_manager", "construction_procurement_manager", "senior_management"],
     items: [
-      { icon: Building2,    labelKey: "nav.construction.dashboard", path: "/construction" },
-      { icon: FolderKanban, labelKey: "nav.construction.projects",  path: "/construction/projects" },
-      { icon: BarChart3,    labelKey: "nav.construction.reports",   path: "/construction/reports" },
+      { icon: Building2,    labelKey: "nav.construction.dashboard", path: "/construction", roles: ["owner", "admin", "maintenance_manager", "construction_procurement_manager", "senior_management"] },
+      { icon: FolderKanban, labelKey: "nav.construction.projects",  path: "/construction/projects", roles: ["owner", "admin", "maintenance_manager", "construction_procurement_manager", "senior_management"] },
+      { icon: BarChart3,    labelKey: "nav.construction.reports",   path: "/construction/reports", roles: ["owner", "admin", "maintenance_manager", "construction_procurement_manager", "senior_management"] },
     ],
   },
 ];
@@ -503,6 +507,14 @@ function DashboardLayoutContent({ children, setSidebarWidth }: { children: React
   };
 
   const role = user?.role || "user";
+
+  // Prevent direct-URL access to modules explicitly removed from the derived roles.
+  const canAccessCurrentPath = canRoleAccessPath(role, location);
+  useEffect(() => {
+    if (canAccessCurrentPath) return;
+    const fallback = role === "construction_procurement_manager" ? "/tickets?tab=construction" : "/tickets";
+    setLocation(fallback);
+  }, [canAccessCurrentPath, role, setLocation]);
 
   // ── Build visible sections with translated labels ──
   const visibleSections = useMemo(() => {
@@ -891,7 +903,7 @@ function DashboardLayoutContent({ children, setSidebarWidth }: { children: React
             </div>
           </div>
         )}
-        <main className="flex-1 p-4 md:p-6">{children}</main>
+        <main className="flex-1 p-4 md:p-6">{canAccessCurrentPath ? children : null}</main>
       </SidebarInset>
 
       {/* ── iOS Install Guide ── */}

@@ -1,8 +1,22 @@
 import { TRPCError } from "@trpc/server";
+import { APP_ROLE } from "@shared/roles";
 
-export const ADMIN_ROLES = ["owner", "admin"] as const;
-export const MANAGER_ROLES = ["maintenance_manager", "purchase_manager", "owner", "admin"] as const;
-export const SUPERVISOR_ROLES = ["supervisor", "maintenance_manager", "owner", "admin"] as const;
+export const ADMIN_ROLES = [APP_ROLE.OWNER, APP_ROLE.ADMIN] as const;
+export const MANAGER_ROLES = [
+  APP_ROLE.MAINTENANCE_MANAGER,
+  APP_ROLE.GENERAL_MAINTENANCE_MANAGER,
+  APP_ROLE.CONSTRUCTION_PROCUREMENT_MANAGER,
+  APP_ROLE.PURCHASE_MANAGER,
+  APP_ROLE.OWNER,
+  APP_ROLE.ADMIN,
+] as const;
+export const SUPERVISOR_ROLES = [
+  APP_ROLE.SUPERVISOR,
+  APP_ROLE.MAINTENANCE_MANAGER,
+  APP_ROLE.GENERAL_MAINTENANCE_MANAGER,
+  APP_ROLE.OWNER,
+  APP_ROLE.ADMIN,
+] as const;
 
 export function requireAdminRole(role: string, message = "فقط المالك يمكنه تنفيذ هذا الإجراء") {
   if (!ADMIN_ROLES.includes(role as any)) {

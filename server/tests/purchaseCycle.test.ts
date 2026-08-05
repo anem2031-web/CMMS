@@ -37,6 +37,7 @@ vi.mock("../_core/db", () => {
   const notifications: any[] = [];
   const auditLogs: any[] = [];
   const procurementComments: any[] = [];
+  const pricingBatches: any[] = [];
   const users: any[] = [
     { id: 1, openId: "user-1", name: "Delegate", role: "delegate" },
     { id: 2, openId: "user-2", name: "Warehouse", role: "warehouse" },
@@ -45,6 +46,7 @@ vi.mock("../_core/db", () => {
   ];
 
   return {
+    getPurchaseManagerUsers: vi.fn(async () => users.filter(u => u.role === "maintenance_manager")),
     getManagerUsers: vi.fn(async () => users.filter(u => u.role === "maintenance_manager")),
     getPOItemsByDelegate: vi.fn(async (delegateId: number) => items.filter(i => i.delegateId === delegateId)),
     getPOItemsByStatus: vi.fn(async (status: string) => items.filter(i => i.status === status)),
@@ -54,6 +56,20 @@ vi.mock("../_core/db", () => {
       const item = items.find(i => i.id === id);
       if (item) Object.assign(item, data);
     }),
+    updatePOItemIfDelegateChangeUnlocked: vi.fn(async (id: number, data: any, expectedStatus?: string) => {
+      const item = items.find(i => i.id === id);
+      if (!item || item.delegateChangeRequestedAt) return false;
+      if (expectedStatus && item.status !== expectedStatus) return false;
+      Object.assign(item, data);
+      return true;
+    }),
+    updatePOItemIfNotTerminal: vi.fn(async (id: number, data: any) => {
+      const item = items.find(i => i.id === id);
+      if (!item || ["cancelled", "rejected"].includes(item.status)) return false;
+      Object.assign(item, data);
+      return true;
+    }),
+    withTransaction: vi.fn(async (fn: (tx: any) => Promise<any>) => fn({})),
     getPurchaseOrderById: vi.fn(async (id: number) => pos.find(p => p.id === id) || null),
     updatePurchaseOrder: vi.fn(async (id: number, data: any) => {
       const po = pos.find(p => p.id === id);
@@ -70,6 +86,18 @@ vi.mock("../_core/db", () => {
     createProcurementComment: vi.fn(async (data: any) => { procurementComments.push(data); return procurementComments.length; }),
     getUsersByRole: vi.fn(async (role: string) => users.filter(u => u.role === role)),
     getAllUsers: vi.fn(async () => users),
+    getPOPricingBatches: vi.fn(async (purchaseOrderId: number) => pricingBatches.filter(b => b.purchaseOrderId === purchaseOrderId)),
+    getPOPricingBatchById: vi.fn(async (id: number) => pricingBatches.find(b => b.id === id) || null),
+    updatePOPricingBatch: vi.fn(async (id: number, data: any) => {
+      const batch = pricingBatches.find(b => b.id === id);
+      if (batch) Object.assign(batch, data);
+    }),
+    createPOPricingBatch: vi.fn(async (data: any) => {
+      const id = pricingBatches.length + 1;
+      pricingBatches.push({ id, ...data });
+      return id;
+    }),
+    getNextBatchNumber: vi.fn(async (purchaseOrderId: number) => pricingBatches.filter(b => b.purchaseOrderId === purchaseOrderId).length + 1),
     // Setup helpers for tests
     _items: items,
     _pos: pos,
@@ -77,6 +105,7 @@ vi.mock("../_core/db", () => {
     _notifications: notifications,
     _auditLogs: auditLogs,
     _procurementComments: procurementComments,
+    _pricingBatches: pricingBatches,
     _reset: () => {
       items.length = 0;
       pos.length = 0;
@@ -84,6 +113,7 @@ vi.mock("../_core/db", () => {
       notifications.length = 0;
       auditLogs.length = 0;
       procurementComments.length = 0;
+      pricingBatches.length = 0;
     },
     _setupScenario: () => {
       items.length = 0;
@@ -92,6 +122,7 @@ vi.mock("../_core/db", () => {
       notifications.length = 0;
       auditLogs.length = 0;
       procurementComments.length = 0;
+      pricingBatches.length = 0;
 
       tickets.push({ id: 100, ticketNumber: "TK-001", status: "in_progress" });
       pos.push({ id: 10, ticketId: 100, status: "approved", poNumber: "PO-0010", requestedById: 4 });
@@ -417,7 +448,7 @@ describe("Purchase Cycle - 3-Step Flow", () => {
       });
 
       // Item 1 should be rejected, Item 2 should remain pending
-      expect(db.updatePOItem).toHaveBeenCalledWith(1, expect.objectContaining({
+      expect(db.updatePOItemIfNotTerminal).toHaveBeenCalledWith(1, expect.objectContaining({
         status: "rejected",
         managementRejectionReason: "Too expensive"
       }));
@@ -629,10 +660,10 @@ describe("Item Rejection Attribution (name + reason)", () => {
 
     // The reason must actually persist on a real column (managementRejectionReason),
     // not the non-existent "rejectionReason" column on purchase_order_items.
-    expect(db.updatePOItem).toHaveBeenCalledWith(31, expect.objectContaining({
+    expect(db.updatePOItemIfNotTerminal).toHaveBeenCalledWith(31, expect.objectContaining({
       status: "rejected",
       managementRejectionReason: "Duplicate item",
-    }));
+    }), expect.anything());
 
     const itemNotif = db._notifications.find((n: any) => n.userId === 4 && n.title.includes("رفض صنف"));
     expect(itemNotif).toBeTruthy();
@@ -640,8 +671,93 @@ describe("Item Rejection Attribution (name + reason)", () => {
     expect(itemNotif.message).toContain("Duplicate item");
   });
 
+  it("reviewItems: الصنف cancelled يبقى مرجعًا ولا يدخل قرارات المراجعة أو يعود pending", async () => {
+    db._reset();
+    db._pos.push({ id: 21, status: "pending_review", poNumber: "PO-0021", requestedById: 4 });
+    db._items.push({ id: 40, purchaseOrderId: 21, itemName: "صنف فعال", status: "pending", delegateId: null });
+    db._items.push({
+      id: 41,
+      purchaseOrderId: 21,
+      itemName: "صنف ملغى",
+      status: "cancelled",
+      delegateId: null,
+      managementRejectionReason: "ألغي أثناء المراجعة",
+    });
+
+    const caller = appRouter.createCaller(createContext("maintenance_manager", 3));
+    await caller.purchaseOrders.reviewItems({
+      poId: 21,
+      items: [{ id: 40, action: "approve", delegateId: 1 }],
+    });
+
+    expect(db._items.find((item: any) => item.id === 40)?.status).toBe("pending");
+    expect(db._items.find((item: any) => item.id === 41)?.status).toBe("cancelled");
+    expect(db.updatePOItemIfNotTerminal).not.toHaveBeenCalledWith(
+      41,
+      expect.objectContaining({ status: "pending" }),
+      expect.anything(),
+    );
+  });
+
+  it("reviewItems: يرفض محاولة تمرير صنف cancelled ضمن الحمولة", async () => {
+    db._reset();
+    db._pos.push({ id: 22, status: "pending_review", poNumber: "PO-0022", requestedById: 4 });
+    db._items.push({ id: 50, purchaseOrderId: 22, itemName: "صنف فعال", status: "pending", delegateId: null });
+    db._items.push({ id: 51, purchaseOrderId: 22, itemName: "صنف ملغى", status: "cancelled", delegateId: null });
+
+    const caller = appRouter.createCaller(createContext("maintenance_manager", 3));
+    await expect(caller.purchaseOrders.reviewItems({
+      poId: 22,
+      items: [
+        { id: 50, action: "approve", delegateId: 1 },
+        { id: 51, action: "approve", delegateId: 1 },
+      ],
+    })).rejects.toThrow();
+
+    expect(db._items.find((item: any) => item.id === 51)?.status).toBe("cancelled");
+  });
+
+  it("estimateCost: يرفض تسعير صنف cancelled ولا يعيده إلى estimated", async () => {
+    db._reset();
+    db._pos.push({ id: 23, status: "pending_estimate", poNumber: "PO-0023", requestedById: 4 });
+    db._items.push({
+      id: 60,
+      purchaseOrderId: 23,
+      itemName: "صنف ملغى",
+      quantity: 1,
+      status: "cancelled",
+      delegateId: 1,
+      delegateChangeRequestedAt: null,
+    });
+
+    const caller = appRouter.createCaller(createContext("delegate", 1));
+    await expect(caller.purchaseOrders.estimateCost({
+      purchaseOrderId: 23,
+      items: [{ id: 60, estimatedUnitCost: "100" }],
+    })).rejects.toThrow();
+
+    expect(db._items[0].status).toBe("cancelled");
+    expect(db.updatePOItemIfDelegateChangeUnlocked).not.toHaveBeenCalled();
+  });
+
+  it("requestRevision: لا يعيد تنشيط الأصناف cancelled/rejected عند إعادة الطلب كاملًا", async () => {
+    db._reset();
+    db._pos.push({ id: 24, status: "approved", poNumber: "PO-0024", requestedById: 4 });
+    db._items.push({ id: 70, purchaseOrderId: 24, itemName: "صنف فعال", status: "approved", delegateId: 1, estimatedUnitCost: "10", estimatedTotalCost: "10" });
+    db._items.push({ id: 71, purchaseOrderId: 24, itemName: "صنف ملغى", status: "cancelled", delegateId: 1, managementRejectionReason: "ملغى" });
+    db._items.push({ id: 72, purchaseOrderId: 24, itemName: "صنف مرفوض", status: "rejected", delegateId: 1, managementRejectionReason: "مرفوض" });
+
+    const caller = appRouter.createCaller(createContext("delegate", 1));
+    await caller.purchaseOrders.requestRevision({ id: 24, note: "يلزم تحديث مواصفات الصنف الفعال" });
+
+    expect(db._items.find((item: any) => item.id === 70)?.status).toBe("pending");
+    expect(db._items.find((item: any) => item.id === 71)?.status).toBe("cancelled");
+    expect(db._items.find((item: any) => item.id === 72)?.status).toBe("rejected");
+  });
+
   it("cancelItem: notifies requester with canceller's name and reason", async () => {
     db._setupScenario();
+    db._pos[0].status = "pending_management";
     const caller = appRouter.createCaller(createContext("senior_management", 8));
 
     await caller.purchaseOrders.cancelItem({ itemId: 1, reason: "No longer needed" });
@@ -653,5 +769,95 @@ describe("Item Rejection Attribution (name + reason)", () => {
 
     const comment = db._procurementComments.find((c: any) => c.actionType === "item_cancelled");
     expect(comment).toBeTruthy();
+  });
+
+  it("cancelItem: يمنع مدير الصيانة بعد انتقال الطلب للتسعير أو الحسابات", async () => {
+    db._setupScenario();
+    const caller = appRouter.createCaller(createContext("maintenance_manager", 3));
+
+    db._pos[0].status = "pending_estimate";
+    await expect(caller.purchaseOrders.cancelItem({ itemId: 1, reason: "غير مسموح" })).rejects.toThrow();
+
+    db._pos[0].status = "pending_accounting";
+    await expect(caller.purchaseOrders.cancelItem({ itemId: 1, reason: "غير مسموح" })).rejects.toThrow();
+
+    db._pos[0].status = "pending_review";
+    await expect(caller.purchaseOrders.cancelItem({ itemId: 1, reason: "ضمن مرحلة المراجعة" })).resolves.toEqual({ success: true });
+  });
+
+});
+
+
+// ============================================================
+// Pricing batches — terminal/cancelled item synchronization
+// ============================================================
+describe("Pricing batch terminal synchronization", () => {
+  beforeEach(() => {
+    db._reset();
+    vi.clearAllMocks();
+  });
+
+  it("cancelItem: إلغاء آخر صنف فعّال يغلق الدفعة المعلقة ويرفض الطلب الكامل", async () => {
+    db._pos.push({ id: 90, status: "pending_management", poNumber: "PO-0090", requestedById: 4 });
+    db._items.push(
+      { id: 901, purchaseOrderId: 90, itemName: "الصنف الأول", status: "cancelled", batchId: 9001, delegateId: 1 },
+      { id: 902, purchaseOrderId: 90, itemName: "الصنف الثاني", status: "estimated", batchId: 9001, delegateId: 1 },
+    );
+    db._pricingBatches.push({
+      id: 9001,
+      purchaseOrderId: 90,
+      batchNumber: 1,
+      itemCount: 2,
+      status: "pending_management",
+    });
+
+    const caller = appRouter.createCaller(createContext("senior_management", 8));
+    await caller.purchaseOrders.cancelItem({ itemId: 902, reason: "غير مطلوب" });
+
+    expect(db._items.find((item: any) => item.id === 902)?.status).toBe("cancelled");
+    expect(db._pricingBatches[0].status).toBe("rejected");
+    expect(db._pricingBatches[0].rejectionReason).toContain("أُغلقت الدفعة تلقائيًا");
+    expect(db._pos[0].status).toBe("rejected");
+  });
+
+  it("approveManagementBatch: يمنع اعتماد دفعة لا تحتوي أي صنف فعّال ويغلقها", async () => {
+    db._pos.push({ id: 91, status: "rejected", poNumber: "PO-0091", requestedById: 4 });
+    db._items.push(
+      { id: 911, purchaseOrderId: 91, itemName: "ملغى", status: "cancelled", batchId: 9101, delegateId: 1 },
+      { id: 912, purchaseOrderId: 91, itemName: "مرفوض", status: "rejected", batchId: 9101, delegateId: 1 },
+    );
+    db._pricingBatches.push({
+      id: 9101,
+      purchaseOrderId: 91,
+      batchNumber: 1,
+      itemCount: 2,
+      status: "pending_management",
+    });
+
+    const caller = appRouter.createCaller(createContext("senior_management", 8));
+    await expect(
+      caller.purchaseOrders.approveManagementBatch({ batchId: 9101 })
+    ).rejects.toThrow("لا يوجد شيء لاعتماده");
+
+    expect(db._pricingBatches[0].status).toBe("rejected");
+    expect(db._items.every((item: any) => ["cancelled", "rejected"].includes(item.status))).toBe(true);
+  });
+
+  it("listPricingBatches: يصلح الدفعات القديمة المعلقة ذات الأصناف النهائية عند فتح الطلب", async () => {
+    db._pos.push({ id: 92, status: "rejected", poNumber: "PO-0092", requestedById: 4 });
+    db._items.push({ id: 921, purchaseOrderId: 92, itemName: "ملغى", status: "cancelled", batchId: 9201 });
+    db._pricingBatches.push({
+      id: 9201,
+      purchaseOrderId: 92,
+      batchNumber: 1,
+      itemCount: 1,
+      status: "pending_accounting",
+    });
+
+    const caller = appRouter.createCaller(createContext("admin", 99));
+    const batches = await caller.purchaseOrders.listPricingBatches({ purchaseOrderId: 92 });
+
+    expect(batches[0].status).toBe("rejected");
+    expect(batches[0].rejectionReason).toContain("أُغلقت الدفعة تلقائيًا");
   });
 });

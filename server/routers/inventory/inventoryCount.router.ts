@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import { warehouseProcedure, protectedProcedure, router } from "../_shared/procedures";
+import { warehouseProcedure, inventoryReadProcedure, router } from "../_shared/procedures";
 import * as db from "../../_core/db";
 
 export const inventoryCountRouter = router({
@@ -117,14 +117,14 @@ export const inventoryCountRouter = router({
     }),
 
   // ── الأصناف الغير مجرودة بعد ضمن عملية جارية ──
-  uncountedItems: protectedProcedure
+  uncountedItems: inventoryReadProcedure
     .input(z.object({ operationId: z.number() }))
     .query(async ({ input }) => {
       return db.getUncountedItems(input.operationId);
     }),
 
   // ── تفاصيل عملية جرد كاملة ──
-  operationDetails: protectedProcedure
+  operationDetails: inventoryReadProcedure
     .input(z.object({ operationId: z.number() }))
     .query(async ({ input }) => {
       const result = await db.getCountOperationDetails(input.operationId);
@@ -133,12 +133,12 @@ export const inventoryCountRouter = router({
     }),
 
   // ── قائمة كل عمليات الجرد (أرشيف) ──
-  listOperations: protectedProcedure.query(async () => {
+  listOperations: inventoryReadProcedure.query(async () => {
     return db.listCountOperations();
   }),
 
   // ── فروقات جرد مكتمل (لتعبئة شاشة التسوية تلقائياً) ──
-  countDiscrepancies: protectedProcedure
+  countDiscrepancies: inventoryReadProcedure
     .input(z.object({ operationId: z.number() }))
     .query(async ({ input }) => {
       return db.getCountDiscrepancies(input.operationId);
@@ -173,12 +173,12 @@ export const inventoryCountRouter = router({
     }),
 
   // ── قائمة كل التسويات (أرشيف) ──
-  listSettlements: protectedProcedure.query(async () => {
+  listSettlements: inventoryReadProcedure.query(async () => {
     return db.listSettlements();
   }),
 
   // ── تفاصيل تسوية كاملة (للعرض والطباعة) ──
-  settlementDetails: protectedProcedure
+  settlementDetails: inventoryReadProcedure
     .input(z.object({ settlementId: z.number() }))
     .query(async ({ input }) => {
       const result = await db.getSettlementDetails(input.settlementId);

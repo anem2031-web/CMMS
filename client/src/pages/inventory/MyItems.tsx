@@ -22,6 +22,35 @@ import { getLocalizedItemField } from "@/hooks/useContentTranslation";
 
 type ItemStatus = "pending" | "estimated" | "approved" | "purchased" | "received";
 
+const PAGE_SIZE = 15;
+
+// نفس أسلوب الترقيم المستخدم بصفحتي دورة الشراء والصيانة الخارجية.
+function Pagination({ total, page, setPage }: { total: number; page: number; setPage: (p: number) => void }) {
+  const pages = Math.ceil(total / PAGE_SIZE);
+  if (pages <= 1) return null;
+  const shown = new Set<number>([1, pages]);
+  for (let p = page - 1; p <= page + 1; p++) if (p > 1 && p < pages) shown.add(p);
+  const sorted = Array.from(shown).sort((a, b) => a - b);
+  const items: (number | "gap")[] = [];
+  let prev = 0;
+  for (const p of sorted) {
+    if (prev && p - prev > 1) items.push("gap");
+    items.push(p);
+    prev = p;
+  }
+  return (
+    <div className="flex items-center justify-center gap-1 mt-3 flex-wrap">
+      <Button variant="outline" size="sm" disabled={page === 1} onClick={() => setPage(page - 1)}>السابق</Button>
+      {items.map((it, i) => it === "gap" ? (
+        <span key={`gap-${i}`} className="px-1 text-muted-foreground text-sm">…</span>
+      ) : (
+        <Button key={it} variant={it === page ? "default" : "outline"} size="sm" className="w-8 h-8 p-0" onClick={() => setPage(it as number)}>{it}</Button>
+      ))}
+      <Button variant="outline" size="sm" disabled={page === pages} onClick={() => setPage(page + 1)}>التالي</Button>
+    </div>
+  );
+}
+
 function numberToWords(num: number, language: string): string {
   if (language === "ar") {
     if (num === 0) return "صفر ريال";
@@ -213,6 +242,16 @@ export default function MyItems() {
     received: grouped.received.length,
   };
 
+  const [pagePendingEstimate, setPagePendingEstimate] = useState(1);
+  const [pageApproved, setPageApproved] = useState(1);
+  const [pagePurchased, setPagePurchased] = useState(1);
+  const [pageReceived, setPageReceived] = useState(1);
+
+  const pagedPendingEstimate = grouped.pending_estimate.slice((pagePendingEstimate - 1) * PAGE_SIZE, pagePendingEstimate * PAGE_SIZE);
+  const pagedApproved = grouped.approved.slice((pageApproved - 1) * PAGE_SIZE, pageApproved * PAGE_SIZE);
+  const pagedPurchased = grouped.purchased.slice((pagePurchased - 1) * PAGE_SIZE, pagePurchased * PAGE_SIZE);
+  const pagedReceived = grouped.received.slice((pageReceived - 1) * PAGE_SIZE, pageReceived * PAGE_SIZE);
+
   if (isLoading) {
     return (
       <div className="space-y-6">
@@ -222,83 +261,84 @@ export default function MyItems() {
     );
   }
 
+  const statusBorderColor = (status: string) =>
+    status === "approved" ? "border-emerald-400" : status === "purchased" ? "border-purple-400" :
+    status === "received" ? "border-green-400" : "border-amber-400";
+
   const renderItem = (item: any) => {
+    const name = getLocalizedItemField(item, "itemName", language);
     return (
-      <Card key={item.id} className="hover:shadow-md transition-all duration-200 border-r-4" style={{ borderRightColor: item.status === "approved" ? "#10b981" : item.status === "purchased" ? "#8b5cf6" : item.status === "received" ? "#22c55e" : "#f59e0b" }}>
-        <CardContent className="p-4">
-          <div className="flex items-start justify-between gap-3 mb-3">
+      <Card key={item.id} className={`hover:shadow-md transition-all duration-200 border-r-4 ${statusBorderColor(item.status)}`}>
+        <CardContent className="p-3">
+          <div className="flex flex-col sm:flex-row gap-3">
+            {/* صورة مصغّرة بمقاس ثابت (مربّعة) بدل الشريط الممطوط اللي كان يقصّ الصورة */}
+            <div className="w-full h-28 sm:w-20 sm:h-20 shrink-0 rounded-lg overflow-hidden bg-muted border">
+              {item.photoUrl ? (
+                <img src={item.photoUrl} alt={name} className="w-full h-full object-cover" />
+              ) : (
+                <div className="w-full h-full flex items-center justify-center text-muted-foreground/30">
+                  <Package className="w-6 h-6" />
+                </div>
+              )}
+            </div>
+
             <div className="flex-1 min-w-0">
-              <h3 className="font-semibold text-sm truncate">{getLocalizedItemField(item, "itemName", language)}</h3>
-              {item.description && <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{getLocalizedItemField(item, "description", language)}</p>}
-            </div>
-            <Badge className="shrink-0 text-[10px] gap-1">
-              {item.status}
-            </Badge>
-          </div>
-
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs mb-3">
-            <div className="bg-muted/50 rounded-lg p-2">
-              <span className="text-muted-foreground block">{t.purchaseOrders.quantity}</span>
-              <span className="font-bold">{item.quantity} {item.unit || ""}</span>
-            </div>
-            <div className="bg-muted/50 rounded-lg p-2">
-              <span className="text-muted-foreground block">{t.purchaseOrders.poNumber}</span>
-              <Button variant="link" className="h-auto p-0 text-xs font-bold" onClick={() => setLocation(`/purchase-orders/${item.purchaseOrderId}`)}>
-                #{item.purchaseOrderId}
-              </Button>
-            </div>
-            {item.estimatedUnitCost && (
-              <div className="bg-muted/50 rounded-lg p-2">
-                <span className="text-muted-foreground block">{t.purchaseOrders.estimatedUnitCost}</span>
-                <span className="font-bold">{parseFloat(item.estimatedUnitCost).toLocaleString(locale)} {currency}</span>
+              <div className="flex items-start justify-between gap-2">
+                <h3 className="font-semibold text-sm truncate">{name}</h3>
+                <Badge className="shrink-0 text-[10px]">{item.status}</Badge>
               </div>
-            )}
-            {item.estimatedTotalCost && (
-              <div className="bg-muted/50 rounded-lg p-2">
-                <span className="text-muted-foreground block">{t.purchaseOrders.estimatedTotal}</span>
-                <span className="font-bold">{parseFloat(item.estimatedTotalCost).toLocaleString(locale)} {currency}</span>
+              {item.description && (
+                <p className="text-xs text-muted-foreground line-clamp-1 mt-0.5">{getLocalizedItemField(item, "description", language)}</p>
+              )}
+
+              {/* بيانات مختصرة بسطر واحد بدل 4 صناديق منفصلة تاخذ مساحة كبيرة */}
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs mt-2">
+                <span className="text-muted-foreground">{t.purchaseOrders.quantity}: <b className="text-foreground">{item.quantity} {item.unit || ""}</b></span>
+                <Button variant="link" className="h-auto p-0 text-xs" onClick={() => setLocation(`/purchase-orders/${item.purchaseOrderId}`)}>
+                  {t.purchaseOrders.poNumber} #{item.purchaseOrderId}
+                </Button>
+                {item.estimatedUnitCost && (
+                  <span className="text-muted-foreground">{t.purchaseOrders.estimatedUnitCost}: <b className="text-foreground">{parseFloat(item.estimatedUnitCost).toLocaleString(locale)} {currency}</b></span>
+                )}
+                {item.estimatedTotalCost && (
+                  <span className="text-muted-foreground">{t.purchaseOrders.estimatedTotal}: <b className="text-foreground">{parseFloat(item.estimatedTotalCost).toLocaleString(locale)} {currency}</b></span>
+                )}
+                {item.status === "received" && item.actualUnitCost && (
+                  <span className="text-green-700 font-semibold">{parseFloat(item.actualUnitCost).toLocaleString(locale)} {currency}</span>
+                )}
               </div>
-            )}
+
+              {item.notes && (
+                <p className="text-[11px] text-muted-foreground bg-muted/30 rounded-md px-2 py-1 mt-2 line-clamp-1">
+                  <FileText className="w-3 h-3 inline ml-1" />{getLocalizedItemField(item, "notes", language)}
+                </p>
+              )}
+            </div>
+
+            {/* زر الإجراء مضغوط بدل الشريط الكامل العرض */}
+            <div className="shrink-0 flex sm:items-center">
+              {item.status === "pending" && (
+                <Button size="sm" className="w-full sm:w-auto gap-1.5 bg-amber-600 hover:bg-amber-700" onClick={() => { setEstimateDialog(item); setEstimateCost(""); }}>
+                  <DollarSign className="w-3.5 h-3.5" /> {t.purchaseOrders.estimatedUnitCost}
+                </Button>
+              )}
+              {item.status === "approved" && (
+                <Button size="sm" className="w-full sm:w-auto gap-1.5 bg-emerald-600 hover:bg-emerald-700" onClick={() => { setPurchaseDialog(item); setInvoiceUrl(""); setPurchasedUrl(""); }}>
+                  <ShoppingBag className="w-3.5 h-3.5" /> {t.purchaseOrders.confirmPurchase}
+                </Button>
+              )}
+              {item.status === "purchased" && (
+                <Badge variant="outline" className="gap-1.5 text-purple-700 border-purple-200 bg-purple-50 whitespace-nowrap">
+                  <Truck className="w-3.5 h-3.5" /> {t.purchaseOrders.confirmPurchase}
+                </Badge>
+              )}
+              {item.status === "received" && (
+                <Badge variant="outline" className="gap-1.5 text-green-700 border-green-200 bg-green-50 whitespace-nowrap">
+                  <CheckCircle2 className="w-3.5 h-3.5" /> {t.purchaseOrders.receiveItem}
+                </Badge>
+              )}
+            </div>
           </div>
-
-          {item.photoUrl && (
-            <div className="mb-3">
-              <img src={item.photoUrl} alt={getLocalizedItemField(item, "itemName", language)} className="w-full h-24 object-cover rounded-lg border" />
-            </div>
-          )}
-
-          {item.notes && (
-            <p className="text-xs text-muted-foreground bg-muted/30 rounded-lg p-2 mb-3">
-              <FileText className="w-3 h-3 inline ml-1" />{getLocalizedItemField(item, "notes", language)}
-            </p>
-          )}
-
-          {item.status === "pending" && (
-            <Button size="sm" className="w-full gap-1.5 bg-amber-600 hover:bg-amber-700" onClick={() => { setEstimateDialog(item); setEstimateCost(""); }}>
-              <DollarSign className="w-3.5 h-3.5" /> {t.purchaseOrders.estimatedUnitCost}
-            </Button>
-          )}
-
-          {item.status === "approved" && (
-            <Button size="sm" className="w-full gap-1.5 bg-emerald-600 hover:bg-emerald-700" onClick={() => { setPurchaseDialog(item); setInvoiceUrl(""); setPurchasedUrl(""); }}>
-              <ShoppingBag className="w-3.5 h-3.5" /> {t.purchaseOrders.confirmPurchase}
-            </Button>
-          )}
-
-          {item.status === "purchased" && (
-            <div className="flex items-center gap-2 text-xs text-purple-700 bg-purple-50 rounded-lg p-2">
-              <Truck className="w-4 h-4" />
-              <span>{t.purchaseOrders.confirmPurchase}</span>
-            </div>
-          )}
-
-          {item.status === "received" && (
-            <div className="flex items-center gap-2 text-xs text-green-700 bg-green-50 rounded-lg p-2">
-              <CheckCircle2 className="w-4 h-4" />
-              <span>{t.purchaseOrders.receiveItem}</span>
-              {item.actualUnitCost && <span className="mr-auto font-bold">{parseFloat(item.actualUnitCost).toLocaleString(locale)} {currency}</span>}
-            </div>
-          )}
         </CardContent>
       </Card>
     );
@@ -426,7 +466,8 @@ export default function MyItems() {
                 <AlertCircle className="w-4 h-4 shrink-0" />
                 <span>{t.purchaseOrders.estimatedUnitCost}</span>
               </div>
-              {grouped.pending_estimate.map(renderItem)}
+              {pagedPendingEstimate.map(renderItem)}
+              <Pagination total={grouped.pending_estimate.length} page={pagePendingEstimate} setPage={setPagePendingEstimate} />
             </>
           )}
         </TabsContent>
@@ -443,7 +484,8 @@ export default function MyItems() {
                 <CheckCircle2 className="w-4 h-4 shrink-0" />
                 <span>{t.purchaseOrders.confirmPurchase}</span>
               </div>
-              {grouped.approved.map(renderItem)}
+              {pagedApproved.map(renderItem)}
+              <Pagination total={grouped.approved.length} page={pageApproved} setPage={setPageApproved} />
             </>
           )}
         </TabsContent>
@@ -454,7 +496,10 @@ export default function MyItems() {
               <ShoppingBag className="w-10 h-10 mx-auto text-muted-foreground/30 mb-3" />
               <p className="text-sm text-muted-foreground">{t.common.noData}</p>
             </CardContent></Card>
-          ) : grouped.purchased.map(renderItem)}
+          ) : <>
+            {pagedPurchased.map(renderItem)}
+            <Pagination total={grouped.purchased.length} page={pagePurchased} setPage={setPagePurchased} />
+          </>}
         </TabsContent>
 
         <TabsContent value="received" className="space-y-3 mt-4">
@@ -463,7 +508,10 @@ export default function MyItems() {
               <Package className="w-10 h-10 mx-auto text-muted-foreground/30 mb-3" />
               <p className="text-sm text-muted-foreground">{t.common.noData}</p>
             </CardContent></Card>
-          ) : grouped.received.map(renderItem)}
+          ) : <>
+            {pagedReceived.map(renderItem)}
+            <Pagination total={grouped.received.length} page={pageReceived} setPage={setPageReceived} />
+          </>}
         </TabsContent>
       </Tabs>
 

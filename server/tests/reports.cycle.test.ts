@@ -62,7 +62,10 @@ const mockFns = vi.hoisted(() => ({
   createLocalUser: vi.fn().mockResolvedValue(null),
   updateUserPassword: vi.fn().mockResolvedValue(null),
   getUsersByRole: vi.fn().mockResolvedValue([]),
+  getPurchaseManagerUsers: vi.fn().mockResolvedValue([]),
   getManagerUsers: vi.fn().mockResolvedValue([]),
+  getTicketManagerUsers: vi.fn().mockResolvedValue([]),
+  getOperationalManagerUsers: vi.fn().mockResolvedValue([]),
   updateUserRole: vi.fn().mockResolvedValue(null),
   getDb: vi.fn().mockResolvedValue(null),
 }));

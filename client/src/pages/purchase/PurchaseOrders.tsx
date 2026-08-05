@@ -37,7 +37,7 @@ const PO_STATUS_COLORS: Record<string, string> = {
 };
 
 // الأدوار التي تملك صلاحية رؤية فلتر المستخدم
-const FULL_ACCESS_ROLES = ["owner", "admin", "maintenance_manager", "purchase_manager", "senior_management", "executive_director", "accountant"];
+const FULL_ACCESS_ROLES = ["owner", "admin", "maintenance_manager", "general_maintenance_manager", "construction_procurement_manager", "purchase_manager", "senior_management", "executive_director", "accountant", "warehouse"];
 
 export default function PurchaseOrders() {
   const [, setLocation] = useLocation();
@@ -57,8 +57,15 @@ export default function PurchaseOrders() {
   const PAGE_SIZE = 10;
   const [currentPage, setCurrentPage] = useState(1);
 
-  // ── عرض "بانتظار إجرائي" (افتراضي) مقابل "جميع الطلبات" ──
+  // ── عرض "بانتظار إجرائي" مقابل "جميع الطلبات" ──
+  // مدير الصيانة دوره إشرافي ويتابع جميع الطلبات بغض النظر عن منشئها، لذلك
+  // يبدأ من العرض الكامل. بقية الأدوار تبدأ من الطلبات التي تنتظر إجراءها.
   const [view, setView] = useState<"actionable" | "all">("actionable");
+  useEffect(() => {
+    if (["maintenance_manager", "general_maintenance_manager", "construction_procurement_manager"].includes(user?.role || "")) {
+      setView("all");
+    }
+  }, [user?.role]);
   const { data: actionable, isLoading: actionableLoading } =
     trpc.purchaseOrders.actionableForMe.useQuery();
   const actionableItems = actionable?.items ?? [];
@@ -274,7 +281,7 @@ export default function PurchaseOrders() {
           />
         </div>
 
-        {/* فلتر المنشئ — فقط للأدوار الكاملة الصلاحيات */}
+        {/* فلتر المنشئ — للأدوار التي يدعم الخادم تصفيتها حسب منشئ الطلب */}
         {canFilterByUser && (
           <div className="flex flex-col gap-1">
             <span className="text-xs text-muted-foreground">{t.common.createdBy}</span>
@@ -359,7 +366,7 @@ export default function PurchaseOrders() {
                           };
 
                           // الأدمن/مدير الصيانة/الإدارة العليا: يشوفون تفصيل كل مندوب على حدة (سطر منفصل لكل واحد)
-                          const canSeeAllDelegates = ["admin", "owner", "maintenance_manager", "senior_management"].includes(user?.role || "");
+                          const canSeeAllDelegates = ["admin", "owner", "maintenance_manager", "general_maintenance_manager", "construction_procurement_manager", "senior_management"].includes(user?.role || "");
                           if (canSeeAllDelegates && breakdown.length > 1) {
                             return (
                               <span className="block w-full text-amber-700 mt-1 space-y-0.5">

@@ -17,12 +17,16 @@ import {
   assertCanPerformAction,
   assertCanPerformItemAction,
   assertCanPerformItemStatusAction,
+  assertCanResolveCreatorReturnedItem,
+  assertCanRequestPOItemDelegateChange,
+  assertCanResolvePOItemDelegateChange,
   assertItemAssignedToDelegate,
   assertPOVisible,
   filterVisiblePOs,
   isItemAssignedToDelegate,
   isPOVisible,
   type ActionContext,
+  type DelegateChangeSubject,
   type ItemActionSubject,
   type POActionSubject,
   type POVisibilitySubject,
@@ -140,6 +144,22 @@ export function isItemAssignedToPODelegate(user: MinimalCtxUser, item: { delegat
   return isItemAssignedToDelegate({ role: user.role, userId: user.id }, item);
 }
 
+/** طلب تغيير مندوب الصنف — للمندوب الحالي وقبل التسعير فقط. */
+export function assertCanRequestDelegateChange(
+  user: MinimalCtxUser,
+  subject: DelegateChangeSubject
+): void {
+  assertCanRequestPOItemDelegateChange({ role: user.role, userId: user.id }, subject);
+}
+
+/** حسم طلب تغيير المندوب — لمدير الصيانة أو owner/admin. */
+export function assertCanResolveDelegateChange(
+  user: MinimalCtxUser,
+  subject: DelegateChangeSubject
+): void {
+  assertCanResolvePOItemDelegateChange({ role: user.role, userId: user.id }, subject);
+}
+
 /**
  * يُستخدم من confirmDeliveryToWarehouse/confirmDeliveryToRequester: الفحص على
  * حالة **الصنف** نفسه، لا حالة الطلب (طلب واحد قد يحوي أصنافًا بحالات مختلفة
@@ -151,4 +171,17 @@ export function assertCanPerformItemStatusPOAction(
   itemStatus: string
 ): void {
   assertCanPerformItemStatusAction(actionName, { role: user.role, userId: user.id }, itemStatus);
+}
+
+/** حسم صنف أُعيد لمنشئ الطلب بطلب مراجعة أو بإلغاء شراء. */
+export function assertCanResolveReturnedPOItem(
+  user: MinimalCtxUser,
+  subject: { requestedById: number | null; itemStatus: string },
+  message?: string
+): void {
+  assertCanResolveCreatorReturnedItem(
+    { role: user.role, userId: user.id },
+    subject,
+    message
+  );
 }

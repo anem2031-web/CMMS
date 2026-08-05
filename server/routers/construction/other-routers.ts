@@ -1,7 +1,7 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { eq, desc, asc, and, count, sql } from "drizzle-orm";
-import { router, protectedProcedure } from "../_shared/procedures";
+import { router, constructionProcedure } from "../_shared/procedures";
 import { getDb } from "../../_core/db";
 import {
   constructionTaskComments,
@@ -23,7 +23,7 @@ import {
 
 // ── Task Comments ────────────────────────────────────────────
 export const taskCommentsRouter = router({
-  list: protectedProcedure
+  list: constructionProcedure
     .input(z.object({ taskId: z.number() }))
     .query(async ({ input }) => {
       const db = await getDb(); if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB not available" });
@@ -32,7 +32,7 @@ export const taskCommentsRouter = router({
         .orderBy(asc(constructionTaskComments.createdAt));
     }),
 
-  create: protectedProcedure
+  create: constructionProcedure
     .input(z.object({
       taskId: z.number(),
       projectId: z.number(),
@@ -51,7 +51,7 @@ export const taskCommentsRouter = router({
       return { id: Number((result as any)?.insertId ?? (result as any)?.[0]?.insertId ?? 0) };
     }),
 
-  update: protectedProcedure
+  update: constructionProcedure
     .input(z.object({ id: z.number(), comment: z.string().min(1) }))
     .mutation(async ({ input, ctx }) => {
       const db = await getDb(); if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB not available" });
@@ -64,7 +64,7 @@ export const taskCommentsRouter = router({
       return { success: true };
     }),
 
-  delete: protectedProcedure
+  delete: constructionProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input, ctx }) => {
       const db = await getDb(); if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB not available" });
@@ -79,7 +79,7 @@ export const taskCommentsRouter = router({
 
 // ── Task Dependencies ────────────────────────────────────────
 export const taskDependenciesRouter = router({
-  list: protectedProcedure
+  list: constructionProcedure
     .input(z.object({ taskId: z.number() }))
     .query(async ({ input }) => {
       const db = await getDb(); if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB not available" });
@@ -87,7 +87,7 @@ export const taskDependenciesRouter = router({
         .where(eq(constructionTaskDependencies.taskId, input.taskId));
     }),
 
-  create: protectedProcedure
+  create: constructionProcedure
     .input(z.object({
       taskId: z.number(),
       dependsOnTaskId: z.number(),
@@ -104,7 +104,7 @@ export const taskDependenciesRouter = router({
       return { id: Number((result as any)?.insertId ?? (result as any)?.[0]?.insertId ?? 0) };
     }),
 
-  delete: protectedProcedure
+  delete: constructionProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
       const db = await getDb(); if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB not available" });
@@ -116,7 +116,7 @@ export const taskDependenciesRouter = router({
 
 // ── Project Members ──────────────────────────────────────────
 export const membersRouter = router({
-  list: protectedProcedure
+  list: constructionProcedure
     .input(z.object({ projectId: z.number() }))
     .query(async ({ input }) => {
       const db = await getDb(); if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB not available" });
@@ -125,7 +125,7 @@ export const membersRouter = router({
         .orderBy(asc(constructionProjectMembers.joinedAt));
     }),
 
-  add: protectedProcedure
+  add: constructionProcedure
     .input(z.object({
       projectId: z.number(),
       userId: z.number(),
@@ -142,7 +142,7 @@ export const membersRouter = router({
       return { id: Number((result as any)?.insertId ?? (result as any)?.[0]?.insertId ?? 0) };
     }),
 
-  updateRole: protectedProcedure
+  updateRole: constructionProcedure
     .input(z.object({
       id: z.number(),
       role: z.enum(["manager", "supervisor", "engineer", "technician", "subcontractor", "viewer"]),
@@ -158,7 +158,7 @@ export const membersRouter = router({
       return { success: true };
     }),
 
-  remove: protectedProcedure
+  remove: constructionProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
       const db = await getDb(); if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB not available" });
@@ -167,7 +167,7 @@ export const membersRouter = router({
       return { success: true };
     }),
 
-  workload: protectedProcedure
+  workload: constructionProcedure
     .input(z.object({ projectId: z.number() }))
     .query(async ({ input }) => {
       const db = await getDb(); if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB not available" });
@@ -193,7 +193,7 @@ export const membersRouter = router({
 
 // ── Time Logs ────────────────────────────────────────────────
 export const timeLogsRouter = router({
-  list: protectedProcedure
+  list: constructionProcedure
     .input(z.object({ taskId: z.number() }))
     .query(async ({ input }) => {
       const db = await getDb(); if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB not available" });
@@ -202,7 +202,7 @@ export const timeLogsRouter = router({
         .orderBy(desc(constructionTimeLogs.createdAt));
     }),
 
-  create: protectedProcedure
+  create: constructionProcedure
     .input(z.object({
       taskId: z.number(),
       projectId: z.number(),
@@ -228,7 +228,7 @@ export const timeLogsRouter = router({
       return { id: Number((result as any)?.insertId ?? (result as any)?.[0]?.insertId ?? 0) };
     }),
 
-  delete: protectedProcedure
+  delete: constructionProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
       const db = await getDb(); if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB not available" });
@@ -236,7 +236,7 @@ export const timeLogsRouter = router({
       return { success: true };
     }),
 
-  projectSummary: protectedProcedure
+  projectSummary: constructionProcedure
     .input(z.object({ projectId: z.number() }))
     .query(async ({ input }) => {
       const db = await getDb(); if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB not available" });
@@ -251,7 +251,7 @@ export const timeLogsRouter = router({
 
 // ── Custom Fields ────────────────────────────────────────────
 export const customFieldsRouter = router({
-  list: protectedProcedure
+  list: constructionProcedure
     .input(z.object({ projectId: z.number() }))
     .query(async ({ input }) => {
       const db = await getDb(); if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB not available" });
@@ -260,7 +260,7 @@ export const customFieldsRouter = router({
         .orderBy(asc(constructionCustomFields.orderIndex));
     }),
 
-  create: protectedProcedure
+  create: constructionProcedure
     .input(z.object({
       projectId: z.number(),
       name: z.string().min(1),
@@ -281,7 +281,7 @@ export const customFieldsRouter = router({
       return { id: Number((result as any)?.insertId ?? (result as any)?.[0]?.insertId ?? 0) };
     }),
 
-  delete: protectedProcedure
+  delete: constructionProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
       const db = await getDb(); if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB not available" });
@@ -289,7 +289,7 @@ export const customFieldsRouter = router({
       return { success: true };
     }),
 
-  setValue: protectedProcedure
+  setValue: constructionProcedure
     .input(z.object({
       fieldId: z.number(),
       taskId: z.number(),
@@ -312,7 +312,7 @@ export const customFieldsRouter = router({
 
 // ── Automations ──────────────────────────────────────────────
 export const automationsRouter = router({
-  list: protectedProcedure
+  list: constructionProcedure
     .input(z.object({ projectId: z.number() }))
     .query(async ({ input }) => {
       const db = await getDb(); if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB not available" });
@@ -321,7 +321,7 @@ export const automationsRouter = router({
         .orderBy(desc(constructionAutomations.createdAt));
     }),
 
-  create: protectedProcedure
+  create: constructionProcedure
     .input(z.object({
       projectId: z.number(),
       name: z.string().min(1),
@@ -342,7 +342,7 @@ export const automationsRouter = router({
       return { id: Number((result as any)?.insertId ?? (result as any)?.[0]?.insertId ?? 0) };
     }),
 
-  toggle: protectedProcedure
+  toggle: constructionProcedure
     .input(z.object({ id: z.number(), isActive: z.boolean() }))
     .mutation(async ({ input }) => {
       const db = await getDb(); if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB not available" });
@@ -351,7 +351,7 @@ export const automationsRouter = router({
       return { success: true };
     }),
 
-  delete: protectedProcedure
+  delete: constructionProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
       const db = await getDb(); if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB not available" });
@@ -362,7 +362,7 @@ export const automationsRouter = router({
 
 // ── Goals ────────────────────────────────────────────────────
 export const goalsRouter = router({
-  list: protectedProcedure
+  list: constructionProcedure
     .input(z.object({ projectId: z.number() }))
     .query(async ({ input }) => {
       const db = await getDb(); if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB not available" });
@@ -371,7 +371,7 @@ export const goalsRouter = router({
         .orderBy(asc(constructionGoals.createdAt));
     }),
 
-  create: protectedProcedure
+  create: constructionProcedure
     .input(z.object({
       projectId: z.number(),
       title: z.string().min(1),
@@ -389,7 +389,7 @@ export const goalsRouter = router({
       return { id: Number((result as any)?.insertId ?? (result as any)?.[0]?.insertId ?? 0) };
     }),
 
-  update: protectedProcedure
+  update: constructionProcedure
     .input(z.object({
       id: z.number(),
       title: z.string().optional(),
@@ -403,7 +403,7 @@ export const goalsRouter = router({
       return { success: true };
     }),
 
-  delete: protectedProcedure
+  delete: constructionProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
       const db = await getDb(); if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB not available" });
@@ -414,7 +414,7 @@ export const goalsRouter = router({
 
 // ── Daily Reports ────────────────────────────────────────────
 export const dailyReportsRouter = router({
-  list: protectedProcedure
+  list: constructionProcedure
     .input(z.object({
       projectId: z.number(),
       page: z.number().default(1),
@@ -438,7 +438,7 @@ export const dailyReportsRouter = router({
       };
     }),
 
-  getByDate: protectedProcedure
+  getByDate: constructionProcedure
     .input(z.object({ projectId: z.number(), date: z.string() }))
     .query(async ({ input }) => {
       const db = await getDb(); if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB not available" });
@@ -450,7 +450,7 @@ export const dailyReportsRouter = router({
       return report ?? null;
     }),
 
-  create: protectedProcedure
+  create: constructionProcedure
     .input(z.object({
       projectId: z.number(),
       reportDate: z.string(),
@@ -473,7 +473,7 @@ export const dailyReportsRouter = router({
       return { id: Number((result as any)?.insertId ?? (result as any)?.[0]?.insertId ?? 0) };
     }),
 
-  approve: protectedProcedure
+  approve: constructionProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input, ctx }) => {
       const db = await getDb(); if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB not available" });
@@ -486,7 +486,7 @@ export const dailyReportsRouter = router({
 
 // ── Quantity Tracking ────────────────────────────────────────
 export const quantityTrackingRouter = router({
-  list: protectedProcedure
+  list: constructionProcedure
     .input(z.object({ taskId: z.number() }))
     .query(async ({ input }) => {
       const db = await getDb(); if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB not available" });
@@ -494,7 +494,7 @@ export const quantityTrackingRouter = router({
         .where(eq(constructionQuantityTracking.taskId, input.taskId));
     }),
 
-  listByProject: protectedProcedure
+  listByProject: constructionProcedure
     .input(z.object({ projectId: z.number() }))
     .query(async ({ input }) => {
       const db = await getDb(); if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB not available" });
@@ -502,7 +502,7 @@ export const quantityTrackingRouter = router({
         .where(eq(constructionQuantityTracking.projectId, input.projectId));
     }),
 
-  create: protectedProcedure
+  create: constructionProcedure
     .input(z.object({
       taskId: z.number(),
       projectId: z.number(),
@@ -522,7 +522,7 @@ export const quantityTrackingRouter = router({
       return { id: Number((result as any)?.insertId ?? (result as any)?.[0]?.insertId ?? 0) };
     }),
 
-  update: protectedProcedure
+  update: constructionProcedure
     .input(z.object({
       id: z.number(),
       quantityActual: z.string().optional(),
@@ -537,7 +537,7 @@ export const quantityTrackingRouter = router({
       return { success: true };
     }),
 
-  delete: protectedProcedure
+  delete: constructionProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
       const db = await getDb(); if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB not available" });
@@ -549,7 +549,7 @@ export const quantityTrackingRouter = router({
 
 // ── Change Orders ────────────────────────────────────────────
 export const changeOrdersRouter = router({
-  list: protectedProcedure
+  list: constructionProcedure
     .input(z.object({ projectId: z.number() }))
     .query(async ({ input }) => {
       const db = await getDb(); if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB not available" });
@@ -558,7 +558,7 @@ export const changeOrdersRouter = router({
         .orderBy(desc(constructionChangeOrders.createdAt));
     }),
 
-  create: protectedProcedure
+  create: constructionProcedure
     .input(z.object({
       projectId: z.number(),
       phaseId: z.number().optional(),
@@ -584,7 +584,7 @@ export const changeOrdersRouter = router({
       return { id: Number((result as any)?.insertId ?? (result as any)?.[0]?.insertId ?? 0), changeNumber };
     }),
 
-  approve: protectedProcedure
+  approve: constructionProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input, ctx }) => {
       const db = await getDb(); if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB not available" });
@@ -594,7 +594,7 @@ export const changeOrdersRouter = router({
       return { success: true };
     }),
 
-  reject: protectedProcedure
+  reject: constructionProcedure
     .input(z.object({ id: z.number(), rejectionReason: z.string().min(1) }))
     .mutation(async ({ input, ctx }) => {
       const db = await getDb(); if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB not available" });
@@ -607,7 +607,7 @@ export const changeOrdersRouter = router({
 
 // ── Safety Logs ──────────────────────────────────────────────
 export const safetyLogsRouter = router({
-  list: protectedProcedure
+  list: constructionProcedure
     .input(z.object({
       projectId: z.number(),
       page: z.number().default(1),
@@ -631,7 +631,7 @@ export const safetyLogsRouter = router({
       };
     }),
 
-  create: protectedProcedure
+  create: constructionProcedure
     .input(z.object({
       projectId: z.number(),
       logDate: z.string(),
@@ -655,7 +655,7 @@ export const safetyLogsRouter = router({
       return { id: Number((result as any)?.insertId ?? (result as any)?.[0]?.insertId ?? 0) };
     }),
 
-  close: protectedProcedure
+  close: constructionProcedure
     .input(z.object({ id: z.number(), correctiveAction: z.string().optional() }))
     .mutation(async ({ input, ctx }) => {
       const db = await getDb(); if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB not available" });
@@ -674,7 +674,7 @@ export const safetyLogsRouter = router({
 // ── Reports ──────────────────────────────────────────────────
 export const constructionReportsRouter = router({
   // Delay analysis
-  delayAnalysis: protectedProcedure
+  delayAnalysis: constructionProcedure
     .input(z.object({ projectId: z.number() }))
     .query(async ({ input }) => {
       const db = await getDb(); if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB not available" });
@@ -690,7 +690,7 @@ export const constructionReportsRouter = router({
     }),
 
   // Team performance
-  teamPerformance: protectedProcedure
+  teamPerformance: constructionProcedure
     .input(z.object({ projectId: z.number() }))
     .query(async ({ input }) => {
       const db = await getDb(); if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB not available" });
@@ -706,7 +706,7 @@ export const constructionReportsRouter = router({
     }),
 
   // Budget summary
-  budgetSummary: protectedProcedure
+  budgetSummary: constructionProcedure
     .input(z.object({ projectId: z.number() }))
     .query(async ({ input }) => {
       const db = await getDb(); if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB not available" });
@@ -724,7 +724,7 @@ export const constructionReportsRouter = router({
     }),
 
   // Quantity summary
-  quantitySummary: protectedProcedure
+  quantitySummary: constructionProcedure
     .input(z.object({ projectId: z.number() }))
     .query(async ({ input }) => {
       const db = await getDb(); if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB not available" });
@@ -739,7 +739,7 @@ export const constructionReportsRouter = router({
     }),
 
   // Safety summary
-  safetySummary: protectedProcedure
+  safetySummary: constructionProcedure
     .input(z.object({ projectId: z.number() }))
     .query(async ({ input }) => {
       const db = await getDb(); if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB not available" });

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { router, protectedProcedure } from "../_shared/procedures";
+import { router, catalogProcedure } from "../_shared/procedures";
 import { getDb } from "../../_core/db";
 
 import { exportCatalogExcel }                          from "../../services/catalog/catalogExport.service";
@@ -8,7 +8,7 @@ import { validateCatalogImport }                       from "../../services/cata
 
 export const catalogImportExportRouter = router({
 
-  exportExcel: protectedProcedure
+  exportExcel: catalogProcedure
     .mutation(async () => {
 
       const db     = await getDb();   // ← await
@@ -20,7 +20,7 @@ export const catalogImportExportRouter = router({
       };
     }),
 
-  importPreview: protectedProcedure
+  importPreview: catalogProcedure
     .input(z.object({ fileBase64: z.string() }))
     .mutation(async ({ input }) => {
 
@@ -31,7 +31,7 @@ export const catalogImportExportRouter = router({
       return { parsed, validation };
     }),
 
-  importCommit: protectedProcedure
+  importCommit: catalogProcedure
     .input(z.object({ parsed: z.any() }))
     .mutation(async ({ input }) => {
 

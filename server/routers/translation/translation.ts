@@ -94,7 +94,7 @@ export const translationRouter = router({
     }))
     .mutation(async ({ input, ctx }) => {
       // Only owner, admin, or maintenance_manager can manually override
-      const allowedRoles = ["owner", "admin", "maintenance_manager"];
+      const allowedRoles = ["owner", "admin", "maintenance_manager", "general_maintenance_manager", "construction_procurement_manager"];
       if (!allowedRoles.includes(ctx.user.role)) {
         throw new TRPCError({
           code: "FORBIDDEN",

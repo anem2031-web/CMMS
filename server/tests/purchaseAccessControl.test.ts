@@ -64,11 +64,18 @@ vi.mock("../_core/db", () => {
       if (po) Object.assign(po, data);
     }),
     getPOItems: vi.fn(async (poId: number) => items.filter(i => i.purchaseOrderId === poId)),
+    getPOItemById: vi.fn(async (id: number) => items.find(i => i.id === id) || null),
+    updatePOItem: vi.fn(async (id: number, data: any) => {
+      const item = items.find(i => i.id === id);
+      if (item) Object.assign(item, data, { updatedAt: new Date() });
+    }),
+    getPOItemsForPOs: vi.fn(async (poIds: number[]) => items.filter(i => poIds.includes(i.purchaseOrderId))),
     getPOItemsByDelegate: vi.fn(async (delegateId: number) => items.filter(i => i.delegateId === delegateId)),
     getProcurementComments: vi.fn(async () => procurementComments),
     createProcurementComment: vi.fn(async (data: any) => { procurementComments.push(data); return procurementComments.length; }),
     createNotification: vi.fn(async (data: any) => { notifications.push(data); return 1; }),
     createAuditLog: vi.fn(async (data: any) => { auditLogs.push(data); return 1; }),
+    getPurchaseManagerUsers: vi.fn(async () => users.filter(u => u.role === "maintenance_manager" || u.role === "owner" || u.role === "admin")),
     getManagerUsers: vi.fn(async () => users.filter(u => u.role === "maintenance_manager" || u.role === "owner" || u.role === "admin")),
     getUsersByRole: vi.fn(async (role: string) => users.filter(u => u.role === role)),
     getUserById: vi.fn(async (id: number) => users.find(u => u.id === id) || null),
@@ -104,11 +111,38 @@ vi.mock("../_core/db", () => {
       // طلب تابع لمستخدم آخر تمامًا (لاختبار عدم رؤيته من أدوار "طلباته فقط")
       pos.push({ id: 100, poNumber: "PR-0100", status: "pending_accounting", requestedById: 999 });
 
-      // طلب أنشأه الفني نفسه (userId=7) — لاختبار أنه يرى طلبه هو فقط
-      pos.push({ id: 200, poNumber: "PR-0200", status: "pending_review", requestedById: 7 });
+      // طلبات شخصية لأدوار وظيفية كانت تفقد رؤية طلباتها خارج نطاق عمل الدور
+      pos.push({ id: 200, poNumber: "PR-0200", status: "pending_review", requestedById: 7 }); // technician
+      pos.push({ id: 201, poNumber: "PR-0201", status: "draft", requestedById: 3 }); // accountant
+      pos.push({ id: 202, poNumber: "PR-0202", status: "closed", requestedById: 3 }); // accountant
+      pos.push({ id: 203, poNumber: "PR-0203", status: "draft", requestedById: 6 }); // warehouse
+      pos.push({ id: 204, poNumber: "PR-0204", status: "draft", requestedById: 2 }); // delegate
+      pos.push({ id: 205, poNumber: "PR-0205", status: "draft", requestedById: 4 }); // senior_management
+      pos.push({ id: 206, poNumber: "PR-0206", status: "pending_accounting", requestedById: 5 }); // executive_director
+
+      // حالات تحقق الصلاحيات المطلقة للمالك والمدير على طلبات أنشأها آخرون
+      pos.push({ id: 207, poNumber: "PR-0207", status: "revision_needed", requestedById: 1, notes: "قبل" });
+      pos.push({ id: 208, poNumber: "PR-0208", status: "closed", requestedById: 1, notes: "قبل" });
 
       // صنف مخصص للمندوب صاحب id=2 ضمن الطلب رقم 6
       items.push({ id: 1, purchaseOrderId: 6, delegateId: 2, itemName: "صنف تجريبي" });
+
+      // أصناف أعادها المندوب لمنشئ الطلب للتعديل ثم إعادة الإرسال
+      pos.push({ id: 209, poNumber: "PR-0209", status: "pending_accounting", requestedById: 1 });
+      items.push({
+        id: 20, purchaseOrderId: 209, delegateId: 2, itemName: "صنف يحتاج مراجعة",
+        description: "قبل", quantity: 1, unit: "قطعة", status: "needs_item_revision",
+        itemRevisionNote: "عدّل المواصفات", itemRevisionRequestedById: 2,
+        itemRevisionRequestedAt: new Date(), updatedAt: new Date("2026-08-01T10:00:00Z"),
+      });
+      pos.push({ id: 210, poNumber: "PR-0210", status: "approved", requestedById: 1 });
+      items.push({
+        id: 21, purchaseOrderId: 210, delegateId: 2, itemName: "صنف ملغى الشراء",
+        quantity: 2, unit: "قطعة", status: "purchase_cancelled", estimatedUnitCost: "50",
+        estimatedTotalCost: "100", purchaseCancelReason: "غير متوفر",
+        purchaseCancelledById: 2, purchaseCancelledByName: "Delegate A",
+        purchaseCancelledAt: new Date(), updatedAt: new Date("2026-08-01T11:00:00Z"),
+      });
     },
   };
 });
@@ -178,6 +212,12 @@ describe("معالجة أمنية عاجلة — getById", () => {
     expect(result.id).toBe(4);
   });
 
+  it("accountant يرى مسودته وطلبه المغلق لأنهما من إنشائه", async () => {
+    const caller = appRouter.createCaller(createContext("accountant", 3));
+    await expect(caller.purchaseOrders.getById({ id: 201 })).resolves.toMatchObject({ id: 201 });
+    await expect(caller.purchaseOrders.getById({ id: 202 })).resolves.toMatchObject({ id: 202 });
+  });
+
   it("[سيناريو 11] warehouse لا يرى طلبًا بحالة approved", async () => {
     const caller = appRouter.createCaller(createContext("warehouse", 6));
     await expect(caller.purchaseOrders.getById({ id: 6 })).rejects.toThrow();
@@ -205,6 +245,17 @@ describe("معالجة أمنية عاجلة — getById", () => {
     await expect(caller.purchaseOrders.getById({ id: 4 })).rejects.toThrow();
   });
 
+  it("warehouse/delegate/senior_management/executive_director يرون طلباتهم الشخصية خارج نطاقهم الوظيفي", async () => {
+    await expect(appRouter.createCaller(createContext("warehouse", 6)).purchaseOrders.getById({ id: 203 }))
+      .resolves.toMatchObject({ id: 203 });
+    await expect(appRouter.createCaller(createContext("delegate", 2)).purchaseOrders.getById({ id: 204 }))
+      .resolves.toMatchObject({ id: 204 });
+    await expect(appRouter.createCaller(createContext("senior_management", 4)).purchaseOrders.getById({ id: 205 }))
+      .resolves.toMatchObject({ id: 205 });
+    await expect(appRouter.createCaller(createContext("executive_director", 5)).purchaseOrders.getById({ id: 206 }))
+      .resolves.toMatchObject({ id: 206 });
+  });
+
   it("maintenance_manager يرى أي طلب بأي حالة", async () => {
     const caller = appRouter.createCaller(createContext("maintenance_manager", 8));
     const result = await caller.purchaseOrders.getById({ id: 1 }); // draft
@@ -215,18 +266,19 @@ describe("معالجة أمنية عاجلة — getById", () => {
 describe("معالجة أمنية عاجلة — تطابق نطاق list() مع getById()", () => {
   beforeEach(() => { db._reset(); vi.clearAllMocks(); db._setupScenario(); });
 
-  it("قائمة accountant تحتوي فقط الطلبات بحالة pending_accounting بالضبط (تطابق تام لا نطاق)", async () => {
+  it("قائمة accountant تجمع بين pending_accounting وطلباته الشخصية", async () => {
     const caller = appRouter.createCaller(createContext("accountant", 3));
     const list = await caller.purchaseOrders.list();
     expect(list.length).toBeGreaterThan(0);
-    expect(list.every((po: any) => po.status === "pending_accounting")).toBe(true);
+    expect(list.every((po: any) => po.status === "pending_accounting" || po.requestedById === 3)).toBe(true);
+    expect(list.map((po: any) => po.id)).toEqual(expect.arrayContaining([4, 100, 201, 202]));
     // كل طلب ظاهر بالقائمة يجب أن يكون قابلًا للفتح عبر getById لنفس الدور (تطابق النطاقين)
     for (const po of list) {
       await expect(caller.purchaseOrders.getById({ id: po.id })).resolves.toBeDefined();
     }
   });
 
-  it("accountant لا يرى الطلب فور اعتماده (pending_management) حتى لو هو من اعتمده", async () => {
+  it("accountant لا يرى طلب شخص آخر بعد انتقاله إلى pending_management", async () => {
     const caller = appRouter.createCaller(createContext("accountant", 3));
     await caller.purchaseOrders.getById({ id: 4 }); // متاح أثناء pending_accounting
     db._pos.find((p: any) => p.id === 4).status = "pending_management"; // محاكاة اعتماده
@@ -235,7 +287,7 @@ describe("معالجة أمنية عاجلة — تطابق نطاق list() مع
     expect(list.some((po: any) => po.id === 4)).toBe(false);
   });
 
-  it("accountant لا يرى الطلب فور رفضه (rejected) حتى لو هو من رفضه", async () => {
+  it("accountant لا يرى طلب شخص آخر بعد رفضه", async () => {
     const caller = appRouter.createCaller(createContext("accountant", 3));
     await caller.purchaseOrders.reject({ id: 4, reason: "سبب" }); // accountant يرفض بمرحلته
     await expect(caller.purchaseOrders.getById({ id: 4 })).rejects.toThrow();
@@ -243,12 +295,26 @@ describe("معالجة أمنية عاجلة — تطابق نطاق list() مع
     expect(list.some((po: any) => po.id === 4)).toBe(false);
   });
 
-  it("قائمة warehouse تحتوي فقط partial_purchase/purchased/received/closed", async () => {
+  it("قائمة warehouse تجمع مراحل عمل المستودع الأربع مع طلباته الشخصية فقط", async () => {
+    db._pos.push({ id: 211, poNumber: "PR-0211", status: "rejected", requestedById: 999 });
+    db._pos.push({ id: 212, poNumber: "PR-0212", status: "revision_needed", requestedById: 999 });
+    db._pos.push({ id: 213, poNumber: "PR-0213", status: "rejected", requestedById: 6 });
+
     const caller = appRouter.createCaller(createContext("warehouse", 6));
     const list = await caller.purchaseOrders.list();
     const visibleStatuses = ["partial_purchase", "purchased", "received", "closed"];
-    expect(list.every((po: any) => visibleStatuses.includes(po.status))).toBe(true);
-    expect(list.length).toBeGreaterThan(0);
+    expect(list.every((po: any) => visibleStatuses.includes(po.status) || po.requestedById === 6)).toBe(true);
+    expect(list.some((po: any) => po.id === 203 && po.status === "draft")).toBe(true);
+    expect(list.some((po: any) => po.id === 211)).toBe(false);
+    expect(list.some((po: any) => po.id === 212)).toBe(false);
+    expect(list.some((po: any) => po.id === 213 && po.status === "rejected")).toBe(true);
+  });
+
+  it("قائمة delegate تجمع الطلبات المسندة إليه مع مسودته الشخصية", async () => {
+    const caller = appRouter.createCaller(createContext("delegate", 2));
+    const list = await caller.purchaseOrders.list();
+    expect(list.map((po: any) => po.id)).toEqual(expect.arrayContaining([6, 204]));
+    expect(list.some((po: any) => po.id === 7)).toBe(false);
   });
 
   it("قائمة technician تعرض طلبه هو فقط (PR-0200)، ولا تعرض أي طلب آخر", async () => {
@@ -259,10 +325,118 @@ describe("معالجة أمنية عاجلة — تطابق نطاق list() مع
     expect(list.every((po: any) => po.requestedById === 7)).toBe(true);
   });
 
-  it("قائمة senior_management لا تحتوي pending_accounting أو ما قبلها", async () => {
+  it("قائمة senior_management تحجب المراحل المبكرة للآخرين وتعرض طلباته الشخصية", async () => {
     const caller = appRouter.createCaller(createContext("senior_management", 4));
     const list = await caller.purchaseOrders.list();
     const hiddenStatuses = ["draft", "pending_review", "pending_estimate", "pending_accounting"];
-    expect(list.every((po: any) => !hiddenStatuses.includes(po.status))).toBe(true);
+    expect(list.every((po: any) => !hiddenStatuses.includes(po.status) || po.requestedById === 4)).toBe(true);
+    expect(list.some((po: any) => po.id === 205 && po.status === "draft")).toBe(true);
   });
 });
+
+describe("معالجة الرؤية — actionableForMe", () => {
+  beforeEach(() => { db._reset(); vi.clearAllMocks(); db._setupScenario(); });
+
+  it("يعرض للمحاسب مسودته الشخصية كإجراء مطلوب منه", async () => {
+    const caller = appRouter.createCaller(createContext("accountant", 3));
+    const result = await caller.purchaseOrders.actionableForMe();
+    expect(result.items.some((po: any) => po.id === 201 && po.reason === "مسودة لم تُرسل بعد")).toBe(true);
+  });
+
+  it("لا يحول طلب المستخدم المرسل إلى إجراء له عندما ينتظر دورًا آخر", async () => {
+    const caller = appRouter.createCaller(createContext("executive_director", 5));
+    const result = await caller.purchaseOrders.actionableForMe();
+    expect(result.items.some((po: any) => po.id === 206)).toBe(false);
+  });
+});
+
+describe("صلاحيات owner/admin المطلقة على طلبات الآخرين", () => {
+  beforeEach(() => { db._reset(); vi.clearAllMocks(); db._setupScenario(); });
+
+
+  it("مدير الصيانة لا يعدل الطلب في pending_estimate أو pending_accounting", async () => {
+    const caller = appRouter.createCaller(createContext("maintenance_manager", 8));
+    await expect(caller.purchaseOrders.update({ id: 3, notes: "غير مسموح" })).rejects.toThrow();
+    await expect(caller.purchaseOrders.update({ id: 4, notes: "غير مسموح" })).rejects.toThrow();
+    await expect(caller.purchaseOrders.update({ id: 2, notes: "مسموح أثناء المراجعة" })).resolves.toEqual({ success: true });
+  });
+
+  it("owner يعيد تقديم طلب revision_needed أنشأه مستخدم آخر", async () => {
+    const caller = appRouter.createCaller(createContext("owner", 9));
+    await expect(caller.purchaseOrders.resubmit({ id: 207, note: "تمت المراجعة إداريًا" })).resolves.toEqual({ success: true });
+    expect(db._pos.find((p: any) => p.id === 207).status).toBe("pending_review");
+  });
+
+  it("admin يعدل بيانات طلب مغلق أنشأه مستخدم آخر", async () => {
+    const caller = appRouter.createCaller(createContext("admin", 99));
+    await expect(caller.purchaseOrders.update({ id: 208, notes: "تعديل إداري" })).resolves.toEqual({ success: true });
+    expect(db._pos.find((p: any) => p.id === 208).notes).toBe("تعديل إداري");
+  });
+
+  it("الدور العادي لا يعيد تقديم طلب مستخدم آخر", async () => {
+    const caller = appRouter.createCaller(createContext("purchase_requester", 55));
+    await expect(caller.purchaseOrders.resubmit({ id: 207 })).rejects.toThrow();
+  });
+});
+
+describe("تعديل الصنف المرتجع وحفظه وإعادة إرساله", () => {
+  beforeEach(() => { db._reset(); vi.clearAllMocks(); db._setupScenario(); });
+
+  it("منشئ الطلب يعدل صنف طلب المراجعة ويعيده للمندوب في عملية واحدة", async () => {
+    const caller = appRouter.createCaller(createContext("purchase_requester", 1));
+    await expect(caller.purchaseOrders.editAndResubmitReturnedItem({
+      id: 20,
+      purchaseOrderId: 209,
+      itemName: "صنف معدل",
+      description: "تم تعديل المواصفات",
+      quantity: 3,
+      unit: "علبة",
+      lastKnownUpdatedAt: "2026-08-01T10:00:00.000Z",
+    })).resolves.toEqual({ success: true, status: "pending" });
+
+    expect(db._items.find((i: any) => i.id === 20)).toMatchObject({
+      itemName: "صنف معدل",
+      description: "تم تعديل المواصفات",
+      quantity: 3,
+      unit: "علبة",
+      status: "pending",
+      itemRevisionNote: null,
+      itemRevisionRequestedById: null,
+      itemRevisionRequestedAt: null,
+    });
+  });
+
+  for (const role of ["owner", "admin"]) {
+    it(`${role} يعدل صنفًا ملغى الشراء من طلب شخص آخر ويعيده للشراء`, async () => {
+      const caller = appRouter.createCaller(createContext(role, role === "owner" ? 9 : 99));
+      await expect(caller.purchaseOrders.editAndResubmitReturnedItem({
+        id: 21,
+        purchaseOrderId: 210,
+        itemName: `صنف معدل بواسطة ${role}`,
+        quantity: 4,
+        lastKnownUpdatedAt: "2026-08-01T11:00:00.000Z",
+      })).resolves.toEqual({ success: true, status: "approved" });
+
+      expect(db._items.find((i: any) => i.id === 21)).toMatchObject({
+        itemName: `صنف معدل بواسطة ${role}`,
+        quantity: 4,
+        status: "approved",
+        estimatedTotalCost: "200",
+        purchaseCancelReason: null,
+        purchaseCancelledById: null,
+        purchaseCancelledByName: null,
+        purchaseCancelledAt: null,
+      });
+    });
+  }
+
+  it("مستخدم غير المنشئ وغير الإدارة لا يستطيع التعديل وإعادة الإرسال", async () => {
+    const caller = appRouter.createCaller(createContext("maintenance_manager", 8));
+    await expect(caller.purchaseOrders.editAndResubmitReturnedItem({
+      id: 20,
+      purchaseOrderId: 209,
+      itemName: "تعديل غير مسموح",
+    })).rejects.toThrow();
+  });
+});
+

@@ -616,7 +616,7 @@ export async function generatePurchaseRequestPDF(
   // Verify delegate owns at least one item in this PO
   const delegateItems = (allItems as any[]).filter((item: any) => item.delegateId === delegateId);
   const requestingUser = await db.getUserById(delegateId);
-  const canViewAll = ["admin", "owner", "maintenance_manager", "purchase_manager", "accountant"].includes(requestingUser?.role || "");
+  const canViewAll = ["admin", "owner", "maintenance_manager", "general_maintenance_manager", "construction_procurement_manager", "purchase_manager", "accountant"].includes(requestingUser?.role || "");
   if (delegateItems.length === 0 && !canViewAll) throw new Error("Access denied: not your request");
 
   // المندوب لا يحتاج يشوف صفوف اعتماد الحسابات/الرئيس التنفيذي ولا قسم الشؤون المالية

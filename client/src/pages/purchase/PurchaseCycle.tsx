@@ -17,11 +17,12 @@ import {
   ShoppingCart, Package, Truck, CheckCircle2, Camera, Loader2,
   Clock, ArrowLeft, ArrowRight, Image as ImageIcon, FileText,
   AlertCircle, User, Hash, Calendar, Ban, Archive, Sparkles,
-  Search, QrCode, X
+  Search, QrCode, X, Send
 } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { printDeliveryReceipt } from "@/lib/printDeliveryDocument";
+import { sortPurchaseCycleItemsNewestFirst } from "./purchaseCycleSorting";
 
 // ── مكوّنات مستقلة (خارج الـ component لمنع إعادة الإنشاء) ──────
 
@@ -90,9 +91,7 @@ function FilterBar({
 function DeliveryDocumentsTab({ deliveryDocsQuery, returnDocsQuery, searchDocs, setSearchDocs, docRecipient, setDocRecipient, docDateFrom, setDocDateFrom, docDateTo, setDocDateTo, pageDocs, setPageDocs, incrementDocPrintMut, incrementReturnDocPrintMut }: any) {
   const deliveryDocs = (deliveryDocsQuery.data ?? []).map((d: any) => ({ ...d, docType: "delivery" as const }));
   const returnDocsRaw = (returnDocsQuery?.data ?? []).map((d: any) => ({ ...d, docType: "return" as const }));
-  const docs = [...deliveryDocs, ...returnDocsRaw].sort(
-    (a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-  );
+  const docs = sortPurchaseCycleItemsNewestFirst([...deliveryDocs, ...returnDocsRaw]);
 
   // فلتر الوثائق
   const recipients = [...new Set(deliveryDocs.map((d: any) => d.deliveredToName).filter(Boolean))];
@@ -218,7 +217,7 @@ body{font-family:'Cairo',Arial,sans-serif;background:#fff;color:#1a1a1a;padding:
 .header-sub{font-size:11px;color:#555;margin-top:4px}
 .header-meta{text-align:left;font-size:11px;color:#555;line-height:2}
 .badge{display:inline-block;background:#1e3a5f;color:#fff;padding:3px 10px;border-radius:4px;font-size:13px;font-weight:700}
-.parties{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px}
+.parties{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px;margin-bottom:16px}
 .party-box{border:1px solid #dde3ea;border-radius:8px;padding:12px 14px}
 .party-role{font-size:10px;color:#777;margin-bottom:4px}
 .party-name{font-size:15px;font-weight:700;color:#1e3a5f}
@@ -244,11 +243,13 @@ body{font-family:'Cairo',Arial,sans-serif;background:#fff;color:#1a1a1a;padding:
     <div>التاريخ: <strong>${new Date(doc.createdAt).toLocaleDateString("ar-SA",{year:"numeric",month:"long",day:"numeric"})}</strong></div>
     <div><span class="badge">${doc.deliveryNumber}</span></div>
     ${doc.poNumber ? `<div>أمر شراء: <strong>${doc.poNumber}</strong></div>` : ""}
+    ${doc.ticketNumber ? `<div>البلاغ: <strong>${doc.ticketNumber}</strong></div>` : ""}
   </div>
 </div>
 <div class="parties">
   <div class="party-box"><div class="party-role">المُسلِّم</div><div class="party-name">${doc.deliveredByName}</div></div>
-  <div class="party-box"><div class="party-role">المُستلِم (الفني)</div><div class="party-name">${doc.deliveredToName}</div></div>
+  ${doc.assignedTechnicianName ? `<div class="party-box"><div class="party-role">الفني المسند للبلاغ</div><div class="party-name">${doc.assignedTechnicianName}</div></div>` : ""}
+  <div class="party-box"><div class="party-role">الفني المستلم فعليًا</div><div class="party-name">${doc.deliveredToName}</div></div>
 </div>
 <div class="section">
   <div class="section-title">بيانات الصنف</div>
@@ -351,7 +352,9 @@ body{font-family:'Cairo',Arial,sans-serif;background:#fff;color:#1a1a1a;padding:
                   ) : (
                     <>
                       <span>المُسلِّم: {doc.deliveredByName}</span>
-                      <span>المُستلِم: {doc.deliveredToName}</span>
+                      {doc.assignedTechnicianName && <span>الفني المسند: {doc.assignedTechnicianName}</span>}
+                      <span>المستلم فعليًا: {doc.deliveredToName}</span>
+                      {doc.ticketNumber && <span>البلاغ: {doc.ticketNumber}</span>}
                       <span>الكمية: {doc.quantity} {doc.unit || ""}</span>
                     </>
                   )}
@@ -388,9 +391,6 @@ export default function PurchaseCycle() {
 
   // Delivery documents tab
   const deliveryDocsQuery = trpc.deliveryDocuments.list.useQuery();
-  const generateDocMut = trpc.deliveryDocuments.generate.useMutation({
-    onSuccess: () => { deliveryDocsQuery.refetch(); },
-  });
   const incrementDocPrintMut = trpc.deliveryDocuments.incrementPrint.useMutation();
 
   // Return documents (نفس تبويب "التوثيق" — تُنشأ تلقائياً بالخادم مع كل مرتجع)
@@ -441,9 +441,6 @@ export default function PurchaseCycle() {
     e.target.value = "";
   };
 
-  // Sort items by date (oldest first)
-  const sortByDate = (items: any[]) => [...items].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
-
   // Step indicator component
 
   const { t, language } = useTranslation();
@@ -467,8 +464,11 @@ export default function PurchaseCycle() {
   const { data: inventoryItems = [], refetch: refetchInventory } = trpc.purchaseOrders.inventoryReadyForDelivery.useQuery(undefined, { enabled: isWarehouse || isAdminOrOwner });
   // إدخال المخزون — أصناف وصلت للمستودع وبانتظار إدخال المخزون
   const pendingInventoryEntry = (pendingDelivery as any[]).filter((i: any) => !i.inventoryEntered);
-  // تجميع حسب رقم فاتورة المورد (وليس اسم المورد — أدق لأنه مكتوب مباشرة من الفاتورة الورقية)
-  const groupedByInvoiceNumber = (pendingDelivery as any[]).reduce((groups: any, item: any) => {
+  const newestPendingDelivery = sortPurchaseCycleItemsNewestFirst(pendingDelivery as any[]);
+  const newestInventoryItems = sortPurchaseCycleItemsNewestFirst(inventoryItems as any[]);
+  // تجميع حسب رقم فاتورة المورد بعد ترتيب الأصناف من الأحدث إلى الأقدم.
+  // وبذلك يظهر أحدث رقم فاتورة أولاً، وتظهر أحدث أصناف الفاتورة في بدايتها.
+  const groupedByInvoiceNumber = newestPendingDelivery.reduce((groups: any, item: any) => {
     const key = item.supplierInvoiceNumber || "بدون رقم فاتورة";
     if (!groups[key]) groups[key] = [];
     groups[key].push(item);
@@ -480,6 +480,7 @@ export default function PurchaseCycle() {
 
   // Mutations
   const estimateCostMut = trpc.purchaseOrders.estimateCost.useMutation({ onSuccess: () => { toast.success(t.purchaseOrders.pricingSaved); refetchAll(); }, onError: (e: any) => toast.error(e.message) });
+  const submitPricedBatchMut = trpc.purchaseOrders.submitPricedBatch.useMutation({ onSuccess: () => { toast.success("تم إرسال التسعير إلى الحسابات"); refetchAll(); }, onError: (e: any) => toast.error(e.message) });
   const confirmPurchaseMut = trpc.purchaseOrders.confirmItemPurchase.useMutation({ onSuccess: () => { toast.success(t.purchaseOrders.purchased); refetchAll(); }, onError: (e: any) => toast.error(e.message) });
   const cancelPurchaseMut = trpc.purchaseOrders.cancelItemPurchase.useMutation({ onSuccess: () => { toast.success(t.purchaseOrders.cancelPurchaseSuccess); refetchAll(); setCancelDialog(null); setCancelNote(""); }, onError: (e: any) => toast.error(e.message) });
   const confirmWarehouseMut = trpc.purchaseOrders.confirmDeliveryToWarehouse.useMutation({ onSuccess: () => { toast.success(t.purchaseOrders.deliveredToWarehouse); refetchAll(); }, onError: (e: any) => toast.error(e.message) });
@@ -507,28 +508,11 @@ export default function PurchaseCycle() {
     onSuccess: (data) => {
       toast.success(t.purchaseOrders.deliveredToRequester);
       refetchAll();
+      refetchInventory();
+      deliveryDocsQuery.refetch();
       setDeliveryPrintData((prev: any) => {
         if (prev) {
-          const fullData = { ...prev, deliveryNumber: data?.deliveryNumber };
-          printDeliveryReceipt(fullData);
-          // حفظ الوثيقة — نستخدم setTimeout لأن setState callback ليس المكان المناسب لـ mutate
-          setTimeout(() => {
-            generateDocMut.mutate({
-              deliveryNumber: data?.deliveryNumber ?? "",
-              poItemId: fullData.itemId,
-              itemName: fullData.itemName,
-              deliveredByName: fullData.deliveredByName,
-              deliveredToName: fullData.deliveredToName,
-              quantity: fullData.quantity,
-              unit: fullData.unit,
-              supplierName: fullData.supplierName,
-              actualUnitCost: fullData.actualUnitCost,
-              poNumber: fullData.poNumber,
-              warehousePhotoUrl: fullData.warehousePhotoUrl,
-              notes: fullData.notes,
-              deliveredAt: fullData.deliveredAt,
-            });
-          }, 0);
+          printDeliveryReceipt({ ...prev, deliveryNumber: data?.deliveryNumber });
         }
         return null;
       });
@@ -662,8 +646,9 @@ export default function PurchaseCycle() {
               <div className="flex items-center gap-2 flex-wrap">
                 <h3 className="font-semibold text-sm truncate">{item.itemName}</h3>
                 <Badge variant="outline" className={`text-[10px] ${statusColors[item.status] || ""}`}>
-                  {statusLabels[item.status] || item.status}
+                  {item.isExternalMaintenance ? "تنفيذ الصيانة الخارجية" : (statusLabels[item.status] || item.status)}
                 </Badge>
+                {item.isExternalMaintenance && <Badge className="text-[10px] bg-purple-100 text-purple-700">مسار C</Badge>}
               </div>
 
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-1 text-xs text-muted-foreground">
@@ -693,7 +678,7 @@ export default function PurchaseCycle() {
             </div>
 
             <Button size="sm" className="shrink-0 gap-1.5" onClick={onAction}>
-              {step === 1 && <><ShoppingCart className="w-4 h-4" /> {t.purchaseOrders.confirmPurchase}</>}
+              {step === 1 && <><ShoppingCart className="w-4 h-4" /> {item.isExternalMaintenance ? "تأكيد اكتمال الصيانة" : t.purchaseOrders.confirmPurchase}</>}
               {step === 2 && <><Package className="w-4 h-4" /> {t.purchaseOrders.confirmDeliveryToWarehouse}</>}
               {step === 3 && <><Truck className="w-4 h-4" /> تسليم للفني</>}
             </Button>
@@ -762,14 +747,14 @@ export default function PurchaseCycle() {
         {/* ==================== TAB 0: Estimate (Delegate - Revision Items) ==================== */}
         <TabsContent value="estimate" className="mt-4 space-y-4">
           <FilterBar search={searchEstimate} setSearch={v => { setSearchEstimate(v); setPageEstimate(1); }} from={dateFrom} setFrom={v => { setDateFrom(v); setPageEstimate(1); }} to={dateTo} setTo={v => { setDateTo(v); setPageEstimate(1); }} placeholder="بحث في الأصناف..." />
-          {filterItems(sortByDate(pendingEstimate), searchEstimate, dateFrom, dateTo).length === 0 ? (
+          {filterItems(sortPurchaseCycleItemsNewestFirst(pendingEstimate), searchEstimate, dateFrom, dateTo).length === 0 ? (
             <Card><CardContent className="p-8 text-center text-muted-foreground">
               <CheckCircle2 className="w-10 h-10 mx-auto mb-3 text-green-500" />
               <p className="font-medium">لا توجد أصناف بانتظار التسعير</p>
             </CardContent></Card>
           ) : (
             <><div className="space-y-3">
-              {filterItems(sortByDate(pendingEstimate), searchEstimate, dateFrom, dateTo).slice((pageEstimate-1)*PAGE_SIZE, pageEstimate*PAGE_SIZE).map((item: any) => (
+              {filterItems(sortPurchaseCycleItemsNewestFirst(pendingEstimate), searchEstimate, dateFrom, dateTo).slice((pageEstimate-1)*PAGE_SIZE, pageEstimate*PAGE_SIZE).map((item: any) => (
                 <Card key={item.id} className="border-amber-200 bg-amber-50">
                   <CardContent className="p-4 space-y-3">
                     <div className="flex items-start justify-between gap-2">
@@ -779,6 +764,7 @@ export default function PurchaseCycle() {
                         <div className="flex flex-wrap gap-2 mt-1.5">
                           <Badge variant="outline" className="text-[10px]">الكمية: {item.quantity} {item.unit || ""}</Badge>
                           {item.purchaseOrderNumber && <Badge variant="outline" className="text-[10px]">{item.purchaseOrderNumber}</Badge>}
+                          {item.isExternalMaintenance && <Badge className="text-[10px] bg-purple-100 text-purple-700 border-purple-200">صيانة أصل خارجية</Badge>}
                         </div>
                         {item.itemRevisionNote && (
                           <div className="mt-2 text-xs bg-red-50 border border-red-200 rounded p-2 text-red-700">
@@ -787,40 +773,58 @@ export default function PurchaseCycle() {
                         )}
                       </div>
                     </div>
-                    <div className="flex gap-2 items-end">
-                      <div className="flex-1">
-                        <Label className="text-xs text-amber-700">السعر التقديري للوحدة (ر.س)</Label>
-                        <Input
-                          type="number"
-                          placeholder="0.00"
-                          value={estimateValues[item.id] || ""}
-                          onChange={e => setEstimateValues(p => ({ ...p, [item.id]: e.target.value }))}
-                          className="mt-1 bg-white"
-                        />
-                      </div>
-                      {estimateValues[item.id] && parseFloat(estimateValues[item.id]) > 0 && (
-                        <div className="text-xs text-amber-700 pb-2">
-                          = {(parseFloat(estimateValues[item.id]) * item.quantity).toLocaleString()} ر.س
+                    {item.status === "estimated" ? (
+                      <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3">
+                        <div>
+                          <div className="text-xs text-emerald-700">تم حفظ السعر</div>
+                          <div className="font-semibold text-emerald-900">{Number(item.estimatedTotalCost || item.estimatedUnitCost || 0).toLocaleString("ar-SA")} ر.س</div>
                         </div>
-                      )}
-                      <Button
-                        size="sm"
-                        disabled={!estimateValues[item.id] || parseFloat(estimateValues[item.id]) <= 0 || estimateCostMut.isPending}
-                        onClick={() => {
-                          if (!estimateValues[item.id] || parseFloat(estimateValues[item.id]) <= 0) {
-                            toast.error(t.purchaseOrders.enterPrice);
-                            return;
-                          }
-                          estimateCostMut.mutate({
-                            purchaseOrderId: item.purchaseOrderId,
-                            items: [{ id: item.id, estimatedUnitCost: estimateValues[item.id] }]
-                          });
-                        }}
-                        className="shrink-0"
-                      >
-                        {estimateCostMut.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : t.purchaseOrders.savePricing}
-                      </Button>
-                    </div>
+                        <Button
+                          size="sm"
+                          disabled={submitPricedBatchMut.isPending}
+                          onClick={() => submitPricedBatchMut.mutate({ purchaseOrderId: item.purchaseOrderId })}
+                          className="gap-2 bg-emerald-600 hover:bg-emerald-700"
+                        >
+                          {submitPricedBatchMut.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Send className="w-3 h-3" />}
+                          إرسال للحسابات
+                        </Button>
+                      </div>
+                    ) : (
+                      <div className="flex gap-2 items-end">
+                        <div className="flex-1">
+                          <Label className="text-xs text-amber-700">السعر التقديري للوحدة (ر.س)</Label>
+                          <Input
+                            type="number"
+                            placeholder="0.00"
+                            value={estimateValues[item.id] || ""}
+                            onChange={e => setEstimateValues(p => ({ ...p, [item.id]: e.target.value }))}
+                            className="mt-1 bg-white"
+                          />
+                        </div>
+                        {estimateValues[item.id] && parseFloat(estimateValues[item.id]) > 0 && (
+                          <div className="text-xs text-amber-700 pb-2">
+                            = {(parseFloat(estimateValues[item.id]) * item.quantity).toLocaleString()} ر.س
+                          </div>
+                        )}
+                        <Button
+                          size="sm"
+                          disabled={!estimateValues[item.id] || parseFloat(estimateValues[item.id]) <= 0 || estimateCostMut.isPending}
+                          onClick={() => {
+                            if (!estimateValues[item.id] || parseFloat(estimateValues[item.id]) <= 0) {
+                              toast.error(t.purchaseOrders.enterPrice);
+                              return;
+                            }
+                            estimateCostMut.mutate({
+                              purchaseOrderId: item.purchaseOrderId,
+                              items: [{ id: item.id, estimatedUnitCost: estimateValues[item.id] }]
+                            });
+                          }}
+                          className="shrink-0"
+                        >
+                          {estimateCostMut.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : t.purchaseOrders.savePricing}
+                        </Button>
+                      </div>
+                    )}
                   </CardContent>
                 </Card>
               ))}
@@ -838,7 +842,7 @@ export default function PurchaseCycle() {
             </CardContent></Card>
           ) : (
             <><div className="space-y-3">
-              {filterItems(sortByDate(pendingPurchase), searchPurchase, dateFrom, dateTo).slice((pagePurchase-1)*PAGE_SIZE, pagePurchase*PAGE_SIZE).map((item: any) => (
+              {filterItems(sortPurchaseCycleItemsNewestFirst(pendingPurchase), searchPurchase, dateFrom, dateTo).slice((pagePurchase-1)*PAGE_SIZE, pagePurchase*PAGE_SIZE).map((item: any) => (
                 <ItemCard key={item.id} item={item} step={1} onAction={() => {
                   setPurchasePhotos({});
                   setPurchaseDialog(item);
@@ -858,7 +862,7 @@ export default function PurchaseCycle() {
             </CardContent></Card>
           ) : (
             <><div className="space-y-3">
-              {filterItems(sortByDate(pendingWarehouse), searchWarehouse, dateFrom, dateTo).slice((pageWarehouse-1)*PAGE_SIZE, pageWarehouse*PAGE_SIZE).map((item: any) => (
+              {filterItems(sortPurchaseCycleItemsNewestFirst(pendingWarehouse), searchWarehouse, dateFrom, dateTo).slice((pageWarehouse-1)*PAGE_SIZE, pageWarehouse*PAGE_SIZE).map((item: any) => (
                 <ItemCard key={item.id} item={item} step={2} onAction={() => {
                   setWarehouseForm({ receivedQuantity: String(item.quantity || ""), supplierInvoiceNumber: "", warehousePhotoUrl: "" });
                   setWarehouseDialog(item);
@@ -964,7 +968,7 @@ export default function PurchaseCycle() {
               </div>
             )}
           </div>
-          {filterDeliveryItems(inventoryItems as any[], searchDelivery).length === 0 ? (
+          {filterDeliveryItems(newestInventoryItems, searchDelivery).length === 0 ? (
             <Card><CardContent className="p-8 text-center text-muted-foreground">
               <CheckCircle2 className="w-10 h-10 mx-auto mb-3 text-green-500" />
               <p className="font-medium">{t.purchaseOrders.noItemsPending}</p>
@@ -972,7 +976,7 @@ export default function PurchaseCycle() {
             </CardContent></Card>
           ) : (
             <><div className="space-y-3">
-              {filterDeliveryItems(inventoryItems as any[], searchDelivery).slice((pageDelivery-1)*PAGE_SIZE, pageDelivery*PAGE_SIZE).map((item: any) => (
+              {filterDeliveryItems(newestInventoryItems, searchDelivery).slice((pageDelivery-1)*PAGE_SIZE, pageDelivery*PAGE_SIZE).map((item: any) => (
                 <Card key={item.id} className="hover:shadow-md transition-shadow">
                   <CardContent className="p-4">
                     <div className="flex items-start justify-between gap-3">
@@ -995,6 +999,11 @@ export default function PurchaseCycle() {
                               {item.poNumber}
                             </span>
                           )}
+                          {item.ticketNumber && item.ticketAssignedToName && (
+                            <span className="text-[10px] bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded">
+                              بلاغ {item.ticketNumber} — الفني المسند: {item.ticketAssignedToName}
+                            </span>
+                          )}
                           {item.averageCost > 0 && (
                             <span className="font-mono">{parseFloat(item.averageCost).toFixed(2)} ر.س</span>
                           )}
@@ -1004,9 +1013,9 @@ export default function PurchaseCycle() {
                         size="sm"
                         className="gap-1.5 shrink-0"
                         onClick={() => {
-                          const preselect = item.ticketAssignedToId ? String(item.ticketAssignedToId) : "";
-                          setDeliveryUserId(preselect);
-                          setDeliveryQty(String(item.quantity || ""));
+                          // المستلم الفعلي اختيار صريح وإلزامي حتى لو كان هو نفس الفني المسند.
+                          setDeliveryUserId("");
+                          setDeliveryQty("");
                           setDeliveryUnit(item.unit || "قطعة");
                           setDeliveryNotes("");
                           // نمرر بيانات الصنف من المخزون للـ dialog
@@ -1032,7 +1041,7 @@ export default function PurchaseCycle() {
 
 
             </div>
-            <Pagination total={filterDeliveryItems(inventoryItems as any[], searchDelivery).length} page={pageDelivery} setPage={setPageDelivery} /></>)}
+            <Pagination total={filterDeliveryItems(newestInventoryItems, searchDelivery).length} page={pageDelivery} setPage={setPageDelivery} /></>)}
         </TabsContent>
 
         {/* ==================== TAB 5: Delivery Documents ==================== */}
@@ -1047,7 +1056,7 @@ export default function PurchaseCycle() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <ShoppingCart className="w-5 h-5 text-primary" />
-              {t.purchaseOrders.confirmPurchase}
+              {purchaseDialog?.isExternalMaintenance ? "تأكيد اكتمال الصيانة الخارجية" : t.purchaseOrders.confirmPurchase}
             </DialogTitle>
           </DialogHeader>
 
@@ -1065,7 +1074,7 @@ export default function PurchaseCycle() {
                 {/* Purchased item photo */}
                 <div className="space-y-2">
                   <Label className="text-xs font-medium flex items-center gap-1">
-                    <Camera className="w-3.5 h-3.5" /> {t.purchaseOrders.purchasedItemPhoto} *
+                    <Camera className="w-3.5 h-3.5" /> {purchaseDialog?.isExternalMaintenance ? "صورة الأصل بعد الصيانة" : t.purchaseOrders.purchasedItemPhoto} *
                   </Label>
                   {purchasePhotos.purchased ? (
                     <div className="relative">
@@ -1082,7 +1091,7 @@ export default function PurchaseCycle() {
                 {/* Invoice photo */}
                 <div className="space-y-2">
                   <Label className="text-xs font-medium flex items-center gap-1">
-                    <FileText className="w-3.5 h-3.5" /> {t.purchaseOrders.invoicePhoto} *
+                    <FileText className="w-3.5 h-3.5" /> {purchaseDialog?.isExternalMaintenance ? "فاتورة أو تقرير الورشة" : t.purchaseOrders.invoicePhoto} *
                   </Label>
                   {purchasePhotos.invoice ? (
                     <div className="relative">
@@ -1131,7 +1140,7 @@ export default function PurchaseCycle() {
               }}
             >
               {confirmPurchaseMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
-              {t.purchaseOrders.confirmPurchase}
+              {purchaseDialog?.isExternalMaintenance ? "تأكيد اكتمال الصيانة" : t.purchaseOrders.confirmPurchase}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1272,12 +1281,21 @@ export default function PurchaseCycle() {
       </Dialog>
 
       {/* ==================== DIALOG 3: Delivery to Assigned Technician ==================== */}
-      <Dialog open={!!deliveryDialog} onOpenChange={(open) => !open && setDeliveryDialog(null)}>
+      <Dialog
+        open={!!deliveryDialog}
+        onOpenChange={(open) => {
+          if (!open) {
+            setDeliveryDialog(null);
+            setDeliveryUserId("");
+            setDeliveryNotes("");
+          }
+        }}
+      >
         <DialogContent className="max-w-md" dir={isRTL ? "rtl" : "ltr"}>
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Truck className="w-5 h-5 text-blue-600" />
-              تسليم للفني المسند
+              تسليم مواد لفني
             </DialogTitle>
           </DialogHeader>
 
@@ -1343,25 +1361,48 @@ export default function PurchaseCycle() {
                 </div>
               </div>
 
-              {/* Select technician to deliver to - preselected from ticket assignment */}
+              {/* حلقة الربط مع البلاغ: الفني المسند ثابت ولا يتغير من المستودع */}
+              {deliveryDialog.ticketAssignedToId && deliveryDialog.ticketAssignedToName && (
+                <div className="space-y-1.5">
+                  <Label className="text-xs flex items-center gap-1">
+                    <User className="w-3.5 h-3.5" /> الفني المسند للبلاغ
+                  </Label>
+                  <Input
+                    value={deliveryDialog.ticketAssignedToName}
+                    readOnly
+                    disabled
+                    className="font-medium bg-muted"
+                  />
+                  {deliveryDialog.ticketNumber && (
+                    <p className="text-xs text-muted-foreground">
+                      مرتبط بالبلاغ {deliveryDialog.ticketNumber} — هذا الحقل للقراءة فقط ولا يغيّر إسناد البلاغ.
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {/* المستلم الفعلي إلزامي ويمكن أن يكون الفني المسند نفسه أو فنيًا بديلًا */}
               <div className="space-y-1.5">
-                <Label className="text-xs flex items-center gap-1"><User className="w-3.5 h-3.5" /> الفني المسند</Label>
-                {deliveryDialog.ticketAssignedToId && (
-                  <p className="text-xs text-emerald-600 font-medium">
-                    ✅ تم تحديد الفني تلقائيًا من بيانات البلاغ
-                  </p>
-                )}
+                <Label className="text-xs flex items-center gap-1">
+                  <User className="w-3.5 h-3.5" /> الفني المستلم فعليًا *
+                </Label>
                 <TechnicianCombobox
                   value={deliveryUserId}
                   onValueChange={setDeliveryUserId}
-                  placeholder={t.common.technician + "..."}
+                  placeholder="اختر الفني الذي استلم المواد فعليًا..."
                   options={allUsers
-                    .filter((u: any) => u.role === "technician" || u.role === "supervisor" || u.role === "maintenance_manager")
+                    .filter((u: any) =>
+                      u.role === "technician" &&
+                      u.isActive !== 0
+                    )
                     .map((u: any) => ({
                       value: String(u.id),
-                      label: `${u.name} (${u.role})`,
+                      label: `${u.name}${String(u.id) === String(deliveryDialog.ticketAssignedToId || "") ? " — الفني المسند" : ""}`,
                     }))}
                 />
+                <p className="text-xs text-muted-foreground">
+                  يجب اختيار المستلم في كل عملية تسليم، ويمكن اختيار نفس الفني المسند أو فني بديل.
+                </p>
               </div>
 
               {/* ملاحظات — تظهر بعد اختيار الفني، كتابتها اختيارية */}
@@ -1380,10 +1421,17 @@ export default function PurchaseCycle() {
           )}
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => { setDeliveryDialog(null); setDeliveryNotes(""); }}>{t.common.cancel}</Button>
+            <Button variant="outline" onClick={() => { setDeliveryDialog(null); setDeliveryNotes(""); setDeliveryUserId(""); }}>{t.common.cancel}</Button>
             <Button
               className="gap-1.5"
-              disabled={confirmDeliveryMut.isPending}
+              disabled={
+                confirmDeliveryMut.isPending ||
+                deliverInventoryMut.isPending ||
+                !deliveryUserId ||
+                !deliveryQty ||
+                Number.isNaN(parseFloat(deliveryQty)) ||
+                parseFloat(deliveryQty) <= 0
+              }
               onClick={() => {
                 // التحقق من الكمية أولاً
                 const qty = parseFloat(deliveryQty);
@@ -1395,7 +1443,11 @@ export default function PurchaseCycle() {
                   toast.error(`الكمية المطلوبة (${qty}) أكبر من الكمية المتاحة (${deliveryDialog.quantity})`);
                   return;
                 }
-                // حفظ بيانات الطباعة
+                if (!deliveryUserId) {
+                  toast.error("يجب اختيار الفني المستلم فعليًا");
+                  return;
+                }
+                // حفظ بيانات الطباعة مع الفصل بين الفني المسند والمستلم الفعلي.
                 const selectedUser = allUsers.find((u: any) => String(u.id) === deliveryUserId);
                 setDeliveryPrintData({
                   itemName: deliveryDialog.itemName,
@@ -1406,6 +1458,8 @@ export default function PurchaseCycle() {
                   warehousePhotoUrl: deliveryDialog.warehousePhotoUrl ? mediaUrl(deliveryDialog.warehousePhotoUrl) : undefined,
                   deliveredByName: user?.name || "مستخدم المستودع",
                   deliveredToName: selectedUser?.name || "الفني",
+                  assignedTechnicianName: deliveryDialog.ticketAssignedToName || undefined,
+                  ticketNumber: deliveryDialog.ticketNumber || undefined,
                   poNumber: deliveryDialog.poNumber,
                   itemId: deliveryDialog.id,
                   initialPrintCount: deliveryDialog.printCount ?? 0,
@@ -1415,7 +1469,7 @@ export default function PurchaseCycle() {
                 if (deliveryDialog.isInventoryItem) {
                   deliverInventoryMut.mutate({
                     inventoryId:   deliveryDialog.id,
-                    deliveredToId: deliveryUserId ? parseInt(deliveryUserId) : undefined,
+                    deliveredToId: parseInt(deliveryUserId),
                     deliveryQty:   qty,
                     deliveryUnit:  deliveryUnit || deliveryDialog.unit || "قطعة",
                     notes:         deliveryNotes || undefined,
@@ -1423,7 +1477,7 @@ export default function PurchaseCycle() {
                 } else {
                   confirmDeliveryMut.mutate({
                     itemId:        deliveryDialog.id,
-                    deliveredToId: deliveryUserId ? parseInt(deliveryUserId) : undefined,
+                    deliveredToId: parseInt(deliveryUserId),
                     deliveryQty:   qty,
                     deliveryUnit:  deliveryUnit || deliveryDialog.unit || "قطعة",
                     notes:         deliveryNotes || undefined,
@@ -1431,9 +1485,10 @@ export default function PurchaseCycle() {
                 }
                 setDeliveryDialog(null);
                 setDeliveryNotes("");
+                setDeliveryUserId("");
               }}
             >
-              {confirmDeliveryMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Truck className="w-4 h-4" />}
+              {(confirmDeliveryMut.isPending || deliverInventoryMut.isPending) ? <Loader2 className="w-4 h-4 animate-spin" /> : <Truck className="w-4 h-4" />}
               تأكيد التسليم للفني
             </Button>
           </DialogFooter>

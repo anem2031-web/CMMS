@@ -35,6 +35,7 @@ vi.mock("../_core/db", () => ({
     const po = pos.find((p) => p.id === id);
     if (po) Object.assign(po, data);
   }),
+  getPurchaseManagerUsers: vi.fn(async () => []),
   getManagerUsers: vi.fn(async () => []),
   createNotification: vi.fn(async () => 1),
   createAuditLog: vi.fn(async () => 1),

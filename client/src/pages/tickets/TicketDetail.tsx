@@ -11,10 +11,30 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Label } from "@/components/ui/label";
 import { STATUS_COLORS, PRIORITY_COLORS } from "@shared/types";
 import {
+  APP_ROLE,
+  MAINTENANCE_INSPECTION_RESULT_STATUS,
+  MAINTENANCE_INSPECTION_WORKFLOW_STATUS,
+  MAINTENANCE_RESPONSIBLE_DEPARTMENT,
+} from "@shared/roles";
+import { ACTIVE_PATH_B_PURCHASE_ORDER_STATUSES } from "@shared/pathBPurchaseWorkflow";
+import {
+  canCreateTicketPurchaseOrder,
+  canDownloadTicketArchive,
+  canPrintTicketTask,
+  canStartTicketRepair,
+  canSubmitPathARepair,
+  canSubmitPathBRepair,
+  isPathARepairEvidenceComplete,
+  isPathBRepairEvidenceComplete,
+  canSubmitStandardRepair,
+  hasTicketTechnicianAssignmentRole,
+  isTicketEditableBeforeTriage,
+} from "@shared/ticketUiRules";
+import {
   ArrowRight, Clock, User, MapPin, CheckCircle2, Wrench, ShoppingCart,
-  Camera, Loader2, FileText, AlertCircle, ExternalLink, Upload, X, ZoomIn, Download, Video, PlayCircle, Pencil
+  Camera, Loader2, FileText, AlertCircle, ExternalLink, Upload, X, ZoomIn, Download, Video, PlayCircle, Pencil, Archive, Printer
 } from "lucide-react";
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import { toast } from "sonner";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useTranslation } from "@/contexts/LanguageContext";
@@ -93,17 +113,34 @@ const { getField } = useResolvedTranslation(
   const { data: allPOs } = trpc.purchaseOrders.list.useQuery();
   const attachmentsInput = useMemo(() => ({ entityType: "ticket", entityId: ticketId }), [ticketId]);
   const { data: ticketAttachments } = trpc.attachments.list.useQuery(attachmentsInput, { enabled: !!ticketId });
-  const { data: inspectionResultsList } = trpc.inspectionResults.listByTicket.useQuery({ ticketId }, { enabled: !!ticketId });
+  const { data: inspectionResultsList, refetch: refetchInspectionResults } = trpc.inspectionResults.listByTicket.useQuery({ ticketId }, { enabled: !!ticketId });
   const { data: ticketConfirmation, refetch: refetchConfirmation } = trpc.tickets.getConfirmation.useQuery({ id: ticketId }, { enabled: !!ticketId });
 
   const approveMut = trpc.tickets.approve.useMutation({ onSuccess: () => { toast.success(t.common.confirm); refetch(); } });
-  const assignMut = trpc.tickets.assign.useMutation({ onSuccess: () => { toast.success(t.tickets.assignedTo); refetch(); } });
+  const assignMut = trpc.tickets.assign.useMutation({
+    onSuccess: () => {
+      toast.success(t.tickets.assignedTo);
+      setReassignmentReason("");
+      setSelectedTech("");
+      setShowReassignmentEditor(false);
+      refetch();
+    },
+    onError: (error) => toast.error(error.message),
+  });
 
   // ── تعديل البلاغ: متاح فقط طالما لم يُصنَّف بعد (status === "pending_triage") ──
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [editForm, setEditForm] = useState({ title: "", description: "", priority: "", category: "", locationDetail: "" });
-  const canEditTicket = !!ticket && ticket.status === "pending_triage" &&
-    (["owner", "admin", "maintenance_manager"].includes(user?.role || "") || ticket.reportedById === user?.id);
+  const isManagedConstructionTicket = !!ticket && user?.role === APP_ROLE.CONSTRUCTION_PROCUREMENT_MANAGER &&
+    ticket.maintenanceResponsibleDepartment === MAINTENANCE_RESPONSIBLE_DEPARTMENT.CONSTRUCTION &&
+    ticket.maintenanceResponsibleManagerId === user?.id;
+  const isLinkedTicketReadOnly = user?.role === APP_ROLE.CONSTRUCTION_PROCUREMENT_MANAGER && !isManagedConstructionTicket;
+  const isRoutedConstructionReadOnlyForGeneral = !!ticket &&
+    user?.role === APP_ROLE.GENERAL_MAINTENANCE_MANAGER &&
+    ticket.maintenanceResponsibleDepartment === MAINTENANCE_RESPONSIBLE_DEPARTMENT.CONSTRUCTION;
+  const isTicketReadOnly = isLinkedTicketReadOnly || isRoutedConstructionReadOnlyForGeneral;
+  const canEditTicket = !isTicketReadOnly && !!ticket && isTicketEditableBeforeTriage(ticket.status) &&
+    ([APP_ROLE.OWNER, APP_ROLE.ADMIN, APP_ROLE.MAINTENANCE_MANAGER, APP_ROLE.GENERAL_MAINTENANCE_MANAGER].includes(user?.role as any) || ticket.reportedById === user?.id);
   const openEditDialog = useCallback(() => {
     if (!ticket) return;
     setEditForm({
@@ -129,8 +166,30 @@ const { getField } = useResolvedTranslation(
 
   // === New Workflow Mutations ===
   const triageMut = trpc.tickets.triageTicket.useMutation({ onSuccess: () => { toast.success("تم نقل البلاغ لمرحلة الفحص"); refetch(); } });
-  const inspectMut = trpc.tickets.inspectTicket.useMutation({ onSuccess: () => { toast.success("تم تسجيل ملاحظات الفحص"); refetch(); } });
-  const approveWorkMut = trpc.tickets.approveWork.useMutation({ onSuccess: () => { toast.success("تم اعتماد بدء العمل"); refetch(); } });
+  const inspectMut = trpc.tickets.inspectTicket.useMutation({
+    onSuccess: (result, variables) => {
+      toast.success(
+        variables.submissionMode === "save_draft"
+          ? "تم حفظ مسودة الفحص"
+          : result.autoApproved
+            ? "تم تسجيل واعتماد نتيجة الفحص"
+            : "تم إرسال نتيجة الفحص للمراجعة",
+      );
+      refetch();
+      refetchInspectionResults();
+    },
+    onError: (err) => toast.error(err.message),
+  });
+  const reviewInspectionMut = trpc.tickets.reviewInspection.useMutation({
+    onSuccess: (_result, variables) => {
+      toast.success(variables.action === "approve" ? "تم اعتماد نتيجة الفحص" : "تمت إعادة النتيجة للتصحيح");
+      setInspectionReturnReason("");
+      refetch();
+      refetchInspectionResults();
+    },
+    onError: (err) => toast.error(err.message),
+  });
+  const approveWorkMut = trpc.tickets.approveWork.useMutation({ onSuccess: () => { toast.success("تم اعتماد بدء العمل"); refetch(); }, onError: (err) => toast.error(err.message) });
   const markReadyMut = trpc.tickets.markReadyForClosure.useMutation({ onSuccess: () => { toast.success("تم رفع صورة الإصلاح - جاهز للإغلاق"); refetch(); } });
   const closeBySupervisorMut = trpc.tickets.closeBySupervisor.useMutation({ onSuccess: () => { toast.success("تم إغلاق البلاغ"); refetch(); } });
   const completeWithPartsMut = trpc.tickets.completeWithParts.useMutation({ onSuccess: () => { toast.success("تم إكمال العمل بالمواد - البلاغ جاهز للإغلاق"); refetch(); } });
@@ -147,6 +206,9 @@ const { getField } = useResolvedTranslation(
   const [inspRootCause, setInspRootCause] = useState("");
   const [inspFindings, setInspFindings] = useState("");
   const [inspRecommendedAction, setInspRecommendedAction] = useState("");
+  const [inspPerformedById, setInspPerformedById] = useState("");
+  const [inspectionReturnReason, setInspectionReturnReason] = useState("");
+  const [loadedInspectionResultId, setLoadedInspectionResultId] = useState<number | null>(null);
   const [selectedPath, setSelectedPath] = useState<"A" | "B" | "C">("A");
   const [pathJustification, setPathJustification] = useState("");
   const [showApproveWorkForm, setShowApproveWorkForm] = useState(false);
@@ -154,9 +216,13 @@ const { getField } = useResolvedTranslation(
   // Triage dialog state
   const [showTriageDialog, setShowTriageDialog] = useState(false);
   const [triageAssignedTo, setTriageAssignedTo] = useState("");
+  const [triageDepartment, setTriageDepartment] = useState<string>("");
+  const [triageResponsibleManagerId, setTriageResponsibleManagerId] = useState("");
 
   const [selectedTech, setSelectedTech] = useState("");
   const [selectedExternalTech, setSelectedExternalTech] = useState("");
+  const [reassignmentReason, setReassignmentReason] = useState("");
+  const [showReassignmentEditor, setShowReassignmentEditor] = useState(false);
   const [repairNotes, setRepairNotes] = useState("");
   const [materialsUsed, setMaterialsUsed] = useState("");
   const [afterPhotoUrl, setAfterPhotoUrl] = useState("");
@@ -170,25 +236,40 @@ const { getField } = useResolvedTranslation(
   const [downloadingPdf, setDownloadingPdf] = useState(false);
   const [printingTask, setPrintingTask] = useState(false);
 
+  useEffect(() => {
+    const latest = inspectionResultsList?.[0] as any;
+    if (!latest || latest.id === loadedInspectionResultId) return;
+    const isOwnDraft = latest.workflowStatus === MAINTENANCE_INSPECTION_RESULT_STATUS.DRAFT && latest.recordedById === user?.id;
+    const isReturnedForCorrection = latest.workflowStatus === MAINTENANCE_INSPECTION_RESULT_STATUS.RETURNED;
+    if (!isOwnDraft && !isReturnedForCorrection) return;
+    setInspectionNotes(latest.inspectionNotes || "");
+    setInspSeverity(latest.severity || "");
+    setInspRootCause(latest.rootCause || "");
+    setInspFindings(latest.findings || "");
+    setInspRecommendedAction(latest.recommendedAction || "");
+    setInspPerformedById(latest.performedById ? String(latest.performedById) : "");
+    setLoadedInspectionResultId(latest.id);
+  }, [inspectionResultsList, loadedInspectionResultId, user?.id]);
+
   const handleDownloadPDF = useCallback(async () => {
     if (!ticket?.id) return;
     try {
       setDownloadingPdf(true);
-      const response = await fetch(`/api/tickets/${ticket.id}/pdf`);
+      const response = await fetch(`/api/tickets/${ticket.id}/pdf?document=archive`);
       if (!response.ok) throw new Error("Failed to generate PDF");
       const blob = await response.blob();
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `ticket-${ticket.ticketNumber}-${Date.now()}.pdf`;
+      a.download = `ticket-archive-${ticket.ticketNumber}-${Date.now()}.pdf`;
       document.body.appendChild(a);
       a.click();
       window.URL.revokeObjectURL(url);
       document.body.removeChild(a);
-      toast.success("تم تحميل التقرير بنجاح");
+      toast.success("تم تحميل التقرير الأرشيفي بنجاح");
     } catch (error) {
       console.error(error);
-      toast.error("فشل تحميل التقرير");
+      toast.error("فشل تحميل التقرير الأرشيفي");
     } finally {
       setDownloadingPdf(false);
     }
@@ -199,7 +280,7 @@ const { getField } = useResolvedTranslation(
     if (!ticket?.id) return;
     try {
       setPrintingTask(true);
-      const response = await fetch(`/api/tickets/${ticket.id}/pdf`);
+      const response = await fetch(`/api/tickets/${ticket.id}/pdf?document=task`);
       if (!response.ok) throw new Error("Failed to generate PDF");
       const blob = await response.blob();
       const url = window.URL.createObjectURL(blob);
@@ -252,49 +333,153 @@ const { getField } = useResolvedTranslation(
   // Fallback to users.filter if listTechnicians is not yet populated
   const technicians = (userTechniciansList && userTechniciansList.length > 0)
     ? userTechniciansList
-    : (users?.filter(u => ["technician", "supervisor", "maintenance_manager"].includes(u.role)) || []);
+    : (users?.filter(u => u.role === APP_ROLE.TECHNICIAN && u.isActive !== 0) || []);
   const role = user?.role || "";
 
   const linkedPOs = allPOs?.filter(po => po.ticketId === ticketId) || [];
 
-  const isAdminOrOwner = ["admin", "owner"].includes(role);
-  const isManager = ["maintenance_manager", "purchase_manager", "owner", "admin"].includes(role);
-  const isSupervisor = ["supervisor", "maintenance_manager", "owner", "admin"].includes(role);
-  const isTechnician = role === "technician" || isAdminOrOwner;
+  const isAdminOrOwner = [APP_ROLE.ADMIN, APP_ROLE.OWNER].includes(role as any);
+  const isGeneralMaintenanceScope = role === APP_ROLE.GENERAL_MAINTENANCE_MANAGER &&
+    ticket?.maintenanceResponsibleDepartment !== MAINTENANCE_RESPONSIBLE_DEPARTMENT.CONSTRUCTION;
+  const isManager = [APP_ROLE.MAINTENANCE_MANAGER, APP_ROLE.PURCHASE_MANAGER, APP_ROLE.OWNER, APP_ROLE.ADMIN].includes(role as any) ||
+    isGeneralMaintenanceScope || isManagedConstructionTicket;
+  const isTicketWorkflowManager = [APP_ROLE.MAINTENANCE_MANAGER, APP_ROLE.OWNER, APP_ROLE.ADMIN].includes(role as any) ||
+    isGeneralMaintenanceScope || isManagedConstructionTicket;
+  const isSupervisor = [APP_ROLE.SUPERVISOR, APP_ROLE.MAINTENANCE_MANAGER, APP_ROLE.OWNER, APP_ROLE.ADMIN].includes(role as any) ||
+    isGeneralMaintenanceScope || isManagedConstructionTicket;
+  const isTechnician = role === APP_ROLE.TECHNICIAN || isAdminOrOwner;
+  const canRouteTicket = [APP_ROLE.MAINTENANCE_MANAGER, APP_ROLE.GENERAL_MAINTENANCE_MANAGER, APP_ROLE.OWNER, APP_ROLE.ADMIN].includes(role as any);
+  const constructionManagers = users?.filter((u: any) => u.role === APP_ROLE.CONSTRUCTION_PROCUREMENT_MANAGER && u.isActive !== 0) || [];
+  const generalManagers = users?.filter((u: any) =>
+    [APP_ROLE.GENERAL_MAINTENANCE_MANAGER, APP_ROLE.MAINTENANCE_MANAGER].includes(u.role as any) && u.isActive !== 0
+  ) || [];
+  const selectedDepartmentManagers = triageDepartment === MAINTENANCE_RESPONSIBLE_DEPARTMENT.CONSTRUCTION ? constructionManagers : generalManagers;
+  const inspectionPerformerOptions = users?.filter((candidate: any) => candidate.isActive !== 0 && [
+    APP_ROLE.TECHNICIAN,
+    APP_ROLE.SUPERVISOR,
+    APP_ROLE.MAINTENANCE_MANAGER,
+    APP_ROLE.GENERAL_MAINTENANCE_MANAGER,
+    APP_ROLE.CONSTRUCTION_PROCUREMENT_MANAGER,
+    APP_ROLE.ADMIN,
+    APP_ROLE.OWNER,
+  ].includes(candidate.role as any)) || [];
   const isGateSecurity = ["gate_security", "owner", "admin"].includes(role);
 
   // Legacy actions
   const canApprove = isManager && ticket?.status === "new";
   // Reassign is now a fallback available at any post-triage status
   const postTriageStatuses = ["under_inspection", "work_approved", "assigned", "in_progress", "needs_purchase", "purchase_pending_estimate", "purchase_pending_accounting", "purchase_pending_management", "purchase_approved", "purchased", "received_warehouse"];
-  const canAssign = isManager && postTriageStatuses.includes(ticket?.status || "");
-  const canStartRepair = (isTechnician || isManager) && ["assigned", "work_approved", "repaired", "purchase_approved", "purchased", "partial_purchase", "received_warehouse"].includes(ticket?.status || "");
-  const canCompleteRepair = (isTechnician || isManager) && ticket?.status === "in_progress";
-  const canClose = isManager && ticket?.status === "repaired";
-  const canCreatePO = isManager && ["approved", "assigned", "in_progress", "work_approved", "needs_purchase"].includes(ticket?.status || "");
+  const hasTechnicianAssignmentScope = [APP_ROLE.MAINTENANCE_MANAGER, APP_ROLE.OWNER, APP_ROLE.ADMIN].includes(role as any) ||
+    isGeneralMaintenanceScope || isManagedConstructionTicket;
+  const canAssign = !isTicketReadOnly && hasTicketTechnicianAssignmentRole(role) && hasTechnicianAssignmentScope &&
+    postTriageStatuses.includes(ticket?.status || "");
+  const canDownloadArchive = canDownloadTicketArchive(role, ticket?.status);
+  const canPrintTaskDocument = canPrintTicketTask(role, ticket?.status);
+  const canStartRepair = canStartTicketRepair(
+    isTechnician || isTicketWorkflowManager,
+    ticket?.status,
+    ticket?.maintenancePath,
+  );
+  const canCompleteRepair = canSubmitStandardRepair(
+    isTechnician || isTicketWorkflowManager,
+    ticket?.status,
+    ticket?.maintenancePath,
+  );
+  const canClose = isTicketWorkflowManager && ticket?.status === "repaired" && !ticket?.maintenancePath;
+  const hasActiveLinkedPurchaseOrder = linkedPOs.some((po: any) =>
+    ACTIVE_PATH_B_PURCHASE_ORDER_STATUSES.has(po.status)
+  );
+  const canCreatePO = canCreateTicketPurchaseOrder(
+    isTicketWorkflowManager,
+    ticket?.status,
+    ticket?.maintenancePath,
+    hasActiveLinkedPurchaseOrder,
+  );
 
   // === New Workflow Smart Buttons ===
-  // Supervisor (Khaled)
-  const canTriage = isSupervisor && ticket?.status === "pending_triage";
-  const canInspect = isSupervisor && ticket?.status === "under_inspection";
+  const canTriage = canRouteTicket && ticket?.status === "pending_triage";
+  const isAssignedInspectionTechnician = role === APP_ROLE.TECHNICIAN && ticket?.assignedToId === user?.id;
+  const isInspectionManager = [APP_ROLE.MAINTENANCE_MANAGER, APP_ROLE.OWNER, APP_ROLE.ADMIN].includes(role as any) ||
+    isGeneralMaintenanceScope || isManagedConstructionTicket;
+  const inspectionWorkflowStatus = ticket?.inspectionWorkflowStatus;
+  const latestInspectionResult = inspectionResultsList?.[0] as any;
+  const hasForeignInspectionDraft = latestInspectionResult?.workflowStatus === MAINTENANCE_INSPECTION_RESULT_STATUS.DRAFT &&
+    latestInspectionResult.recordedById && latestInspectionResult.recordedById !== user?.id;
+  const inspectionIsEditable = !inspectionWorkflowStatus || [
+    MAINTENANCE_INSPECTION_WORKFLOW_STATUS.PENDING_SUBMISSION,
+    MAINTENANCE_INSPECTION_WORKFLOW_STATUS.RETURNED_FOR_CORRECTION,
+  ].includes(inspectionWorkflowStatus as any);
+  const canInspect = !isTicketReadOnly && ticket?.status === "under_inspection" && inspectionIsEditable && !hasForeignInspectionDraft &&
+    (isAssignedInspectionTechnician || isInspectionManager || role === APP_ROLE.SUPERVISOR);
+  const canReviewInspection = !isTicketReadOnly && ticket?.status === "under_inspection" && isInspectionManager &&
+    inspectionWorkflowStatus === MAINTENANCE_INSPECTION_WORKFLOW_STATUS.SUBMITTED_FOR_REVIEW;
   const canClosePathA = (isSupervisor || isManager) && ticket?.status === "ready_for_closure" && ticket?.maintenancePath === "A";
 
-  // Maintenance Manager (Abdel Fattah)
-  const canApproveWork = isManager && ticket?.status === "under_inspection";
-  const canClosePathBC = isManager && ticket?.status === "ready_for_closure" && ["B", "C", null, undefined].includes(ticket?.maintenancePath as any);
+  const canApproveWork = !isTicketReadOnly && ticket?.status === "under_inspection" && isInspectionManager &&
+    inspectionWorkflowStatus === MAINTENANCE_INSPECTION_WORKFLOW_STATUS.APPROVED;
+  const canClosePathBC = isTicketWorkflowManager && ticket?.status === "ready_for_closure" && ["B", "C"].includes(ticket?.maintenancePath as any);
 
   // Technician (Path A)
-  const canMarkReadyForClosure = (isTechnician || isManager) && ticket?.status === "work_approved" && ticket?.maintenancePath === "A";
+  const canMarkReadyForClosure = canSubmitPathARepair(
+    isTechnician || isTicketWorkflowManager,
+    ticket?.status,
+    ticket?.maintenancePath,
+  );
+  const isPathARepairEvidenceReady = isPathARepairEvidenceComplete(repairNotes, afterPhotoUrl);
 
   // Gate Security (Path C)
-  const canApproveExit = isGateSecurity && ticket?.status === "work_approved" && ticket?.maintenancePath === "C";
-  const canApproveEntry = isGateSecurity && ticket?.status === "out_for_repair" && ticket?.maintenancePath === "C";
+  // موافقات المسار C تُنفذ حصراً من صفحة الحراسة بعد وثيقة المستودع ودورة المندوب.
+  const canApproveExit = false;
+  const canApproveEntry = false;
 
-  // Technician (Path B): Complete work after parts delivered from warehouse
-  const canCompleteWithParts = (isTechnician || isManager) && ticket?.status === "received_warehouse" && (ticket?.maintenancePath === "B" || ticket?.maintenancePath === "C");
+  // Path B completion appears only after the technician explicitly starts repair.
+  // Path C retains its existing completion entry after the asset returns.
+  const canCompletePathBWithParts = canSubmitPathBRepair(
+    isTechnician || isTicketWorkflowManager,
+    ticket?.status,
+    ticket?.maintenancePath,
+  );
+  const canCompletePathCWithParts =
+    (isTechnician || isTicketWorkflowManager) &&
+    ticket?.status === "in_progress" &&
+    ticket?.maintenancePath === "C";
+  const canCompleteWithParts = canCompletePathBWithParts || canCompletePathCWithParts;
+  const isPathBRepairEvidenceReady = isPathBRepairEvidenceComplete(repairNotes, afterPhotoUrl);
 
   // Requester completion confirmation: only the ticket creator (or owner/admin) — NOT the manager who closed it
-  const canConfirmCompletion = ticket?.status === "closed" && (ticket?.reportedById === user?.id || isAdminOrOwner);
+  const canConfirmCompletion = !isTicketReadOnly && ticket?.status === "closed" && (ticket?.reportedById === user?.id || isAdminOrOwner);
+
+  const submitInspection = (submissionMode: "save_draft" | "submit") => {
+    if (!ticket || !user) return;
+    const performedById = isAssignedInspectionTechnician
+      ? user.id
+      : Number(inspPerformedById || user.id);
+    inspectMut.mutate({
+      id: ticket.id,
+      performedById,
+      inspectionNotes,
+      severity: inspSeverity || undefined,
+      rootCause: inspRootCause || undefined,
+      findings: inspFindings || undefined,
+      recommendedAction: inspRecommendedAction || undefined,
+      submissionMode,
+    });
+  };
+
+  const inspectionStatusLabel = (() => {
+    switch (inspectionWorkflowStatus) {
+      case MAINTENANCE_INSPECTION_WORKFLOW_STATUS.PENDING_SUBMISSION:
+        return "بانتظار نتيجة الفحص";
+      case MAINTENANCE_INSPECTION_WORKFLOW_STATUS.SUBMITTED_FOR_REVIEW:
+        return "بانتظار اعتماد مدير الجهة";
+      case MAINTENANCE_INSPECTION_WORKFLOW_STATUS.RETURNED_FOR_CORRECTION:
+        return "معادة للتصحيح";
+      case MAINTENANCE_INSPECTION_WORKFLOW_STATUS.APPROVED:
+        return "نتيجة الفحص معتمدة";
+      default:
+        return ticket?.status === "under_inspection" ? "بانتظار نتيجة الفحص" : "-";
+    }
+  })();
 
   const handleUploadAfterPhoto = async (file: File) => {
     setUploading(true);
@@ -319,6 +504,8 @@ const { getField } = useResolvedTranslation(
 
   const reportedBy = users?.find(u => u.id === ticket.reportedById);
   const assignedTo = users?.find(u => u.id === ticket.assignedToId);
+  const assignedExternalTechnician = externalTechs?.find((tech: any) => tech.id === ticket.assignedTechnicianId);
+  const currentAssigneeName = assignedTo?.name || assignedTo?.email || assignedExternalTechnician?.name || "غير محدد";
 
   const workflowSteps = [
     { key: "new", label: getStatusLabel("new"), done: true },
@@ -335,7 +522,9 @@ const { getField } = useResolvedTranslation(
     <div className="space-y-6 max-w-5xl">
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-3 flex-1">
-          <Button variant="ghost" size="icon" onClick={() => setLocation("/tickets")}>
+          <Button variant="ghost" size="icon" onClick={() => setLocation(
+            role === APP_ROLE.CONSTRUCTION_PROCUREMENT_MANAGER ? "/tickets?tab=construction" : "/tickets"
+          )}>
             <ArrowRight className="w-5 h-5" />
           </Button>
           <div className="flex-1">
@@ -377,20 +566,22 @@ const { getField } = useResolvedTranslation(
             )}
           </div>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={handleDownloadPDF}
-          disabled={downloadingPdf || !ticket}
-          className="gap-2 shrink-0"
-        >
-          {downloadingPdf ? (
-            <Loader2 className="w-4 h-4 animate-spin" />
-          ) : (
-            <Download className="w-4 h-4" />
-          )}
-          <span className="hidden sm:inline">تحميل التقرير</span>
-        </Button>
+        {canDownloadArchive && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleDownloadPDF}
+            disabled={downloadingPdf || !ticket}
+            className="gap-2 shrink-0"
+          >
+            {downloadingPdf ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <Archive className="w-4 h-4" />
+            )}
+            <span className="hidden sm:inline">تحميل التقرير الأرشيفي</span>
+          </Button>
+        )}
       </div>
 
       <Card>
@@ -423,6 +614,14 @@ const { getField } = useResolvedTranslation(
           )}
         </CardContent>
       </Card>
+
+      {isTicketReadOnly && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/20 dark:text-amber-300">
+          {isLinkedTicketReadOnly
+            ? "هذا البلاغ مرتبط بطلب شراء متاح لك، لذلك يُعرض للقراءة فقط. لا يمكنك تعديل البلاغ أو تغيير مساره أو تعيين فني له."
+            : "تم توجيه هذا البلاغ إلى قسم الإنشاءات، ويمكنك متابعته للقراءة فقط. أصبحت إجراءات المتابعة والتعيين لدى مدير الإنشاءات والمشتريات."}
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 space-y-4">
@@ -489,7 +688,7 @@ const { getField } = useResolvedTranslation(
                   <p className="text-sm font-medium flex items-center gap-1.5">
                     <FileText className="w-3.5 h-3.5" /> {(t as any).attachments?.title || "المرفقات"} ({ticketAttachments?.length ?? 0})
                   </p>
-                  {isManager && (
+                  {isManager && !isTicketReadOnly && (
                     <Button variant="ghost" size="sm" className="text-xs gap-1" onClick={() => setShowAttachDropZone(v => !v)}>
                       <Upload className="w-3.5 h-3.5" />
                       إضافة مرفق
@@ -539,7 +738,7 @@ const { getField } = useResolvedTranslation(
                 )}
 
                 {/* NEW: Drag & Drop zone (additive - shown on demand) */}
-                {showAttachDropZone && (
+                {showAttachDropZone && !isTicketReadOnly && (
                   <DropZone
                     onFilesUploaded={handleNewAttachments}
                     label="اسحب ملفات إضافية للبلاغ"
@@ -609,38 +808,128 @@ const { getField } = useResolvedTranslation(
               )}
 
               {canAssign && (
-                <div className="space-y-2 border rounded-xl p-3 bg-muted/20">
-                  <p className="text-sm font-semibold text-muted-foreground">🔄 إعادة إسناد الفني:</p>
-                  <div className="flex gap-2">
-                    {/* Phase 5: Assignment dropdown shows only internal users (users.listTechnicians). */}
-                    {/* External technicians (externalTechs) hidden from UI; backend assignment via externalTechnicianId preserved. */}
-                    <TechnicianCombobox
-                      className="flex-1"
-                      value={selectedTech}
-                      onValueChange={(val) => {
-                        setSelectedTech(val);
-                        setSelectedExternalTech(""); // Phase 5: external tech selection cleared
-                      }}
-                      placeholder={t.tickets.assignTechnician}
-                      options={technicians.map((tech: any) => ({
-                        value: String(tech.id),
-                        label: `${tech.name || tech.email}${tech.specialty ? ` (${tech.specialty})` : ""}`,
-                      }))}
-                    />
-                    <Button onClick={() => {
-                      if (selectedTech) {
-                        assignMut.mutate({ id: ticket.id, technicianId: parseInt(selectedTech) });
-                      }
-                    }} disabled={!selectedTech || assignMut.isPending}>
-                      {assignMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "إعادة الإسناد"}
-                    </Button>
-                  </div>
+                <div className="space-y-3 border rounded-xl p-3 bg-muted/20">
+                  {ticket.assignedToId || ticket.assignedTechnicianId ? (
+                    <>
+                      <div className="rounded-lg border bg-background p-3">
+                        <p className="text-xs text-muted-foreground mb-1">الفني المسند حاليًا</p>
+                        <div className="flex items-center gap-2">
+                          <Wrench className="w-4 h-4 text-primary" />
+                          <span className="font-semibold">{currentAssigneeName}</span>
+                        </div>
+                        <p className="mt-2 text-xs text-muted-foreground">
+                          يبقى هذا الإسناد ثابتًا ولا يمكن تغييره إلا من زر تغيير إعادة إسناد الفني.
+                        </p>
+                      </div>
+
+                      {!showReassignmentEditor ? (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="w-full"
+                          onClick={() => {
+                            setSelectedTech(ticket.assignedToId ? String(ticket.assignedToId) : "");
+                            setReassignmentReason("");
+                            setShowReassignmentEditor(true);
+                          }}
+                        >
+                          تغيير إعادة إسناد الفني
+                        </Button>
+                      ) : (
+                        <div className="space-y-3 rounded-lg border border-amber-200 bg-amber-50/50 p-3 dark:border-amber-800 dark:bg-amber-950/10">
+                          <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">اختيار فني بديل</p>
+                          <TechnicianCombobox
+                            value={selectedTech}
+                            onValueChange={(val) => {
+                              setSelectedTech(val);
+                              setSelectedExternalTech("");
+                            }}
+                            placeholder={t.tickets.assignTechnician}
+                            options={technicians.map((tech: any) => ({
+                              value: String(tech.id),
+                              label: `${tech.name || tech.email}${tech.specialty ? ` (${tech.specialty})` : ""}`,
+                            }))}
+                          />
+                          <div className="space-y-1.5">
+                            <Label>سبب إعادة التعيين *</Label>
+                            <Textarea
+                              value={reassignmentReason}
+                              onChange={(event) => setReassignmentReason(event.target.value)}
+                              placeholder="اكتب سبب تغيير الفني المسؤول..."
+                              rows={2}
+                            />
+                          </div>
+                          <div className="flex gap-2">
+                            <Button
+                              variant="outline"
+                              className="flex-1"
+                              onClick={() => {
+                                setShowReassignmentEditor(false);
+                                setSelectedTech("");
+                                setReassignmentReason("");
+                              }}
+                              disabled={assignMut.isPending}
+                            >
+                              إلغاء
+                            </Button>
+                            <Button
+                              className="flex-1"
+                              onClick={() => {
+                                if (selectedTech) {
+                                  assignMut.mutate({
+                                    id: ticket.id,
+                                    technicianId: parseInt(selectedTech),
+                                    reassignmentReason: reassignmentReason.trim(),
+                                  });
+                                }
+                              }}
+                              disabled={
+                                !selectedTech ||
+                                assignMut.isPending ||
+                                Number(selectedTech) === ticket.assignedToId ||
+                                !reassignmentReason.trim()
+                              }
+                            >
+                              {assignMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "اعتماد تغيير الإسناد"}
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-sm font-semibold text-muted-foreground">👷 تعيين الفني المسؤول</p>
+                      <TechnicianCombobox
+                        value={selectedTech}
+                        onValueChange={(val) => {
+                          setSelectedTech(val);
+                          setSelectedExternalTech("");
+                        }}
+                        placeholder={t.tickets.assignTechnician}
+                        options={technicians.map((tech: any) => ({
+                          value: String(tech.id),
+                          label: `${tech.name || tech.email}${tech.specialty ? ` (${tech.specialty})` : ""}`,
+                        }))}
+                      />
+                      <Button
+                        className="w-full"
+                        onClick={() => {
+                          if (selectedTech) {
+                            assignMut.mutate({ id: ticket.id, technicianId: parseInt(selectedTech) });
+                          }
+                        }}
+                        disabled={!selectedTech || assignMut.isPending}
+                      >
+                        {assignMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "اعتماد التعيين"}
+                      </Button>
+                    </>
+                  )}
                 </div>
               )}
 
               {canStartRepair && (
                 <Button onClick={() => startMut.mutate({ id: ticket.id })} disabled={startMut.isPending} className="w-full gap-2" size="lg">
-                  <Wrench className="w-4 h-4" /> {t.tickets.startRepair}
+                  <Wrench className="w-4 h-4" /> {ticket?.maintenancePath === "C" ? "بدء إعادة تركيب الأصل" : t.tickets.startRepair}
                 </Button>
               )}
 
@@ -693,7 +982,7 @@ const { getField } = useResolvedTranslation(
                   <div className="flex items-center gap-2 mb-2">
                     <span className="text-amber-600 dark:text-amber-400 font-semibold text-sm">🔍 فرز وتصنيف البلاغ</span>
                   </div>
-                  <Button onClick={() => { setTriageAssignedTo(""); setShowTriageDialog(true); }} className="w-full gap-2 bg-amber-600 hover:bg-amber-700 text-white" size="lg">
+                  <Button onClick={() => { setTriageAssignedTo(""); setTriageDepartment(""); setTriageResponsibleManagerId(""); setShowTriageDialog(true); }} className="w-full gap-2 bg-amber-600 hover:bg-amber-700 text-white" size="lg">
                     <CheckCircle2 className="w-4 h-4" />
                     بدء الفرز وتعيين الفني
                   </Button>
@@ -748,30 +1037,83 @@ const { getField } = useResolvedTranslation(
                 );
               })()}
 
-              {/* Supervisor: Complete Inspection */}
+              {/* Inspection workflow status */}
+              {ticket.status === "under_inspection" && (
+                <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border bg-muted/30 px-4 py-3">
+                  <div>
+                    <p className="text-sm font-semibold">مرحلة الفحص الفني</p>
+                    <p className="text-xs text-muted-foreground">
+                      الإسناد مباشر للفني ولا يتطلب قبول المهمة أو بدء الفحص.
+                    </p>
+                  </div>
+                  <Badge variant={inspectionWorkflowStatus === MAINTENANCE_INSPECTION_WORKFLOW_STATUS.APPROVED ? "default" : "secondary"}>
+                    {inspectionStatusLabel}
+                  </Badge>
+                </div>
+              )}
+
+              {hasForeignInspectionDraft && ticket.status === "under_inspection" && (
+                <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/20 dark:text-amber-300">
+                  توجد مسودة فحص محفوظة بواسطة مستخدم آخر. يجب أن يكملها صاحب المسودة أو يتولى مدير الجهة إعادة إسناد البلاغ قبل إنشاء نتيجة جديدة.
+                </div>
+              )}
+
+              {/* Technician / scoped manager / supervisor: record inspection */}
               {canInspect && (
                 <div className="space-y-3 bg-blue-50 dark:bg-blue-950/20 rounded-xl p-4 border border-blue-200 dark:border-blue-800">
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="text-blue-600 dark:text-blue-400 font-semibold text-sm">📋 تسجيل نتائج الفحص</span>
+                  <div className="flex items-center justify-between gap-2 mb-1">
+                    <span className="text-blue-600 dark:text-blue-400 font-semibold text-sm">📋 تسجيل نتيجة الفحص</span>
+                    {inspectionWorkflowStatus === MAINTENANCE_INSPECTION_WORKFLOW_STATUS.RETURNED_FOR_CORRECTION && (
+                      <Badge variant="destructive">تصحيح مطلوب</Badge>
+                    )}
                   </div>
-                  <Textarea
-                    placeholder="ملاحظات الفحص الميداني..."
-                    value={inspectionNotes}
-                    onChange={e => setInspectionNotes(e.target.value)}
-                    rows={3}
-                    className="text-sm"
-                  />
-                  <select
-                    value={inspSeverity}
-                    onChange={e => setInspSeverity(e.target.value as any)}
-                    className="w-full border rounded px-3 py-2 text-sm bg-white dark:bg-gray-800 dark:border-gray-600"
-                  >
-                    <option value="">مستوى الخطورة (اختياري)</option>
-                    <option value="low">منخفض</option>
-                    <option value="medium">متوسط</option>
-                    <option value="high">مرتفع</option>
-                    <option value="critical">حرج</option>
-                  </select>
+                  {inspectionWorkflowStatus === MAINTENANCE_INSPECTION_WORKFLOW_STATUS.RETURNED_FOR_CORRECTION && ticket.inspectionReturnReason && (
+                    <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300">
+                      <span className="font-semibold">سبب الإعادة:</span> {ticket.inspectionReturnReason}
+                    </div>
+                  )}
+
+                  {!isAssignedInspectionTechnician && (
+                    <div className="space-y-2">
+                      <Label>من قام بالفحص ميدانيًا؟ *</Label>
+                      <Select value={inspPerformedById || String(user?.id || "")} onValueChange={setInspPerformedById}>
+                        <SelectTrigger><SelectValue placeholder="اختر منفذ الفحص" /></SelectTrigger>
+                        <SelectContent>
+                          {inspectionPerformerOptions.map((candidate: any) => (
+                            <SelectItem key={candidate.id} value={String(candidate.id)}>
+                              {candidate.name || candidate.username || candidate.email} {candidate.id === user?.id ? "(أنا)" : ""}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs text-muted-foreground">
+                        سيُحفظ منفذ الفحص الميداني بشكل مستقل عن المستخدم الذي أدخل البيانات.
+                      </p>
+                    </div>
+                  )}
+
+                  <div className="space-y-2">
+                    <Label>الملاحظات الفنية *</Label>
+                    <Textarea
+                      placeholder="ملاحظات المعاينة والفحص الميداني..."
+                      value={inspectionNotes}
+                      onChange={e => setInspectionNotes(e.target.value)}
+                      rows={3}
+                      className="text-sm"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>مستوى الخطورة *</Label>
+                    <Select value={inspSeverity} onValueChange={(value: any) => setInspSeverity(value)}>
+                      <SelectTrigger><SelectValue placeholder="اختر مستوى الخطورة" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="low">منخفض</SelectItem>
+                        <SelectItem value="medium">متوسط</SelectItem>
+                        <SelectItem value="high">مرتفع</SelectItem>
+                        <SelectItem value="critical">حرج</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
                   <Textarea
                     placeholder="السبب الجذري (اختياري)..."
                     value={inspRootCause}
@@ -779,54 +1121,152 @@ const { getField } = useResolvedTranslation(
                     rows={2}
                     className="text-sm"
                   />
-                  <Textarea
-                    placeholder="النتائج (اختياري)..."
-                    value={inspFindings}
-                    onChange={e => setInspFindings(e.target.value)}
-                    rows={2}
-                    className="text-sm"
-                  />
-                  <Textarea
-                    placeholder="الإجراء الموصى به (اختياري)..."
-                    value={inspRecommendedAction}
-                    onChange={e => setInspRecommendedAction(e.target.value)}
-                    rows={2}
-                    className="text-sm"
-                  />
-                  <Button onClick={() => inspectMut.mutate({ id: ticket.id, inspectionNotes })} disabled={inspectMut.isPending || !inspectionNotes.trim()} className="w-full gap-2 bg-blue-600 hover:bg-blue-700 text-white" size="lg">
-                    {inspectMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
-                    تسجيل نتائج الفحص
-                  </Button>
+                  <div className="space-y-2">
+                    <Label>نتائج الفحص *</Label>
+                    <Textarea
+                      placeholder="ما الذي تم اكتشافه أثناء الفحص؟"
+                      value={inspFindings}
+                      onChange={e => setInspFindings(e.target.value)}
+                      rows={3}
+                      className="text-sm"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>الإجراء الموصى به *</Label>
+                    <Textarea
+                      placeholder="الإجراء الفني الموصى به..."
+                      value={inspRecommendedAction}
+                      onChange={e => setInspRecommendedAction(e.target.value)}
+                      rows={2}
+                      className="text-sm"
+                    />
+                  </div>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <Button
+                      variant="outline"
+                      onClick={() => submitInspection("save_draft")}
+                      disabled={inspectMut.isPending}
+                      className="w-full gap-2"
+                    >
+                      {inspectMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
+                      حفظ مسودة
+                    </Button>
+                    <Button
+                      onClick={() => submitInspection("submit")}
+                      disabled={
+                        inspectMut.isPending ||
+                        !inspectionNotes.trim() ||
+                        !inspSeverity ||
+                        !inspFindings.trim() ||
+                        !inspRecommendedAction.trim()
+                      }
+                      className="w-full gap-2 bg-blue-600 hover:bg-blue-700 text-white"
+                    >
+                      {inspectMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+                      {isInspectionManager ? "حفظ واعتماد النتيجة" : "إرسال النتيجة للمراجعة"}
+                    </Button>
+                  </div>
                 </div>
               )}
 
-              {/* Inspection Results */}
+              {/* Manager review of technician/supervisor submission */}
+              {canReviewInspection && (
+                <div className="space-y-3 bg-amber-50 dark:bg-amber-950/20 rounded-xl p-4 border border-amber-200 dark:border-amber-800">
+                  <div className="flex items-center gap-2">
+                    <span className="text-amber-700 dark:text-amber-300 font-semibold text-sm">🧾 مراجعة نتيجة الفحص</span>
+                  </div>
+                  <p className="text-sm text-muted-foreground">
+                    النتيجة أرسلها الفني أو المشرف، ويجب اعتمادها أو إعادتها للتصحيح قبل اختيار مسار التنفيذ.
+                  </p>
+                  <Textarea
+                    placeholder="سبب الإعادة للتصحيح (مطلوب عند الإعادة)..."
+                    value={inspectionReturnReason}
+                    onChange={e => setInspectionReturnReason(e.target.value)}
+                    rows={2}
+                  />
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <Button
+                      variant="outline"
+                      className="border-red-300 text-red-700 hover:bg-red-50"
+                      onClick={() => reviewInspectionMut.mutate({
+                        id: ticket.id,
+                        action: "return_for_correction",
+                        reason: inspectionReturnReason,
+                      })}
+                      disabled={reviewInspectionMut.isPending || !inspectionReturnReason.trim()}
+                    >
+                      إعادة للتصحيح
+                    </Button>
+                    <Button
+                      className="bg-green-600 hover:bg-green-700 text-white"
+                      onClick={() => reviewInspectionMut.mutate({ id: ticket.id, action: "approve" })}
+                      disabled={reviewInspectionMut.isPending}
+                    >
+                      {reviewInspectionMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+                      اعتماد نتيجة الفحص
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {/* Inspection revisions */}
               <div id="inspection-section" className="space-y-3 bg-gray-50 dark:bg-gray-900/30 rounded-xl p-4 border border-gray-200 dark:border-gray-700">
                 <div className="flex items-center gap-2 mb-1">
-                  <span className="text-gray-600 dark:text-gray-400 font-semibold text-sm">🔍 نتائج الفحص (النظام الجديد)</span>
+                  <span className="text-gray-600 dark:text-gray-400 font-semibold text-sm">🔍 سجل نتائج الفحص</span>
+                </div>
+                <div className="rounded-lg border border-blue-200 bg-blue-50 p-2 text-xs leading-5 text-blue-800 dark:border-blue-800 dark:bg-blue-950/20 dark:text-blue-300">
+                  رقم النسخة يوضح ترتيب نتيجة الفحص عند إعادتها للتصحيح. المسودة محفوظة ولم تُرسل للمراجعة بعد.
+                  منفذ الفحص هو من عاين البلاغ ميدانيًا، ومدخل النتيجة هو من سجل البيانات داخل النظام.
                 </div>
                 {!inspectionResultsList || inspectionResultsList.length === 0 ? (
-                  <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-2">لا توجد بيانات فحص متاحة حالياً</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-2">لا توجد بيانات فحص متاحة حاليًا</p>
                 ) : (
                   <div className="space-y-3">
-                    {inspectionResultsList.map((r) => (
-                      <div key={r.id} className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-3 text-sm space-y-1">
-                        <div><span className="font-semibold">الخطورة:</span> {r.severity}</div>
-                        <div><span className="font-semibold">السبب الجذري:</span> {r.rootCause}</div>
-                        <div><span className="font-semibold">النتائج:</span> {r.findings}</div>
-                        <div><span className="font-semibold">الإجراء الموصى به:</span> {r.recommendedAction}</div>
-                        <div className="text-gray-400 text-xs">{r.createdAt ? new Date(r.createdAt).toLocaleString(locale) : ""}</div>
-                      </div>
-                    ))}
+                    {inspectionResultsList.map((r: any) => {
+                      const performedBy = users?.find((u: any) => u.id === (r.performedById || r.inspectorId));
+                      const recordedBy = users?.find((u: any) => u.id === (r.recordedById || r.inspectorId));
+                      const statusLabels: Record<string, string> = {
+                        [MAINTENANCE_INSPECTION_RESULT_STATUS.DRAFT]: "مسودة محفوظة — لم تُرسل للمراجعة",
+                        [MAINTENANCE_INSPECTION_RESULT_STATUS.SUBMITTED]: "مرسلة للمراجعة",
+                        [MAINTENANCE_INSPECTION_RESULT_STATUS.RETURNED]: "معادة للتصحيح",
+                        [MAINTENANCE_INSPECTION_RESULT_STATUS.APPROVED]: "معتمدة",
+                        [MAINTENANCE_INSPECTION_RESULT_STATUS.SUPERSEDED]: "مستبدلة",
+                      };
+                      return (
+                        <div key={r.id} className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-3 text-sm space-y-2">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="font-semibold">نسخة نتيجة الفحص رقم {r.revisionNumber || 1}</span>
+                            <Badge variant={r.workflowStatus === MAINTENANCE_INSPECTION_RESULT_STATUS.APPROVED ? "default" : "secondary"}>
+                              {statusLabels[r.workflowStatus] || r.workflowStatus || "سجل قديم"}
+                            </Badge>
+                          </div>
+                          <div className="grid gap-1 sm:grid-cols-2 text-xs text-muted-foreground">
+                            <div><span className="font-semibold text-foreground">من قام بالفحص ميدانيًا:</span> {performedBy?.name || performedBy?.username || "-"}</div>
+                            <div><span className="font-semibold text-foreground">من أدخل النتيجة في النظام:</span> {recordedBy?.name || recordedBy?.username || "-"}</div>
+                          </div>
+                          {r.inspectionNotes && <div><span className="font-semibold">الملاحظات الفنية:</span> {r.inspectionNotes}</div>}
+                          <div><span className="font-semibold">الخطورة:</span> {r.severity}</div>
+                          {r.rootCause && <div><span className="font-semibold">السبب الجذري:</span> {r.rootCause}</div>}
+                          {r.findings && <div><span className="font-semibold">النتائج:</span> {r.findings}</div>}
+                          {r.recommendedAction && <div><span className="font-semibold">الإجراء الموصى به:</span> {r.recommendedAction}</div>}
+                          {r.returnReason && (
+                            <div className="rounded bg-red-50 p-2 text-red-700 dark:bg-red-950/20 dark:text-red-300">
+                              <span className="font-semibold">سبب الإعادة:</span> {r.returnReason}
+                            </div>
+                          )}
+                          <div className="text-gray-400 text-xs">{r.createdAt ? new Date(r.createdAt).toLocaleString(locale) : ""}</div>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </div>
 
-              {/* Maintenance Manager: Approve Work + Select Path */}
+              {/* Maintenance manager: select path only after inspection approval */}
               {canApproveWork && (
                 <div className="space-y-3 bg-green-50 dark:bg-green-950/20 rounded-xl p-4 border border-green-200 dark:border-green-800">
                   <div className="flex items-center gap-2 mb-1">
-                    <span className="text-green-600 dark:text-green-400 font-semibold text-sm">✅ اعتماد بدء العمل - اختر المسار</span>
+                    <span className="text-green-600 dark:text-green-400 font-semibold text-sm">✅ نتيجة الفحص معتمدة — اختر مسار التنفيذ</span>
                   </div>
                   <Select value={selectedPath} onValueChange={(v: "A" | "B" | "C") => setSelectedPath(v)}>
                     <SelectTrigger className="w-full">
@@ -883,8 +1323,8 @@ const { getField } = useResolvedTranslation(
                     </Button>
                   )}
                   <Button
-                    onClick={() => markReadyMut.mutate({ id: ticket.id, afterPhotoUrl: afterPhotoUrl || undefined, repairNotes: repairNotes || undefined })}
-                    disabled={markReadyMut.isPending}
+                    onClick={() => markReadyMut.mutate({ id: ticket.id, afterPhotoUrl, repairNotes: repairNotes.trim() })}
+                    disabled={markReadyMut.isPending || !isPathARepairEvidenceReady}
                     className="w-full gap-2 bg-purple-600 hover:bg-purple-700 text-white"
                     size="lg"
                   >
@@ -898,7 +1338,9 @@ const { getField } = useResolvedTranslation(
               {canCompleteWithParts && (
                 <div className="space-y-3 bg-indigo-50 dark:bg-indigo-950/20 rounded-xl p-4 border border-indigo-200 dark:border-indigo-800">
                   <div className="flex items-center gap-2 mb-1">
-                    <span className="text-indigo-600 dark:text-indigo-400 font-semibold text-sm">🔧 إتمام العمل بعد استلام المواد - المسار B</span>
+                    <span className="text-indigo-600 dark:text-indigo-400 font-semibold text-sm">
+                      {ticket?.maintenancePath === "C" ? "🔧 توثيق إعادة تركيب الأصل - المسار C" : "🔧 إتمام العمل بعد استلام المواد - المسار B"}
+                    </span>
                   </div>
                   <Textarea placeholder="ملاحظات الإصلاح..." value={repairNotes} onChange={e => setRepairNotes(e.target.value)} rows={2} className="text-sm" />
                   {afterPhotoUrl ? (
@@ -914,17 +1356,24 @@ const { getField } = useResolvedTranslation(
                       input.click();
                     }} disabled={uploading}>
                       {uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Camera className="w-4 h-4" />}
-                      {uploading ? t.common.loading : "رفع صورة بعد الإصلاح (اختياري)"}
+                      {uploading ? t.common.loading : "رفع صورة بعد الإصلاح (مطلوب)"}
                     </Button>
                   )}
                   <Button
-                    onClick={() => completeWithPartsMut.mutate({ id: ticket.id, afterPhotoUrl: afterPhotoUrl || undefined, repairNotes: repairNotes || undefined })}
-                    disabled={completeWithPartsMut.isPending}
+                    onClick={() => completeWithPartsMut.mutate({
+                      id: ticket.id,
+                      afterPhotoUrl: afterPhotoUrl.trim(),
+                      repairNotes: repairNotes.trim(),
+                    })}
+                    disabled={
+                      completeWithPartsMut.isPending ||
+                      !isPathBRepairEvidenceReady
+                    }
                     className="w-full gap-2 bg-indigo-600 hover:bg-indigo-700 text-white"
                     size="lg"
                   >
                     {completeWithPartsMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
-                    إتمام العمل - إرسال للإغلاق
+                    {ticket?.maintenancePath === "C" ? "إكمال إعادة التركيب - إرسال للإغلاق" : "إتمام العمل - إرسال للإغلاق"}
                   </Button>
                 </div>
               )}
@@ -1053,21 +1502,38 @@ const { getField } = useResolvedTranslation(
                 <span className="text-muted-foreground">{t.tickets.reporter}:</span>
                 <span className="font-medium">{reportedBy?.name || "-"}</span>
               </div>
-              {assignedTo && (
+              {ticket.maintenanceResponsibleDepartment && (
+                <div className="flex items-center gap-2">
+                  <FileText className="w-4 h-4 text-muted-foreground shrink-0" />
+                  <span className="text-muted-foreground">الجهة المسؤولة:</span>
+                  <span className="font-medium">
+                    {ticket.maintenanceResponsibleDepartment === MAINTENANCE_RESPONSIBLE_DEPARTMENT.CONSTRUCTION ? "قسم الإنشاءات" : "الصيانة العامة"}
+                  </span>
+                </div>
+              )}
+              {ticket.maintenanceResponsibleManagerId && (
+                <div className="flex items-center gap-2">
+                  <User className="w-4 h-4 text-muted-foreground shrink-0" />
+                  <span className="text-muted-foreground">المسؤول الحالي:</span>
+                  <span className="font-medium">{users?.find((u: any) => u.id === ticket.maintenanceResponsibleManagerId)?.name || "-"}</span>
+                </div>
+              )}
+              {(ticket.assignedToId || ticket.assignedTechnicianId) && (
                 <div className="flex items-center gap-2">
                   <Wrench className="w-4 h-4 text-muted-foreground shrink-0" />
                   <span className="text-muted-foreground">{t.tickets.assignedTo}:</span>
-                  <span className="font-medium">{assignedTo.name || "-"}</span>
+                  <span className="font-medium">{currentAssigneeName}</span>
                 </div>
               )}
-              {assignedTo && (
+              {canPrintTaskDocument && (
                 <button
                   type="button"
                   onClick={handlePrintTask}
                   disabled={printingTask}
                   className="mt-1 w-full flex items-center justify-center gap-2 border border-gray-300 rounded-lg px-3 py-2 text-sm font-medium hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {printingTask ? <Loader2 className="w-4 h-4 animate-spin" /> : "🖨️"} طباعة المهمة
+                  {printingTask ? <Loader2 className="w-4 h-4 animate-spin" /> : <Printer className="w-4 h-4" />}
+                  طباعة المهمة
                 </button>
               )}
               <div className="flex items-center gap-2">
@@ -1149,7 +1615,7 @@ const { getField } = useResolvedTranslation(
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <CheckCircle2 className="w-5 h-5 text-amber-600" />
-              فرز البلاغ وتعيين الفني
+              فرز البلاغ وتحديد الجهة المسؤولة
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
@@ -1158,30 +1624,75 @@ const { getField } = useResolvedTranslation(
               <p className="text-sm text-muted-foreground">{ticket && getField("title")}</p>
             </div>
             <div className="space-y-2">
-              <Label>تعيين فني <span className="text-muted-foreground text-xs">(مطلوب)</span></Label>
-              <TechnicianCombobox
-                value={triageAssignedTo}
-                onValueChange={setTriageAssignedTo}
-                placeholder="اختر فنيًا للفحص..."
-                options={technicians.map(tech => ({
-                  value: tech.id.toString(),
-                  label: tech.name || tech.email,
-                }))}
-              />
+              <Label>الجهة المسؤولة *</Label>
+              <Select value={triageDepartment} onValueChange={(value) => {
+                setTriageDepartment(value);
+                setTriageAssignedTo("");
+                setTriageResponsibleManagerId("");
+              }}>
+                <SelectTrigger><SelectValue placeholder="اختر الجهة المسؤولة" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={MAINTENANCE_RESPONSIBLE_DEPARTMENT.GENERAL}>الصيانة العامة</SelectItem>
+                  <SelectItem value={MAINTENANCE_RESPONSIBLE_DEPARTMENT.CONSTRUCTION}>قسم الإنشاءات</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
+            {selectedDepartmentManagers.length > 1 && (
+              <div className="space-y-2">
+                <Label>المسؤول المستلم *</Label>
+                <Select value={triageResponsibleManagerId} onValueChange={setTriageResponsibleManagerId}>
+                  <SelectTrigger><SelectValue placeholder="اختر المسؤول" /></SelectTrigger>
+                  <SelectContent>
+                    {selectedDepartmentManagers.map((manager: any) => (
+                      <SelectItem key={manager.id} value={String(manager.id)}>{manager.name || manager.username}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+            {triageDepartment === MAINTENANCE_RESPONSIBLE_DEPARTMENT.GENERAL && (
+              <div className="space-y-2">
+                <Label>تعيين فني <span className="text-muted-foreground text-xs">(مطلوب)</span></Label>
+                <TechnicianCombobox
+                  value={triageAssignedTo}
+                  onValueChange={setTriageAssignedTo}
+                  placeholder="اختر فنيًا للفحص..."
+                  options={technicians.map(tech => ({
+                    value: tech.id.toString(),
+                    label: tech.name || tech.email,
+                  }))}
+                />
+              </div>
+            )}
             <p className="text-xs text-muted-foreground">
-              سيتم نقل البلاغ إلى مرحلة الفحص الميداني وتعيين الفني مباشرةً.
+              {triageDepartment === MAINTENANCE_RESPONSIBLE_DEPARTMENT.CONSTRUCTION
+                ? "سيصل البلاغ إلى مدير الإنشاءات والمشتريات، وهو من يعيّن الفني المسؤول."
+                : "سيبقى البلاغ ضمن مسار الصيانة العامة ويُعيّن الفني مباشرةً."}
             </p>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowTriageDialog(false)}>إلغاء</Button>
             <Button
               onClick={() => {
-                const assignedToId = triageAssignedTo ? parseInt(triageAssignedTo) : undefined;
-                triageMut.mutate({ id: ticket!.id, assignedToId });
+                const assignedToId = triageDepartment === MAINTENANCE_RESPONSIBLE_DEPARTMENT.GENERAL && triageAssignedTo
+                  ? parseInt(triageAssignedTo)
+                  : undefined;
+                const autoManagerId = selectedDepartmentManagers.length === 1 ? selectedDepartmentManagers[0].id : undefined;
+                triageMut.mutate({
+                  id: ticket!.id,
+                  assignedToId,
+                  maintenanceResponsibleDepartment: triageDepartment as any,
+                  maintenanceResponsibleManagerId: triageResponsibleManagerId ? parseInt(triageResponsibleManagerId) : autoManagerId,
+                });
                 setShowTriageDialog(false);
               }}
-              disabled={triageMut.isPending || !triageAssignedTo}
+              disabled={
+                triageMut.isPending ||
+                !triageDepartment ||
+                (selectedDepartmentManagers.length === 0) ||
+                (selectedDepartmentManagers.length > 1 && !triageResponsibleManagerId) ||
+                (triageDepartment === MAINTENANCE_RESPONSIBLE_DEPARTMENT.GENERAL && !triageAssignedTo)
+              }
               className="bg-amber-600 hover:bg-amber-700 text-white"
             >
               {triageMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}

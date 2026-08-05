@@ -835,7 +835,7 @@ export const preventiveRouter = router({
     }
     await notifyOwner({ title: notifTitle, content: notifContent });
     // Send colored in-app notifications to all managers
-    const managerUsers = await db.getManagerUsers();
+    const managerUsers = await db.getOperationalManagerUsers();
     const notifType = issueCount > 0 ? "critical" : fixedCount > 0 ? "warning" : "success";
     for (const manager of managerUsers) {
       await db.createNotification({

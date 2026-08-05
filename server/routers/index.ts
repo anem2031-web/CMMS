@@ -67,6 +67,7 @@ import { pmPlansRouter } from "./system/pmPlans.router";
 import { catalogRouter } from "./catalog/catalog.router";
 import { improvementIdeasRouter } from "./improvement-ideas/improvement-ideas.router";
 import { constructionRouter } from "./construction/index";
+import { externalMaintenanceRouter } from "./external-maintenance/external-maintenance.router";
 
 export const appRouter = router({
   system: systemRouter,
@@ -139,6 +140,8 @@ purchaseOrders: router({
 
   // ── وحدة الإنشاءات ──
   construction: constructionRouter,
+
+  externalMaintenance: externalMaintenanceRouter,
 });
 
 export type AppRouter = typeof appRouter;

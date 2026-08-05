@@ -460,24 +460,70 @@ export async function createInspectionResult(data: InsertInspectionResult) {
 export async function getInspectionResultsByTicket(ticketId: number) {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(inspectionResults).where(eq(inspectionResults.ticketId, ticketId));
+  return db
+    .select()
+    .from(inspectionResults)
+    .where(eq(inspectionResults.ticketId, ticketId))
+    .orderBy(desc(inspectionResults.revisionNumber), desc(inspectionResults.id));
+}
+
+export async function getLatestInspectionResultByTicket(ticketId: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const [row] = await db
+    .select()
+    .from(inspectionResults)
+    .where(eq(inspectionResults.ticketId, ticketId))
+    .orderBy(desc(inspectionResults.revisionNumber), desc(inspectionResults.id))
+    .limit(1);
+  return row ?? null;
+}
+
+export async function updateInspectionResult(id: number, data: Partial<InsertInspectionResult>) {
+  const db = await getDb();
+  if (!db) return null;
+  await db.update(inspectionResults).set(data).where(eq(inspectionResults.id, id));
+  return { success: true };
+}
+
+export async function supersedeCurrentInspectionResults(ticketId: number) {
+  const db = await getDb();
+  if (!db) return null;
+  await db
+    .update(inspectionResults)
+    .set({ workflowStatus: "maintenance_inspection_result_superseded" as any })
+    .where(and(
+      eq(inspectionResults.ticketId, ticketId),
+      inArray(inspectionResults.workflowStatus, [
+        "maintenance_inspection_result_draft",
+        "maintenance_inspection_result_submitted",
+        "maintenance_inspection_result_returned",
+        "maintenance_inspection_result_approved",
+      ] as any),
+    ));
+  return { success: true };
 }
 
 export async function getInspectionResultsByAsset(assetId: number) {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(inspectionResults).where(eq(inspectionResults.assetId, assetId));
+  return db.select().from(inspectionResults).where(and(
+    eq(inspectionResults.assetId, assetId),
+    eq(inspectionResults.workflowStatus, "maintenance_inspection_result_approved" as any),
+  ));
 }
 export async function getInspectionDashboardStats() {
   const db = await getDb();
   if (!db) return { totalInspections: 0, mostFrequentRootCause: "-", highestSeverity: "low", mostInspectedAsset: null };
   // 1. Total inspections
-  const [totalRow] = await db.select({ total: count() }).from(inspectionResults);
+  const approvedCondition = eq(inspectionResults.workflowStatus, "maintenance_inspection_result_approved" as any);
+  const [totalRow] = await db.select({ total: count() }).from(inspectionResults).where(approvedCondition);
   const totalInspections = Number(totalRow?.total ?? 0);
   // 2. Most frequent rootCause
   const rootCauseRows = await db
     .select({ rootCause: inspectionResults.rootCause, cnt: count() })
     .from(inspectionResults)
+    .where(approvedCondition)
     .groupBy(inspectionResults.rootCause)
     .orderBy(desc(count()))
     .limit(1);
@@ -486,6 +532,7 @@ export async function getInspectionDashboardStats() {
   const severityRows = await db
     .select({ severity: inspectionResults.severity })
     .from(inspectionResults)
+    .where(approvedCondition)
     .orderBy(sql`FIELD(${inspectionResults.severity}, 'low', 'medium', 'high', 'critical') DESC`)
     .limit(1);
   const highestSeverity = severityRows[0]?.severity ?? "low";
@@ -493,6 +540,7 @@ export async function getInspectionDashboardStats() {
   const assetRows = await db
     .select({ assetId: inspectionResults.assetId, cnt: count() })
     .from(inspectionResults)
+    .where(approvedCondition)
     .groupBy(inspectionResults.assetId)
     .orderBy(desc(count()))
     .limit(1);

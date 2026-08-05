@@ -42,6 +42,7 @@ import {
   inventorySettlementItems,
   inventoryCountNumberCounter,
   inventorySettlementNumberCounter,
+  externalMaintenanceJobs,
 } from "../../../drizzle/schema";
 import { ENV } from '../env';
 
@@ -72,17 +73,41 @@ export async function getUsersByRole(role: string) {
   return db.select().from(users).where(eq(users.role, role as any));
 }
 
-/**
- * Returns all users who should receive "manager-level" notifications:
- * maintenance_manager + owner + admin roles.
- * This ensures admins/owners always receive operational alerts.
- */
-export async function getManagerUsers() {
+async function getUsersByRoles(roles: string[]) {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(users).where(
-    inArray(users.role, ["maintenance_manager", "owner", "admin"] as any[])
-  );
+  return db.select().from(users).where(inArray(users.role, roles as any[]));
+}
+
+/** Legacy manager recipients. Kept for modules excluded from both derived roles (warehouse). */
+export async function getManagerUsers() {
+  return getUsersByRoles(["maintenance_manager", "owner", "admin"]);
+}
+
+/** Ticket/triage recipients: legacy manager + general maintenance role. */
+export async function getTicketManagerUsers() {
+  return getUsersByRoles([
+    "maintenance_manager",
+    "general_maintenance_manager",
+    "owner",
+    "admin",
+  ]);
+}
+
+/** Purchase recipients: all maintenance-manager variants. */
+export async function getPurchaseManagerUsers() {
+  return getUsersByRoles([
+    "maintenance_manager",
+    "general_maintenance_manager",
+    "construction_procurement_manager",
+    "owner",
+    "admin",
+  ]);
+}
+
+/** Shared operational modules retained by both derived roles (PM, improvements, reports). */
+export async function getOperationalManagerUsers() {
+  return getPurchaseManagerUsers();
 }
 
 // ── أرجاع IDs كل المستخدمين بدور معيّن — تُستخدم لفلترة الطلبات حسب من أنشأها ──
@@ -290,6 +315,28 @@ export async function getPurchaseOrders(filters?: {
 }
 
 
+/** Whether at least one purchase order is linked to a maintenance ticket. */
+export async function getPurchaseOrdersByTicketId(ticketId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select()
+    .from(purchaseOrders)
+    .where(eq(purchaseOrders.ticketId, ticketId))
+    .orderBy(asc(purchaseOrders.id));
+}
+
+export async function hasPurchaseOrderForTicket(ticketId: number): Promise<boolean> {
+  const db = await getDb();
+  if (!db) return false;
+  const rows = await db
+    .select({ id: purchaseOrders.id })
+    .from(purchaseOrders)
+    .where(eq(purchaseOrders.ticketId, ticketId))
+    .limit(1);
+  return rows.length > 0;
+}
+
 export async function getPurchaseOrderById(id: number) {
   const db = await getDb();
   if (!db) return null;
@@ -354,8 +401,126 @@ export async function updatePOItem(id: number, data: any, tx?: any) {
   await db.update(purchaseOrderItems).set(data).where(eq(purchaseOrderItems.id, id));
 }
 
-export async function getPOItemById(id: number) {
+/**
+ * تحديث صنف فقط إذا لم يكن في حالة نهائية مرجعية.
+ * يُستخدم داخل مراجعة الأصناف لمنع سباق التزامن مع إلغاء الصنف: إذا أُلغي
+ * الصنف قبل لحظة الكتابة فلن يستطيع مسار المراجعة إعادته إلى pending.
+ */
+export async function updatePOItemIfNotTerminal(id: number, data: any, tx?: any): Promise<boolean> {
+  const db = tx || await getDb();
+  if (!db) return false;
+  const result: any = await db
+    .update(purchaseOrderItems)
+    .set(data)
+    .where(and(
+      eq(purchaseOrderItems.id, id),
+      notInArray(purchaseOrderItems.status, ["cancelled", "rejected"] as any),
+    ));
+  if (Number(result?.[0]?.affectedRows ?? 0) === 1) return true;
+
+  const row = await db
+    .select({ status: purchaseOrderItems.status })
+    .from(purchaseOrderItems)
+    .where(eq(purchaseOrderItems.id, id))
+    .limit(1);
+  return !!row[0] && !["cancelled", "rejected"].includes(row[0].status);
+}
+
+/**
+ * تحديث شرطي يمنع سباق التزامن بين طلب تغيير المندوب وحفظ السعر.
+ * يمكن كذلك اشتراط بقاء الصنف على حالة محددة حتى لحظة الكتابة، لمنع إعادة
+ * تنشيط صنف أُلغي بالتزامن مع حفظ السعر.
+ */
+export async function updatePOItemIfDelegateChangeUnlocked(
+  id: number,
+  data: any,
+  expectedStatus?: string,
+): Promise<boolean> {
   const db = await getDb();
+  if (!db) return false;
+  const conditions = [
+    eq(purchaseOrderItems.id, id),
+    isNull(purchaseOrderItems.delegateChangeRequestedAt),
+  ];
+  if (expectedStatus) {
+    conditions.push(eq(purchaseOrderItems.status, expectedStatus as any));
+  }
+  const result: any = await db
+    .update(purchaseOrderItems)
+    .set(data)
+    .where(and(...conditions));
+  if (Number(result?.[0]?.affectedRows ?? 0) === 1) return true;
+
+  // قد يعيد MySQL صفرًا إذا كانت القيم الجديدة مطابقة تمامًا رغم مطابقة WHERE.
+  // نميّز ذلك عن حالة القفل/تغير الحالة بإعادة قراءة الحقول الحاكمة.
+  const row = await db
+    .select({
+      delegateChangeRequestedAt: purchaseOrderItems.delegateChangeRequestedAt,
+      status: purchaseOrderItems.status,
+    })
+    .from(purchaseOrderItems)
+    .where(eq(purchaseOrderItems.id, id))
+    .limit(1);
+  return !!row[0]
+    && !row[0].delegateChangeRequestedAt
+    && (!expectedStatus || row[0].status === expectedStatus);
+}
+
+/** تسجيل طلب تغيير المندوب بصورة ذرية: لا ينجح إذا بدأ التسعير أو سبق تقديم طلب. */
+export async function requestPOItemDelegateChangeAtomic(input: {
+  itemId: number;
+  delegateId: number;
+  reason: string;
+  requestedAt: Date;
+}): Promise<boolean> {
+  const db = await getDb();
+  if (!db) return false;
+  const result: any = await db
+    .update(purchaseOrderItems)
+    .set({
+      delegateChangeRequestedById: input.delegateId,
+      delegateChangeReason: input.reason,
+      delegateChangeRequestedAt: input.requestedAt,
+    })
+    .where(and(
+      eq(purchaseOrderItems.id, input.itemId),
+      eq(purchaseOrderItems.delegateId, input.delegateId),
+      eq(purchaseOrderItems.status, "pending"),
+      isNull(purchaseOrderItems.batchId),
+      isNull(purchaseOrderItems.estimatedUnitCost),
+      isNull(purchaseOrderItems.delegateChangeRequestedAt),
+    ));
+  return Number(result?.[0]?.affectedRows ?? 0) === 1;
+}
+
+/** حسم طلب تغيير المندوب بصورة ذرية مع إبقاء الصنف pending وجاهزًا للتسعير. */
+export async function resolvePOItemDelegateChangeAtomic(input: {
+  itemId: number;
+  newDelegateId: number;
+}): Promise<boolean> {
+  const db = await getDb();
+  if (!db) return false;
+  const result: any = await db
+    .update(purchaseOrderItems)
+    .set({
+      delegateId: input.newDelegateId,
+      status: "pending",
+      batchId: null,
+      delegateChangeRequestedById: null,
+      delegateChangeReason: null,
+      delegateChangeRequestedAt: null,
+    })
+    .where(and(
+      eq(purchaseOrderItems.id, input.itemId),
+      eq(purchaseOrderItems.status, "pending"),
+      isNull(purchaseOrderItems.batchId),
+      isNotNull(purchaseOrderItems.delegateChangeRequestedAt),
+    ));
+  return Number(result?.[0]?.affectedRows ?? 0) === 1;
+}
+
+export async function getPOItemById(id: number, tx?: any) {
+  const db = tx || await getDb();
   if (!db) return null;
   const result = await db.select().from(purchaseOrderItems).where(eq(purchaseOrderItems.id, id)).limit(1);
   return result[0] || null;
@@ -410,6 +575,47 @@ export async function getPOItemsByStatus(status: string) {
   const db = await getDb();
   if (!db) return [];
   return db.select().from(purchaseOrderItems).where(eq(purchaseOrderItems.status, status as any)).orderBy(desc(purchaseOrderItems.createdAt));
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// أداء — مرجع رسمي — لا تُعِد بنود دورة الشراء لحلقة "استعلام لكل بند"
+// ══════════════════════════════════════════════════════════════════════════════
+//
+// المشكلة التي يحلّها هذا الاستعلام:
+//   إثراء كل بند شراء ببيانات (طلب الشراء / البلاغ المرتبط / سجل الصيانة الخارجية)
+//   كان يتم سابقًا بدالة تُستدعى لكل بند على حدة (getPurchaseOrderTicketContext)،
+//   أي رحلتين إلى ثلاث رحلات لقاعدة البيانات × عدد البنود، بالتتابع أحيانًا.
+//   مع قاعدة بيانات بعيدة (سحابية) هذا يعني تأخيرًا محسوسًا يتضاعف مع كل بند إضافي.
+//
+// الحل الدائم: استعلام JOIN واحد يجلب كل السياق لكل أوامر الشراء المطلوبة دفعة
+// واحدة، ثم يُبنى Map في الذاكرة لإثراء البنود محليًا بدون أي رحلة إضافية.
+//
+// القاعدة الذهبية لأي مطوّر/نموذج يعمل على هذا الملف مستقبلًا:
+//   لو احتجت بيانات مرتبطة (po/ticket/...) لقائمة بنود، لا تكتب حلقة await لكل
+//   بند — أضف حقلها لهذا الاستعلام المجمّع (أو استعلام JOIN مشابه) واستخدمه.
+// ══════════════════════════════════════════════════════════════════════════════
+export async function getPurchaseOrderTicketContextBatch(purchaseOrderIds: number[]) {
+  type Context = { po: any; ticket: any; externalJob: any };
+  const contextMap = new Map<number, Context>();
+  const db = await getDb();
+  const uniqueIds = Array.from(new Set(purchaseOrderIds.filter((id): id is number => !!id)));
+  if (!db || uniqueIds.length === 0) return contextMap;
+
+  const rows = await db
+    .select({
+      po: purchaseOrders,
+      ticket: tickets,
+      externalJob: externalMaintenanceJobs,
+    })
+    .from(purchaseOrders)
+    .leftJoin(tickets, eq(purchaseOrders.ticketId, tickets.id))
+    .leftJoin(externalMaintenanceJobs, eq(externalMaintenanceJobs.purchaseOrderId, purchaseOrders.id))
+    .where(inArray(purchaseOrders.id, uniqueIds));
+
+  for (const row of rows) {
+    contextMap.set(row.po.id, { po: row.po, ticket: row.ticket, externalJob: row.externalJob });
+  }
+  return contextMap;
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -654,6 +860,9 @@ export async function getPOItemsForPOs(poIds: number[]) {
       id: purchaseOrderItems.id,
       purchaseOrderId: purchaseOrderItems.purchaseOrderId,
       status: purchaseOrderItems.status,
+      delegateId: purchaseOrderItems.delegateId,
+      batchId: purchaseOrderItems.batchId,
+      delegateChangeRequestedAt: purchaseOrderItems.delegateChangeRequestedAt,
     })
     .from(purchaseOrderItems)
     .where(inArray(purchaseOrderItems.purchaseOrderId, poIds));

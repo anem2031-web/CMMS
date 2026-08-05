@@ -30,11 +30,11 @@
 import { TRPCError } from "@trpc/server";
 import * as ideasDb from "../../services/improvement-ideas/improvementIdeas";
 import * as db from "../../_core/db";
-import { isTicketVisible } from "../tickets/tickets.access";
+import { assertTicketReadable, isTicketReadOnlyForUser } from "../tickets/tickets.access";
 
 /** نفس القائمة المستخدمة بـimprovement-ideas.router.ts حرفيًا */
 const IDEA_FULL_VISIBILITY_ROLES = [
-  "maintenance_manager", "senior_management", "executive_director", "owner", "admin",
+  "maintenance_manager", "general_maintenance_manager", "construction_procurement_manager", "senior_management", "executive_director", "owner", "admin",
 ];
 
 /** أنواع الكيانات المدعومة فعليًا للمرفقات — أي نوع آخر يُرفض (Default Deny) */
@@ -58,7 +58,8 @@ interface AttachmentAccessUser {
 export async function assertCanAccessAttachments(
   user: AttachmentAccessUser,
   entityType: string,
-  entityId: number
+  entityId: number,
+  mode: "read" | "write" = "read"
 ): Promise<void> {
   if (!ALLOWED_ATTACHMENT_ENTITY_TYPES.includes(entityType as AttachmentEntityType)) {
     throw new TRPCError({
@@ -80,15 +81,18 @@ export async function assertCanAccessAttachments(
     }
   }
 
+  if (entityType === "catalog_item" && user.role === "general_maintenance_manager") {
+    throw new TRPCError({ code: "FORBIDDEN", message: "ليس لديك صلاحية للوصول إلى الكتالوج" });
+  }
+
   if (entityType === "ticket") {
     const ticket = await db.getTicketById(entityId);
     if (!ticket) throw new TRPCError({ code: "NOT_FOUND", message: "البلاغ غير موجود" });
-    // نفس قاعدة tickets.getById/list حرفيًا (مصدر واحد: tickets.access.ts)
-    if (!isTicketVisible(user, ticket as any)) {
-      throw new TRPCError({
-        code: "FORBIDDEN",
-        message: "لا يمكنك الاطلاع على مرفقات هذا البلاغ",
-      });
+    await assertTicketReadable(user, ticket as any, "لا يمكنك الاطلاع على مرفقات هذا البلاغ");
+    // البلاغ الإنشائي المحوّل إلى المدير قابل للإدارة؛ أما الاستثناء القادم من
+    // طلب شراء مرتبط ببلاغ عام فيبقى للقراءة فقط.
+    if (mode === "write" && isTicketReadOnlyForUser(user, ticket as any)) {
+      throw new TRPCError({ code: "FORBIDDEN", message: "البلاغ المرتبط متاح للعرض فقط" });
     }
   }
 

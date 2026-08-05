@@ -20,3 +20,5 @@ export * from "./pmPlans";
 export * from "./warehouse-receipts";
 export * from "./warehouse-returns";
 export * from "./invoice-drafts";
+
+export * from "./external-maintenance";

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { computeActionablePOs } from "../routers/purchase/actionable";
+import { ROLE } from "../_core/authz/policy";
 
 // ══════════════════════════════════════════════════════════════════════════
 // اختبارات "بانتظار إجرائي" — الفئات الثلاث لكل دور
@@ -155,4 +156,181 @@ describe("سلوك عام", () => {
   it("قائمة فارغة تُرجع نتيجة فارغة", () => {
     expect(computeActionablePOs({ id: 1, role: "owner" }, [], [])).toEqual([]);
   });
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+// إصلاحات 2026-07-30 — اكتُشفت بالاستخدام الفعلي (طلبات ماجد المختفية)
+// ══════════════════════════════════════════════════════════════════════════
+
+describe("الفئة 4 — مسودة لم تُرسل (بانتظار منشئها)", () => {
+  it("منشئ المسودة يراها مع إجراء الإكمال", () => {
+    const r = computeActionablePOs(
+      { id: 99, role: "warehouse" },
+      [po({ status: "draft", requestedById: 99 })],
+      []
+    );
+    expect(r).toHaveLength(1);
+    expect(r[0].reason).toBe("مسودة لم تُرسل بعد");
+    expect(r[0].actionLabel).toBe("إكمال وإرسال");
+  });
+
+  it("كل دور مسموح له بالإنشاء يرى مسودته في بانتظار إجرائي حتى يرسلها", () => {
+    for (const role of Object.values(ROLE)) {
+      const r = computeActionablePOs(
+        { id: 99, role },
+        [po({ status: "draft", requestedById: 99 })],
+        []
+      );
+      expect(r).toHaveLength(1);
+      expect(r[0]).toMatchObject({
+        reason: "مسودة لم تُرسل بعد",
+        actionLabel: "إكمال وإرسال",
+      });
+    }
+  });
+
+  it("مستخدم آخر لا يرى مسودة غيره", () => {
+    const r = computeActionablePOs(
+      { id: 50, role: "warehouse" },
+      [po({ status: "draft", requestedById: 99 })],
+      []
+    );
+    expect(r).toHaveLength(0);
+  });
+
+  it("المشرف يراها بوصف صادق أنها مسودة غيره", () => {
+    const r = computeActionablePOs(
+      { id: 1, role: "owner" },
+      [po({ status: "draft", requestedById: 99 })],
+      []
+    );
+    expect(r[0].reason).toBe("مسودة لم يُرسلها منشئها بعد");
+  });
+});
+
+
+  it("owner/admin يرى الطلب المرتجع للمراجعة كإجراء متاح حتى لو لم يكن المنشئ", () => {
+    const result = computeActionablePOs(
+      { id: 99, role: "admin" },
+      [po({ id: 77, status: "revision_needed", requestedById: 12 })],
+      []
+    );
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({ id: 77, actionLabel: "تعديل وإعادة إرسال" });
+  });
+
+describe("owner/admin — سبب صادق لكل مرحلة بدل رسالة موحّدة مضلّلة", () => {
+  const cases: Array<[string, string]> = [
+    ["pending_review", "بانتظار مراجعة مدير الصيانة"],
+    ["pending_estimate", "بانتظار تسعير المندوب"],
+    ["pending_accounting", "بانتظار اعتماد الحسابات"],
+    ["pending_management", "بانتظار اعتماد الإدارة العليا"],
+    ["approved", "بانتظار شراء المندوب"],
+  ];
+
+  for (const [status, expectedReason] of cases) {
+    it(`${status} → "${expectedReason}"`, () => {
+      const r = computeActionablePOs({ id: 1, role: "owner" }, [po({ status })], []);
+      expect(r).toHaveLength(1);
+      expect(r[0].reason).toBe(expectedReason);
+    });
+  }
+
+  it("🔴 الخلل المُصلَح: لا تظهر كل المراحل بنفس السبب", () => {
+    const reasons = cases.map(([status]) =>
+      computeActionablePOs({ id: 1, role: "owner" }, [po({ status })], [])[0].reason
+    );
+    expect(new Set(reasons).size).toBe(reasons.length); // كل مرحلة سببها مختلف
+  });
+});
+
+describe("warehouse — دور مزدوج: مستلِم ومُنشئ", () => {
+  it("يرى طلبه الخاص بمرحلة التسعير (كان محجوبًا قبل الإصلاح)", () => {
+    const r = computeActionablePOs(
+      { id: 9090247, role: "warehouse" },
+      [po({ status: "pending_estimate", requestedById: 9090247 })],
+      []
+    );
+    // لا إجراء له بهذي المرحلة (المندوب يسعّر) — فلا يظهر بـ"بانتظار إجرائي"
+    expect(r).toHaveLength(0);
+  });
+
+  it("يرى مسودته الخاصة (السيناريو الحقيقي الذي كشف الخلل)", () => {
+    const r = computeActionablePOs(
+      { id: 9090247, role: "warehouse" },
+      [
+        po({ id: 1, poNumber: "PR-2026-0223", status: "draft", requestedById: 9090247 }),
+        po({ id: 2, poNumber: "PR-2026-0222", status: "pending_estimate", requestedById: 9090247 }),
+      ],
+      []
+    );
+    expect(r).toHaveLength(1);
+    expect(r[0].poNumber).toBe("PR-2026-0223");
+  });
+});
+
+
+describe("طلب تغيير المندوب — بانتظار مدير الصيانة", () => {
+  const changeItem = {
+    purchaseOrderId: 1,
+    status: "pending",
+    delegateId: 10,
+    batchId: null,
+    delegateChangeRequestedAt: "2026-08-01T12:00:00.000Z",
+  };
+
+  it("يظهر لمدير الصيانة وowner/admin كإجراء اختيار مندوب", () => {
+    for (const role of ["maintenance_manager", "owner", "admin"]) {
+      const result = computeActionablePOs(
+        { id: 99, role },
+        [po({ status: "pending_estimate" })],
+        [changeItem]
+      );
+      expect(result).toHaveLength(1);
+      expect(result[0].reason).toBe("طلب تغيير مندوب — 1 من 1 أصناف");
+      expect(result[0].actionLabel).toBe("اختيار مندوب");
+    }
+  });
+
+  it("لا يظهر للمندوب القديم كطلب تسعير إذا كان كل عمله مجمدًا", () => {
+    const result = computeActionablePOs(
+      { id: 10, role: "delegate" },
+      [po({ status: "pending_estimate" })],
+      [changeItem]
+    );
+    expect(result).toHaveLength(0);
+  });
+
+  it("يبقى طلب التسعير ظاهرًا للمندوب إذا لديه صنف آخر غير مجمد", () => {
+    const result = computeActionablePOs(
+      { id: 10, role: "delegate" },
+      [po({ status: "pending_estimate" })],
+      [
+        changeItem,
+        { purchaseOrderId: 1, status: "pending", delegateId: 10, batchId: null, delegateChangeRequestedAt: null },
+      ]
+    );
+    expect(result).toHaveLength(1);
+    expect(result[0].reason).toBe("بانتظار تسعيرك");
+  });
+});
+
+describe("دفعات بلا أصناف فعّالة — لا تظهر في بانتظار إجرائي", () => {
+  for (const [role, status] of [
+    ["accountant", "pending_accounting"],
+    ["senior_management", "pending_management"],
+    ["owner", "pending_management"],
+  ] as const) {
+    it(`${role}: طلب ${status} وكل أصنافه cancelled/rejected لا يظهر كإجراء`, () => {
+      const result = computeActionablePOs(
+        { id: 10, role },
+        [po({ status })],
+        [
+          { purchaseOrderId: 1, status: "cancelled", batchId: 1 },
+          { purchaseOrderId: 1, status: "rejected", batchId: 1 },
+        ]
+      );
+      expect(result).toHaveLength(0);
+    });
+  }
 });

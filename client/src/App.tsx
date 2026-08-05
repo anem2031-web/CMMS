@@ -31,6 +31,7 @@ import TechnicianReport from "@/pages/reports/TechnicianReport";
 import MyItems from "@/pages/inventory/MyItems";
 import TranslationMonitor from "@/pages/admin/TranslationMonitor";
 import PurchaseCycle from "@/pages/purchase/PurchaseCycle";
+import ExternalMaintenance from "@/pages/purchase/ExternalMaintenance";
 import DocumentsCenter from "@/pages/DocumentsCenter";
 import ItemTracker from "@/pages/inventory/ItemTracker";
 import PurchaseCycleReport from "@/pages/reports/PurchaseCycleReport";
@@ -61,6 +62,7 @@ import ProjectsList from "@/pages/construction/ProjectsList";
 import ProjectDetail from "@/pages/construction/ProjectDetail";
 import ProjectForm from "@/pages/construction/ProjectForm";
 import ConstructionReports from "@/pages/construction/ConstructionReports";
+import ConstructionTickets from "@/pages/construction/ConstructionTickets";
 
 function Router() {
   return (
@@ -84,6 +86,7 @@ function Router() {
             <Route path="/purchase-orders/edit-draft/:id" component={CreatePurchaseOrder} />
             <Route path="/purchase-orders/:id" component={PurchaseOrderDetail} />
             <Route path="/purchase-cycle" component={PurchaseCycle} />
+            <Route path="/external-maintenance" component={ExternalMaintenance} />
             <Route path="/documents" component={DocumentsCenter} />
             <Route path="/item-tracker" component={ItemTracker} />
             <Route path="/my-items" component={MyItems} />
@@ -131,6 +134,7 @@ function Router() {
             <Route path="/inspection-dashboard" component={Dashboard} />
             <Route path="/catalog" component={CatalogDashboard} />
             {/* Construction Module */}
+            <Route path="/construction/tickets" component={ConstructionTickets} />
             <Route path="/construction" component={ConstructionDashboard} />
             <Route path="/construction/projects" component={ProjectsList} />
             <Route path="/construction/projects/new" component={ProjectForm} />

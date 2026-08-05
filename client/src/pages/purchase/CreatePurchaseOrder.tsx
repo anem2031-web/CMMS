@@ -7,7 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { ArrowRight, Plus, Trash2, Loader2, ShoppingCart, Camera, Link2, Upload, BookOpen, FilePlus, Search, ChevronDown, ChevronRight, FolderOpen, Save } from "lucide-react";
+import { ArrowRight, Plus, Trash2, Loader2, ShoppingCart, Camera, Link2, Upload, BookOpen, FilePlus, Search, ChevronDown, ChevronRight, FolderOpen, Save, AlertCircle } from "lucide-react";
 import DropZone, { type UploadedFile } from "@/components/common/DropZone";
 import { useState, useMemo, useRef, useEffect } from "react";
 import { toast } from "sonner";
@@ -349,9 +349,22 @@ export default function CreatePurchaseOrder() {
     { enabled: !!draftId }
   );
 
-  const { data: ticket } = trpc.tickets.getById.useQuery(
-    { id: ticketId || 0 },
-    { enabled: !!ticketId }
+  const linkedTicketId = ticketId ?? draftPO?.ticketId ?? undefined;
+  const { data: ticket, isLoading: isLinkedTicketLoading } = trpc.tickets.getById.useQuery(
+    { id: linkedTicketId || 0 },
+    { enabled: !!linkedTicketId }
+  );
+
+  const allowedLinkedTicketStatuses = draftId
+    ? ["work_approved", "needs_purchase"]
+    : ["work_approved"];
+  const isLinkedTicketInvalid = Boolean(
+    linkedTicketId &&
+    ticket &&
+    (ticket.maintenancePath !== "B" || !allowedLinkedTicketStatuses.includes(ticket.status))
+  );
+  const isLinkedTicketActionBlocked = Boolean(
+    linkedTicketId && (isLinkedTicketLoading || !ticket || isLinkedTicketInvalid)
   );
 
   // ✅ وحدات القياس من الكاتلوج — تُحدّث القائمة فور إضافة وحدة جديدة من تبويب الكاتلوج
@@ -474,6 +487,10 @@ const handleCatalogSelect = (catalogItem: any) => {
     }));
 
   const handleUpdateDraft = () => {
+    if (isLinkedTicketActionBlocked) {
+      toast.error("لا يمكن تعديل طلب شراء مرتبط إلا ضمن دورة المسار B النشطة");
+      return;
+    }
     const validItems = buildItemsPayload();
     if (validItems.length === 0) { toast.error(t.purchaseOrders.items); return; }
     updateDraftMut.mutate({
@@ -493,12 +510,20 @@ const handleCatalogSelect = (catalogItem: any) => {
   };
 
   const handleSaveDraft = () => {
+    if (isLinkedTicketActionBlocked) {
+      toast.error("لا يمكن حفظ طلب شراء مرتبط إلا لبلاغ مساره B وفي مرحلة اعتماد العمل");
+      return;
+    }
     const validItems = buildItemsPayload();
     if (validItems.length === 0) { toast.error(t.purchaseOrders.items); return; }
     saveDraftMut.mutate({ ticketId, notes: notes || undefined, items: validItems });
   };
 
   const handleSubmit = () => {
+    if (isLinkedTicketActionBlocked) {
+      toast.error("لا يمكن إرسال طلب شراء مرتبط إلا لبلاغ مساره B وفي مرحلة اعتماد العمل");
+      return;
+    }
     const validItems = items.filter(i => i.itemName.trim());
     if (validItems.length === 0) { toast.error(t.purchaseOrders.items); return; }
     createMut.mutate({
@@ -511,7 +536,7 @@ const handleCatalogSelect = (catalogItem: any) => {
   return (
     <div className="max-w-4xl space-y-6">
       <div className="flex items-center gap-3">
-        <Button variant="ghost" size="icon" onClick={() => setLocation(ticketId ? `/tickets/${ticketId}` : "/purchase-orders")}>
+        <Button variant="ghost" size="icon" onClick={() => setLocation(linkedTicketId ? `/tickets/${linkedTicketId}` : "/purchase-orders")}>
           <ArrowRight className="w-5 h-5" />
         </Button>
         <div>
@@ -528,9 +553,24 @@ const handleCatalogSelect = (catalogItem: any) => {
               <p className="text-sm font-medium text-teal-800">{t.purchaseOrders.relatedTicket}: {ticket.ticketNumber}</p>
               <p className="text-xs text-teal-600">{ticket.title} — {ticket.locationDetail || ""}</p>
             </div>
-            <Button variant="ghost" size="sm" className="mr-auto text-xs" onClick={() => setLocation(`/tickets/${ticketId}`)}>
+            <Button variant="ghost" size="sm" className="mr-auto text-xs" onClick={() => setLocation(`/tickets/${linkedTicketId}`)}>
               {t.common.back}
             </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {isLinkedTicketInvalid && ticket && (
+        <Card className="border-red-300 bg-red-50 dark:border-red-800 dark:bg-red-950/20">
+          <CardContent className="p-4 flex items-start gap-3 text-red-800 dark:text-red-300">
+            <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />
+            <div className="space-y-1">
+              <p className="font-semibold">لا يمكن إنشاء أو تعديل طلب الشراء لهذا البلاغ</p>
+              <p className="text-sm">
+                طلبات الشراء المرتبطة بالبلاغات متاحة للمسار B فقط، ويجب أن يكون البلاغ في المرحلة الصحيحة.
+                المسار الحالي: {ticket.maintenancePath || "غير محدد"} — الحالة الحالية: {ticket.status}.
+              </p>
+            </div>
           </CardContent>
         </Card>
       )}
@@ -827,7 +867,7 @@ const handleCatalogSelect = (catalogItem: any) => {
             {draftId ? (
               <Button
                 onClick={handleUpdateDraft}
-                disabled={updateDraftMut.isPending}
+                disabled={updateDraftMut.isPending || isLinkedTicketActionBlocked}
                 className="w-full gap-2"
                 size="lg"
               >
@@ -839,7 +879,7 @@ const handleCatalogSelect = (catalogItem: any) => {
               <Button
                 variant="outline"
                 onClick={handleSaveDraft}
-                disabled={saveDraftMut.isPending || createMut.isPending}
+                disabled={saveDraftMut.isPending || createMut.isPending || isLinkedTicketActionBlocked}
                 className="flex-1 gap-2"
                 size="lg"
               >
@@ -850,7 +890,7 @@ const handleCatalogSelect = (catalogItem: any) => {
               </Button>
               <Button
                 onClick={handleSubmit}
-                disabled={createMut.isPending || saveDraftMut.isPending}
+                disabled={createMut.isPending || saveDraftMut.isPending || isLinkedTicketActionBlocked}
                 className="flex-1 gap-2"
                 size="lg"
               >

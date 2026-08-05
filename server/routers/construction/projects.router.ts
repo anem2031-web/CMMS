@@ -1,7 +1,7 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { eq, desc, asc, and, like, or, count, sql } from "drizzle-orm";
-import { router, protectedProcedure } from "../_shared/procedures";
+import { router, constructionProcedure } from "../_shared/procedures";
 import { getDb } from "../../_core/db";
 import {
   constructionProjects,
@@ -13,7 +13,7 @@ import {
 
 // ── Helpers ─────────────────────────────────────────────────
 // الأدوار المسموح لها بالوصول لجميع المشاريع
-const CONSTRUCTION_ALLOWED_ROLES = ["owner", "admin", "maintenance_manager", "senior_management"] as const;
+const CONSTRUCTION_ALLOWED_ROLES = ["owner", "admin", "maintenance_manager", "construction_procurement_manager", "senior_management"] as const;
 
 async function assertProjectAccess(projectId: number, userId: number, userRole: string, requireEdit = false) {
   const db = await getDb(); if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB not available" });
@@ -78,7 +78,7 @@ async function generateProjectNumber(db: NonNullable<Awaited<ReturnType<typeof g
 export const projectsRouter = router({
 
   // List all projects with filters and pagination
-  list: protectedProcedure
+  list: constructionProcedure
     .input(z.object({
       status: z.string().optional(),
       search: z.string().optional(),
@@ -125,7 +125,7 @@ export const projectsRouter = router({
     }),
 
   // Get single project with stats
-  getById: protectedProcedure
+  getById: constructionProcedure
     .input(z.object({ id: z.number() }))
     .query(async ({ input, ctx }) => {
       const db = await getDb(); if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB not available" });
@@ -165,7 +165,7 @@ export const projectsRouter = router({
     }),
 
   // Create project
-  create: protectedProcedure
+  create: constructionProcedure
     .input(z.object({
       name: z.string().min(1),
       nameEn: z.string().optional(),
@@ -225,7 +225,7 @@ export const projectsRouter = router({
     }),
 
   // Update project
-  update: protectedProcedure
+  update: constructionProcedure
     .input(z.object({
       id: z.number(),
       name: z.string().min(1).optional(),
@@ -259,7 +259,7 @@ export const projectsRouter = router({
     }),
 
   // Delete project
-  delete: protectedProcedure
+  delete: constructionProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input, ctx }) => {
       const db = await getDb(); if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB not available" });
@@ -272,7 +272,7 @@ export const projectsRouter = router({
     }),
 
   // Recalculate project progress from phases
-  recalculateProgress: protectedProcedure
+  recalculateProgress: constructionProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
       const db = await getDb(); if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB not available" });
@@ -295,7 +295,7 @@ export const projectsRouter = router({
     }),
 
   // Portfolio stats for dashboard
-  portfolioStats: protectedProcedure
+  portfolioStats: constructionProcedure
     .query(async ({ ctx }) => {
       const db = await getDb(); if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB not available" });
       const [stats] = await db.select({

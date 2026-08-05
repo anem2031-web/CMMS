@@ -6,9 +6,13 @@ import { isTicketVisible, assertTicketVisible, isRoleDeniedFromTickets } from ".
 // ══════════════════════════════════════════════════════════════════════════
 
 const ticket = (over: Partial<any> = {}) => ({
+  id: 70,
+  status: "under_inspection",
   reportedById: 10,
   assignedToId: 20,
   assignedTechnicianId: null,
+  maintenanceResponsibleDepartment: null,
+  maintenanceResponsibleManagerId: null,
   ...over,
 });
 
@@ -40,6 +44,29 @@ describe("technician — مقيّد بالبلاغات المسنَدة له", (
   });
 });
 
+
+describe("construction_procurement_manager — نطاق بلاغات الإنشاءات المحوّلة", () => {
+  const role = "construction_procurement_manager";
+  it("يرى البلاغ الإنشائي المحوّل له فقط", () => {
+    expect(isTicketVisible({ id: 55, role }, ticket({
+      maintenanceResponsibleDepartment: "maintenance_report_department_construction",
+      maintenanceResponsibleManagerId: 55,
+    }))).toBe(true);
+  });
+  it("لا يرى بلاغًا إنشائيًا محوّلًا لمسؤول آخر", () => {
+    expect(isTicketVisible({ id: 55, role }, ticket({
+      maintenanceResponsibleDepartment: "maintenance_report_department_construction",
+      maintenanceResponsibleManagerId: 56,
+    }))).toBe(false);
+  });
+  it("لا يرى البلاغ العام عبر قائمة البلاغات", () => {
+    expect(isTicketVisible({ id: 55, role }, ticket({
+      maintenanceResponsibleDepartment: "maintenance_report_department_general",
+      maintenanceResponsibleManagerId: 22,
+    }))).toBe(false);
+  });
+});
+
 describe("باقي الأدوار — بلا تقييد (مطابقة حرفية لسلوك list الحالي)", () => {
   for (const role of ["maintenance_manager", "owner", "admin", "supervisor", "gate_security"]) {
     it(`${role} يرى أي بلاغ`, () => {
@@ -63,7 +90,7 @@ describe("🔒 الأدوار المحجوبة عن البلاغات بالوا�
   }
 
   it("الأدوار المسموح لها بالواجهة ليست ضمن قائمة المنع", () => {
-    for (const role of ["operator", "technician", "maintenance_manager", "supervisor", "gate_security", "delegate", "senior_management", "executive_director", "owner", "admin"]) {
+    for (const role of ["operator", "technician", "maintenance_manager", "general_maintenance_manager", "construction_procurement_manager", "supervisor", "gate_security", "delegate", "senior_management", "executive_director", "owner", "admin"]) {
       expect(isRoleDeniedFromTickets(role)).toBe(false);
     }
   });

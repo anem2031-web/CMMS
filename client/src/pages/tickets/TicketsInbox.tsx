@@ -9,7 +9,7 @@
 // ============================================================
 import { trpc } from "@/lib/trpc";
 import { keepPreviousData } from "@tanstack/react-query";
-import { useLocation } from "wouter";
+import { useLocation, useSearch } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -18,6 +18,7 @@ import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { Separator } from "@/components/ui/separator";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Pagination, PaginationContent, PaginationItem, PaginationLink,
   PaginationEllipsis,
@@ -30,6 +31,15 @@ import { useTranslation } from "@/contexts/LanguageContext";
 import { useStaticLabels } from "@/hooks/useContentTranslation";
 import { useTranslatedField } from "@/hooks/useTranslatedField";
 import { useIsMobile } from "@/hooks/useMobile";
+import { useAuth } from "@/_core/hooks/useAuth";
+import { MAINTENANCE_RESPONSIBLE_DEPARTMENT } from "@shared/roles";
+import {
+  TICKET_LIST_TAB,
+  canSeeAllTicketsTab,
+  canSeeConstructionTicketsTab,
+  resolveTicketListTab,
+  ticketInboxUrl,
+} from "@/pages/tickets/ticketTabs";
 
 // نفس دالة ترقيم الصفحات المستخدمة في صفحة البلاغات الحالية
 function getPageNumbers(current: number, total: number): (number | "dots")[] {
@@ -69,11 +79,21 @@ type SortMode = "important" | "newest" | "oldest" | "updated";
 
 export default function TicketsInbox() {
   const [, setLocation] = useLocation();
+  const searchParamsText = useSearch();
   const isMobile = useIsMobile();
   const { t, language } = useTranslation();
   const { getStatusLabel, getPriorityLabel, getCategoryLabel } = useStaticLabels();
   const { getField } = useTranslatedField();
+  const { user } = useAuth();
   const utils = trpc.useUtils();
+
+  const requestedTab = useMemo(
+    () => new URLSearchParams(searchParamsText).get("tab"),
+    [searchParamsText],
+  );
+  const activeTab = resolveTicketListTab(user?.role, requestedTab);
+  const showAllTab = canSeeAllTicketsTab(user?.role);
+  const showConstructionTab = canSeeConstructionTicketsTab(user?.role);
 
   const [search, setSearch] = useState("");
   const [quickFilter, setQuickFilter] = useState<QuickFilter>("all");
@@ -113,7 +133,17 @@ export default function TicketsInbox() {
   // أي تغيير في البحث/الفلاتر/الترتيب يعيدنا لأول صفحة (نفس سلوك الصفحة الحالية)
   useEffect(() => {
     setPage(1);
-  }, [search, quickFilter, sort, statusFilter, priorityFilter, siteFilter, sectionFilter, technicianFilter, dateFrom, dateTo]);
+  }, [search, quickFilter, sort, statusFilter, priorityFilter, siteFilter, sectionFilter, technicianFilter, dateFrom, dateTo, activeTab]);
+
+  useEffect(() => {
+    const invalidRequestedTab = requestedTab && requestedTab !== activeTab;
+    const constructionOnlyUserMissingTab =
+      !showAllTab && showConstructionTab && requestedTab !== TICKET_LIST_TAB.CONSTRUCTION;
+
+    if (invalidRequestedTab || constructionOnlyUserMissingTab) {
+      setLocation(ticketInboxUrl(activeTab));
+    }
+  }, [activeTab, requestedTab, setLocation, showAllTab, showConstructionTab]);
 
   // الفلاتر الأساسية المشتركة بين القائمة والعدادات — تُنفَّذ في الخادم على كامل النتائج
   const baseFilters = {
@@ -125,6 +155,9 @@ export default function TicketsInbox() {
     search: search || undefined,
     createdFrom: dateFrom || undefined,
     createdTo: dateTo || undefined,
+    maintenanceResponsibleDepartment: activeTab === TICKET_LIST_TAB.CONSTRUCTION
+      ? MAINTENANCE_RESPONSIBLE_DEPARTMENT.CONSTRUCTION
+      : undefined,
   };
 
   // نفس إجراء صفحة البلاغات الحالية (listPaginated) — مع خيارات العرض الإضافية فقط
@@ -244,6 +277,21 @@ export default function TicketsInbox() {
           {ti.refresh}
         </Button>
       </div>
+
+      <Tabs
+        value={activeTab}
+        onValueChange={(value) => setLocation(ticketInboxUrl(resolveTicketListTab(user?.role, value)))}
+        dir={language === "en" ? "ltr" : "rtl"}
+      >
+        <TabsList className="h-auto flex-wrap">
+          {showAllTab && (
+            <TabsTrigger value={TICKET_LIST_TAB.ALL}>{t.nav.tickets}</TabsTrigger>
+          )}
+          {showConstructionTab && (
+            <TabsTrigger value={TICKET_LIST_TAB.CONSTRUCTION}>{t.nav.construction.tickets}</TabsTrigger>
+          )}
+        </TabsList>
+      </Tabs>
 
       {/* البحث */}
       <div className="relative max-w-md">

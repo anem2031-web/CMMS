@@ -726,7 +726,7 @@ export default function ImprovementIdeas() {
   const { user } = useAuth();
   const [createOpen, setCreateOpen] = useState(false);
 
-  const isTriageRole = !!user && ["maintenance_manager", "owner", "admin"].includes(user.role);
+  const isTriageRole = !!user && ["maintenance_manager", "general_maintenance_manager", "construction_procurement_manager", "owner", "admin"].includes(user.role);
   const isSeniorMgmt = !!user && ["senior_management", "executive_director"].includes(user.role);
   const isElevated = isTriageRole || isSeniorMgmt;
   // صلاحية القرار النهائي: الإدارة العليا + owner/admin (نفس قاعدة التجاوز الشامل المعتمدة بكل النظام)

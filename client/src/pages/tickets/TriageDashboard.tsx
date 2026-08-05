@@ -3,6 +3,7 @@ import { useTranslatedField, getLocalizedName } from "@/hooks/useTranslatedField
 import { trpc } from "@/lib/trpc";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useAuth } from "@/_core/hooks/useAuth";
+import { APP_ROLE, MAINTENANCE_RESPONSIBLE_DEPARTMENT } from "@shared/roles";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -76,14 +77,12 @@ export default function TriageDashboard() {
   const { data: pendingTickets = [], isLoading: loadingPending } =
     trpc.tickets.list.useQuery({ status: "pending_triage" });
 
-  const { data: inspectionTickets = [], isLoading: loadingInspection } =
+  const { data: inspectionTicketsRaw = [], isLoading: loadingInspection } =
     trpc.tickets.list.useQuery({ status: "under_inspection" });
 
   const { data: users = [] } = trpc.users.list.useQuery();
-  // Phase 2: use users.listTechnicians as primary source; legacy technicians.list kept for compatibility
-  // Phase 5: techniciansList (legacy) kept as silent fallback only — not shown as separate UI group
+  // Inspection assignment requires a system user account so the technician can record the result.
   const { data: userTechniciansList = [] } = trpc.users.listTechnicians.useQuery();
-  const { data: techniciansList = [] } = trpc.technicians.list.useQuery(undefined);
   const { data: sites = [] } = trpc.sites.list.useQuery();
 
   // ── Active view (card click) ──────────────────────────────────────────────
@@ -112,14 +111,16 @@ export default function TriageDashboard() {
     priority: "",
     triageNotes: "",
     assignedToId: "",
+    maintenanceResponsibleDepartment: "",
+    maintenanceResponsibleManagerId: "",
   });
 
-  const [inspectDialog, setInspectDialog] = useState<any>(null);
-  const [inspectionNotes, setInspectionNotes] = useState("");
 
   // ── Quick Triage Dialog ───────────────────────────────────────────────────
   const [quickTriageDialog, setQuickTriageDialog] = useState<any>(null);
   const [quickTriageAssignedTo, setQuickTriageAssignedTo] = useState<string>("");
+  const [quickTriageDepartment, setQuickTriageDepartment] = useState<string>("");
+  const [quickTriageManagerId, setQuickTriageManagerId] = useState<string>("");
 
   // ── Mutations ─────────────────────────────────────────────────────────────
   const quickTriageMut = trpc.tickets.triageTicket.useMutation({
@@ -139,26 +140,22 @@ export default function TriageDashboard() {
     onError: (e: any) => toast.error(e.message),
   });
 
-  const inspectMut = trpc.tickets.inspectTicket.useMutation({
-    onSuccess: () => {
-      toast.success(t.triage.inspectionComplete);
-      utils.tickets.list.invalidate();
-      setInspectDialog(null);
-      setInspectionNotes("");
-    },
-    onError: (e: any) => toast.error(e.message),
-  });
 
   // ── Derived data ──────────────────────────────────────────────────────────
-  // Phase 2: primary source is users with technician roles (via listTechnicians)
-  // Legacy technicians.list kept as fallback for backward compatibility
+  // Only active technician users are eligible for direct inspection assignment.
   const technicians = userTechniciansList.length > 0
     ? userTechniciansList.map((u: any) => ({ ...u, id: u.id, name: u.name || u.email, role: u.role, specialty: u.specialty }))
-    : techniciansList.length > 0
-      ? techniciansList.map((tech: any) => ({ ...tech, id: tech.id, name: tech.name, role: "technician" }))
-      : users.filter((u: any) =>
-          ["technician", "maintenance_manager", "supervisor"].includes(u.role)
-        );
+    : users.filter((u: any) => u.role === APP_ROLE.TECHNICIAN && u.isActive !== 0);
+
+  const constructionManagers = users.filter((u: any) => u.role === APP_ROLE.CONSTRUCTION_PROCUREMENT_MANAGER && u.isActive !== 0);
+  const generalManagers = users.filter((u: any) =>
+    [APP_ROLE.GENERAL_MAINTENANCE_MANAGER, APP_ROLE.MAINTENANCE_MANAGER].includes(u.role as any) && u.isActive !== 0
+  );
+  const inspectionTickets = inspectionTicketsRaw.filter((ticket: any) =>
+    ticket.maintenanceResponsibleDepartment !== MAINTENANCE_RESPONSIBLE_DEPARTMENT.CONSTRUCTION
+  );
+  const managersForDepartment = (department: string) =>
+    department === MAINTENANCE_RESPONSIBLE_DEPARTMENT.CONSTRUCTION ? constructionManagers : generalManagers;
 
   const criticalPending = useMemo(
     () => pendingTickets.filter((t: any) => t.priority === "critical"),
@@ -191,12 +188,27 @@ export default function TriageDashboard() {
   // ── Handlers ──────────────────────────────────────────────────────────────
   const handleFullTriage = () => {
     if (!triageDialog) return;
+    if (
+      triageForm.maintenanceResponsibleDepartment === MAINTENANCE_RESPONSIBLE_DEPARTMENT.GENERAL &&
+      !triageForm.assignedToId
+    ) {
+      toast.error("يجب تعيين فني مسؤول لبلاغ الصيانة العامة");
+      return;
+    }
     triageMut.mutate({
       id: triageDialog.id,
       ticketType: triageForm.ticketType,
       priority: triageForm.priority || undefined,
       triageNotes: triageForm.triageNotes || undefined,
-      assignedToId: triageForm.assignedToId ? parseInt(triageForm.assignedToId) : undefined,
+      assignedToId: triageForm.maintenanceResponsibleDepartment === MAINTENANCE_RESPONSIBLE_DEPARTMENT.GENERAL && triageForm.assignedToId
+        ? parseInt(triageForm.assignedToId)
+        : undefined,
+      maintenanceResponsibleDepartment: triageForm.maintenanceResponsibleDepartment as any,
+      maintenanceResponsibleManagerId: triageForm.maintenanceResponsibleManagerId
+        ? parseInt(triageForm.maintenanceResponsibleManagerId)
+        : managersForDepartment(triageForm.maintenanceResponsibleDepartment).length === 1
+          ? managersForDepartment(triageForm.maintenanceResponsibleDepartment)[0].id
+          : undefined,
     });
   };
 
@@ -206,17 +218,12 @@ export default function TriageDashboard() {
       priority: ticket.priority || "medium",
       triageNotes: "",
       assignedToId: ticket.assignedToId?.toString() || "",
+      maintenanceResponsibleDepartment: "",
+      maintenanceResponsibleManagerId: "",
     });
     setTriageDialog(ticket);
   };
 
-  const handleInspect = () => {
-    if (!inspectDialog || !inspectionNotes.trim()) {
-      toast.error("يجب إدخال ملاحظات الفحص");
-      return;
-    }
-    inspectMut.mutate({ id: inspectDialog.id, inspectionNotes });
-  };
 
   // ── Stat cards config ─────────────────────────────────────────────────────
   const statCards = [
@@ -260,6 +267,25 @@ export default function TriageDashboard() {
       activeBg: "bg-orange-50 dark:bg-orange-900/20",
     },
   ];
+
+  const canAccessTriage = !!user && [
+    APP_ROLE.MAINTENANCE_MANAGER,
+    APP_ROLE.GENERAL_MAINTENANCE_MANAGER,
+    APP_ROLE.OWNER,
+    APP_ROLE.ADMIN,
+  ].includes(user.role as any);
+
+  if (!canAccessTriage) {
+    return (
+      <Card className="max-w-xl mx-auto mt-10">
+        <CardContent className="p-8 text-center space-y-2">
+          <AlertTriangle className="w-10 h-10 mx-auto text-amber-500" />
+          <h2 className="font-semibold text-lg">لا توجد صلاحية للفرز والتصنيف</h2>
+          <p className="text-sm text-muted-foreground">توجيه البلاغات متاح لمدير الصيانة العامة والمالك ومدير النظام فقط.</p>
+        </CardContent>
+      </Card>
+    );
+  }
 
   // ─────────────────────────────────────────────────────────────────────────
   return (
@@ -545,8 +571,12 @@ export default function TriageDashboard() {
                           size="sm"
                           variant="outline"
                           className="border-blue-300 text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-900/20"
-                          onClick={() => { setQuickTriageDialog(ticket); setQuickTriageAssignedTo(""); }}
-                          disabled={quickTriageMut.isPending}
+                          onClick={() => {
+                            setQuickTriageDialog(ticket);
+                            setQuickTriageAssignedTo("");
+                            setQuickTriageDepartment("");
+                            setQuickTriageManagerId("");
+                          }}
                           title="نقل سريع لمرحلة الفحص مع تعيين فني"
                         >
                           <Zap className="w-4 h-4 ml-1" />
@@ -567,14 +597,11 @@ export default function TriageDashboard() {
                     {isInspectionView && (
                       <Button
                         size="sm"
-                        onClick={() => {
-                          setInspectDialog(ticket);
-                          setInspectionNotes("");
-                        }}
+                        onClick={() => { window.location.href = `/tickets/${ticket.id}`; }}
                         className="bg-blue-600 hover:bg-blue-700 text-white"
                       >
                         <Search className="w-4 h-4 ml-1" />
-                        {t.triage.inspectTicket}
+                        فتح نموذج الفحص
                       </Button>
                     )}
                   </div>
@@ -601,32 +628,47 @@ export default function TriageDashboard() {
                 <p className="text-sm text-muted-foreground">{quickTriageDialog.title}</p>
               </div>
               <div className="space-y-2">
-                <Label>تعيين فني <span className="text-muted-foreground text-xs">(اختياري)</span></Label>
-                <TechnicianCombobox
-                  value={quickTriageAssignedTo}
-                  onValueChange={setQuickTriageAssignedTo}
-                  placeholder="اختر فنيًا للفحص..."
-                  options={[
-                    { value: "none", label: "بدون تعيين", render: <span>— بدون تعيين</span> },
-                    ...technicians.map((tech: any) => {
-                      const roleLabel = tech.role === "technician" ? "فني" : tech.role === "supervisor" ? "مشرف" : "مدير صيانة";
-                      return {
-                        value: tech.id.toString(),
-                        label: `${tech.name} (${roleLabel})`,
-                        render: (
-                          <span className="flex items-center gap-2">
-                            <span className="w-2 h-2 rounded-full bg-green-400 inline-block" />
-                            {tech.name}
-                            <span className="text-xs text-muted-foreground">({roleLabel})</span>
-                          </span>
-                        ),
-                      };
-                    }),
-                  ]}
-                />
+                <Label>الجهة المسؤولة *</Label>
+                <Select value={quickTriageDepartment} onValueChange={(value) => {
+                  setQuickTriageDepartment(value);
+                  setQuickTriageAssignedTo("");
+                  setQuickTriageManagerId("");
+                }}>
+                  <SelectTrigger><SelectValue placeholder="اختر الجهة المسؤولة" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={MAINTENANCE_RESPONSIBLE_DEPARTMENT.GENERAL}>الصيانة العامة</SelectItem>
+                    <SelectItem value={MAINTENANCE_RESPONSIBLE_DEPARTMENT.CONSTRUCTION}>قسم الإنشاءات</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
+              {managersForDepartment(quickTriageDepartment).length > 1 && (
+                <div className="space-y-2">
+                  <Label>المسؤول المستلم *</Label>
+                  <Select value={quickTriageManagerId} onValueChange={setQuickTriageManagerId}>
+                    <SelectTrigger><SelectValue placeholder="اختر المسؤول" /></SelectTrigger>
+                    <SelectContent>
+                      {managersForDepartment(quickTriageDepartment).map((manager: any) => (
+                        <SelectItem key={manager.id} value={String(manager.id)}>{manager.name || manager.username}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+              {quickTriageDepartment === MAINTENANCE_RESPONSIBLE_DEPARTMENT.GENERAL && (
+                <div className="space-y-2">
+                  <Label>تعيين الفني المسؤول *</Label>
+                  <TechnicianCombobox
+                    value={quickTriageAssignedTo}
+                    onValueChange={setQuickTriageAssignedTo}
+                    placeholder="اختر فنيًا للفحص..."
+                    options={technicians.map((tech: any) => ({ value: tech.id.toString(), label: tech.name }))}
+                  />
+                </div>
+              )}
               <p className="text-xs text-muted-foreground">
-                سيتم نقل البلاغ مباشرة إلى مرحلة الفحص الميداني.
+                {quickTriageDepartment === MAINTENANCE_RESPONSIBLE_DEPARTMENT.CONSTRUCTION
+                  ? "سيتم توجيه البلاغ إلى مدير الإنشاءات ليختار الفني المسؤول."
+                  : "سيتم نقل البلاغ إلى مسار الصيانة العامة."}
               </p>
             </div>
           )}
@@ -635,13 +677,27 @@ export default function TriageDashboard() {
             <Button
               onClick={() => {
                 if (!quickTriageDialog) return;
-                const assignedToId = quickTriageAssignedTo && quickTriageAssignedTo !== "none"
+                const assignedToId = quickTriageAssignedTo
                   ? parseInt(quickTriageAssignedTo)
                   : undefined;
-                quickTriageMut.mutate({ id: quickTriageDialog.id, assignedToId });
+                const departmentManagers = managersForDepartment(quickTriageDepartment);
+                quickTriageMut.mutate({
+                  id: quickTriageDialog.id,
+                  assignedToId: quickTriageDepartment === MAINTENANCE_RESPONSIBLE_DEPARTMENT.GENERAL ? assignedToId : undefined,
+                  maintenanceResponsibleDepartment: quickTriageDepartment as any,
+                  maintenanceResponsibleManagerId: quickTriageManagerId
+                    ? parseInt(quickTriageManagerId)
+                    : departmentManagers.length === 1 ? departmentManagers[0].id : undefined,
+                });
                 setQuickTriageDialog(null);
               }}
-              disabled={quickTriageMut.isPending}
+              disabled={
+                quickTriageMut.isPending ||
+                !quickTriageDepartment ||
+                managersForDepartment(quickTriageDepartment).length === 0 ||
+                (managersForDepartment(quickTriageDepartment).length > 1 && !quickTriageManagerId) ||
+                (quickTriageDepartment === MAINTENANCE_RESPONSIBLE_DEPARTMENT.GENERAL && !quickTriageAssignedTo)
+              }
               className="bg-blue-600 hover:bg-blue-700 text-white"
             >
               <Zap className="w-4 h-4 ml-1" />
@@ -699,20 +755,55 @@ export default function TriageDashboard() {
               </div>
 
               <div className="space-y-2">
-                <Label>تعيين فريق الفحص</Label>
+                <Label>الجهة المسؤولة *</Label>
+                <Select
+                  value={triageForm.maintenanceResponsibleDepartment}
+                  onValueChange={(value) => setTriageForm(f => ({
+                    ...f,
+                    maintenanceResponsibleDepartment: value,
+                    maintenanceResponsibleManagerId: "",
+                    assignedToId: "",
+                  }))}
+                >
+                  <SelectTrigger><SelectValue placeholder="اختر الجهة المسؤولة" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={MAINTENANCE_RESPONSIBLE_DEPARTMENT.GENERAL}>الصيانة العامة</SelectItem>
+                    <SelectItem value={MAINTENANCE_RESPONSIBLE_DEPARTMENT.CONSTRUCTION}>قسم الإنشاءات</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {managersForDepartment(triageForm.maintenanceResponsibleDepartment).length > 1 && (
+                <div className="space-y-2">
+                  <Label>المسؤول المستلم *</Label>
+                  <Select
+                    value={triageForm.maintenanceResponsibleManagerId}
+                    onValueChange={(value) => setTriageForm(f => ({ ...f, maintenanceResponsibleManagerId: value }))}
+                  >
+                    <SelectTrigger><SelectValue placeholder="اختر المسؤول" /></SelectTrigger>
+                    <SelectContent>
+                      {managersForDepartment(triageForm.maintenanceResponsibleDepartment).map((manager: any) => (
+                        <SelectItem key={manager.id} value={String(manager.id)}>{manager.name || manager.username}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+
+              {triageForm.maintenanceResponsibleDepartment === MAINTENANCE_RESPONSIBLE_DEPARTMENT.GENERAL && (
+              <div className="space-y-2">
+                <Label>تعيين الفني المسؤول *</Label>
                 <TechnicianCombobox
                   value={triageForm.assignedToId}
                   onValueChange={(v) => setTriageForm(f => ({ ...f, assignedToId: v }))}
-                  placeholder="اختر الفني أو المسؤول"
-                  options={technicians.map((tech: any) => {
-                    const roleLabel = tech.role === "technician" ? "فني" : tech.role === "supervisor" ? "مشرف" : "مدير صيانة";
-                    return {
-                      value: tech.id.toString(),
-                      label: `${tech.name} (${roleLabel})`,
-                    };
-                  })}
+                  placeholder="اختر الفني المسؤول"
+                  options={technicians.map((tech: any) => ({
+                    value: tech.id.toString(),
+                    label: `${tech.name} (فني)`,
+                  }))}
                 />
               </div>
+              )}
 
               <div className="space-y-2">
                 <Label>ملاحظات الفرز</Label>
@@ -729,7 +820,13 @@ export default function TriageDashboard() {
             <Button variant="outline" onClick={() => setTriageDialog(null)}>إلغاء</Button>
             <Button
               onClick={handleFullTriage}
-              disabled={triageMut.isPending}
+              disabled={
+                triageMut.isPending ||
+                !triageForm.maintenanceResponsibleDepartment ||
+                managersForDepartment(triageForm.maintenanceResponsibleDepartment).length === 0 ||
+                (managersForDepartment(triageForm.maintenanceResponsibleDepartment).length > 1 && !triageForm.maintenanceResponsibleManagerId) ||
+                (triageForm.maintenanceResponsibleDepartment === MAINTENANCE_RESPONSIBLE_DEPARTMENT.GENERAL && !triageForm.assignedToId)
+              }
               className="bg-purple-600 hover:bg-purple-700 text-white"
             >
               <ArrowRight className="w-4 h-4 ml-1" />
@@ -739,50 +836,6 @@ export default function TriageDashboard() {
         </DialogContent>
       </Dialog>
 
-      {/* ── Inspect Dialog ── */}
-      <Dialog open={!!inspectDialog} onOpenChange={() => setInspectDialog(null)}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Search className="w-5 h-5 text-blue-600" />
-              إكمال الفحص الميداني
-            </DialogTitle>
-          </DialogHeader>
-          {inspectDialog && (
-            <div className="space-y-4">
-              <div className="p-3 bg-muted rounded-lg">
-                <p className="font-medium text-sm">{inspectDialog.ticketNumber}</p>
-                <p className="text-sm text-muted-foreground">{inspectDialog.title}</p>
-              </div>
-              <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
-                <p className="text-xs text-blue-700 dark:text-blue-300">
-                  بعد إكمال الفحص، سيُرسل إشعار تلقائي لمدير الصيانة للموافقة على بدء العمل واختيار المسار (A/B/C).
-                </p>
-              </div>
-              <div className="space-y-2">
-                <Label>ملاحظات الفحص الميداني *</Label>
-                <Textarea
-                  value={inspectionNotes}
-                  onChange={(e) => setInspectionNotes(e.target.value)}
-                  placeholder="وصف الحالة الفنية، المشكلة المكتشفة، التوصيات..."
-                  rows={4}
-                />
-              </div>
-            </div>
-          )}
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setInspectDialog(null)}>إلغاء</Button>
-            <Button
-              onClick={handleInspect}
-              disabled={inspectMut.isPending || !inspectionNotes.trim()}
-              className="bg-blue-600 hover:bg-blue-700 text-white"
-            >
-              <CheckCircle2 className="w-4 h-4 ml-1" />
-              {inspectMut.isPending ? "جاري الحفظ..." : "إكمال الفحص"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

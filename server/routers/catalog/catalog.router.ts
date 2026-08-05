@@ -1,6 +1,6 @@
 import { catalogImportExportRouter } from "./catalogImportExport.router";
 import { attachments } from "../../../drizzle/schema";
-import { router, publicProcedure, protectedProcedure } from "../_shared/procedures";
+import { router, catalogProcedure, catalogReadProcedure } from "../_shared/procedures";
 import { z } from "zod";
 import { eq, and, or, like, isNull, ne, count, desc, asc, inArray } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
@@ -67,7 +67,7 @@ export const catalogRouter = router({
   /**
    * Get all taxonomy nodes (with optional filtering)   */
   nodes: router({
-    list: publicProcedure
+    list: catalogReadProcedure
       .input(
         z.object({
           parentId: z.number().optional(),
@@ -107,7 +107,7 @@ export const catalogRouter = router({
     /**
      * Get a single node by ID
      */
-    getById: publicProcedure
+    getById: catalogProcedure
       .input(z.number())
       .query(async ({ input }) => {
         const db = await getDb();
@@ -124,7 +124,7 @@ export const catalogRouter = router({
     /**
      * Get all children of a node (one level deep)
      */
-    getChildren: publicProcedure
+    getChildren: catalogProcedure
       .input(z.number())
       .query(async ({ input }) => {
         const db = await getDb();
@@ -139,7 +139,7 @@ export const catalogRouter = router({
     /**
      * Create a new taxonomy node
      */
-    create: protectedProcedure
+    create: catalogProcedure
       .input(
         z.object({
           nameAr: z.string(),
@@ -233,7 +233,7 @@ export const catalogRouter = router({
     /**
      * Update a taxonomy node
      */
-    update: protectedProcedure
+    update: catalogProcedure
       .input(
         z.object({
           id: z.number(),
@@ -272,7 +272,7 @@ export const catalogRouter = router({
     /**
      * Delete a taxonomy node (soft delete)
      */
-    delete: protectedProcedure
+    delete: catalogProcedure
       .input(z.number())
       .mutation(async ({ input, ctx }) => {
         const db = await getDb();
@@ -313,7 +313,7 @@ export const catalogRouter = router({
 
 items: router({
 
-  count: publicProcedure
+  count: catalogProcedure
     .query(async () => {
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
@@ -331,7 +331,7 @@ items: router({
     /**
      * List all catalog items with search and filtering
      */
-    list: publicProcedure
+    list: catalogReadProcedure
       .input(
         z.object({
           search: z.string().optional(),
@@ -426,7 +426,7 @@ return itemsWithImages;
     /**
      * Get a single item with all its details
      */
-    getById: publicProcedure
+    getById: catalogProcedure
       .input(z.number())
       .query(async ({ input }) => {
         const db = await getDb();
@@ -463,7 +463,7 @@ return itemsWithImages;
      * Create a new catalog item
      */
 // بعد التعديل
-create: protectedProcedure
+create: catalogProcedure
   .input(
     z.object({
       nameAr: z.string(),
@@ -508,7 +508,7 @@ create: protectedProcedure
     /**
      * Update a catalog item
      */
-    update: protectedProcedure
+    update: catalogProcedure
 .input(
   z.object({
     id: z.number(),
@@ -550,7 +550,7 @@ create: protectedProcedure
     /**
      * Delete a catalog item (soft delete)
      */
-    delete: protectedProcedure
+    delete: catalogProcedure
       .input(z.number())
       .mutation(async ({ input, ctx }) => {
         const db = await getDb();
@@ -575,13 +575,13 @@ create: protectedProcedure
   // ────────────────────────────────────────────────────────
 
   settings: router({
-    list: publicProcedure.query(async () => {
+    list: catalogProcedure.query(async () => {
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
       return await db.select().from(catalogSettings);
     }),
 
-    get: publicProcedure
+    get: catalogProcedure
       .input(z.string())
       .query(async ({ input }) => {
         const db = await getDb();
@@ -602,13 +602,13 @@ create: protectedProcedure
   // ────────────────────────────────────────────────────────
   units: router({
 
-    list: publicProcedure.query(async () => {
+    list: catalogReadProcedure.query(async () => {
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
       return db.select().from(catalogUnits).where(eq(catalogUnits.isActive, true));
     }),
 
-    create: protectedProcedure
+    create: catalogProcedure
       .input(z.object({
         nameAr: z.string().min(1),
         nameEn: z.string().min(1),
@@ -624,7 +624,7 @@ create: protectedProcedure
         return (result as any)[0]?.insertId || 0;
       }),
 
-    update: protectedProcedure
+    update: catalogProcedure
       .input(z.object({
         id: z.number(),
         nameAr: z.string().min(1).optional(),
@@ -637,7 +637,7 @@ create: protectedProcedure
         await db.update(catalogUnits).set(data).where(eq(catalogUnits.id, id));
       }),
 
-    delete: protectedProcedure
+    delete: catalogProcedure
       .input(z.number())
       .mutation(async ({ input }) => {
         const db = await getDb();
@@ -651,7 +651,7 @@ create: protectedProcedure
   suppliers: router({
 
     // قائمة جميع الموردين
-    list: publicProcedure
+    list: catalogProcedure
       .input(z.object({
         activeOnly:     z.boolean().optional().default(true),
         isManufacturer: z.boolean().optional(),
@@ -676,7 +676,7 @@ create: protectedProcedure
       }),
 
     // تفاصيل مورد واحد
-    getById: publicProcedure
+    getById: catalogProcedure
       .input(z.number())
       .query(async ({ input }) => {
         const db = await getDb();
@@ -692,7 +692,7 @@ create: protectedProcedure
       }),
 
     // إنشاء مورد جديد
-    create: protectedProcedure
+    create: catalogProcedure
       .input(z.object({
         nameAr:         z.string().min(1, "الاسم بالعربية مطلوب"),
         nameEn:         z.string().min(1, "الاسم بالإنجليزية مطلوب"),
@@ -750,7 +750,7 @@ create: protectedProcedure
       }),
 
     // تعديل مورد
-    update: protectedProcedure
+    update: catalogProcedure
       .input(z.object({
         id:             z.number(),
         nameAr:         z.string().min(1).optional(),
@@ -819,7 +819,7 @@ create: protectedProcedure
       }),
 
     // حذف منطقي
-    delete: protectedProcedure
+    delete: catalogProcedure
       .input(z.number())
       .mutation(async ({ input: id, ctx }) => {
         const db = await getDb();
@@ -859,7 +859,7 @@ create: protectedProcedure
       }),
 
     // إحصائيات للـ Dashboard
-    stats: publicProcedure.query(async () => {
+    stats: catalogProcedure.query(async () => {
       const db = await getDb();
       if (!db) return { total: 0, active: 0, manufacturers: 0 };
 
@@ -893,7 +893,7 @@ create: protectedProcedure
   // ────────────────────────────────────────────────────────
   itemSuppliers: router({
 
-    listByItem: publicProcedure
+    listByItem: catalogProcedure
       .input(z.number())
       .query(async ({ input: itemId }) => {
         const db = await getDb();
@@ -930,7 +930,7 @@ create: protectedProcedure
           .orderBy(desc(catalogSupplierPrices.isPreferred));
       }),
 
-    assign: protectedProcedure
+    assign: catalogProcedure
       .input(z.object({
         itemId:           z.number(),
         supplierId:       z.number(),
@@ -990,7 +990,7 @@ create: protectedProcedure
         return { id: (result as any)[0]?.insertId, action: "created" };
       }),
 
-    remove: protectedProcedure
+    remove: catalogProcedure
       .input(z.object({
         itemId:     z.number(),
         supplierId: z.number(),
@@ -1010,7 +1010,7 @@ create: protectedProcedure
         return { success: true };
       }),
 
-    setPreferred: protectedProcedure
+    setPreferred: catalogProcedure
       .input(z.object({
         itemId:     z.number(),
         supplierId: z.number(),

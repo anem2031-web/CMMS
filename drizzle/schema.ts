@@ -1,4 +1,4 @@
-import { mysqlTable, mysqlSchema, AnyMySqlColumn, int, varchar, timestamp, decimal, text, mysqlEnum, index, json, foreignKey, date, smallint, tinyint } from "drizzle-orm/mysql-core"
+import { mysqlTable, mysqlSchema, AnyMySqlColumn, int, varchar, timestamp, decimal, text, mysqlEnum, index, uniqueIndex, json, foreignKey, date, smallint, tinyint } from "drizzle-orm/mysql-core"
 import { sql } from "drizzle-orm"
 
 export const assetCategories = mysqlTable("asset_categories", {
@@ -759,6 +759,12 @@ export const deliveryDocuments = mysqlTable("delivery_documents", {
 	id: int().autoincrement().notNull(),
 	deliveryNumber: varchar({ length: 20 }).notNull(),
 	poItemId: int().notNull(),
+	inventoryId: int(),
+	ticketId: int(),
+	ticketNumber: varchar({ length: 50 }),
+	assignedTechnicianId: int(),
+	assignedTechnicianName: varchar({ length: 200 }),
+	deliveredToId: int(),
 	itemName: varchar({ length: 300 }).notNull(),
 	deliveredByName: varchar({ length: 200 }).notNull(),
 	deliveredToName: varchar({ length: 200 }).notNull(),
@@ -773,7 +779,68 @@ export const deliveryDocuments = mysqlTable("delivery_documents", {
 	pdfUrl: text(),
 	printCount: int().default(0).notNull(),
 	createdAt: timestamp({ mode: 'string' }).default('CURRENT_TIMESTAMP').notNull(),
-});
+},
+(table) => [
+	index("idx_delivery_documents_inventory").on(table.inventoryId),
+	index("idx_delivery_documents_ticket").on(table.ticketId),
+]);
+
+export const externalMaintenanceJobs = mysqlTable("external_maintenance_jobs", {
+	id: int().autoincrement().notNull(),
+	ticketId: int().notNull(),
+	status: mysqlEnum([
+		'waiting_warehouse_preparation',
+		'waiting_gate_exit',
+		'purchase_cycle',
+		'waiting_gate_entry',
+		'waiting_warehouse_receipt',
+		'waiting_technician_handover',
+		'delivered_for_reinstall',
+		'reinstall_in_progress',
+		'ready_for_closure',
+		'closed',
+	]).default('waiting_warehouse_preparation').notNull(),
+	assetName: varchar({ length: 300 }),
+	assetBeforePhotoUrl: text(),
+	assetBeforeCondition: text(),
+	delegateId: int(),
+	warehousePreparedById: int(),
+	warehousePreparedAt: timestamp({ mode: 'string' }),
+	warehouseNotes: text(),
+	exitDocumentNumber: varchar({ length: 40 }),
+	gateExitApprovedById: int(),
+	gateExitApprovedAt: timestamp({ mode: 'string' }),
+	gateExitCarrierName: varchar({ length: 255 }),
+	gateExitNotes: text(),
+	purchaseOrderId: int(),
+	delegateReadyForReturnById: int(),
+	delegateReadyForReturnAt: timestamp({ mode: 'string' }),
+	gateEntryApprovedById: int(),
+	gateEntryApprovedAt: timestamp({ mode: 'string' }),
+	gateEntryCarrierName: varchar({ length: 255 }),
+	gateEntryNotes: text(),
+	warehouseReceivedById: int(),
+	warehouseReceivedAt: timestamp({ mode: 'string' }),
+	assetAfterReturnPhotoUrl: text(),
+	returnCondition: text(),
+	workshopReportUrl: text(),
+	warehouseReturnNotes: text(),
+	returnDocumentNumber: varchar({ length: 40 }),
+	assignedTechnicianId: int(),
+	actualRecipientId: int(),
+	handoverById: int(),
+	handoverAt: timestamp({ mode: 'string' }),
+	handoverNotes: text(),
+	handoverDocumentNumber: varchar({ length: 40 }),
+	createdAt: timestamp({ mode: 'string' }).default('CURRENT_TIMESTAMP').notNull(),
+	updatedAt: timestamp({ mode: 'string' }).defaultNow().onUpdateNow().notNull(),
+},
+(table) => [
+	uniqueIndex("uq_external_maintenance_ticket").on(table.ticketId),
+	index("idx_external_maintenance_status").on(table.status),
+	index("idx_external_maintenance_delegate").on(table.delegateId),
+	index("idx_external_maintenance_po").on(table.purchaseOrderId),
+]);
 
 export const deliveryNumberCounter = mysqlTable("delivery_number_counter", {
 	id: int().autoincrement().notNull(),
@@ -889,14 +956,37 @@ export const inspectionResults = mysqlTable("inspection_results", {
 	id: int().autoincrement().notNull(),
 	ticketId: int().notNull(),
 	assetId: int(),
+	// Kept for backward compatibility; new workflow also stores performed/recorded actors separately.
 	inspectorId: int().notNull(),
+	performedById: int(),
+	recordedById: int(),
 	inspectionType: mysqlEnum(['triage','detailed']).notNull(),
 	severity: mysqlEnum(['low','medium','high','critical']).notNull(),
 	rootCause: varchar({ length: 500 }),
 	findings: text(),
 	recommendedAction: text(),
+	inspectionNotes: text(),
+	workflowStatus: mysqlEnum([
+		'maintenance_inspection_result_draft',
+		'maintenance_inspection_result_submitted',
+		'maintenance_inspection_result_returned',
+		'maintenance_inspection_result_approved',
+		'maintenance_inspection_result_superseded',
+	]).default('maintenance_inspection_result_draft').notNull(),
+	revisionNumber: int().default(1).notNull(),
+	submittedAt: timestamp({ mode: 'string' }),
+	approvedAt: timestamp({ mode: 'string' }),
+	approvedById: int(),
+	returnedAt: timestamp({ mode: 'string' }),
+	returnedById: int(),
+	returnReason: text(),
 	createdAt: timestamp({ mode: 'string' }).default('CURRENT_TIMESTAMP').notNull(),
-});
+	updatedAt: timestamp({ mode: 'string' }).defaultNow().onUpdateNow().notNull(),
+},
+(table) => [
+	index("idx_inspection_results_ticket_revision").on(table.ticketId, table.revisionNumber),
+	index("idx_inspection_results_workflow_status").on(table.workflowStatus),
+]);
 
 export const inventory = mysqlTable("inventory", {
 	id: int().autoincrement().notNull(),
@@ -1421,6 +1511,9 @@ export const purchaseOrderItems = mysqlTable("purchase_order_items", {
 	photoUrl: text(),
 	notes: text(),
 	delegateId: int(),
+	delegateChangeRequestedById: int(),
+	delegateChangeReason: text(),
+	delegateChangeRequestedAt: timestamp({ mode: 'string' }),
 	estimatedUnitCost: decimal({ precision: 12, scale: 2 }),
 	estimatedTotalCost: decimal({ precision: 12, scale: 2 }),
 	actualUnitCost: decimal({ precision: 12, scale: 2 }),
@@ -1683,6 +1776,21 @@ export const tickets = mysqlTable("tickets", {
 	ticketType: mysqlEnum(['internal','external','procurement']),
 	supervisorId: int(),
 	inspectionNotes: text(),
+	inspectionWorkflowStatus: mysqlEnum([
+		'maintenance_inspection_pending_submission',
+		'maintenance_inspection_submitted_for_review',
+		'maintenance_inspection_returned_for_correction',
+		'maintenance_inspection_approved',
+	]),
+	inspectionPerformedById: int(),
+	inspectionRecordedById: int(),
+	inspectionSubmittedAt: timestamp({ mode: 'string' }),
+	inspectionSubmittedById: int(),
+	inspectionApprovedAt: timestamp({ mode: 'string' }),
+	inspectionApprovedById: int(),
+	inspectionReturnedAt: timestamp({ mode: 'string' }),
+	inspectionReturnedById: int(),
+	inspectionReturnReason: text(),
 	justification: text(),
 	triageNotes: text(),
 	gateExitApprovedById: int(),
@@ -1694,6 +1802,14 @@ export const tickets = mysqlTable("tickets", {
 	sectionId: int(),
 	assignedTechnicianId: int(),
 	assignedAt: timestamp({ mode: 'string' }),
+	maintenanceResponsibleDepartment: mysqlEnum([
+		'maintenance_report_department_general',
+		'maintenance_report_department_construction',
+	]),
+	maintenanceResponsibleManagerId: int(),
+	maintenanceRoutedById: int(),
+	maintenanceRoutedAt: timestamp({ mode: 'string' }),
+	maintenanceRoutingNote: text(),
 });
 
 export const translationJobs = mysqlTable("translation_jobs", {
@@ -1754,7 +1870,7 @@ export const users = mysqlTable("users", {
 	name: text(),
 	email: varchar({ length: 320 }),
 	loginMethod: varchar({ length: 64 }),
-	role: mysqlEnum(['user','admin','operator','technician','maintenance_manager','supervisor','purchase_manager','purchase_requester','delegate','accountant','senior_management','executive_director','warehouse','gate_security','owner','food_warehouse_manager','food_warehouse_assistant']).default('user').notNull(),
+	role: mysqlEnum(['user','admin','operator','technician','maintenance_manager','general_maintenance_manager','construction_procurement_manager','supervisor','purchase_manager','purchase_requester','delegate','accountant','senior_management','executive_director','warehouse','gate_security','owner','food_warehouse_manager','food_warehouse_assistant']).default('user').notNull(),
 	createdAt: timestamp({ mode: 'string' }).default('CURRENT_TIMESTAMP').notNull(),
 	updatedAt: timestamp({ mode: 'string' }).defaultNow().onUpdateNow().notNull(),
 	lastSignedIn: timestamp({ mode: 'string' }).default('CURRENT_TIMESTAMP').notNull(),
@@ -1938,7 +2054,7 @@ export const warehouses = mysqlTable("warehouses", {
 // (تم تصحيح poItemStatuses لتطابق القيم الـ12 الفعلية المؤكدة من قاعدة الإنتاج).
 // ══════════════════════════════════════════════════════════════════════
 
-export const userRoles = ["operator", "technician", "maintenance_manager", "supervisor", "purchase_manager", "purchase_requester", "delegate", "accountant", "senior_management", "executive_director", "warehouse", "gate_security", "owner", "food_warehouse_manager", "food_warehouse_assistant"] as const;
+export const userRoles = ["operator", "technician", "maintenance_manager", "general_maintenance_manager", "construction_procurement_manager", "supervisor", "purchase_manager", "purchase_requester", "delegate", "accountant", "senior_management", "executive_director", "warehouse", "gate_security", "owner", "food_warehouse_manager", "food_warehouse_assistant"] as const;
 
 export type UserRole = typeof userRoles[number];
 

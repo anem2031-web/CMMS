@@ -48,7 +48,7 @@ import { ENV } from '../env';
 
 import { getDb } from "./client";
 import { getInventoryItemById, getUserById } from "./deletes";
-import { getPOItemById, getPurchaseOrderById } from "./purchase";
+import { getPOItemById, getPurchaseOrderById, getPOItems, updatePurchaseOrder } from "./purchase";
 import { getNextDeliveryNumber } from "./warehouse-receipts";
 
 export async function createWarehouseReturn(data: InsertWarehouseReturn) {
@@ -275,6 +275,12 @@ export async function getInventoryLedger(inventoryId: number) {
 export async function createDeliveryDocument(data: {
   deliveryNumber: string;
   poItemId: number;
+  inventoryId?: number;
+  ticketId?: number;
+  ticketNumber?: string;
+  assignedTechnicianId?: number;
+  assignedTechnicianName?: string;
+  deliveredToId?: number;
   itemName: string;
   deliveredByName: string;
   deliveredToName: string;
@@ -287,10 +293,10 @@ export async function createDeliveryDocument(data: {
   notes?: string;
   pdfKey?: string;
   pdfUrl?: string;
-}) {
-  const db = await getDb();
+}, tx?: any) {
+  const db = tx || await getDb();
   if (!db) return null;
-  const [result] = await db.insert(deliveryDocuments).values(data);
+  const [result] = await db.insert(deliveryDocuments).values(data as any);
   return result;
 }
 
@@ -340,84 +346,149 @@ export async function incrementReturnDocPrintCount(id: number) {
 // ═══════════════════════════════════════════════════════════════
 export async function issueDelivery(params: {
   inventoryId:          number;
-  quantity:              number;
-  unit?:                 string;
-  performedById:         number;       // المستخدم المسلِّم (يُجلب اسمه هنا، لا يُمرَّر من الواجهة)
-  deliveredToId?:        number;       // الفني/الطالب المُستلِم (اختياري — موجود غالباً)
-  purchaseOrderItemId?:  number;       // إن وُجد، يُربط بطلب الشراء وسنده
-  notes?:                string;
-  warehousePhotoUrl?:    string;
+  quantity:             number;
+  unit?:                string;
+  performedById:        number;
+  deliveredToId?:       number;
+  purchaseOrderItemId?: number;
+  ticketId?:            number;
+  ticketNumber?:        string;
+  assignedTechnicianId?: number;
+  assignedTechnicianName?: string;
+  notes?:               string;
+  warehousePhotoUrl?:   string;
+  markPurchaseOrderItemDelivered?: boolean;
 }) {
   const db = await getDb();
   if (!db) throw new Error("تعذر الاتصال بقاعدة البيانات");
 
-  // 1) تنفيذ عملية الصرف الفعلية (خصم الرصيد + تسجيل الحركة في inventory_transactions)
-  const item = await getInventoryItemById(params.inventoryId);
-  if (!item) throw new Error("الصنف غير موجود في المخزون");
-  if (params.quantity > (item.quantity || 0)) {
-    throw new Error(`الكمية المطلوبة (${params.quantity}) أكبر من الرصيد المتاح (${item.quantity})`);
-  }
-
-  // 2) توليد رقم السند — مرجع واحد يُستخدم بكل الخطوات التالية
-  const deliveryNumber = await getNextDeliveryNumber();
-
-  await addInventoryTransactionV2({
-    inventoryId:          params.inventoryId,
-    type:                 "out",
-    quantity:              params.quantity,
-    reason:                params.notes || "تسليم من المخزون",
-    purchaseOrderItemId:   params.purchaseOrderItemId,
-    performedById:         params.performedById,
-    transactionType:       "delivery",
-    documentUrl:           deliveryNumber, // ربط الحركة برقم السند مباشرة — يُستخدم لاحقاً في سجل الحركة كمرجع موثوق
-  });
-
-  // 3) جلب أسماء المُسلِّم والمُستلِم من قاعدة البيانات (وليس من مدخلات الواجهة، لضمان الدقة)
   const performer = await getUserById(params.performedById);
-  const receiver  = params.deliveredToId ? await getUserById(params.deliveredToId) : null;
+  const receiver = params.deliveredToId ? await getUserById(params.deliveredToId) : null;
 
-  // جلب بيانات طلب الشراء المرتبط إن وُجد (المورد، رقم الطلب)
   let poNumber: string | undefined;
   let supplierName: string | undefined;
   let actualUnitCost: string | undefined;
+  let purchaseOrderId: number | undefined;
   if (params.purchaseOrderItemId) {
     const poItem = await getPOItemById(params.purchaseOrderItemId);
     if (poItem) {
-      supplierName   = (poItem as any).supplierName;
+      supplierName = (poItem as any).supplierName;
       actualUnitCost = (poItem as any).actualUnitCost;
-      const po = await getPurchaseOrderById((poItem as any).purchaseOrderId);
+      purchaseOrderId = (poItem as any).purchaseOrderId;
+      const po = await getPurchaseOrderById(purchaseOrderId);
       poNumber = (po as any)?.poNumber;
     }
   }
 
-  // 4) إنشاء السند الرسمي بجدول delivery_documents — مضمون الحدوث دائماً مع كل عملية صرف
-  await createDeliveryDocument({
-    deliveryNumber,
-    poItemId:          params.purchaseOrderItemId ?? 0,
-    itemName:           item.itemName,
-    deliveredByName:    (performer as any)?.name || "مستخدم المستودع",
-    deliveredToName:    (receiver as any)?.name || "غير محدد",
-    quantity:            params.quantity,
-    unit:                params.unit || item.unit || undefined,
-    supplierName,
-    actualUnitCost,
-    poNumber,
-    warehousePhotoUrl:   params.warehousePhotoUrl,
-    notes:               params.notes,
+  const result = await db.transaction(async (tx: any) => {
+    const item = await getInventoryItemById(params.inventoryId, tx);
+    if (!item) throw new Error("الصنف غير موجود في المخزون");
+    if (params.quantity <= 0) throw new Error("الكمية المسلّمة يجب أن تكون أكبر من صفر");
+    if (params.quantity > (item.quantity || 0)) {
+      throw new Error(`الكمية المطلوبة (${params.quantity}) أكبر من الرصيد المتاح (${item.quantity})`);
+    }
+
+    const deliveryNumber = await getNextDeliveryNumber(tx);
+
+    if (params.markPurchaseOrderItemDelivered && params.purchaseOrderItemId && purchaseOrderId) {
+      // تحديث شرطي يمنع طلبين متزامنين من احتساب نفس احتياج البلاغ مرتين.
+      // إذا سبق طلب آخر وغيّر الحالة إلى delivered_to_requester يفشل هذا الطلب
+      // وتُرجع المعاملة كاملةً قبل خصم أي كمية إضافية من المخزون.
+      const updateResult: any = await tx
+        .update(purchaseOrderItems)
+        .set({
+          status: "delivered_to_requester",
+          deliveryNumber,
+          deliveredAt: new Date(),
+          deliveredById: params.performedById,
+          deliveredToId: params.deliveredToId || null,
+        })
+        .where(and(
+          eq(purchaseOrderItems.id, params.purchaseOrderItemId),
+          notInArray(purchaseOrderItems.status, ["delivered_to_requester", "rejected", "cancelled"] as any),
+        ));
+      if (Number(updateResult?.[0]?.affectedRows ?? 0) !== 1) {
+        throw new Error("تم استكمال تسليم احتياج هذا الصنف للبلاغ مسبقًا");
+      }
+    }
+
+    // خصم شرطي على مستوى قاعدة البيانات يمنع صرف رصيد أكبر من المتاح حتى
+    // عند وصول عمليتي تسليم متزامنتين إلى نفس صنف المخزون.
+    const stockUpdateResult: any = await tx
+      .update(inventory)
+      .set({
+        quantity: sql`${inventory.quantity} - ${params.quantity}`,
+        totalCostValue: sql`ROUND((${inventory.quantity} - ${params.quantity}) * ${inventory.averageCost}, 2)`,
+      } as any)
+      .where(and(
+        eq(inventory.id, params.inventoryId),
+        gte(inventory.quantity, params.quantity),
+      ));
+    if (Number(stockUpdateResult?.[0]?.affectedRows ?? 0) !== 1) {
+      throw new Error("الرصيد المتاح تغيّر أثناء عملية التسليم؛ حدّث الصفحة وحاول مرة أخرى");
+    }
+
+    await tx.insert(inventoryTransactions).values({
+      inventoryId: params.inventoryId,
+      type: "out",
+      quantity: params.quantity,
+      reason: params.notes || "تسليم من المخزون",
+      ticketId: params.ticketId,
+      purchaseOrderItemId: params.purchaseOrderItemId,
+      performedById: params.performedById,
+      transactionType: "delivery",
+      documentUrl: deliveryNumber,
+    } as any);
+
+    if (params.markPurchaseOrderItemDelivered && params.purchaseOrderItemId && purchaseOrderId) {
+      const allItems = await getPOItems(purchaseOrderId, tx);
+      const activeItems = allItems.filter((poItem: any) =>
+        !["rejected", "cancelled"].includes(poItem.status)
+      );
+      if (activeItems.length > 0 && activeItems.every((poItem: any) => poItem.status === "delivered_to_requester")) {
+        await updatePurchaseOrder(purchaseOrderId, { status: "received" }, tx);
+      }
+    }
+
+    await createDeliveryDocument({
+      deliveryNumber,
+      poItemId: params.purchaseOrderItemId ?? 0,
+      inventoryId: params.inventoryId,
+      ticketId: params.ticketId,
+      ticketNumber: params.ticketNumber,
+      assignedTechnicianId: params.assignedTechnicianId,
+      assignedTechnicianName: params.assignedTechnicianName,
+      deliveredToId: params.deliveredToId,
+      itemName: item.itemName,
+      deliveredByName: (performer as any)?.name || "مستخدم المستودع",
+      deliveredToName: (receiver as any)?.name || "غير محدد",
+      quantity: params.quantity,
+      unit: params.unit || item.unit || undefined,
+      supplierName,
+      actualUnitCost,
+      poNumber,
+      warehousePhotoUrl: params.warehousePhotoUrl,
+      notes: params.notes,
+    }, tx);
+
+    return {
+      deliveryNumber,
+      itemName: item.itemName,
+      quantity: params.quantity,
+      unit: params.unit || item.unit || "",
+    };
   });
 
-  // 5) إتاحة طباعة PDF — الرقم والبيانات جاهزة للواجهة لتوليد الوثيقة وحفظ رابطها لاحقاً عبر updateDeliveryDocumentPdf
   return {
-    deliveryNumber,
-    itemName:         item.itemName,
-    deliveredByName:  (performer as any)?.name || "مستخدم المستودع",
-    deliveredToName:  (receiver as any)?.name || "غير محدد",
-    quantity:          params.quantity,
-    unit:              params.unit || item.unit || "",
+    ...result,
+    deliveredByName: (performer as any)?.name || "مستخدم المستودع",
+    deliveredToName: (receiver as any)?.name || "غير محدد",
+    assignedTechnicianName: params.assignedTechnicianName,
+    ticketNumber: params.ticketNumber,
     supplierName,
     actualUnitCost,
     poNumber,
-    deliveredAt:       new Date().toLocaleDateString("ar-SA", { year: "numeric", month: "long", day: "numeric" }),
+    deliveredAt: new Date().toLocaleDateString("ar-SA", { year: "numeric", month: "long", day: "numeric" }),
   };
 }
 

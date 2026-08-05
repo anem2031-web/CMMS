@@ -1,10 +1,11 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import { router, protectedProcedure, warehouseProcedure } from "../_shared/procedures";
+import { router, inventoryReadProcedure, warehouseProcedure } from "../_shared/procedures";
 import * as db from "../../_core/db";
+import { syncPathBTicketFromPurchaseOrder } from "../purchase/ticket-purchase-workflow";
 
 export const inventoryRouter = router({
-  list: protectedProcedure.query(async () => {
+  list: inventoryReadProcedure.query(async () => {
     return db.getInventoryItems();
   }),
 
@@ -48,7 +49,7 @@ export const inventoryRouter = router({
     return { success: true };
   }),
 
-  addTransaction: protectedProcedure.input(z.object({
+  addTransaction: inventoryReadProcedure.input(z.object({
     inventoryId: z.number(),
     type: z.enum(["in", "out"]),
     quantity: z.number().min(1),
@@ -74,7 +75,7 @@ export const inventoryRouter = router({
     }),
 
   // ── Phase 2A: بطاقة الصنف — المعلومات العامة + ملخص سريع ──────────────
-  getItemSummary: protectedProcedure
+  getItemSummary: inventoryReadProcedure
     .input(z.object({ id: z.number() }))
     .query(async ({ input }) => {
       const item = await db.getInventoryItemById(input.id);
@@ -86,103 +87,94 @@ export const inventoryRouter = router({
     }),
 
   // ── Phase 2B: سجل التوريد — كل الفواتير التي دخل منها الصنف ────────────
-  getPurchaseHistory: protectedProcedure
+  getPurchaseHistory: inventoryReadProcedure
     .input(z.object({ id: z.number() }))
     .query(async ({ input }) => {
       return db.getInventoryPurchaseHistory(input.id);
     }),
 
   // ── Phase 2C: سجل الحركة — كشف حساب كامل (وارد/صادر/رصيد بعد الحركة) ──
-  getLedger: protectedProcedure
+  getLedger: inventoryReadProcedure
     .input(z.object({ id: z.number() }))
     .query(async ({ input }) => {
       return db.getInventoryLedger(input.id);
     }),
 
-  // تسليم من المخزون للعامل
+  // مسار توافق قديم للتسليم من المخزون. أُحكم بنفس قواعد المسار المركزي:
+  // لا يثق بمعرّفات الربط المرسلة، ويُلزم فنيًا مستلمًا فعليًا، ويجعل التحديث
+  // داخل خدمة issueDelivery الذرية حتى لا يمكن تجاوز دورة البلاغ.
   deliverToRequester: warehouseProcedure
     .input(z.object({
       inventoryId: z.number(),
       purchaseOrderItemId: z.number(),
       purchaseOrderId: z.number(),
       deliveredToId: z.number(),
-      deliveredQuantity: z.number().min(1),
+      deliveredQuantity: z.number().positive(),
       notes: z.string().optional(),
     }))
     .mutation(async ({ input, ctx }) => {
-      const { TRPCError } = await import("@trpc/server");
-      const item = await db.getInventoryItemById(input.inventoryId);
-      if (!item) throw new TRPCError({ code: "NOT_FOUND", message: "الصنف غير موجود في المخزون" });
-
-      if (item.quantity < input.deliveredQuantity) {
+      const inventoryItem = await db.getInventoryItemById(input.inventoryId);
+      if (!inventoryItem) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "الصنف غير موجود في المخزون" });
+      }
+      if (input.deliveredQuantity > Number(inventoryItem.quantity || 0)) {
         throw new TRPCError({
           code: "BAD_REQUEST",
-          message: `الكمية المتاحة في المخزون ${item.quantity} أقل من الكمية المطلوبة`,
+          message: `الكمية المتاحة في المخزون ${inventoryItem.quantity} أقل من الكمية المطلوبة`,
         });
       }
 
-      // خدمة موحّدة: تنفّذ الصرف + تولّد رقم سند + تسجّل الحركة + تُنشئ سند delivery_documents رسمي — دائماً
-      const deliveryResult = await db.issueDelivery({
-        inventoryId:          input.inventoryId,
-        quantity:              input.deliveredQuantity,
-        unit:                  item.unit || undefined,
-        performedById:         ctx.user.id,
-        deliveredToId:         input.deliveredToId,
-        purchaseOrderItemId:   input.purchaseOrderItemId,
-        notes:                 input.notes,
-      });
-
-      // تحديث صنف طلب الشراء
-      await db.updatePOItem(input.purchaseOrderItemId, {
-        status: "delivered_to_requester",
-        deliveredAt: new Date(),
-        deliveredById: ctx.user.id,
-        deliveredToId: input.deliveredToId,
-        deliveredQuantity: input.deliveredQuantity,
-      });
-
-      // تحقق إذا كل الأصناف سُلِّمت
-      const allItems = await db.getPOItems(input.purchaseOrderId);
-      const activeItems = allItems.filter((i: any) => i.status !== "rejected" && i.status !== "cancelled");
-      // ✅ إصلاح حرج #6: [].every(...) تُعيد true دائماً على مصفوفة فارغة (صدق فارغ)
-      // — أضيف تحقق length > 0 صراحة لمنع تصنيف طلب بلا أصناف نشطة كـ"مكتمل التسليم"
-      const allDelivered = activeItems.length > 0 && activeItems.every((i: any) => i.status === "delivered_to_requester");
-
-      if (allDelivered) {
-        await db.updatePurchaseOrder(input.purchaseOrderId, { status: "received" });
-        // تحديث حالة البلاغ المرتبط
-        const po = await db.getPurchaseOrderById(input.purchaseOrderId);
-        if (po?.ticketId) {
-          const ticket = await db.getTicketById(po.ticketId);
-          if (ticket && ticket.maintenancePath !== "C" &&
-            !["received_warehouse","ready_for_closure","repaired","verified","closed"].includes(ticket.status)) {
-            await db.updateTicket(po.ticketId, { status: "received_warehouse" });
-            await db.addTicketStatusHistory({
-              ticketId: po.ticketId,
-              fromStatus: ticket.status,
-              toStatus: "received_warehouse",
-              changedById: ctx.user.id,
-              notes: "تم تسليم جميع المواد للفني من المخزون",
-            });
-            if (ticket.assignedToId) {
-              await db.createNotification({
-                userId: ticket.assignedToId,
-                title: "📦 تم تسليم المواد - أكمل العمل",
-                message: `تم تسليم جميع مواد البلاغ ${ticket.ticketNumber} إليك. يرجى إتمام العمل.`,
-                type: "info",
-                relatedTicketId: po.ticketId,
-              });
-            }
-          }
-        }
+      const poItem = await db.getPOItemById(input.purchaseOrderItemId);
+      if (!poItem || poItem.purchaseOrderId !== input.purchaseOrderId) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "بند طلب الشراء لا يطابق الطلب المحدد" });
+      }
+      const linkedInventory = await db.getInventoryByPOItemId(input.purchaseOrderItemId);
+      if (!linkedInventory || linkedInventory.id !== input.inventoryId) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "صنف المخزون غير مرتبط ببند طلب الشراء المحدد" });
       }
 
-      // إشعار للعامل
+      const recipient = await db.getUserById(input.deliveredToId);
+      if (!recipient || (recipient as any).isActive === 0 || recipient.role !== "technician") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "يجب اختيار فني مستلم فعلي نشط" });
+      }
+
+      const po = await db.getPurchaseOrderById(input.purchaseOrderId);
+      if (!po) throw new TRPCError({ code: "NOT_FOUND", message: "طلب الشراء غير موجود" });
+      const ticket = po.ticketId ? await db.getTicketById(po.ticketId) : null;
+      if (ticket?.maintenancePath === "B" && !ticket.assignedToId) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "لا يوجد فني مسند للبلاغ المرتبط" });
+      }
+      const assignedTechnician = ticket?.assignedToId
+        ? await db.getUserById(ticket.assignedToId)
+        : null;
+
+      const deliveryResult = await db.issueDelivery({
+        inventoryId: input.inventoryId,
+        quantity: input.deliveredQuantity,
+        unit: inventoryItem.unit || undefined,
+        performedById: ctx.user.id,
+        deliveredToId: input.deliveredToId,
+        purchaseOrderItemId: input.purchaseOrderItemId,
+        ticketId: ticket?.maintenancePath === "B" ? ticket.id : undefined,
+        ticketNumber: ticket?.maintenancePath === "B" ? ticket.ticketNumber : undefined,
+        assignedTechnicianId: ticket?.maintenancePath === "B" ? ticket.assignedToId ?? undefined : undefined,
+        assignedTechnicianName: ticket?.maintenancePath === "B" ? (assignedTechnician as any)?.name ?? undefined : undefined,
+        notes: input.notes || "تسليم مادة مرتبطة ببلاغ من المخزون",
+        markPurchaseOrderItemDelivered: true,
+      });
+
+      await syncPathBTicketFromPurchaseOrder(
+        input.purchaseOrderId,
+        ctx.user.id,
+        "تم تسليم مادة مرتبطة بالبلاغ عبر مسار المخزون",
+      );
+
       await db.createNotification({
         userId: input.deliveredToId,
         title: "📦 تم تسليم مواد لك من المخزون",
-        message: `تم تسليم ${input.deliveredQuantity} ${item.unit || "وحدة"} من "${item.itemName}" إليك`,
+        message: `تم تسليم ${input.deliveredQuantity} ${inventoryItem.unit || "وحدة"} من "${inventoryItem.itemName}" إليك`,
         type: "info",
+        relatedTicketId: ticket?.id,
       });
 
       await db.createAuditLog({
@@ -190,14 +182,21 @@ export const inventoryRouter = router({
         action: "inventory_delivery",
         entityType: "inventory",
         entityId: input.inventoryId,
-        newValues: { deliveredQuantity: input.deliveredQuantity, deliveredToId: input.deliveredToId },
+        newValues: {
+          deliveredQuantity: input.deliveredQuantity,
+          deliveredToId: input.deliveredToId,
+          assignedTechnicianId: ticket?.assignedToId ?? null,
+          purchaseOrderItemId: input.purchaseOrderItemId,
+          ticketId: ticket?.id ?? null,
+        },
       });
 
       return {
         success: true,
-        remainingQuantity: item.quantity - input.deliveredQuantity,
-        ...deliveryResult, // deliveryNumber, deliveredByName, deliveredToName, إلخ — جاهزة لطباعة السند فوراً
+        remainingQuantity: Number(inventoryItem.quantity) - input.deliveredQuantity,
+        ...deliveryResult,
       };
     }),
+
 
 });

@@ -20,6 +20,8 @@ const ROLE_COLORS: Record<string, string> = {
   admin: "bg-red-100 text-red-700",
   owner: "bg-purple-100 text-purple-700",
   maintenance_manager: "bg-blue-100 text-blue-700",
+  general_maintenance_manager: "bg-sky-100 text-sky-700",
+  construction_procurement_manager: "bg-stone-100 text-stone-700",
   technician: "bg-teal-100 text-teal-700",
   operator: "bg-cyan-100 text-cyan-700",
   purchase_manager: "bg-amber-100 text-amber-700",

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import { router, protectedProcedure, warehouseProcedure } from "../_shared/procedures";
+import { router, inventoryReadProcedure, warehouseProcedure } from "../_shared/procedures";
 import * as db from "../../_core/db";
 
 export const disposalRouter = router({
@@ -45,12 +45,12 @@ export const disposalRouter = router({
     }),
 
   // ── قائمة عمليات الاستبعاد ──────────────────────────────────
-  list: protectedProcedure.query(async () => {
+  list: inventoryReadProcedure.query(async () => {
     return db.listDisposalOperations();
   }),
 
   // ── تفاصيل عملية واحدة ──────────────────────────────────────
-  getById: protectedProcedure
+  getById: inventoryReadProcedure
     .input(z.object({ id: z.number() }))
     .query(async ({ input }) => {
       const op = await db.getDisposalById(input.id);

@@ -1,91 +1,225 @@
-/**
- * ══════════════════════════════════════════════════════════════════════════
- * حارس رؤية البلاغات (Tickets) — نفس مبدأ حارس طلبات الشراء
- * ══════════════════════════════════════════════════════════════════════════
- *
- * الخلفية: `tickets.list`/`listPaginated`/`inboxCounts` تُقيّد النطاق فعليًا
- * (operator ← بلاغاته التي أبلغ عنها، technician ← البلاغات المسنَدة له)، لكن
- * `tickets.getById` كانت `protectedProcedure` عارية بلا أي فحص — أي مستخدم
- * مسجّل دخول يقدر يقرأ **أي بلاغ** بمجرد معرفة رقمه (API أو رابط مباشر).
- *
- * نفس نمط الثغرة المكتشَف والمُعالَج سابقًا بطلبات الشراء (القائمة مقيّدة،
- * التفاصيل مفتوحة). هذا الملف يوحّد القرار بمصدر واحد يستدعيه الاثنان.
- *
- * ⚠️ مبدأ مقصود: القواعد أدناه **تطابق حرفيًا** ما تطبّقه `list()` اليوم — لم
- * نشدّد ولم نوسّع. الهدف إغلاق فجوة "القائمة مقيّدة والتفاصيل مفتوحة" فقط، لا
- * إعادة تصميم صلاحيات البلاغات (وهو مشروع مستقل أكبر لو أُريد لاحقًا).
- */
-
 import { TRPCError } from "@trpc/server";
+import {
+  APP_ROLE,
+  MAINTENANCE_INSPECTION_WORKFLOW_STATUS,
+  MAINTENANCE_RESPONSIBLE_DEPARTMENT,
+} from "@shared/roles";
+import * as db from "../../_core/db";
 
-/**
- * الأدوار الممنوعة كليًا من البلاغات — مستخرجة **حرفيًا** من قائمة الأدوار
- * المسموح لها بقسم البلاغات بالواجهة (`client/src/components/layout/DashboardLayout.tsx`،
- * عنصرا `nav.tickets` و`nav.ticketsInbox`). أي دور غير مذكور بتلك القائمة كان
- * محجوبًا عن البلاغات بالواجهة، لكن الخادم كان يسمح له بالكامل (list وgetById) —
- * وهي بالضبط فئة "صلاحية مطبَّقة بالواجهة فقط وغير محمية بالخادم".
- *
- * ⚠️ إذا عُدّلت قائمة الأدوار بالواجهة مستقبلًا، يجب تحديث هذي القائمة معها.
- */
 const ROLES_DENIED_FROM_TICKETS = [
-  "accountant",
-  "purchase_manager",
-  "warehouse",
-  "purchase_requester",
-  "food_warehouse_manager",
-  "food_warehouse_assistant",
+  APP_ROLE.ACCOUNTANT,
+  APP_ROLE.PURCHASE_MANAGER,
+  APP_ROLE.WAREHOUSE,
+  APP_ROLE.PURCHASE_REQUESTER,
+  APP_ROLE.FOOD_WAREHOUSE_MANAGER,
+  APP_ROLE.FOOD_WAREHOUSE_ASSISTANT,
 ];
 
-/** أدوار مقيّدة بالبلاغات التي أبلغت عنها بنفسها */
-const REPORTER_SCOPED_ROLES = ["operator"];
+const REPORTER_SCOPED_ROLES = [APP_ROLE.OPERATOR];
+const ASSIGNEE_SCOPED_ROLES = [APP_ROLE.TECHNICIAN];
 
-/** أدوار مقيّدة بالبلاغات المسنَدة إليها */
-const ASSIGNEE_SCOPED_ROLES = ["technician"];
-
-interface TicketAccessUser {
+export interface TicketAccessUser {
   id: number;
   role: string;
 }
 
 export interface TicketVisibilitySubject {
+  id?: number;
+  status?: string | null;
   reportedById: number | null;
   assignedToId: number | null;
   assignedTechnicianId?: number | null;
+  maintenanceResponsibleDepartment?: string | null;
+  maintenanceResponsibleManagerId?: number | null;
+  inspectionWorkflowStatus?: string | null;
 }
 
-/** هل هذا الدور ممنوع كليًا من وحدة البلاغات؟ (يُستخدم أيضًا لفلترة list) */
 export function isRoleDeniedFromTickets(role: string): boolean {
-  return ROLES_DENIED_FROM_TICKETS.includes(role);
+  return ROLES_DENIED_FROM_TICKETS.includes(role as any);
+}
+
+export function isConstructionTicketAssignedToUser(
+  user: TicketAccessUser,
+  ticket: TicketVisibilitySubject,
+): boolean {
+  return (
+    user.role === APP_ROLE.CONSTRUCTION_PROCUREMENT_MANAGER &&
+    ticket.maintenanceResponsibleDepartment === MAINTENANCE_RESPONSIBLE_DEPARTMENT.CONSTRUCTION &&
+    ticket.maintenanceResponsibleManagerId === user.id
+  );
 }
 
 /**
- * هل يملك المستخدم صلاحية الاطلاع على هذا البلاغ؟
- * 1. الأدوار المحجوبة بالواجهة → ممنوعة كليًا (إغلاق فجوة الواجهة/الخادم).
- * 2. غير ذلك: نفس منطق `list()` بالضبط — operator ← بلاغاته، technician ←
- *    المسنَد له، وأي دور آخر ← كل البلاغات.
+ * Visibility used by ticket lists and normal ticket detail access.
+ * Construction/procurement managers see only construction tickets explicitly routed to them.
+ * Their separate linked-purchase exception is handled by assertTicketReadable().
  */
 export function isTicketVisible(user: TicketAccessUser, ticket: TicketVisibilitySubject): boolean {
   if (isRoleDeniedFromTickets(user.role)) return false;
 
-  if (REPORTER_SCOPED_ROLES.includes(user.role)) {
+  if (user.role === APP_ROLE.CONSTRUCTION_PROCUREMENT_MANAGER) {
+    return isConstructionTicketAssignedToUser(user, ticket);
+  }
+
+  if (REPORTER_SCOPED_ROLES.includes(user.role as any)) {
     return ticket.reportedById === user.id;
   }
-  if (ASSIGNEE_SCOPED_ROLES.includes(user.role)) {
-    // `list()` تفلتر بـassignedToId؛ نقبل كذلك assignedTechnicianId لأن بعض
-    // مسارات الإسناد بالنظام تكتب فيه، فمنعه كان سيحجب عن الفني بلاغًا مسنَدًا
-    // له فعليًا (تشديد غير مقصود لم يكن موجودًا بالسلوك الأصلي).
+  if (ASSIGNEE_SCOPED_ROLES.includes(user.role as any)) {
     return ticket.assignedToId === user.id || ticket.assignedTechnicianId === user.id;
   }
   return true;
 }
 
-/** نسخة "ارمِ خطأ" — تُستخدم مباشرة داخل getById */
 export function assertTicketVisible(
   user: TicketAccessUser,
   ticket: TicketVisibilitySubject,
-  message = "ليس لديك صلاحية للاطلاع على هذا البلاغ"
+  message = "ليس لديك صلاحية للاطلاع على هذا البلاغ",
 ): void {
   if (!isTicketVisible(user, ticket)) {
     throw new TRPCError({ code: "FORBIDDEN", message });
   }
+}
+
+/**
+ * Detail/history/attachment read guard.
+ * A construction manager may additionally read a non-routed ticket when it is linked
+ * to a purchase order, but that exception remains read-only.
+ */
+export async function assertTicketReadable(
+  user: TicketAccessUser,
+  ticket: TicketVisibilitySubject & { id: number },
+  message = "ليس لديك صلاحية للاطلاع على هذا البلاغ",
+): Promise<void> {
+  if (isTicketVisible(user, ticket)) return;
+
+  if (user.role === APP_ROLE.CONSTRUCTION_PROCUREMENT_MANAGER) {
+    const linked = await db.hasPurchaseOrderForTicket(ticket.id);
+    if (linked) return;
+  }
+
+  throw new TRPCError({ code: "FORBIDDEN", message });
+}
+
+/**
+ * Manager/supervisor workflow scope after routing.
+ * - legacy maintenance manager + owner/admin: unrestricted
+ * - general manager: pending triage and general/unclassified tickets only
+ * - construction manager: only construction tickets routed to that exact user
+ * - supervisor: keeps existing inspection/closure scope, but cannot perform routing
+ */
+export function canManageTicketWorkflow(
+  user: TicketAccessUser,
+  ticket: TicketVisibilitySubject,
+): boolean {
+  if ([APP_ROLE.OWNER, APP_ROLE.ADMIN, APP_ROLE.MAINTENANCE_MANAGER].includes(user.role as any)) {
+    return true;
+  }
+
+  if (user.role === APP_ROLE.GENERAL_MAINTENANCE_MANAGER) {
+    return (
+      ticket.status === "pending_triage" ||
+      !ticket.maintenanceResponsibleDepartment ||
+      ticket.maintenanceResponsibleDepartment === MAINTENANCE_RESPONSIBLE_DEPARTMENT.GENERAL
+    );
+  }
+
+  if (user.role === APP_ROLE.CONSTRUCTION_PROCUREMENT_MANAGER) {
+    return isConstructionTicketAssignedToUser(user, ticket);
+  }
+
+  if (user.role === APP_ROLE.SUPERVISOR) return true;
+
+  return false;
+}
+
+export function assertTicketWorkflowManageable(
+  user: TicketAccessUser,
+  ticket: TicketVisibilitySubject,
+  message = "ليس لديك صلاحية لتنفيذ إجراء على هذا البلاغ",
+): void {
+  if (!canManageTicketWorkflow(user, ticket)) {
+    throw new TRPCError({ code: "FORBIDDEN", message });
+  }
+}
+
+export function isTicketReadOnlyForUser(
+  user: TicketAccessUser,
+  ticket: TicketVisibilitySubject,
+): boolean {
+  if (
+    user.role === APP_ROLE.CONSTRUCTION_PROCUREMENT_MANAGER &&
+    !isConstructionTicketAssignedToUser(user, ticket)
+  ) {
+    return true;
+  }
+
+  // After a ticket is routed to construction, the general maintenance manager
+  // keeps follow-up visibility but may not mutate the construction workflow.
+  return (
+    user.role === APP_ROLE.GENERAL_MAINTENANCE_MANAGER &&
+    ticket.maintenanceResponsibleDepartment === MAINTENANCE_RESPONSIBLE_DEPARTMENT.CONSTRUCTION
+  );
+}
+
+
+const INSPECTION_MANAGER_ROLES = [
+  APP_ROLE.MAINTENANCE_MANAGER,
+  APP_ROLE.GENERAL_MAINTENANCE_MANAGER,
+  APP_ROLE.CONSTRUCTION_PROCUREMENT_MANAGER,
+  APP_ROLE.ADMIN,
+  APP_ROLE.OWNER,
+] as const;
+
+/** Direct assignment is authoritative; no accept/start step is required. */
+export function isAssignedInspectionTechnician(
+  user: TicketAccessUser,
+  ticket: TicketVisibilitySubject,
+): boolean {
+  return user.role === APP_ROLE.TECHNICIAN && ticket.assignedToId === user.id;
+}
+
+/**
+ * Inspection recording is allowed to the directly assigned technician and to
+ * the manager/supervisor who owns the ticket workflow scope.
+ */
+export function canRecordTicketInspection(
+  user: TicketAccessUser,
+  ticket: TicketVisibilitySubject,
+): boolean {
+  if (ticket.status !== "under_inspection") return false;
+  if (isAssignedInspectionTechnician(user, ticket)) return true;
+  if (user.role === APP_ROLE.SUPERVISOR) return canManageTicketWorkflow(user, ticket);
+  if ((INSPECTION_MANAGER_ROLES as readonly string[]).includes(user.role)) {
+    return canManageTicketWorkflow(user, ticket);
+  }
+  return false;
+}
+
+/** Manager-entered inspections are approved immediately; technician/supervisor entries require review. */
+export function shouldAutoApproveRecordedInspection(user: TicketAccessUser): boolean {
+  return (INSPECTION_MANAGER_ROLES as readonly string[]).includes(user.role);
+}
+
+export function canReviewTicketInspection(
+  user: TicketAccessUser,
+  ticket: TicketVisibilitySubject,
+): boolean {
+  return (
+    ticket.status === "under_inspection" &&
+    ticket.inspectionWorkflowStatus === MAINTENANCE_INSPECTION_WORKFLOW_STATUS.SUBMITTED_FOR_REVIEW &&
+    (INSPECTION_MANAGER_ROLES as readonly string[]).includes(user.role) &&
+    canManageTicketWorkflow(user, ticket)
+  );
+}
+
+export function canSelectTicketMaintenancePath(
+  user: TicketAccessUser,
+  ticket: TicketVisibilitySubject,
+): boolean {
+  return (
+    ticket.status === "under_inspection" &&
+    ticket.inspectionWorkflowStatus === MAINTENANCE_INSPECTION_WORKFLOW_STATUS.APPROVED &&
+    (INSPECTION_MANAGER_ROLES as readonly string[]).includes(user.role) &&
+    canManageTicketWorkflow(user, ticket)
+  );
 }

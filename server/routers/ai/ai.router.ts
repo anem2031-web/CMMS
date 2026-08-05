@@ -1,6 +1,7 @@
 import { z } from "zod";
+import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure } from "../_shared/procedures";
-import { invokeLLM, invokeClaudeLLM } from "../../_core/llm";
+import { invokeLLM } from "../../_core/llm";
 import * as db from "../../_core/db";
 
 export const aiRouter = router({
@@ -151,14 +152,17 @@ ${JSON.stringify(recentAudit.map((a: any) => ({ action: a.action, entity: a.enti
     let answer: string;
 
     try {
-      // أولاً: DeepSeek
       const response = await invokeLLM({ messages });
       answer = (response.choices[0]?.message?.content as string) || "";
       if (!answer) throw new Error("empty response from DeepSeek");
     } catch (err) {
-      // Fallback: Claude إذا فشل DeepSeek
-      console.warn("[AI] DeepSeek failed, switching to Claude:", err);
-      answer = await invokeClaudeLLM({ messages });
+      // ✅ لم يعد هناك أي fallback على Anthropic/Claude هنا —
+      // Claude مخصص حصراً لخدمة تحليل الفواتير (invoiceOcr.service.ts).
+      console.error("[AI] DeepSeek failed, no fallback configured:", err);
+      throw new TRPCError({
+        code: "INTERNAL_SERVER_ERROR",
+        message: "تعذّر الحصول على إجابة من المساعد الذكي حالياً، يرجى المحاولة مرة أخرى لاحقاً",
+      });
     }
 
     return { answer: answer || "لم أتمكن من الإجابة" };

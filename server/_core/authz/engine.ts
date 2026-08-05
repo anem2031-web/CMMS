@@ -20,6 +20,9 @@ import {
   BYPASS_ALL_ROLES,
   ITEM_ACTION_POLICY,
   ITEM_STATUS_ACTION_POLICY,
+  CREATOR_RETURNED_ITEM_STATUSES,
+  DELEGATE_CHANGE_REQUEST_ROLES,
+  DELEGATE_CHANGE_RESOLVER_ROLES,
   VISIBILITY_POLICY,
   type ActionName,
   type POStatus,
@@ -53,6 +56,16 @@ export function isPOVisible(ctx: VisibilityContext, po: POVisibilitySubject): bo
 
   const rule = VISIBILITY_POLICY[ctx.role];
   if (!rule) return false; // Default Deny: دور غير معرَّف بالسياسة
+
+  // قاعدة عامة لكل دور معرَّف ومسموح له بإنشاء طلب شراء: يحتفظ منشئ الطلب
+  // برؤية طلبه في جميع مراحل الدورة. هذه إضافة إلى نطاق الدور الوظيفي وليست
+  // بديلًا عنه، ولا تمنح أي صلاحية تنفيذ/اعتماد إضافية.
+  if (
+    po.requestedById === ctx.userId &&
+    canPerformAction("create", { role: ctx.role, userId: ctx.userId })
+  ) {
+    return true;
+  }
 
   switch (rule.kind) {
     case "all":
@@ -155,17 +168,22 @@ export interface ItemActionSubject {
 }
 
 /**
- * منطق editItem/deleteItem بالضبط كما كان مطبَّقًا أصلًا بالكود قبل الترحيل —
- * ⚠️ لاحظ أن BYPASS_ALL_ROLES **لا يُطبَّق هنا إطلاقًا**: owner/admin يُعاملان
- * كأي دور آخر (مذكوران صراحة بـprivilegedRoles)، لأن قاعدة "creatorOnlyPOStatuses"
- * تستثنيهما فعليًا أيضًا لو لم يكونا منشئ الطلب — هذا سلوك أصلي مقصود، وليس
- * عيبًا بالترحيل.
+ * منطق editItem/deleteItem على مستوى الصنف.
+ * owner/admin يملكان تجاوزًا مطلقًا لقواعد الدور والملكية والحالة، باستثناء
+ * الصنف الملغى نهائيًا؛ cancelled سجل مرجعي غير قابل للتعديل أو الحذف عبر
+ * المسارات العادية. تبقى بقية قيود سلامة البيانات البنيوية داخل الراوتر.
  */
 export function canPerformItemAction(
   actionName: "editItem" | "deleteItem",
   ctx: ActionContext,
   subject: ItemActionSubject
 ): boolean {
+  // cancelled حالة نهائية غير قابلة لإعادة التفعيل أو تغيير السجل التاريخي،
+  // حتى بواسطة owner/admin. أي استعادة مستقبلية يجب أن تكون بإجراء صريح مستقل.
+  if (subject.itemStatus === "cancelled") return false;
+
+  if (BYPASS_ALL_ROLES.includes(ctx.role as Role)) return true;
+
   const rule = ITEM_ACTION_POLICY[actionName];
   if (!rule) return false;
 
@@ -179,7 +197,7 @@ export function canPerformItemAction(
     if (!rule.privilegedEditableStatuses.includes(subject.poStatus as POStatus)) return false;
   }
 
-  // استثناء نهائي غير مشروط بالدور — يتجاوز حتى الأدوار المميّزة (owner/admin ضمنًا)
+  // بعض حالات الطلب تبقى مقصورة على المنشئ لبقية الأدوار غير bypass.
   if (rule.creatorOnlyPOStatuses.includes(subject.poStatus as POStatus) && !ctx.isCreator) {
     return false;
   }
@@ -198,6 +216,33 @@ export function assertCanPerformItemAction(
       code: "FORBIDDEN",
       message: message ?? "ليس لديك صلاحية لتنفيذ هذا الإجراء على هذا الصنف بحالته الحالية",
     });
+  }
+}
+
+/**
+ * حسم صنف أعاده المندوب إلى منشئ الطلب، سواء بطلب مراجعة أو بإلغاء الشراء.
+ * القرار النهائي (إعادة الإرسال أو الإلغاء النهائي) لمنشئ الطلب فقط، مع تجاوز
+ * owner/admin. لا يمنح هذا الفحص صلاحية على أي صنف بحالة أخرى.
+ */
+export function canResolveCreatorReturnedItem(
+  ctx: { role: string; userId: number },
+  subject: { requestedById: number | null; itemStatus: string }
+): boolean {
+  const isReturnedStatus = CREATOR_RETURNED_ITEM_STATUSES.includes(
+    subject.itemStatus as (typeof CREATOR_RETURNED_ITEM_STATUSES)[number]
+  );
+  if (!isReturnedStatus) return false;
+  if (BYPASS_ALL_ROLES.includes(ctx.role as Role)) return true;
+  return subject.requestedById === ctx.userId;
+}
+
+export function assertCanResolveCreatorReturnedItem(
+  ctx: { role: string; userId: number },
+  subject: { requestedById: number | null; itemStatus: string },
+  message = "فقط منشئ الطلب أو الإدارة يمكنه معالجة هذا الصنف"
+): void {
+  if (!canResolveCreatorReturnedItem(ctx, subject)) {
+    throw new TRPCError({ code: "FORBIDDEN", message });
   }
 }
 
@@ -223,6 +268,68 @@ export function assertItemAssignedToDelegate(
     throw new TRPCError({
       code: "FORBIDDEN",
       message: message ?? `${item.itemName ? `الصنف "${item.itemName}" ` : "هذا الصنف "}غير مخصص لك`,
+    });
+  }
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// طلب تغيير مندوب الصنف قبل التسعير
+// ──────────────────────────────────────────────────────────────────────────
+
+export interface DelegateChangeSubject {
+  delegateId: number | null | undefined;
+  itemStatus: string;
+  batchId: number | null | undefined;
+  estimatedUnitCost?: string | number | null;
+  delegateChangeRequestedAt: string | Date | null | undefined;
+}
+
+export function canRequestPOItemDelegateChange(
+  ctx: { role: string; userId: number },
+  subject: DelegateChangeSubject
+): boolean {
+  return (
+    DELEGATE_CHANGE_REQUEST_ROLES.includes(ctx.role as Role) &&
+    subject.delegateId === ctx.userId &&
+    subject.itemStatus === "pending" &&
+    !subject.batchId &&
+    (subject.estimatedUnitCost === null || subject.estimatedUnitCost === undefined || subject.estimatedUnitCost === "") &&
+    !subject.delegateChangeRequestedAt
+  );
+}
+
+export function assertCanRequestPOItemDelegateChange(
+  ctx: { role: string; userId: number },
+  subject: DelegateChangeSubject
+): void {
+  if (!canRequestPOItemDelegateChange(ctx, subject)) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "يمكن للمندوب الحالي فقط طلب تغيير المندوب قبل تسعير الصنف وإرساله",
+    });
+  }
+}
+
+export function canResolvePOItemDelegateChange(
+  ctx: { role: string; userId: number },
+  subject: DelegateChangeSubject
+): boolean {
+  return (
+    DELEGATE_CHANGE_RESOLVER_ROLES.includes(ctx.role as Role) &&
+    subject.itemStatus === "pending" &&
+    !subject.batchId &&
+    !!subject.delegateChangeRequestedAt
+  );
+}
+
+export function assertCanResolvePOItemDelegateChange(
+  ctx: { role: string; userId: number },
+  subject: DelegateChangeSubject
+): void {
+  if (!canResolvePOItemDelegateChange(ctx, subject)) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "لا يمكن حسم طلب تغيير المندوب بهذه الصلاحية أو بحالة الصنف الحالية",
     });
   }
 }

@@ -13,6 +13,7 @@ vi.mock("../services/improvement-ideas/improvementIdeas", () => ({
 
 vi.mock("../_core/db", () => ({
   getTicketById: vi.fn(async (id: number) => tickets.find((t) => t.id === id) || null),
+  hasPurchaseOrderForTicket: vi.fn(async (id: number) => id === 70),
 }));
 
 const { assertCanAccessAttachments, ALLOWED_ATTACHMENT_ENTITY_TYPES } = await import(
@@ -25,7 +26,22 @@ beforeEach(() => {
   // فكرة تحسين قدّمها الموظف رقم 1
   ideas.push({ id: 50, submittedById: 1, title: "مقترح سري" });
   // بلاغ أبلغ عنه المشغّل رقم 10، ومسنَد للفني رقم 20
-  tickets.push({ id: 70, reportedById: 10, assignedToId: 20, assignedTechnicianId: null });
+  tickets.push({
+    id: 70,
+    reportedById: 10,
+    assignedToId: 20,
+    assignedTechnicianId: null,
+    maintenanceResponsibleDepartment: "maintenance_report_department_general",
+    maintenanceResponsibleManagerId: 11,
+  });
+  tickets.push({
+    id: 71,
+    reportedById: 10,
+    assignedToId: 20,
+    assignedTechnicianId: null,
+    maintenanceResponsibleDepartment: "maintenance_report_department_construction",
+    maintenanceResponsibleManagerId: 30,
+  });
 });
 
 describe("قائمة السماح لأنواع الكيانات (Default Deny)", () => {
@@ -99,6 +115,25 @@ describe("ticket — أصبح مقيَّدًا بعد إغلاق tickets.getById
     await expect(
       assertCanAccessAttachments({ id: 21, role: "technician" }, "ticket", 70)
     ).rejects.toThrow();
+  });
+
+
+  it("مدير الإنشاءات يقرأ مرفقات بلاغ عام مرتبط بطلب شراء، لكن لا يرفع عليه", async () => {
+    await expect(
+      assertCanAccessAttachments({ id: 30, role: "construction_procurement_manager" }, "ticket", 70, "read")
+    ).resolves.toBeUndefined();
+    await expect(
+      assertCanAccessAttachments({ id: 30, role: "construction_procurement_manager" }, "ticket", 70, "write")
+    ).rejects.toThrow();
+  });
+
+  it("مدير الإنشاءات يقرأ ويضيف مرفقات لبلاغ إنشائي محوّل له", async () => {
+    await expect(
+      assertCanAccessAttachments({ id: 30, role: "construction_procurement_manager" }, "ticket", 71, "read")
+    ).resolves.toBeUndefined();
+    await expect(
+      assertCanAccessAttachments({ id: 30, role: "construction_procurement_manager" }, "ticket", 71, "write")
+    ).resolves.toBeUndefined();
   });
 
   it("الأدوار غير المقيَّدة (مدير صيانة/مالك) مسموح لها — مطابقة لسلوك list()", async () => {
