@@ -18,6 +18,8 @@ const ar = {
     warehouseReceive: "استلام المستودع",
     warehouseReturn: "مرتجع المستودع",
     warehouseReturnsList: "المرتجعات",
+    warehouses: "المخازن",
+    warehouseTransfer: "تحويل بين المخازن",
     reports: "التقارير",
     technicianReport: "أداء الفنيين",
     costReport: "تقرير التكاليف",

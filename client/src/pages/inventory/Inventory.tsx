@@ -11,6 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TechnicianCombobox } from "@/components/tickets/TechnicianCombobox";
 import {
@@ -40,6 +41,45 @@ export default function Inventory() {
   const { t, language } = useTranslation();
 
   const { data: items, isLoading, refetch } = trpc.inventory.list.useQuery();
+
+  // ── اختيار المخزن — أول حقل يظهر بالصفحة، وكل التفاصيل أدناه خاصة بالمخزن المختار فقط ──
+  const { data: warehousesList } = trpc.warehouse.list.useQuery();
+  const [selectedWarehouseId, setSelectedWarehouseId] = useState<string>("");
+
+  // اختيار المخزن الرئيسي تلقائيًا أول مرة تُحمَّل فيها القائمة (بدل ترك الصفحة فارغة بانتظار اختيار يدوي)
+  useEffect(() => {
+    if (selectedWarehouseId || !warehousesList?.length) return;
+    const main = (warehousesList as any[]).find((w: any) => w.type === "main");
+    setSelectedWarehouseId(String((main || warehousesList[0]).id));
+  }, [warehousesList, selectedWarehouseId]);
+
+  const selectedWarehouse = (warehousesList as any[] || []).find(
+    (w: any) => String(w.id) === selectedWarehouseId
+  );
+
+  // أصناف المخزن المختار فقط. المخزن الرئيسي يشمل أيضًا الأصناف القديمة التي لم تُربط
+  // بعد بأي مخزن (warehouseId فارغ) — تفاديًا لظهور الصفحة فارغة لصنوف لم تُنقَل بعد
+  // لنظام المخازن المتعددة؛ أي مخزن فرعي يعرض فقط ما نُقل إليه فعليًا (تطابق تام).
+  const warehouseItems = (items as any[] || []).filter((item: any) => {
+    if (!selectedWarehouseId) return true;
+    if (String(item.warehouseId) === selectedWarehouseId) return true;
+    if (selectedWarehouse?.type === "main" && !item.warehouseId) return true;
+    return false;
+  });
+
+  // ── إخفاء الأصناف الصفرية — افتراضيًا مؤشَّر (تُخفى)، والمستخدم يقدر يغيّره ──
+  const [hideZeroStock, setHideZeroStock] = useState(true);
+
+  // الأصناف المرئية فعليًا بعد تطبيق خيار إخفاء الصفرية — هذي هي القاعدة التي
+  // تُبنى عليها كل من: الإحصائيات أعلاه، والبحث/الفرز/فلتر التاريخ أدناه.
+  // (بقرار صاحب المشروع: الإحصائيات تتأثر بنفس خيار الإخفاء، وليست ثابتة على كل أصناف المخزن)
+  const visibleWarehouseItems = hideZeroStock
+    ? warehouseItems.filter((item: any) => (Number(item.quantity) || 0) > 0)
+    : warehouseItems;
+
+  const totalWarehouseQuantity = visibleWarehouseItems.reduce(
+    (sum: number, item: any) => sum + (Number(item.quantity) || 0), 0
+  );
 
   const utils = trpc.useUtils();
   const updateMut = trpc.inventory.update.useMutation({
@@ -79,7 +119,7 @@ export default function Inventory() {
   const isWarehouse = user?.role === "warehouse" || user?.role === "admin" || user?.role === "owner";
 
   // ── بحث تزايدي: يطابق أي حقل ظاهر في صف الصنف ──
-  const filteredItems = (items as any[] || [])
+  const filteredItems = visibleWarehouseItems
     .filter((item: any) => {
       if (!searchQuery.trim()) return true;
       const q = searchQuery.trim().toLowerCase();
@@ -129,19 +169,54 @@ export default function Inventory() {
         </div>
       </div>
 
+      {/* ══ أول ما يظهر: اختيار المخزن — كل ما أدناه خاص بالمخزن المختار فقط ══ */}
+      <div className="space-y-1.5 max-w-sm">
+        <Label className="text-xs">المخزن</Label>
+        <Select value={selectedWarehouseId} onValueChange={setSelectedWarehouseId}>
+          <SelectTrigger><SelectValue placeholder="اختر المخزن..." /></SelectTrigger>
+          <SelectContent>
+            {(warehousesList as any[] || []).map((w: any) => (
+              <SelectItem key={w.id} value={String(w.id)}>{w.nameAr}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      {/* يظهر فقط بعد اختيار مخزن — افتراضيًا مؤشَّر (الأصناف الصفرية مخفية)، وقابل للتغيير */}
+      {selectedWarehouseId && (
+        <div className="flex items-center gap-2">
+          <Checkbox
+            id="hide-zero-stock"
+            checked={hideZeroStock}
+            onCheckedChange={(checked) => setHideZeroStock(checked === true)}
+          />
+          <Label htmlFor="hide-zero-stock" className="text-sm font-normal cursor-pointer">
+            إخفاء الأصناف ذات الرصيد صفر
+          </Label>
+        </div>
+      )}
+
       <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
         <Card className="border-blue-200 bg-blue-50/50">
           <CardContent className="p-3 text-center">
             <Package className="w-5 h-5 mx-auto text-blue-600 mb-1" />
-            <p className="text-2xl font-bold text-blue-800">{items?.length || 0}</p>
+            <p className="text-2xl font-bold text-blue-800">{visibleWarehouseItems.length}</p>
             <p className="text-[10px] text-blue-600">{t.inventory.currentStock}</p>
           </CardContent>
         </Card>
         <Card className="border-red-200 bg-red-50/50">
           <CardContent className="p-3 text-center">
             <AlertTriangle className="w-5 h-5 mx-auto text-red-600 mb-1" />
-            <p className="text-2xl font-bold text-red-800">{items?.filter((i: any) => (i.minQuantity || 0) > 0 && i.quantity <= (i.minQuantity || 0)).length || 0}</p>
+            <p className="text-2xl font-bold text-red-800">{visibleWarehouseItems.filter((i: any) => (i.minQuantity || 0) > 0 && i.quantity <= (i.minQuantity || 0)).length}</p>
             <p className="text-[10px] text-red-600">{t.inventory.lowStock}</p>
+          </CardContent>
+        </Card>
+        {/* إجمالي الكميات بالمخزن المختار — للعرض فقط، محسوب تلقائيًا ولا يقبل أي تعديل يدوي */}
+        <Card className="border-emerald-200 bg-emerald-50/50">
+          <CardContent className="p-3 text-center">
+            <ArrowDownUp className="w-5 h-5 mx-auto text-emerald-600 mb-1" />
+            <p className="text-2xl font-bold text-emerald-800">{totalWarehouseQuantity.toLocaleString()}</p>
+            <p className="text-[10px] text-emerald-600">إجمالي الكميات بالمخزن المختار</p>
           </CardContent>
         </Card>
       </div>
@@ -240,7 +315,7 @@ export default function Inventory() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {Array.from({ length: 6 }).map((_, i) => <Card key={i}><CardContent className="p-4"><Skeleton className="h-20 w-full" /></CardContent></Card>)}
         </div>
-      ) : !items?.length ? (
+      ) : !visibleWarehouseItems.length ? (
         <Card><CardContent className="p-12 text-center">
           <Package className="w-12 h-12 mx-auto text-muted-foreground/40 mb-4" />
           <h3 className="font-semibold text-lg mb-1">{t.common.noData}</h3>

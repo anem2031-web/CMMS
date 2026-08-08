@@ -22,3 +22,4 @@ export * from "./warehouse-returns";
 export * from "./invoice-drafts";
 
 export * from "./external-maintenance";
+export * from "./warehouses";

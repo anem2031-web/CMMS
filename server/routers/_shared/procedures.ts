@@ -105,6 +105,13 @@ export const warehouseProcedure = roleMiddleware([
   APP_ROLE.ADMIN,
 ]);
 
+/**
+ * قائمة فارغة تعني عمليًا "أدمن ومالك فقط" — roleMiddleware يسمح بهما دائمًا
+ * بغض النظر عن القائمة الممرَّرة (راجع أعلى الملف). تُستخدم لعمليات حسّاسة
+ * لا يجب أن يصل إليها حتى دور warehouse العادي، مثل تعديل مسمى مخزن فرعي.
+ */
+export const adminOwnerProcedure = roleMiddleware([]);
+
 export const delegateProcedure = roleMiddleware([
   APP_ROLE.DELEGATE,
   APP_ROLE.OWNER,

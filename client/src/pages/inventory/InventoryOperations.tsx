@@ -105,6 +105,7 @@ export default function InventoryOperations() {
 
   // ── البحث عن صنف ──
   const { data: inventoryList } = trpc.inventory.list.useQuery();
+  const { data: warehousesList } = trpc.warehouse.list.useQuery();
 
   // ══════════════════════════════════════════════════════════
   // وحدة الجرد وتسوية المخزون
@@ -190,6 +191,19 @@ export default function InventoryOperations() {
   const [countUiMode, setCountUiMode] = useState<"auto" | "manual">("auto"); // auto = تحميل كل الأصناف دفعة، manual = بالباركود/الرقم/الاختيار تباعاً
   const [countTitle, setCountTitle] = useState("");
 
+  // اختيار المخزن — أول خطوة عند بدء أي جرد (2026-08-05). إلزامي؛ يُختار
+  // المخزن الرئيسي تلقائيًا عند فتح النافذة أول مرة، والمستخدم يقدر يغيّره.
+  const [countWarehouseId, setCountWarehouseId] = useState<string>("");
+  useEffect(() => {
+    if (showNewCount && !countWarehouseId && warehousesList?.length) {
+      const main = (warehousesList as any[]).find((w: any) => w.type === "main");
+      setCountWarehouseId(String((main || warehousesList[0]).id));
+    }
+  }, [showNewCount, warehousesList, countWarehouseId]);
+
+  const warehouseName = (id: number | null | undefined) =>
+    id ? ((warehousesList as any[]) || []).find((w: any) => w.id === id)?.nameAr || `#${id}` : "—";
+
   // معاينة توقيت الرياض بالواجهة فقط — للعرض قبل الإنشاء (القيمة المعتمدة فعلياً
   // تُحسب من ساعة الخادم نفسها عند الإنشاء، مو من هذا العرض ولا من جهاز المستخدم)
   const [riyadhPreview, setRiyadhPreview] = useState({ date: "", dayName: "", time: "" });
@@ -216,6 +230,7 @@ export default function InventoryOperations() {
       setActiveCountId(data.operationId);
       setShowNewCount(false);
       setCountTitle("");
+      setCountWarehouseId("");
       setSelectedPartialIds([]);
     },
     onError: (e: any) => toast.error(e.message),
@@ -522,6 +537,8 @@ export default function InventoryOperations() {
                         <p className="font-medium">{op.operationTitle || op.operationNumber}</p>
                         <p className="text-[11px] text-muted-foreground">{op.operationNumber}</p>
                         <p className="text-xs text-muted-foreground">
+                          <span className="font-medium text-foreground/80">{warehouseName(op.warehouseId)}</span>
+                          {" — "}
                           {op.scope === "full" ? "شامل" : "جزئي"} — {fmtDate(op.operationDate)} — {op.totalItemsCounted} صنف
                           {op.totalDiscrepancies > 0 && ` — ${op.totalDiscrepancies} فرق`}
                         </p>
@@ -557,6 +574,8 @@ export default function InventoryOperations() {
                     </Badge>
                   </h3>
                   <p className="text-xs text-muted-foreground">
+                    <span className="font-medium text-foreground/80">{warehouseName(countDetail.operation.warehouseId)}</span>
+                    {" — "}
                     {countDetail.operation.operationNumber} — {countDetail.operation.scope === "full" ? "جرد شامل" : "جرد جزئي"}
                   </p>
                   <p className="text-xs text-muted-foreground">
@@ -565,6 +584,26 @@ export default function InventoryOperations() {
                   {countDetail.operation.status === "in_progress" && !countDetail.items.some((it: any) => it.countedQuantity !== null) && (
                     <p className="text-xs text-amber-600 mt-1">أضف/عُدَّ صنفاً واحداً على الأقل ليظهر خيار الحفظ النهائي</p>
                   )}
+                  {/* ── مؤشر تقدّم الجرد — كم صنف اتعدّ من إجمالي أصناف العملية ── */}
+                  {countDetail.items.length > 0 && (() => {
+                    const total = countDetail.items.length;
+                    const counted = countDetail.items.filter((it: any) => it.countedQuantity !== null).length;
+                    const pct = Math.round((counted / total) * 100);
+                    return (
+                      <div className="mt-2 max-w-xs">
+                        <div className="flex items-center justify-between text-xs text-muted-foreground mb-1">
+                          <span>تقدّم الجرد</span>
+                          <span className="font-medium text-foreground">{counted} / {total} ({pct}%)</span>
+                        </div>
+                        <div className="h-1.5 w-full bg-muted rounded-full overflow-hidden">
+                          <div
+                            className={`h-full rounded-full transition-all ${pct === 100 ? "bg-emerald-500" : "bg-primary"}`}
+                            style={{ width: `${pct}%` }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
                 <div className="flex gap-2">
                   <Button
@@ -672,6 +711,51 @@ export default function InventoryOperations() {
                 </Card>
               )}
 
+              {/* ══ تقرير الفروقات المالي — نظام مقابل فعلي ══ */}
+              {(() => {
+                const withDiff = countDetail.items.filter(
+                  (it: any) => it.countedQuantity !== null && parseFloat(it.diffQuantity || "0") !== 0
+                );
+                if (withDiff.length === 0) return null;
+                const shortageValue = withDiff
+                  .filter((it: any) => parseFloat(it.diffQuantity) < 0)
+                  .reduce((s: number, it: any) => s + Math.abs(parseFloat(it.diffQuantity)) * parseFloat(it.averageCost || "0"), 0);
+                const surplusValue = withDiff
+                  .filter((it: any) => parseFloat(it.diffQuantity) > 0)
+                  .reduce((s: number, it: any) => s + parseFloat(it.diffQuantity) * parseFloat(it.averageCost || "0"), 0);
+                const net = surplusValue - shortageValue;
+                return (
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    <Card className="border-slate-200 bg-slate-50/50">
+                      <CardContent className="p-3 text-center">
+                        <p className="text-2xl font-bold text-slate-800">{withDiff.length}</p>
+                        <p className="text-[10px] text-slate-600">عدد الأصناف المختلفة</p>
+                      </CardContent>
+                    </Card>
+                    <Card className="border-red-200 bg-red-50/50">
+                      <CardContent className="p-3 text-center">
+                        <p className="text-2xl font-bold text-red-700">-{shortageValue.toLocaleString(undefined, { maximumFractionDigits: 2 })}</p>
+                        <p className="text-[10px] text-red-600">إجمالي قيمة النقص</p>
+                      </CardContent>
+                    </Card>
+                    <Card className="border-emerald-200 bg-emerald-50/50">
+                      <CardContent className="p-3 text-center">
+                        <p className="text-2xl font-bold text-emerald-700">+{surplusValue.toLocaleString(undefined, { maximumFractionDigits: 2 })}</p>
+                        <p className="text-[10px] text-emerald-600">إجمالي قيمة الزيادة</p>
+                      </CardContent>
+                    </Card>
+                    <Card className={net < 0 ? "border-red-200 bg-red-50/50" : "border-blue-200 bg-blue-50/50"}>
+                      <CardContent className="p-3 text-center">
+                        <p className={`text-2xl font-bold ${net < 0 ? "text-red-700" : "text-blue-700"}`}>
+                          {net > 0 ? "+" : ""}{net.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                        </p>
+                        <p className={`text-[10px] ${net < 0 ? "text-red-600" : "text-blue-600"}`}>صافي الأثر المالي</p>
+                      </CardContent>
+                    </Card>
+                  </div>
+                );
+              })()}
+
               <div className="border rounded-lg overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead className="bg-muted/50">
@@ -680,6 +764,7 @@ export default function InventoryOperations() {
                       <th className="p-2 text-right">كمية النظام</th>
                       <th className="p-2 text-right">الكمية المعدودة</th>
                       <th className="p-2 text-right">الفرق</th>
+                      <th className="p-2 text-right">قيمة الفرق</th>
                       <th className="p-2 text-right">دفعة/صلاحية</th>
                       <th className="p-2 text-right">ملاحظة</th>
                       <th className="p-2"></th>
@@ -697,6 +782,11 @@ export default function InventoryOperations() {
                             <td className="p-2">{it.countedQuantity ?? "—"}</td>
                             <td className={`p-2 font-medium ${diff !== null && diff !== 0 ? (diff > 0 ? "text-blue-600" : "text-red-600") : ""}`}>
                               {diff !== null ? (diff > 0 ? `+${diff}` : diff) : "—"}
+                            </td>
+                            <td className={`p-2 font-medium ${diff !== null && diff !== 0 ? (diff > 0 ? "text-emerald-600" : "text-red-600") : "text-muted-foreground"}`}>
+                              {diff !== null && diff !== 0
+                                ? `${diff > 0 ? "+" : ""}${(diff * parseFloat(it.averageCost || "0")).toLocaleString(undefined, { maximumFractionDigits: 2 })}`
+                                : "—"}
                             </td>
                             <td className="p-2 text-xs text-muted-foreground">
                               {it.lotNumber || "—"} {it.expiryDate ? `/ ${fmtDate(it.expiryDate)}` : ""}
@@ -749,6 +839,8 @@ export default function InventoryOperations() {
                           <p className="font-medium">{op.operationTitle || op.operationNumber}</p>
                           <p className="text-[11px] text-muted-foreground">{op.operationNumber}</p>
                           <p className="text-xs text-muted-foreground">
+                            <span className="font-medium text-foreground/80">{warehouseName(op.warehouseId)}</span>
+                            {" — "}
                             {op.scope === "full" ? "شامل" : "جزئي"} — {fmtDate(op.operationDate)} — {op.totalItemsCounted} صنف معدود
                             {op.totalDiscrepancies > 0 && ` — ${op.totalDiscrepancies} فرق`}
                           </p>
@@ -823,6 +915,19 @@ export default function InventoryOperations() {
         <DialogContent className="max-w-lg">
           <DialogHeader><DialogTitle>بدء جرد جديد</DialogTitle></DialogHeader>
           <div className="space-y-3">
+            {/* ══ أول ما يظهر: اختيار المخزن — إلزامي، ويحدّد نطاق الأصناف بالكامل ══ */}
+            <div className="space-y-1.5">
+              <Label className="text-xs">المخزن *</Label>
+              <Select value={countWarehouseId} onValueChange={(v) => { setCountWarehouseId(v); setSelectedPartialIds([]); }}>
+                <SelectTrigger><SelectValue placeholder="اختر المخزن..." /></SelectTrigger>
+                <SelectContent>
+                  {((warehousesList as any[]) || []).map((w: any) => (
+                    <SelectItem key={w.id} value={String(w.id)}>{w.nameAr}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
             <div className="space-y-1.5">
               <Label className="text-xs">عنوان الجرد (اختياري)</Label>
               <Input
@@ -893,7 +998,14 @@ export default function InventoryOperations() {
                 />
                 <div className="max-h-48 overflow-y-auto border rounded-md divide-y">
                   {((inventoryList as any[]) || [])
-                    .filter(i => i.itemName.includes(countItemSearch))
+                    .filter(i => {
+                      if (!i.itemName.includes(countItemSearch)) return false;
+                      if (!countWarehouseId) return true;
+                      if (String(i.warehouseId) === countWarehouseId) return true;
+                      const wh = ((warehousesList as any[]) || []).find((w: any) => String(w.id) === countWarehouseId);
+                      if (wh?.type === "main" && !i.warehouseId) return true;
+                      return false;
+                    })
                     .slice(0, 30)
                     .map(i => (
                       <label key={i.id} className="flex items-center gap-2 p-2 text-sm cursor-pointer hover:bg-muted/50">
@@ -918,11 +1030,13 @@ export default function InventoryOperations() {
               onClick={() => createCountMut.mutate({
                 operationTitle: countTitle.trim() || undefined,
                 scope: countScope,
+                warehouseId: Number(countWarehouseId),
                 itemIds: countUiMode === "auto" && countScope === "partial" ? selectedPartialIds : undefined,
                 allowEmpty: countUiMode === "manual",
               })}
               disabled={
                 createCountMut.isPending ||
+                !countWarehouseId ||
                 (countUiMode === "auto" && countScope === "partial" && selectedPartialIds.length === 0)
               }
             >

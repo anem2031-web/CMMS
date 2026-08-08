@@ -38,6 +38,7 @@ import {
   type InsertPOPricingBatch,
   inventoryCountOperations,
   inventoryCountItems,
+  warehouses,
   inventorySettlements,
   inventorySettlementItems,
   inventoryCountNumberCounter,
@@ -474,6 +475,26 @@ export async function createCountOperation(params: {
 // ── 1ب) إضافة/زيادة صنف بجرد جارٍ عبر مسح باركود أو اختيار مباشر ──
 // لو الصنف مو مضاف بعد للجرد: يُنشأ سطر جديد بكمية معدودة = incrementBy.
 // لو مضاف مسبقاً: تُزاد كميته المعدودة بمقدار incrementBy (مسح متكرر = عدّ تراكمي).
+// ── تحقق مشترك: يمنع إضافة صنف ينتمي لمخزن مختلف عن مخزن عملية الجرد ──
+// (فجوة IDOR-مثل اكتُشفت 2026-08-05 بوضع الجرد اليدوي/الباركود — كان بالإمكان
+// نظرياً مسح/إضافة صنف من مخزن آخر أثناء عملية جرد مخصَّصة لمخزن معيّن).
+// عمليات الجرد القديمة (قبل هذا التعديل) بلا warehouseId لا تخضع لهذا التحقق.
+async function assertItemMatchesOperationWarehouse(
+  db: any,
+  opWarehouseId: number | null | undefined,
+  itemWarehouseId: number | null | undefined,
+) {
+  if (!opWarehouseId) return; // عملية جرد قديمة تغطي كل المخازن — لا تحقق
+  if (itemWarehouseId === opWarehouseId) return;
+  // المخزن الرئيسي يشمل أيضاً الأصناف القديمة بلا مخزن محدد — نفس قاعدة
+  // التوافق المستخدمة بشاشتَي المستودع والجرد بالواجهة.
+  if (!itemWarehouseId) {
+    const whRows = await db.select().from(warehouses).where(eq(warehouses.id, opWarehouseId)).limit(1);
+    if (whRows[0]?.type === "main") return;
+  }
+  throw new Error("هذا الصنف لا ينتمي لمخزن عملية الجرد الحالية");
+}
+
 export async function scanCountItem(params: {
   operationId: number;
   inventoryId: number;
@@ -486,7 +507,8 @@ export async function scanCountItem(params: {
   // حماية: لا إضافة/تعديل على جرد مقفل نهائياً
   const opRows = await db.select().from(inventoryCountOperations)
     .where(eq(inventoryCountOperations.id, params.operationId)).limit(1);
-  if (opRows[0]?.status === "completed") {
+  const op = opRows[0];
+  if (op?.status === "completed") {
     throw new Error("هذا الجرد محفوظ نهائياً ولا يمكن التعديل عليه");
   }
 
@@ -514,6 +536,7 @@ export async function scanCountItem(params: {
   const invRows = await db.select().from(inventory).where(eq(inventory.id, params.inventoryId)).limit(1);
   const inv = invRows[0];
   if (!inv) throw new Error("الصنف غير موجود بالمخزون");
+  await assertItemMatchesOperationWarehouse(db, op?.warehouseId, inv.warehouseId);
 
   const diff = increment - inv.quantity;
   const [result] = await db.insert(inventoryCountItems).values({
@@ -557,6 +580,10 @@ export async function addItemToCount(params: {
   const invRows = await db.select().from(inventory).where(eq(inventory.id, params.inventoryId)).limit(1);
   const inv = invRows[0];
   if (!inv) throw new Error("الصنف غير موجود بالمخزون");
+
+  if (!existingRows[0]) {
+    await assertItemMatchesOperationWarehouse(db, opRows[0].warehouseId, inv.warehouseId);
+  }
 
   if (existingRows[0]) {
     const row = existingRows[0];
@@ -791,6 +818,7 @@ export async function getCountOperationDetails(operationId: number) {
     inventoryId: inventoryCountItems.inventoryId,
     itemName: inventory.itemName,
     unit: inventory.unit,
+    averageCost: inventory.averageCost,
     systemQuantity: inventoryCountItems.systemQuantity,
     countedQuantity: inventoryCountItems.countedQuantity,
     diffQuantity: inventoryCountItems.diffQuantity,

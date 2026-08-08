@@ -18,6 +18,8 @@ const en: TranslationKeys = {
     warehouseReceive: "Warehouse Receive",
     warehouseReturn: "Warehouse Return",
     warehouseReturnsList: "Returns",
+    warehouses: "Warehouses",
+    warehouseTransfer: "Warehouse Transfer",
     reports: "Reports",
     technicianReport: "Technician Performance",
     costReport: "Cost Report",

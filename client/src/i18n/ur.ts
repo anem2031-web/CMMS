@@ -18,6 +18,8 @@ const ur: TranslationKeys = {
     warehouseReceive: "گودام وصول",
     warehouseReturn: "گودام واپسی",
     warehouseReturnsList: "واپسیاں",
+    warehouses: "گودام",
+    warehouseTransfer: "گوداموں کے درمیان منتقلی",
     reports: "رپورٹس",
     technicianReport: "ٹیکنیشن کی کارکردگی",
     purchaseCycleReport: "خریداری سائیکل رپورٹ",

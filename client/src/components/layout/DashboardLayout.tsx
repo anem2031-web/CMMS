@@ -30,7 +30,7 @@ import {
   ChevronDown, Search, X, Building2, UserCog, Download, Smartphone, DollarSign,
   RotateCcw, BookOpen, Lightbulb, FileText, Inbox, FileStack
 ,
-  HardHat, FolderKanban} from "lucide-react";
+  HardHat, FolderKanban, Warehouse, ArrowLeftRight} from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState, useMemo, useCallback } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -119,6 +119,10 @@ const NAV_SECTIONS: NavSection[] = [
       { icon: RotateCcw,    labelKey: "nav.warehouseReturn",  path: "/warehouse/return",
         roles: ["warehouse","owner","admin"] },
       { icon: FileText,     labelKey: "nav.warehouseReturnsList", path: "/warehouse/returns",
+        roles: ["warehouse","owner","admin"] },
+      { icon: Warehouse,      labelKey: "nav.warehouses",         path: "/warehouses",
+        roles: ["warehouse","owner","admin"] },
+      { icon: ArrowLeftRight, labelKey: "nav.warehouseTransfer",  path: "/warehouse/transfer",
         roles: ["warehouse","owner","admin"] },
       { icon: Truck,        labelKey: "nav.purchaseCycle",  path: "/purchase-cycle",
         roles: ["delegate","warehouse","owner","admin"] },

@@ -1149,7 +1149,7 @@ export const inventoryTransactions = mysqlTable("inventory_transactions", {
 	purchaseOrderItemId: int().references(() => purchaseOrderItems.id, { onDelete: "set null" } ),
 	performedById: int().notNull(),
 	createdAt: timestamp({ mode: 'string' }).default('CURRENT_TIMESTAMP').notNull(),
-	transactionType: mysqlEnum(['purchase','return','delivery','adjustment','disposal']).default('adjustment').notNull(),
+	transactionType: mysqlEnum(['purchase','return','delivery','adjustment','disposal','transfer']).default('adjustment').notNull(),
 	receiptId: int(),
 	returnId: int(),
 	unitCost: decimal({ precision: 12, scale: 4 }),
@@ -2034,17 +2034,86 @@ export const warehouses = mysqlTable("warehouses", {
 	code: varchar({ length: 20 }).notNull(),
 	nameAr: varchar({ length: 200 }).notNull(),
 	nameEn: varchar({ length: 200 }),
+	description: text(),
 	type: mysqlEnum(['main','project','branch','kitchen']).default('main').notNull(),
 	parentId: int(),
 	siteId: int(),
 	projectId: int(),
+	// ربط المخزن الفرعي بتصنيف المستوى الأول من شجرة الكتالوج (catalog_nodes.level = 1).
+	// NULL مسموح فقط للمخزن الرئيسي — يُفرَض الإلزام على المخازن الفرعية برمجياً
+	// في server/_core/db/warehouses.ts (createSubWarehouse) وليس على مستوى العمود،
+	// والفهرس الفريد أدناه يمنع ربط أكثر من مخزن فرعي بنفس التصنيف.
+	catalogNodeId: int().references(() => catalogNodes.id, { onDelete: "set null" } ),
 	isActive: tinyint().default(1).notNull(),
 	createdAt: timestamp({ mode: 'string' }).default('CURRENT_TIMESTAMP').notNull(),
 	updatedAt: timestamp({ mode: 'string' }).defaultNow().onUpdateNow().notNull(),
 },
 (table) => [
 	index("code").on(table.code),
+	uniqueIndex("idx_warehouses_catalog_node_unique").on(table.catalogNodeId),
 ]);
+
+// ══════════════════════════════════════════════════════════════════════
+// warehouse_transfers — سجل رأسي موثِّق لكل عملية تحويل فعلية بين مخزنين
+// (رئيسي↔فرعي أو فرعي↔فرعي). يشبه بنية disposal_operations/
+// inventory_count_operations الموجودة مسبقاً. راجع server/_core/db/warehouses.ts
+// ══════════════════════════════════════════════════════════════════════
+export const warehouseTransfers = mysqlTable("warehouse_transfers", {
+	id: int().autoincrement().notNull(),
+	transferNumber: varchar({ length: 30 }).notNull(),
+	// يجمع كل أصناف عملية تحويل واحدة (حتى 20 صنفاً) تحت رأس واحد للعرض
+	// كبطاقة واحدة بالواجهة. NULL فقط للسجلات القديمة قبل هذا التعديل
+	// (2026-08-05) — تُعامَل كل واحدة منها كعملية أحادية الصنف بالعرض.
+	batchId: int().references(() => warehouseTransferBatches.id, { onDelete: "set null" } ),
+	fromWarehouseId: int().notNull().references(() => warehouses.id, { onDelete: "restrict" } ),
+	toWarehouseId: int().notNull().references(() => warehouses.id, { onDelete: "restrict" } ),
+	fromInventoryId: int().notNull().references(() => inventory.id, { onDelete: "restrict" } ),
+	toInventoryId: int().notNull().references(() => inventory.id, { onDelete: "restrict" } ),
+	quantity: decimal({ precision: 12, scale: 3 }).notNull(),
+	// true إن كان تصنيف الصنف لا يطابق تصنيف المخزن الهدف — تحويل مسموح به
+	// (تنبيه فقط وليس منعاً، بقرار صاحب المشروع) لكن يُسجَّل للمراجعة اللاحقة.
+	categoryMismatch: tinyint().default(0).notNull(),
+	notes: text(),
+	createdById: int().notNull(),
+	createdAt: timestamp({ mode: 'string' }).default('CURRENT_TIMESTAMP').notNull(),
+},
+(table) => [
+	uniqueIndex("idx_warehouse_transfers_number_unique").on(table.transferNumber),
+	index("idx_warehouse_transfers_from_warehouse").on(table.fromWarehouseId),
+	index("idx_warehouse_transfers_to_warehouse").on(table.toWarehouseId),
+	index("idx_warehouse_transfers_batch").on(table.batchId),
+]);
+
+// ══════════════════════════════════════════════════════════════════════
+// warehouse_transfer_batches — الرأس الذي يجمع عملية تحويل واحدة قد تضم
+// حتى 20 صنفاً تحت رقم عملية واحد (بطاقة واحدة بالواجهة). كل صف بجدول
+// warehouseTransfers أعلاه هو "بند" تفصيلي مرتبط بهذا الرأس عبر batchId.
+// ══════════════════════════════════════════════════════════════════════
+export const warehouseTransferBatches = mysqlTable("warehouse_transfer_batches", {
+	id: int().autoincrement().notNull(),
+	batchNumber: varchar({ length: 30 }).notNull(),
+	fromWarehouseId: int().notNull().references(() => warehouses.id, { onDelete: "restrict" } ),
+	toWarehouseId: int().notNull().references(() => warehouses.id, { onDelete: "restrict" } ),
+	notes: text(),
+	itemsCount: int().default(0).notNull(),
+	createdById: int().notNull(),
+	createdAt: timestamp({ mode: 'string' }).default('CURRENT_TIMESTAMP').notNull(),
+},
+(table) => [
+	uniqueIndex("idx_warehouse_transfer_batches_number_unique").on(table.batchNumber),
+	index("idx_warehouse_transfer_batches_from_warehouse").on(table.fromWarehouseId),
+	index("idx_warehouse_transfer_batches_to_warehouse").on(table.toWarehouseId),
+]);
+
+export const warehouseTransferBatchNumberCounter = mysqlTable("warehouse_transfer_batch_number_counter", {
+	id: int().autoincrement().notNull(),
+	year: int().notNull(),
+});
+
+export const warehouseTransferNumberCounter = mysqlTable("warehouse_transfer_number_counter", {
+	id: int().autoincrement().notNull(),
+	year: int().notNull(),
+});
 
 
 // ══════════════════════════════════════════════════════════════════════

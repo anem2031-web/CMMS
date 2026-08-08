@@ -56,6 +56,8 @@ import WarehouseReceiveV2 from "@/pages/inventory/WarehouseReceiveV2";
 import InventoryStandaloneReceive from "@/pages/inventory/InventoryStandaloneReceive";
 import InvoiceDraftReview from "@/pages/inventory/InvoiceDraftReview";
 import WarehouseReturn from "@/pages/inventory/WarehouseReturn";
+import Warehouses from "@/pages/inventory/Warehouses";
+import WarehouseTransfer from "@/pages/inventory/WarehouseTransfer";
 import WarehouseReturnsList from "@/pages/inventory/WarehouseReturnsList";
 import ConstructionDashboard from "@/pages/construction/ConstructionDashboard";
 import ProjectsList from "@/pages/construction/ProjectsList";
@@ -130,6 +132,8 @@ function Router() {
             <Route path="/warehouse/invoice-draft" component={NotFound} />
             {/* <Route path="/warehouse/invoice-draft" component={InvoiceDraftReview} /> */}
             <Route path="/warehouse/return" component={WarehouseReturn} />
+            <Route path="/warehouses" component={Warehouses} />
+            <Route path="/warehouse/transfer" component={WarehouseTransfer} />
             <Route path="/warehouse/returns" component={WarehouseReturnsList} />
             <Route path="/inspection-dashboard" component={Dashboard} />
             <Route path="/catalog" component={CatalogDashboard} />

@@ -1,0 +1,675 @@
+import { trpc } from "@/lib/trpc";
+import { useLocation } from "wouter";
+import { useMemo, useState } from "react";
+import { toast } from "sonner";
+import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
+import { Textarea } from "@/components/ui/textarea";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  ArrowRight, ArrowLeftRight, Loader2, PackageSearch, AlertTriangle,
+  Search, QrCode, X, Plus, Trash2, CheckCircle2, XCircle,
+  SendHorizontal, History, Boxes, TrendingUp, ShieldAlert, Filter, ChevronLeft,
+} from "lucide-react";
+import BarcodeScanner from "@/components/common/BarcodeScanner";
+import { fmtDate } from "@/lib/printInventoryOperationDocuments";
+
+const MAX_ITEMS_PER_TRANSFER = 20;
+
+interface CartItem {
+  inventoryId: number;
+  itemName: string;
+  internalCode?: string;
+  manufacturerBarcode?: string;
+  unit?: string;
+  balanceAtAddTime: number;
+  quantity: number;
+  notes?: string;
+}
+
+export default function WarehouseTransfer() {
+  const [, navigate] = useLocation();
+
+  const { data: warehousesList } = trpc.warehouse.list.useQuery();
+  const { data: inventoryList } = trpc.inventory.list.useQuery();
+  const { data: usersList } = trpc.users.list.useQuery();
+  const { data: cardsList, refetch: refetchCards } = trpc.transfers.listCards.useQuery({});
+
+  const [fromWarehouseId, setFromWarehouseId] = useState<string>("");
+  const [toWarehouseId, setToWarehouseId] = useState<string>("");
+  const [operationNotes, setOperationNotes] = useState("");
+  const [cart, setCart] = useState<CartItem[]>([]);
+
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchMode, setSearchMode] = useState<"name" | "code" | "qr">("name");
+  const [foundItem, setFoundItem] = useState<any>(null);
+  const [qty, setQty] = useState("");
+  const [itemNotes, setItemNotes] = useState("");
+
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [lastResult, setLastResult] = useState<{ batchNumber: string; results: any[] } | null>(null);
+
+  const [historyWarehouseFilter, setHistoryWarehouseFilter] = useState<string>("all");
+  const [historySearch, setHistorySearch] = useState("");
+  const [historySearchMode, setHistorySearchMode] = useState<"name" | "code" | "qr">("name");
+  const [openDetailKey, setOpenDetailKey] = useState<string | null>(null);
+
+  const sourceItems = useMemo(() => {
+    if (!fromWarehouseId || !inventoryList) return [];
+    return (inventoryList as any[]).filter(
+      (i) => String(i.warehouseId) === fromWarehouseId && (i.quantity || 0) > 0
+    );
+  }, [fromWarehouseId, inventoryList]);
+
+  const remainingBalance = (item: any) => {
+    const alreadyInCart = cart.filter(c => c.inventoryId === item.id).reduce((s, c) => s + c.quantity, 0);
+    return (item.quantity || 0) - alreadyInCart;
+  };
+
+  const searchResults = useMemo(() => {
+    if (!fromWarehouseId || !searchQuery.trim()) return [];
+    const q = searchQuery.trim().toLowerCase();
+    return sourceItems
+      .filter((item: any) => {
+        if (searchMode === "code" || searchMode === "qr") {
+          return (
+            String(item.internalCode ?? "").toLowerCase().includes(q) ||
+            String(item.manufacturerBarcode ?? "").toLowerCase().includes(q)
+          );
+        }
+        return String(item.itemName ?? "").toLowerCase().includes(q);
+      })
+      .slice(0, 8);
+  }, [sourceItems, searchQuery, searchMode, fromWarehouseId]);
+
+  const warehouseName = (id: number) =>
+    (warehousesList as any[])?.find((w: any) => w.id === id)?.nameAr || `#${id}`;
+
+  const userName = (id: number) =>
+    (usersList as any[])?.find((u: any) => u.id === id)?.name || `#${id}`;
+
+  function selectItem(item: any) {
+    setFoundItem(item);
+    setSearchQuery("");
+    setQty("");
+  }
+
+  function handleQRScan(code: string) {
+    const found = sourceItems.find((i: any) =>
+      i.internalCode === code || i.manufacturerBarcode === code || String(i.id) === code
+    );
+    if (found) {
+      selectItem(found);
+      toast.success(`تم العثور على الصنف: ${found.itemName}`);
+    } else {
+      toast.error(`لم يتم العثور على صنف بهذا الرقم بالمخزن المصدر`);
+    }
+  }
+
+  function addItemToCart() {
+    if (!foundItem) { toast.error("اختر صنفاً أولاً"); return; }
+    if (cart.length >= MAX_ITEMS_PER_TRANSFER) {
+      toast.error(`الحد الأقصى ${MAX_ITEMS_PER_TRANSFER} صنف بالعملية الواحدة`);
+      return;
+    }
+    const qtyNum = parseFloat(qty);
+    if (!qtyNum || qtyNum <= 0) { toast.error("أدخل كمية صحيحة أكبر من صفر"); return; }
+    const remaining = remainingBalance(foundItem);
+    if (qtyNum > remaining) {
+      toast.error(`الكمية أكبر من الرصيد المتاح (${remaining} ${foundItem.unit || ""})`);
+      return;
+    }
+
+    setCart(prev => [...prev, {
+      inventoryId: foundItem.id,
+      itemName: foundItem.itemName,
+      internalCode: foundItem.internalCode,
+      manufacturerBarcode: foundItem.manufacturerBarcode,
+      unit: foundItem.unit,
+      balanceAtAddTime: foundItem.quantity,
+      quantity: qtyNum,
+      notes: itemNotes.trim() || undefined,
+    }]);
+
+    setFoundItem(null);
+    setQty("");
+    setItemNotes("");
+    setSearchQuery("");
+    toast.success("تم إضافة الصنف — يمكنك إضافة صنف آخر أو تنفيذ العملية");
+  }
+
+  function removeFromCart(idx: number) {
+    setCart(prev => prev.filter((_, i) => i !== idx));
+  }
+
+  const createBatchMut = trpc.transfers.createBatch.useMutation();
+
+  async function handleSubmitAll() {
+    if (!fromWarehouseId || !toWarehouseId) { toast.error("اختر المخزن المصدر والمخزن الهدف"); return; }
+    if (fromWarehouseId === toWarehouseId) { toast.error("لا يمكن التحويل لنفس المخزن"); return; }
+    if (cart.length === 0) { toast.error("أضف صنفاً واحداً على الأقل"); return; }
+
+    setIsSubmitting(true);
+    try {
+      const res = await createBatchMut.mutateAsync({
+        fromWarehouseId: Number(fromWarehouseId),
+        toWarehouseId: Number(toWarehouseId),
+        notes: operationNotes.trim() || undefined,
+        items: cart.map(c => ({
+          fromInventoryId: c.inventoryId,
+          quantity: c.quantity,
+          notes: c.notes,
+        })),
+      });
+
+      const resultsWithNames = res.results.map((r: any, idx: number) => ({
+        ...r,
+        itemName: cart[idx]?.itemName || `صنف #${r.fromInventoryId}`,
+      }));
+      setLastResult({ batchNumber: res.batchNumber, results: resultsWithNames });
+
+      const successCount = resultsWithNames.filter((r: any) => r.success).length;
+      const failCount = resultsWithNames.length - successCount;
+      if (failCount === 0) {
+        toast.success(`تمت العملية ${res.batchNumber} بنجاح (${successCount} صنف)`);
+        setCart([]);
+        setOperationNotes("");
+      } else {
+        toast.warning(`العملية ${res.batchNumber}: نجح ${successCount} وفشل ${failCount}`);
+        setCart(prev => prev.filter((_, idx) => !resultsWithNames[idx]?.success));
+      }
+      refetchCards();
+    } catch (err: any) {
+      toast.error(err.message || "فشل تنفيذ العملية");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  // ── إحصائيات وفلترة تبويب السجل ──
+  const historyStats = useMemo(() => {
+    const list = (cardsList as any[]) || [];
+    return {
+      total: list.length,
+      totalItems: list.reduce((s, c) => s + (c.itemsCount || 0), 0),
+      mismatchOps: list.filter((c: any) => (c.mismatchCount || 0) > 0).length,
+    };
+  }, [cardsList]);
+
+  const filteredHistory = useMemo(() => {
+    let list = (cardsList as any[]) || [];
+    if (historyWarehouseFilter !== "all") {
+      const wid = Number(historyWarehouseFilter);
+      list = list.filter((c: any) => c.fromWarehouseId === wid || c.toWarehouseId === wid);
+    }
+    if (historySearch.trim()) {
+      const q = historySearch.trim().toLowerCase();
+      list = list.filter((c: any) => {
+        const items: any[] = c.itemsSummary || [];
+        if (historySearchMode === "code" || historySearchMode === "qr") {
+          return items.some((it: any) =>
+            String(it.internalCode ?? "").toLowerCase().includes(q) ||
+            String(it.manufacturerBarcode ?? "").toLowerCase().includes(q)
+          );
+        }
+        // وضع "بالاسم": يبحث باسم أي صنف داخل العملية، أو برقم العملية، أو بالملاحظات
+        return (
+          items.some((it: any) => String(it.itemName ?? "").toLowerCase().includes(q)) ||
+          c.displayNumber?.toLowerCase().includes(q) ||
+          (c.notes || "").toLowerCase().includes(q)
+        );
+      });
+    }
+    return list;
+  }, [cardsList, historyWarehouseFilter, historySearch, historySearchMode]);
+
+  const { data: detail, isLoading: loadingDetail } = trpc.transfers.getBatchDetail.useQuery(
+    { key: openDetailKey! }, { enabled: !!openDetailKey }
+  );
+
+  return (
+    <div className="max-w-4xl mx-auto p-4 space-y-4">
+      <div className="flex items-center gap-3">
+        <Button variant="ghost" size="icon" onClick={() => navigate("/warehouses")}>
+          <ArrowRight className="w-5 h-5" />
+        </Button>
+        <div className="flex-1">
+          <h1 className="text-xl font-bold flex items-center gap-2">
+            <ArrowLeftRight className="w-5 h-5 text-primary" /> التحويل بين المخازن
+          </h1>
+          <p className="text-sm text-muted-foreground">تنفيذ عمليات تحويل جديدة، ومراجعة سجل كل العمليات السابقة</p>
+        </div>
+      </div>
+
+      <Tabs defaultValue="perform">
+        <TabsList className="grid grid-cols-2 w-full max-w-md">
+          <TabsTrigger value="perform" className="gap-1.5">
+            <SendHorizontal className="w-3.5 h-3.5" /> تنفيذ تحويل
+          </TabsTrigger>
+          <TabsTrigger value="history" className="gap-1.5">
+            <History className="w-3.5 h-3.5" /> سجل التحويلات
+          </TabsTrigger>
+        </TabsList>
+
+        {/* ══════════════════════ تبويب 1: تنفيذ تحويل ══════════════════════ */}
+        <TabsContent value="perform" className="mt-4 space-y-4">
+          <Card>
+            <CardContent className="p-4 space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label className="text-xs">من مخزن *</Label>
+                  <Select
+                    value={fromWarehouseId}
+                    onValueChange={(v) => { setFromWarehouseId(v); setCart([]); setFoundItem(null); setSearchQuery(""); }}
+                    disabled={cart.length > 0}
+                  >
+                    <SelectTrigger><SelectValue placeholder="اختر المخزن المصدر" /></SelectTrigger>
+                    <SelectContent>
+                      {(warehousesList as any[] || []).map((w: any) => (
+                        <SelectItem key={w.id} value={String(w.id)}>{w.nameAr}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">إلى مخزن *</Label>
+                  <Select value={toWarehouseId} onValueChange={setToWarehouseId}>
+                    <SelectTrigger><SelectValue placeholder="اختر المخزن الهدف" /></SelectTrigger>
+                    <SelectContent>
+                      {(warehousesList as any[] || [])
+                        .filter((w: any) => String(w.id) !== fromWarehouseId)
+                        .map((w: any) => (
+                          <SelectItem key={w.id} value={String(w.id)}>{w.nameAr}</SelectItem>
+                        ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              {cart.length > 0 && (
+                <p className="text-xs text-muted-foreground">
+                  لتغيير المخزن المصدر، أفرغ السلة أولاً أو نفّذ العملية الحالية.
+                </p>
+              )}
+
+              <div className="space-y-2 p-3 border rounded-lg bg-muted/20">
+                <p className="text-sm font-medium">إضافة صنف</p>
+
+                {!fromWarehouseId && (
+                  <p className="text-xs text-muted-foreground">اختر المخزن المصدر أولاً</p>
+                )}
+
+                {fromWarehouseId && (
+                  <>
+                    <div className="flex gap-2">
+                      <Button size="sm" variant={searchMode === "name" ? "default" : "outline"}
+                        onClick={() => { setSearchMode("name"); setSearchQuery(""); }} className="gap-1">
+                        <Search className="w-3.5 h-3.5" /> بالاسم
+                      </Button>
+                      <Button size="sm" variant={searchMode === "code" ? "default" : "outline"}
+                        onClick={() => { setSearchMode("code"); setSearchQuery(""); }} className="gap-1">
+                        <QrCode className="w-3.5 h-3.5" /> بالرقم
+                      </Button>
+                      <Button size="sm" variant={searchMode === "qr" ? "default" : "outline"}
+                        onClick={() => { setSearchMode("qr"); setSearchQuery(""); }} className="gap-1">
+                        <QrCode className="w-3.5 h-3.5" /> QR Code
+                      </Button>
+                    </div>
+
+                    {searchMode === "qr" && !foundItem && (
+                      <BarcodeScanner onScan={handleQRScan} placeholder="امسح QR Code الصنف..." />
+                    )}
+
+                    {(searchMode === "name" || searchMode === "code") && !foundItem && (
+                      <div className="relative">
+                        <Input
+                          placeholder={searchMode === "name" ? "ابحث باسم الصنف..." : "ابحث برقم الصنف أو الباركود..."}
+                          value={searchQuery}
+                          onChange={e => setSearchQuery(e.target.value)}
+                          dir="rtl"
+                        />
+                        {searchResults.length > 0 && (
+                          <div className="absolute top-full right-0 left-0 z-50 bg-white border rounded-lg shadow-lg mt-1 max-h-48 overflow-y-auto">
+                            {searchResults.map((item: any) => {
+                              const remaining = remainingBalance(item);
+                              return (
+                                <button
+                                  key={item.id}
+                                  className="w-full text-right px-3 py-2 hover:bg-muted/50 text-sm flex items-center justify-between disabled:opacity-40"
+                                  onClick={() => selectItem(item)}
+                                  disabled={remaining <= 0}
+                                >
+                                  <span className="font-medium">{item.itemName}</span>
+                                  <span className="text-xs text-muted-foreground">متاح: {remaining} {item.unit}</span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+                        {searchQuery.trim() && searchResults.length === 0 && (
+                          <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
+                            <PackageSearch className="w-3.5 h-3.5" /> لا نتائج مطابقة
+                          </p>
+                        )}
+                      </div>
+                    )}
+
+                    {foundItem && (
+                      <div className="space-y-3">
+                        <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg">
+                          <div className="flex items-start justify-between">
+                            <div>
+                              <p className="font-semibold text-sm">{foundItem.itemName}</p>
+                              <div className="text-xs text-muted-foreground mt-1 space-y-0.5">
+                                {foundItem.internalCode && (
+                                  <p>الكود: <span className="font-mono">{foundItem.internalCode}</span></p>
+                                )}
+                                <p>الرصيد الحالي بالمخزن المصدر: <strong className="text-foreground">{foundItem.quantity} {foundItem.unit}</strong></p>
+                                <p>المتاح فعلياً للتحويل الآن: <strong className="text-foreground">{remainingBalance(foundItem)} {foundItem.unit}</strong></p>
+                              </div>
+                            </div>
+                            <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => { setFoundItem(null); setQty(""); setItemNotes(""); }}>
+                              <X className="w-3.5 h-3.5" />
+                            </Button>
+                          </div>
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <Label className="text-xs">الكمية المراد تحويلها *</Label>
+                          <Input
+                            type="number" min={0.001} step="any" value={qty}
+                            onChange={e => setQty(e.target.value)} placeholder="0" dir="ltr" className="font-mono"
+                          />
+                          {qty && parseFloat(qty) > remainingBalance(foundItem) && (
+                            <p className="text-xs text-destructive flex items-center gap-1">
+                              <AlertTriangle className="w-3 h-3" /> أكبر من المتاح
+                            </p>
+                          )}
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <Label className="text-xs">ملاحظة على هذا الصنف (اختياري)</Label>
+                          <Input value={itemNotes} onChange={e => setItemNotes(e.target.value)} placeholder="سبب خاص بهذا الصنف..." />
+                        </div>
+
+                        <Button className="w-full gap-2" variant="outline" onClick={addItemToCart}>
+                          <Plus className="w-4 h-4" /> إضافة هذا الصنف للعملية
+                        </Button>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+
+              {cart.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-sm font-medium">
+                    الأصناف المضافة ({cart.length}/{MAX_ITEMS_PER_TRANSFER})
+                  </p>
+                  <div className="space-y-1.5">
+                    {cart.map((item, idx) => (
+                      <div key={idx} className="flex items-center justify-between gap-2 p-2.5 border rounded-md bg-background">
+                        <div className="min-w-0">
+                          <p className="font-medium text-sm truncate">{item.itemName}</p>
+                          <p className="text-xs text-muted-foreground">
+                            الكمية: {item.quantity} {item.unit || ""}
+                            {item.notes ? ` — ${item.notes}` : ""}
+                          </p>
+                        </div>
+                        <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0 text-destructive" onClick={() => removeFromCart(idx)}>
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">ملاحظات عامة على العملية (اختياري)</Label>
+                <Textarea
+                  value={operationNotes} onChange={e => setOperationNotes(e.target.value)}
+                  placeholder="سبب التحويل بشكل عام..." rows={2}
+                />
+              </div>
+
+              <Button className="w-full gap-1.5" onClick={handleSubmitAll} disabled={isSubmitting || cart.length === 0}>
+                {isSubmitting
+                  ? <Loader2 className="w-4 h-4 animate-spin" />
+                  : <><ArrowLeftRight className="w-4 h-4" /> تنفيذ تحويل {cart.length > 0 ? `(${cart.length} صنف)` : ""}</>}
+              </Button>
+
+              {lastResult && (
+                <div className="space-y-1.5 pt-2 border-t">
+                  <p className="text-xs font-medium text-muted-foreground">
+                    نتيجة عملية {lastResult.batchNumber}
+                  </p>
+                  {lastResult.results.map((r: any, i: number) => (
+                    <div key={i} className={`flex items-center gap-2 text-xs p-2 rounded ${r.success ? "bg-emerald-50 text-emerald-800" : "bg-red-50 text-red-800"}`}>
+                      {r.success ? <CheckCircle2 className="w-3.5 h-3.5 shrink-0" /> : <XCircle className="w-3.5 h-3.5 shrink-0" />}
+                      <span className="font-medium">{r.itemName}</span>
+                      <span className="text-muted-foreground">— {r.message}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* ══════════════════════ تبويب 2: سجل التحويلات (بطاقة واحدة لكل عملية) ══════════════════════ */}
+        <TabsContent value="history" className="mt-4 space-y-4">
+          <div className="grid grid-cols-3 gap-3">
+            <Card className="border-blue-200 bg-blue-50/50">
+              <CardContent className="p-3 text-center">
+                <Boxes className="w-5 h-5 mx-auto text-blue-600 mb-1" />
+                <p className="text-2xl font-bold text-blue-800">{historyStats.total}</p>
+                <p className="text-[10px] text-blue-600">إجمالي عمليات التحويل</p>
+              </CardContent>
+            </Card>
+            <Card className="border-emerald-200 bg-emerald-50/50">
+              <CardContent className="p-3 text-center">
+                <TrendingUp className="w-5 h-5 mx-auto text-emerald-600 mb-1" />
+                <p className="text-2xl font-bold text-emerald-800">{historyStats.totalItems}</p>
+                <p className="text-[10px] text-emerald-600">إجمالي عدد الأصناف المحوَّلة</p>
+              </CardContent>
+            </Card>
+            <Card className="border-amber-200 bg-amber-50/50">
+              <CardContent className="p-3 text-center">
+                <ShieldAlert className="w-5 h-5 mx-auto text-amber-600 mb-1" />
+                <p className="text-2xl font-bold text-amber-800">{historyStats.mismatchOps}</p>
+                <p className="text-[10px] text-amber-600">عمليات فيها تنبيه عدم تطابق</p>
+              </CardContent>
+            </Card>
+          </div>
+
+          <div className="space-y-2">
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              {/* أزرار طريقة البحث — نفس تصميم "إضافة صنف" بالضبط */}
+              <div className="flex gap-1.5">
+                <Button size="sm" variant={historySearchMode === "name" ? "default" : "outline"}
+                  onClick={() => { setHistorySearchMode("name"); setHistorySearch(""); }} className="gap-1">
+                  <Search className="w-3.5 h-3.5" /> بالاسم
+                </Button>
+                <Button size="sm" variant={historySearchMode === "code" ? "default" : "outline"}
+                  onClick={() => { setHistorySearchMode("code"); setHistorySearch(""); }} className="gap-1">
+                  <QrCode className="w-3.5 h-3.5" /> بالرقم
+                </Button>
+                <Button size="sm" variant={historySearchMode === "qr" ? "default" : "outline"}
+                  onClick={() => { setHistorySearchMode("qr"); setHistorySearch(""); }} className="gap-1">
+                  <QrCode className="w-3.5 h-3.5" /> QR Code
+                </Button>
+              </div>
+
+              <Select value={historyWarehouseFilter} onValueChange={setHistoryWarehouseFilter}>
+                <SelectTrigger className="w-full sm:w-[220px] gap-1.5">
+                  <Filter className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                  <SelectValue placeholder="كل المخازن" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">كل المخازن</SelectItem>
+                  {(warehousesList as any[] || []).map((w: any) => (
+                    <SelectItem key={w.id} value={String(w.id)}>{w.nameAr}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {historySearchMode === "qr" ? (
+              <BarcodeScanner
+                onScan={(code) => { setHistorySearch(code); setHistorySearchMode("code"); }}
+                placeholder="امسح QR Code الصنف..."
+              />
+            ) : (
+              <div className="relative">
+                <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <Input
+                  value={historySearch}
+                  onChange={e => setHistorySearch(e.target.value)}
+                  placeholder={
+                    historySearchMode === "name"
+                      ? "ابحث باسم الصنف، رقم العملية، أو الملاحظات..."
+                      : "ابحث برقم الصنف أو الباركود..."
+                  }
+                  className="pr-9 pl-9"
+                />
+                {historySearch && (
+                  <button className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    onClick={() => setHistorySearch("")}>
+                    <X className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+
+          {filteredHistory.length === 0 ? (
+            <Card>
+              <CardContent className="p-10 text-center text-muted-foreground">
+                <History className="w-10 h-10 mx-auto mb-3 opacity-30" />
+                <p className="font-medium">
+                  {(cardsList as any[])?.length ? "لا نتائج مطابقة للفلاتر الحالية" : "لا توجد تحويلات بعد"}
+                </p>
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="space-y-2">
+              {filteredHistory.map((c: any) => (
+                <button key={c.key} className="w-full text-right" onClick={() => setOpenDetailKey(c.key)}>
+                  <Card className="hover:border-primary/50 hover:shadow-sm transition-all cursor-pointer">
+                    <CardContent className="p-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                            <ArrowLeftRight className="w-4 h-4 text-primary" />
+                          </div>
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-mono text-xs bg-muted px-2 py-0.5 rounded font-semibold">{c.displayNumber}</span>
+                              <Badge variant="secondary" className="text-[10px]">
+                                {c.itemsCount} {c.itemsCount === 1 ? "صنف" : "أصناف"}
+                              </Badge>
+                              {c.mismatchCount > 0 && (
+                                <span className="flex items-center gap-1 text-amber-600 text-[10px] font-medium">
+                                  <AlertTriangle className="w-3 h-3" /> {c.mismatchCount} تنبيه
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-1.5 mt-1 text-sm">
+                              <span className="font-medium">{warehouseName(c.fromWarehouseId)}</span>
+                              <ArrowLeftRight className="w-3 h-3 text-muted-foreground shrink-0" />
+                              <span className="font-medium">{warehouseName(c.toWarehouseId)}</span>
+                            </div>
+                            <p className="text-xs text-muted-foreground mt-0.5">{fmtDate(c.createdAt)} — {userName(c.createdById)}</p>
+                            {c.itemsSummary?.length > 0 && (
+                              <p className="text-xs text-muted-foreground mt-1 truncate">
+                                {c.itemsSummary.slice(0, 2).map((it: any) => it.itemName).join("، ")}
+                                {c.itemsSummary.length > 2 && ` +${c.itemsSummary.length - 2} أصناف أخرى`}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                        <ChevronLeft className="w-4 h-4 text-muted-foreground shrink-0" />
+                      </div>
+                    </CardContent>
+                  </Card>
+                </button>
+              ))}
+            </div>
+          )}
+        </TabsContent>
+      </Tabs>
+
+      {/* ══ نافذة تفاصيل العملية ══ */}
+      <Dialog open={!!openDetailKey} onOpenChange={(v) => !v && setOpenDetailKey(null)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ArrowLeftRight className="w-4 h-4 text-primary" /> تفاصيل عملية التحويل
+            </DialogTitle>
+          </DialogHeader>
+
+          {loadingDetail && (
+            <div className="p-8 text-center"><Loader2 className="w-5 h-5 animate-spin mx-auto" /></div>
+          )}
+
+          {detail && (
+            <div className="space-y-4">
+              {/* ملخص العملية */}
+              <div className="p-3 bg-muted/30 rounded-lg space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="font-mono text-sm bg-background px-2 py-0.5 rounded font-semibold border">
+                    {detail.displayNumber}
+                  </span>
+                  <span className="text-xs text-muted-foreground">{fmtDate(detail.createdAt)}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Badge variant="outline">{warehouseName(detail.fromWarehouseId)}</Badge>
+                  <ArrowLeftRight className="w-3.5 h-3.5 text-muted-foreground" />
+                  <Badge variant="outline">{warehouseName(detail.toWarehouseId)}</Badge>
+                </div>
+                <p className="text-xs text-muted-foreground">نفّذها: {userName(detail.createdById)}</p>
+                {detail.notes && (
+                  <p className="text-xs text-muted-foreground border-t pt-2">ملاحظات عامة: {detail.notes}</p>
+                )}
+              </div>
+
+              {/* قائمة الأصناف */}
+              <div className="space-y-1.5">
+                <p className="text-sm font-medium">الأصناف ({detail.items.length})</p>
+                <div className="max-h-72 overflow-y-auto divide-y border rounded-md">
+                  {detail.items.map((item: any, idx: number) => (
+                    <div key={idx} className="p-3 space-y-1">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="font-medium text-sm">{item.itemName}</p>
+                        <span className="font-mono text-xs text-muted-foreground">{item.transferNumber}</span>
+                      </div>
+                      <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
+                        {item.internalCode && <span>الكود: <span className="font-mono">{item.internalCode}</span></span>}
+                        <span>الكمية: <strong className="text-foreground">{item.quantity} {item.unit}</strong></span>
+                        {item.categoryMismatch ? (
+                          <span className="flex items-center gap-1 text-amber-600 font-medium">
+                            <AlertTriangle className="w-3 h-3" /> تصنيف غير مطابق
+                          </span>
+                        ) : (
+                          <span className="flex items-center gap-1 text-emerald-600 font-medium">
+                            <CheckCircle2 className="w-3 h-3" /> مطابق
+                          </span>
+                        )}
+                      </div>
+                      {item.notes && <p className="text-xs text-muted-foreground">ملاحظة: {item.notes}</p>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
