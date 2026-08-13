@@ -282,6 +282,12 @@ export interface DelegateChangeSubject {
   batchId: number | null | undefined;
   estimatedUnitCost?: string | number | null;
   delegateChangeRequestedAt: string | Date | null | undefined;
+  /**
+   * صاحب قرار الحسم — نفس من راجع واعتمد أصناف الطلب واختار المندوب لهذا
+   * الصنف أصلًا (purchaseOrders.reviewedById)، لا أي مستخدم يحمل دورًا مؤهَّلاً.
+   * راجع assertCanResolvePOItemDelegateChange أدناه لسبب هذا القيد (2026-08-13).
+   */
+  reviewedById?: number | null;
 }
 
 export function canRequestPOItemDelegateChange(
@@ -314,12 +320,24 @@ export function canResolvePOItemDelegateChange(
   ctx: { role: string; userId: number },
   subject: DelegateChangeSubject
 ): boolean {
-  return (
+  const baseEligible =
     DELEGATE_CHANGE_RESOLVER_ROLES.includes(ctx.role as Role) &&
     subject.itemStatus === "pending" &&
     !subject.batchId &&
-    !!subject.delegateChangeRequestedAt
-  );
+    !!subject.delegateChangeRequestedAt;
+  if (!baseEligible) return false;
+
+  // ⚠️ 2026-08-13: الحسم يعود حصرًا لنفس المستخدم الذي راجع الطلب واختار
+  // المندوب لهذا الصنف أصلًا (purchaseOrders.reviewedById) — لا لأي مستخدم
+  // يحمل أحد أدوار DELEGATE_CHANGE_RESOLVER_ROLES. سابقًا كان أي مدير من
+  // الأدوار الثلاثة (صيانة/صيانة عامة/إنشاءات ومشتريات) يستطيع حسم طلب لم
+  // يراجعه أصلًا، وهي ثغرة ملكية حقيقية: قد يحوّل مدير غير مطّلع الصنف
+  // لمندوب لا يعرف السياق الذي اختير المندوب الأول لأجله.
+  if (BYPASS_ALL_ROLES.includes(ctx.role as Role)) return true;
+  // Fallback: طلبات شراء قديمة بلا reviewedById مسجَّل (نادر) — لا يُحجب
+  // القرار عن كل المديرين بسبب نقص بيانات تاريخي.
+  if (subject.reviewedById === null || subject.reviewedById === undefined) return true;
+  return subject.reviewedById === ctx.userId;
 }
 
 export function assertCanResolvePOItemDelegateChange(

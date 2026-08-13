@@ -1,4 +1,5 @@
 import { trpc } from "@/lib/trpc";
+import { summarizeSubTicketFamily } from "@shared/ticketUiRules";
 import { keepPreviousData } from "@tanstack/react-query";
 import { useLocation, useSearch } from "wouter";
 import { Button } from "@/components/ui/button";
@@ -14,9 +15,9 @@ import {
   PaginationEllipsis,
 } from "@/components/ui/pagination";
 import { STATUS_COLORS, PRIORITY_COLORS } from "@shared/types";
-import { MAINTENANCE_INSPECTION_WORKFLOW_STATUS } from "@shared/roles";
+import { APP_ROLE, MAINTENANCE_INSPECTION_WORKFLOW_STATUS, MAINTENANCE_MANAGER_FAMILY } from "@shared/roles";
 import { isTicketEditableBeforeTriage } from "@shared/ticketUiRules";
-import { Plus, Search, ClipboardList, Pencil, Trash2, ChevronLeft, ChevronRight } from "lucide-react";
+import { Plus, Search, ClipboardList, Pencil, Trash2, ChevronLeft, ChevronRight, ChevronDown, GitBranch } from "lucide-react";
 import { ExportButton } from "@/components/common/ExportButton";
 import { useState, useMemo, useEffect } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -64,6 +65,10 @@ export default function GeneralTicketsList() {
   const [sectionFilter, setSectionFilter] = useState("all");
   const [technicianFilter, setTechnicianFilter] = useState("all");
   const [page, setPage] = useState(1);
+  // البلاغ الرئيسي يمثل "عائلة" واحدة في القائمة. التوسعة الأولى تعرض الرئيسي/الفرعيات،
+  // والتوسعة الثانية تعرض بطاقات البلاغات الفرعية نفسها.
+  const [expandedFamilies, setExpandedFamilies] = useState<Record<number, boolean>>({});
+  const [expandedSubTickets, setExpandedSubTickets] = useState<Record<number, boolean>>({});
   const PAGE_SIZE = 10;
   
   const { t, language } = useTranslation();
@@ -72,8 +77,14 @@ export default function GeneralTicketsList() {
   const { user } = useAuth();
   const utils = trpc.useUtils();
 
-  const canManage = user && ["owner", "admin", "maintenance_manager", "general_maintenance_manager"].includes(user.role);
+  const isEditAdminOverride = !!user && [APP_ROLE.OWNER, APP_ROLE.ADMIN].includes(user.role as any);
+  const isCreatorRestrictedManager = !!user && (MAINTENANCE_MANAGER_FAMILY as readonly string[]).includes(user.role);
   const canDelete = user && ["owner", "admin"].includes(user.role);
+  const canEditTicketRow = (ticket: any) => {
+    if (!user || !isTicketEditableBeforeTriage(ticket.status)) return false;
+    const isReporter = ticket.reportedById === user.id;
+    return (isEditAdminOverride || isReporter) && (!isCreatorRestrictedManager || isReporter);
+  };
 
   const [editOpen, setEditOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -100,6 +111,8 @@ export default function GeneralTicketsList() {
     assignedToId: technicianFilter !== "all" ? Number(technicianFilter) : undefined,
     page,
     pageSize: PAGE_SIZE,
+    // يمنع احتساب/عرض البلاغات الفرعية كسجلات مستقلة في هذه الصفحة فقط.
+    groupSubTickets: true,
   }, {
     placeholderData: keepPreviousData, // يمنع اختفاء القائمة/الصفحات لحظياً عند التنقل بين الصفحات
   });
@@ -274,57 +287,168 @@ export default function GeneralTicketsList() {
         </Card>
       ) : (
         <div className="space-y-2">
-          {tickets.map(ticket => (
-            <Card
-              key={ticket.id}
-              className="hover:shadow-lg hover:border-primary/20 transition-all duration-200 cursor-pointer"
-              onClick={() => setLocation(`/tickets/${ticket.id}`)}
-            >
-              <CardContent className="p-4">
-                <div className="flex items-center justify-between gap-4">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="text-xs font-mono text-muted-foreground">{ticket.ticketNumber}</span>
-                      <Badge variant="outline" className={`text-[11px] ${PRIORITY_COLORS[ticket.priority] || ""}`}>
-                        {getPriorityLabel(ticket.priority)}
-                      </Badge>
-                    </div>
-                    <h3 className="font-medium text-sm truncate">{getField(ticket, "title")}</h3>
-                    <div className="flex items-center gap-3 mt-1.5 text-xs text-muted-foreground flex-wrap">
-                      <span>{getCategoryLabel(ticket.category)}</span>
-                      <span>{new Date(ticket.createdAt).toLocaleDateString(locale)}</span>
-                      {((ticket as any).assignedToUserName || (ticket as any).assignedTechnicianName) && (
-                        <span className="flex items-center gap-1 text-blue-600 dark:text-blue-400 font-medium">
-                          <span className="inline-block w-1.5 h-1.5 rounded-full bg-blue-400" />
-                          {(ticket as any).assignedToUserName || (ticket as any).assignedTechnicianName}
-                        </span>
-                      )}
-                      {ticket.status === "under_inspection" && inspectionStatusLabel((ticket as any).inspectionWorkflowStatus) && (
-                        <Badge variant="secondary" className="text-[10px]">
-                          {inspectionStatusLabel((ticket as any).inspectionWorkflowStatus)}
+          {tickets.map((ticket: any) => {
+            const subTickets = Array.isArray(ticket.subTickets) ? ticket.subTickets : [];
+            const hasSubTickets = subTickets.length > 0;
+            const familyExpanded = !!expandedFamilies[ticket.id];
+            const subTicketsExpanded = !!expandedSubTickets[ticket.id];
+
+            return (
+              <Card
+                key={ticket.id}
+                className="hover:shadow-lg hover:border-primary/20 transition-all duration-200 cursor-pointer"
+                onClick={() => {
+                  if (!hasSubTickets) {
+                    setLocation(`/tickets/${ticket.id}`);
+                    return;
+                  }
+                  setExpandedFamilies(prev => ({ ...prev, [ticket.id]: !prev[ticket.id] }));
+                }}
+              >
+                <CardContent className="p-4 space-y-3">
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1 flex-wrap">
+                        <span className="text-xs font-mono text-muted-foreground">{ticket.ticketNumber}</span>
+                        <Badge variant="outline" className={`text-[11px] ${PRIORITY_COLORS[ticket.priority] || ""}`}>
+                          {getPriorityLabel(ticket.priority)}
                         </Badge>
+                        {hasSubTickets && (() => {
+                          // تمييز بصري فوري: بطاقتا "عائلة انتهت" و"عائلة قيد العمل"
+                          // كانتا متطابقتين تمامًا قبل هذا — نفس شارة الحالة البنفسجية.
+                          const summary = summarizeSubTicketFamily(subTickets);
+                          return (
+                            <>
+                              <Badge variant="secondary" className="text-[10px] gap-1">
+                                <GitBranch className="w-3 h-3" />
+                                {subTickets.length} بلاغات فرعية
+                              </Badge>
+                              <Badge
+                                variant="outline"
+                                className={`text-[10px] gap-1 ${summary.allFinished ? "border-emerald-300 text-emerald-700 bg-emerald-50 dark:bg-emerald-950/40 dark:text-emerald-400" : "border-purple-300 text-purple-700 bg-purple-50 dark:bg-purple-950/40 dark:text-purple-300"}`}
+                              >
+                                {summary.allFinished
+                                  ? "اكتملت كل الفروع — بانتظار الإغلاق"
+                                  : `اكتمال ${summary.percent}% (${summary.finished}/${summary.total})`}
+                              </Badge>
+                            </>
+                          );
+                        })()}
+                      </div>
+                      <h3 className="font-medium text-sm truncate">{getField(ticket, "title")}</h3>
+                      <div className="flex items-center gap-3 mt-1.5 text-xs text-muted-foreground flex-wrap">
+                        <span>{getCategoryLabel(ticket.category)}</span>
+                        <span>{new Date(ticket.createdAt).toLocaleDateString(locale)}</span>
+                        {(ticket.assignedToUserName || ticket.assignedTechnicianName) && (
+                          <span className="flex items-center gap-1 text-blue-600 dark:text-blue-400 font-medium">
+                            <span className="inline-block w-1.5 h-1.5 rounded-full bg-blue-400" />
+                            {ticket.assignedToUserName || ticket.assignedTechnicianName}
+                          </span>
+                        )}
+                        {ticket.status === "under_inspection" && inspectionStatusLabel(ticket.inspectionWorkflowStatus) && (
+                          <Badge variant="secondary" className="text-[10px]">
+                            {inspectionStatusLabel(ticket.inspectionWorkflowStatus)}
+                          </Badge>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      {canEditTicketRow(ticket) && (
+                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={(e) => openEdit(ticket, e)}>
+                          <Pencil className="w-4 h-4" />
+                        </Button>
+                      )}
+                      {canDelete && (
+                        <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" onClick={(e) => openDelete(ticket, e)}>
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      )}
+                      <Badge className={`status-badge ${STATUS_COLORS[ticket.status] || "bg-gray-100 text-gray-700"}`}>
+                        {getStatusLabel(ticket.status)}
+                      </Badge>
+                      {hasSubTickets && (
+                        <ChevronDown className={`w-4 h-4 text-muted-foreground transition-transform ${familyExpanded ? "rotate-180" : ""}`} />
                       )}
                     </div>
                   </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    {(canManage || ticket.reportedById === user?.id) && isTicketEditableBeforeTriage(ticket.status) && (
-                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={(e) => openEdit(ticket, e)}>
-                        <Pencil className="w-4 h-4" />
-                      </Button>
-                    )}
-                    {canDelete && (
-                      <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" onClick={(e) => openDelete(ticket, e)}>
-                        <Trash2 className="w-4 h-4" />
-                      </Button>
-                    )}
-                    <Badge className={`status-badge ${STATUS_COLORS[ticket.status] || "bg-gray-100 text-gray-700"}`}>
-                      {getStatusLabel(ticket.status)}
-                    </Badge>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+
+                  {hasSubTickets && familyExpanded && (
+                    <div
+                      className="border-t pt-3 space-y-3"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <div className="grid gap-2 md:grid-cols-2">
+                        <button
+                          type="button"
+                          className="rounded-lg border bg-background p-3 text-start hover:bg-muted/50 transition-colors"
+                          onClick={() => setLocation(`/tickets/${ticket.id}`)}
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <div>
+                              <p className="text-xs text-muted-foreground">البلاغ الرئيسي</p>
+                              <p className="font-mono font-semibold mt-1">{ticket.ticketNumber}</p>
+                            </div>
+                            <Badge className={`status-badge ${STATUS_COLORS[ticket.status] || "bg-gray-100 text-gray-700"}`}>
+                              {getStatusLabel(ticket.status)}
+                            </Badge>
+                          </div>
+                          <p className="text-xs text-muted-foreground mt-2">اضغط لفتح تفاصيل البلاغ الرئيسي</p>
+                        </button>
+
+                        <button
+                          type="button"
+                          className="rounded-lg border bg-background p-3 text-start hover:bg-muted/50 transition-colors"
+                          onClick={() => setExpandedSubTickets(prev => ({ ...prev, [ticket.id]: !prev[ticket.id] }))}
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <div>
+                              <p className="text-xs text-muted-foreground">البلاغات الفرعية</p>
+                              <p className="font-semibold mt-1">{subTickets.length} بلاغات</p>
+                            </div>
+                            <ChevronDown className={`w-4 h-4 text-muted-foreground transition-transform ${subTicketsExpanded ? "rotate-180" : ""}`} />
+                          </div>
+                          <p className="text-xs text-muted-foreground mt-2">اضغط لعرض بطاقات البلاغات الفرعية</p>
+                        </button>
+                      </div>
+
+                      {subTicketsExpanded && (
+                        <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+                          {subTickets.map((child: any) => (
+                            <button
+                              key={child.id}
+                              type="button"
+                              className="rounded-lg border bg-muted/20 p-3 text-start hover:border-primary/30 hover:bg-muted/40 transition-colors"
+                              onClick={() => setLocation(`/tickets/${child.id}`)}
+                            >
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="min-w-0">
+                                  <div className="flex items-center gap-1.5 mb-1">
+                                    <GitBranch className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                                    <span className="font-mono text-xs font-semibold">{child.ticketNumber}</span>
+                                  </div>
+                                  <p className="text-sm font-medium truncate">{getField(child, "title")}</p>
+                                </div>
+                                <Badge className={`status-badge shrink-0 ${STATUS_COLORS[child.status] || "bg-gray-100 text-gray-700"}`}>
+                                  {getStatusLabel(child.status)}
+                                </Badge>
+                              </div>
+                              <div className="flex items-center gap-2 mt-2 text-[11px] text-muted-foreground flex-wrap">
+                                <span>{getPriorityLabel(child.priority)}</span>
+                                <span>{new Date(child.createdAt).toLocaleDateString(locale)}</span>
+                                {(child.assignedToUserName || child.assignedTechnicianName) && (
+                                  <span>{child.assignedToUserName || child.assignedTechnicianName}</span>
+                                )}
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            );
+          })}
         </div>
       )}
 

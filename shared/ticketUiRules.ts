@@ -143,3 +143,94 @@ export function canDownloadTicketArchive(role?: string | null, status?: string |
 export function hasTicketTechnicianAssignmentRole(role?: string | null): boolean {
   return !!role && TICKET_DOCUMENT_MANAGER_ROLES.has(role);
 }
+
+// ══════════════════════════════════════════════════════════════════════
+// اكتمال بنود البلاغ — المرحلة 6 من ميزة البلاغ متعدد الجهات (2026-08-10)
+//
+// قرار صريح من صاحب المشروع: **كل بند يُعتمَد ويُغلق بشكل مستقل**، والبلاغ
+// لا يُغلق إلا بعد أن تكون *كل* بنوده مغلقة فعليًا. حالة "جاهز للإغلاق"
+// (ready_for_closure) **لا تُعدّ اكتمالًا** — تعني أن الفني أنهى عمله لكن
+// المدير/المشرف لم يعتمد بعد.
+// ══════════════════════════════════════════════════════════════════════
+
+/** الحالات التي تُعدّ البند فيها مكتملًا فعليًا (مغلقًا باعتماد). */
+export const TICKET_ITEM_COMPLETE_STATUSES = new Set<string>([
+  "closed",
+  "verified",
+  "requester_confirmed",
+]);
+
+export function isTicketItemComplete(status?: string | null): boolean {
+  return !!status && TICKET_ITEM_COMPLETE_STATUSES.has(status);
+}
+
+/**
+ * هل اكتملت كل بنود البلاغ؟ يُستخدم كشرط إضافي قبل إغلاق البلاغ.
+ *
+ * ⚠️ **قاعدة #1 بـCLAUDE.md**: `length > 0` **قبل** `every()` إلزامي — مصفوفة
+ * فارغة تُرجع `true` من `every()` فتسمح بإغلاق بلاغ بلا بنود إطلاقًا. هذا
+ * بالضبط الخلل الذي وقع سابقًا بطلبات الشراء (الإصلاح #1 الموثَّق).
+ */
+export function areAllTicketItemsComplete(
+  items: Array<{ status?: string | null }>,
+): boolean {
+  return items.length > 0 && items.every((item) => isTicketItemComplete(item.status));
+}
+
+/**
+ * البنود غير المكتملة — لعرض رسالة تبيّن *أي* بند يمنع الإغلاق تحديدًا،
+ * بدل رسالة عامة لا تدل المستخدم على الإجراء المطلوب.
+ */
+export function getIncompleteTicketItems<T extends { status?: string | null }>(
+  items: T[],
+): T[] {
+  return items.filter((item) => !isTicketItemComplete(item.status));
+}
+
+// ============================================================
+// عائلة البلاغ الرئيسي متعدد الجهات (workflowModel = department_tasks)
+// ============================================================
+
+/**
+ * الحالات التي تُعدّ "انتهاء فعلي" للبلاغ الفرعي.
+ *
+ * ⚠️ قرار مقصود: `requester_confirmed` **ليست** شرطًا للاكتمال، لأنها تعتمد على
+ * دخول مقدّم البلاغ وتأكيده — وهو فعل خارج سيطرة الصيانة قد لا يحدث أبدًا.
+ * اشتراطها كان سيعيد إنتاج نفس عطل التعليق في موضع جديد. لذلك:
+ *   • الاكتمال (شرط إغلاق الأب) = closed أو requester_confirmed.
+ *   • التأكيد (مؤشر إضافي للعرض فقط) = requester_confirmed وحدها.
+ */
+const SUB_TICKET_FINISHED_STATUSES = new Set(["closed", "requester_confirmed"]);
+
+export interface SubTicketFamilySummary {
+  total: number;
+  finished: number;
+  confirmed: number;
+  /** نسبة الاكتمال 0-100 — تُرجع 0 عند غياب الأبناء بدل NaN */
+  percent: number;
+  /** جاهز للإغلاق: يوجد أبناء فعليًا **وكلهم** منتهون */
+  allFinished: boolean;
+}
+
+/**
+ * ملخّص اكتمال البلاغات الفرعية تحت بلاغ رئيسي واحد.
+ *
+ * ⚠️ **قاعدة #1 بـCLAUDE.md**: `total > 0` **قبل** `every()` — بلاغ رئيسي لم
+ * تُحوَّل مهامه بعد ليس "مكتملًا بنسبة 100%"، ومصفوفة فارغة تُرجع true من
+ * every() فتفتح زر الإغلاق على بلاغ لم يبدأ العمل فيه أصلًا.
+ */
+export function summarizeSubTicketFamily(
+  subTickets: Array<{ status?: string | null }> | null | undefined,
+): SubTicketFamilySummary {
+  const list = Array.isArray(subTickets) ? subTickets : [];
+  const total = list.length;
+  const finished = list.filter((t) => !!t.status && SUB_TICKET_FINISHED_STATUSES.has(t.status)).length;
+  const confirmed = list.filter((t) => t.status === "requester_confirmed").length;
+  return {
+    total,
+    finished,
+    confirmed,
+    percent: total > 0 ? Math.round((finished / total) * 100) : 0,
+    allFinished: total > 0 && finished === total,
+  };
+}

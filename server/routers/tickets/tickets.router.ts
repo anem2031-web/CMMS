@@ -1,7 +1,7 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { router, protectedProcedure, ticketProcedure } from "../_shared/procedures";
-import { APP_ROLE, MAINTENANCE_RESPONSIBLE_DEPARTMENT } from "@shared/roles";
+import { APP_ROLE, MAINTENANCE_MANAGER_FAMILY, MAINTENANCE_RESPONSIBLE_DEPARTMENT } from "@shared/roles";
 import { detectLanguage, type SupportedLanguage } from "../../services/translation/translation";
 import { queueTranslation, translationCache } from "../../services/translation/translationEngine";
 import * as db from "../../_core/db";
@@ -30,8 +30,9 @@ export const ticketsRouter = router({
     if (role === APP_ROLE.OPERATOR) filters.reportedById = ctx.user.id;
     else if (role === APP_ROLE.TECHNICIAN) filters.assignedToId = ctx.user.id;
     else if (role === APP_ROLE.CONSTRUCTION_PROCUREMENT_MANAGER) {
-      filters.maintenanceResponsibleDepartment = MAINTENANCE_RESPONSIBLE_DEPARTMENT.CONSTRUCTION;
-      filters.maintenanceResponsibleManagerId = ctx.user.id;
+      filters.constructionManagerScopeUserId = ctx.user.id;
+      delete filters.maintenanceResponsibleDepartment;
+      delete filters.maintenanceResponsibleManagerId;
     }
     return db.getTickets(filters);
   }),
@@ -56,21 +57,34 @@ export const ticketsRouter = router({
     // خيارات "صندوق البلاغات" — اختيارية بالكامل ولا تغيّر سلوك الصفحة الحالية
     quickFilter: z.enum(["all", "critical", "unassigned", "stale", "ready_for_closure"]).optional(),
     sort: z.enum(["important", "newest", "oldest", "updated"]).optional(),
+    // صفحة "كل البلاغات" فقط: تجمع البلاغات الفرعية داخل بطاقة البلاغ الرئيسي.
+    groupSubTickets: z.boolean().optional(),
   }).optional()).query(async ({ input, ctx }) => {
     const role = ctx.user.role;
-    const { page = 1, pageSize = 10, quickFilter, sort, ...rest } = input || {};
+    const { page = 1, pageSize = 10, quickFilter, sort, groupSubTickets, ...rest } = input || {};
     // ✅ إغلاق فجوة الواجهة/الخادم (نفس قاعدة list)
     if (isRoleDeniedFromTickets(role)) return { items: [], total: 0, page, pageSize, totalPages: 0 } as any;
     let filters: any = { ...rest };
-    if (role === APP_ROLE.OPERATOR) filters.reportedById = ctx.user.id;
-    else if (role === APP_ROLE.TECHNICIAN) filters.assignedToId = ctx.user.id;
-    else if (role === APP_ROLE.CONSTRUCTION_PROCUREMENT_MANAGER) {
-      filters.maintenanceResponsibleDepartment = MAINTENANCE_RESPONSIBLE_DEPARTMENT.CONSTRUCTION;
-      filters.maintenanceResponsibleManagerId = ctx.user.id;
+    // قيود الرؤية وحدها تُمرَّر أيضًا لاستعلام أبناء العائلة، حتى لا يؤدي التجميع
+    // إلى كشف بلاغ فرعي من جهة/فني خارج نطاق المستخدم.
+    const childVisibilityFilters: any = {};
+    if (role === APP_ROLE.OPERATOR) {
+      filters.reportedById = ctx.user.id;
+      childVisibilityFilters.reportedById = ctx.user.id;
+    } else if (role === APP_ROLE.TECHNICIAN) {
+      filters.assignedToId = ctx.user.id;
+      childVisibilityFilters.assignedToId = ctx.user.id;
+    } else if (role === APP_ROLE.CONSTRUCTION_PROCUREMENT_MANAGER) {
+      filters.constructionManagerScopeUserId = ctx.user.id;
+      delete filters.maintenanceResponsibleDepartment;
+      delete filters.maintenanceResponsibleManagerId;
+      childVisibilityFilters.constructionManagerScopeUserId = ctx.user.id;
     }
     return db.getTicketsPaginated(filters, page, pageSize, {
       quickFilter: quickFilter === "all" ? undefined : quickFilter,
       sort,
+      groupSubTickets,
+      childVisibilityFilters,
     });
   }),
 
@@ -95,8 +109,9 @@ export const ticketsRouter = router({
     if (role === APP_ROLE.OPERATOR) filters.reportedById = ctx.user.id;
     else if (role === APP_ROLE.TECHNICIAN) filters.assignedToId = ctx.user.id;
     else if (role === APP_ROLE.CONSTRUCTION_PROCUREMENT_MANAGER) {
-      filters.maintenanceResponsibleDepartment = MAINTENANCE_RESPONSIBLE_DEPARTMENT.CONSTRUCTION;
-      filters.maintenanceResponsibleManagerId = ctx.user.id;
+      filters.constructionManagerScopeUserId = ctx.user.id;
+      delete filters.maintenanceResponsibleDepartment;
+      delete filters.maintenanceResponsibleManagerId;
     }
     return db.getTicketsInboxCounts(filters);
   }),
@@ -107,10 +122,41 @@ export const ticketsRouter = router({
     // القاعدة العامة تطابق القائمة. مدير الإنشاءات والمشتريات يملك استثناء
     // قراءة فقط عندما يكون البلاغ مرتبطًا بطلب شراء.
     await assertTicketReadable(ctx.user, ticket as any);
-    return ticket;
+    const currentUserTaskAssignee = ctx.user.role === APP_ROLE.TECHNICIAN && ticket.sourceTaskId
+      ? await db.isUserAssignedToTicketTasks(ticket.id, ticket.sourceTaskId, ctx.user.id)
+      : false;
+    return { ...ticket, currentUserTaskAssignee };
   }),
 
-  create: ticketProcedure.input(z.object({
+  /**
+   * بنود البلاغ (المهام المتعددة داخله) — قراءة فقط.
+   *
+   * الخطوة 1 من ميزة "البلاغ متعدد الجهات والمسارات" (2026-08-08).
+   * كل بلاغ له بند واحد على الأقل: البلاغات السابقة لهذه الميزة لها بند
+   * واحد مُرحَّل تلقائيًا (isLegacySingleItem = 1).
+   *
+   * الصلاحية: نفس حارس قراءة البلاغ نفسه بالضبط (assertTicketReadable)،
+   * فلا يفتح هذا الإجراء أي نطاق رؤية جديد لم يكن متاحًا أصلًا.
+   */
+  items: protectedProcedure.input(z.object({ ticketId: z.number() })).query(async ({ input, ctx }) => {
+    const ticket = await db.getTicketById(input.ticketId);
+    if (!ticket) throw new TRPCError({ code: "NOT_FOUND", message: "البلاغ غير موجود" });
+    await assertTicketReadable(ctx.user, ticket as any);
+    return db.getTicketItems(input.ticketId);
+  }),
+
+  /**
+   * بنود المستخدم الحالي فقط ضمن مجموعة بلاغات — الخطوة 2 من ميزة البلاغ متعدد
+   * الجهات (2026-08-08). تُستخدم من شاشات القوائم (بلاغات الإنشاءات مثلًا)
+   * لعرض "بطاقة مهمتي" داخل كل بلاغ بدل الحقول العامة للبلاغ. آمنة بذاتها —
+   * راجع db.getMyTicketItemsForTickets.
+   */
+  myItemsForTickets: protectedProcedure.input(z.object({ ticketIds: z.array(z.number()) })).query(async ({ input, ctx }) => {
+    if (input.ticketIds.length === 0) return [];
+    return db.getMyTicketItemsForTickets(input.ticketIds, ctx.user.id);
+  }),
+
+  create: protectedProcedure.input(z.object({
     title: z.string().min(1),
     description: z.string().optional(),
     priority: z.string().default("medium"),
@@ -132,7 +178,9 @@ export const ticketsRouter = router({
       originalLanguage: detectedLang,
       ticketNumber,
       reportedById: ctx.user.id,
-      status: "pending_triage"
+      status: "pending_triage",
+      // كل بلاغ جديد يبدأ على نموذج الجهات/المهام؛ البلاغات السابقة للترحيل تبقى legacy.
+      workflowModel: "department_tasks",
     });
     // ترجمة في الخلفية — المستخدم لا ينتظر
     const fieldsToQueue = [
@@ -148,8 +196,32 @@ export const ticketsRouter = router({
     }).catch(e => console.error("[Ticket] Queue translation failed:", e));
 
     await db.addTicketStatusHistory({ ticketId: id!, fromStatus: undefined, toStatus: "pending_triage", changedById: ctx.user.id });
+
+    // بند افتراضي للتوافق الرجعي مع ticket_items. في نموذج الجهات/المهام الجديد
+    // لا يمثل هذا البند جهة أو مهمة؛ يبقى بند توافق واحد يعكس حالة الرأس.
+    // فشل إنشاء البند لا يُسقط البلاغ نفسه — البلاغ يعمل من أعمدة tickets كالمعتاد.
+    try {
+      await db.createTicketItem({
+        ticketId: id!,
+        itemNumber: 1,
+        title: input.title,
+        description: input.description ?? null,
+        descriptionAr: input.description ?? null,
+        assetId: input.assetId ?? null,
+        status: "pending_triage",
+        isLegacySingleItem: 1,
+        createdById: ctx.user.id,
+      });
+    } catch (e) {
+      console.error("[Ticket] Failed to create default ticket item:", e);
+    }
+
     await db.createAuditLog({ userId: ctx.user.id, action: "create_ticket", entityType: "ticket", entityId: id! });
-    // Notify supervisors first (new workflow)
+    // ⚠️ 2026-08-10: هذا الموضع **يبقى بثًّا لكل المشرفين عمدًا** — البلاغ لحظة
+    // إنشائه لم يُفرَز بعد، و`supervisorId` يُملأ فقط عند الفرز
+    // (`routeTicketAfterTriage`، يُسجَّل فيه مَن فرز البلاغ). فلا يوجد مشرف
+    // مُعيَّن يمكن توجيه الإشعار إليه بهذه اللحظة — تضييقه هنا يعني ألا يصل
+    // إشعار "بلاغ بانتظار الفرز" لأحد إطلاقًا، فيبقى البلاغ عالقًا للأبد.
     const supervisors = await db.getUsersByRole("supervisor");
     for (const sup of supervisors) {
       await db.createNotification({ userId: sup.id, title: "بلاغ جديد بانتظار الفرز", message: `البلاغ ${ticketNumber} - ${input.title} بانتظار الفرز والتصنيف`, type: "info", relatedTicketId: id! });
@@ -162,7 +234,7 @@ export const ticketsRouter = router({
     return { id, ticketNumber };
   }),
 
-  update: ticketProcedure.input(z.object({
+  update: protectedProcedure.input(z.object({
     id: z.number(),
     title: z.string().optional(),
     description: z.string().optional(),
@@ -173,9 +245,19 @@ export const ticketsRouter = router({
   })).mutation(async ({ input, ctx }) => {
     const ticket = await db.getTicketById(input.id);
     if (!ticket) throw new TRPCError({ code: "NOT_FOUND", message: "البلاغ غير موجود" });
-    // Only owner/admin/manager or the reporter can edit
-    const canEdit = ["owner", "admin", "maintenance_manager", "general_maintenance_manager"].includes(ctx.user.role) || ticket.reportedById === ctx.user.id;
-    if (!canEdit) throw new TRPCError({ code: "FORBIDDEN", message: "ليس لديك صلاحية لتعديل هذا البلاغ" });
+    // حارس قراءة أولًا لمنع استدعاء update مباشرة على بلاغ خارج نطاق المستخدم.
+    await assertTicketReadable(ctx.user, ticket as any);
+    // الأدوار الثلاثة المحددة لا تعدّل بلاغًا أنشأه مستخدم آخر.
+    // owner/admin فقط لهما تجاوز إداري؛ بقية الأدوار تحتفظ بالسلوك السابق (المنشئ فقط).
+    const isCreatorRestrictedManager = (MAINTENANCE_MANAGER_FAMILY as readonly string[]).includes(ctx.user.role);
+    const isAdminOverride = [APP_ROLE.OWNER, APP_ROLE.ADMIN].includes(ctx.user.role as any);
+    const isReporter = ticket.reportedById === ctx.user.id;
+    if (isCreatorRestrictedManager && !isReporter) {
+      throw new TRPCError({ code: "FORBIDDEN", message: "لا يمكنك تعديل هذا البلاغ لأنك لست منشئه" });
+    }
+    if (!isAdminOverride && !isReporter) {
+      throw new TRPCError({ code: "FORBIDDEN", message: "ليس لديك صلاحية لتعديل هذا البلاغ" });
+    }
     // ✅ البلاغ قابل للتعديل فقط طالما لم يُصنَّف بعد (لا يزال في مرحلة الفرز الأولي pending_triage).
     // بمجرد تصنيفه (انتقاله لأي حالة تالية) يُمنع التعديل نهائياً، بصرف النظر عن الدور.
     if (ticket.status !== "pending_triage") {
@@ -232,6 +314,17 @@ await db.createAuditLog({ userId: ctx.user.id, action: "update_ticket", entityTy
     if (!["owner", "admin"].includes(ctx.user.role)) {
       throw new TRPCError({ code: "FORBIDDEN", message: "ليس لديك صلاحية لحذف البلاغات" });
     }
+    // لا نسمح بحذف الرأس التنظيمي مع بقاء بلاغات فرعية حيّة؛ وإلا ستتحول
+    // الأبناء إلى بلاغات يتيمة ويفقد الفنيون الإضافيون رابط مهمة المصدر.
+    if (ticket.workflowModel === "department_tasks") {
+      const tasks = await db.getTicketTasks(ticket.id);
+      if (tasks.some((task: any) => !!task.convertedTicketId)) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "لا يمكن حذف البلاغ الرئيسي قبل حذف البلاغات الفرعية المرتبطة به",
+        });
+      }
+    }
     await db.deleteTicket(input.id);
     await db.createAuditLog({ userId: ctx.user.id, action: "delete_ticket", entityType: "ticket", entityId: input.id, oldValues: { ticketNumber: ticket.ticketNumber, title: ticket.title, status: ticket.status } });
     // Notify managers about ticket deletion
@@ -251,7 +344,7 @@ await db.createAuditLog({ userId: ctx.user.id, action: "update_ticket", entityTy
     return db.getTicketHistory(input.ticketId);
   }),
 
-  createTicket: ticketProcedure.input(z.object({
+  createTicket: protectedProcedure.input(z.object({
     title: z.string(),
     description: z.string().optional(),
     priority: z.enum(["low", "medium", "high", "critical"]),
@@ -272,9 +365,16 @@ await db.createAuditLog({ userId: ctx.user.id, action: "update_ticket", entityTy
       locationDetail: input.locationDetail,
       reportedById: ctx.user.id,
       status: "pending_triage",
+      workflowModel: "department_tasks",
     });
     if (!ticket) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-    await db.addTicketStatusHistory({ ticketId: typeof ticket === 'number' ? ticket : (ticket as any).id, fromStatus: "new", toStatus: "pending_triage", changedById: ctx.user.id });
+    const ticketId = typeof ticket === 'number' ? ticket : (ticket as any).id;
+    await db.createTicketItem({
+      ticketId, itemNumber: 1, title: input.title, description: input.description ?? null,
+      descriptionAr: input.description ?? null, assetId: input.assetId ?? null,
+      status: "pending_triage", isLegacySingleItem: 1, createdById: ctx.user.id,
+    });
+    await db.addTicketStatusHistory({ ticketId, fromStatus: "new", toStatus: "pending_triage", changedById: ctx.user.id });
     return ticket;
   }),
 });

@@ -47,13 +47,22 @@ describe("split maintenance roles — purchase permissions copied from maintenan
       )).toBe(false);
     });
 
-    it(`${role} can resolve a delegate-change request`, () => {
+    it(`${role} can resolve a delegate-change request only for the PO they reviewed`, () => {
       expect(canResolvePOItemDelegateChange({ role, userId: 1 }, {
         delegateId: 55,
         itemStatus: "pending",
         batchId: null,
         delegateChangeRequestedAt: new Date(),
+        reviewedById: 1,
       })).toBe(true);
+      // 2026-08-13: نفس الدور لا يحسم طلبًا راجعه مستخدم آخر
+      expect(canResolvePOItemDelegateChange({ role, userId: 1 }, {
+        delegateId: 55,
+        itemStatus: "pending",
+        batchId: null,
+        delegateChangeRequestedAt: new Date(),
+        reviewedById: 2,
+      })).toBe(false);
     });
   }
 });

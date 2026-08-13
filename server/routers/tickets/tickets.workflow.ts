@@ -9,11 +9,16 @@ import {
   MAINTENANCE_RESPONSIBLE_DEPARTMENT,
 } from "@shared/roles";
 import * as db from "../../_core/db";
+import { summarizeSubTicketFamily } from "@shared/ticketUiRules";
 import {
+  assertTicketReadable,
   assertTicketWorkflowManageable,
+  assertTicketItemWorkflowManageable,
+  isAssignedTicketTechnicianForWorkflow,
   canRecordTicketInspection,
   canReviewTicketInspection,
   canSelectTicketMaintenancePath,
+  canSelectTicketItemMaintenancePath,
   shouldAutoApproveRecordedInspection,
 } from "./tickets.access";
 
@@ -48,7 +53,7 @@ async function resolveInspectionPerformerId(args: {
   requestedId?: number;
 }): Promise<number> {
   if (args.actor.role === APP_ROLE.TECHNICIAN) {
-    if (args.ticket.assignedToId !== args.actor.id) {
+    if (!(await isAssignedTicketTechnicianForWorkflow(args.actor, args.ticket))) {
       throw new TRPCError({ code: "FORBIDDEN", message: "البلاغ غير مسند إليك للفحص" });
     }
     if (args.requestedId && args.requestedId !== args.actor.id) {
@@ -234,13 +239,129 @@ async function routeTicketAfterTriage(args: {
   return { managerId };
 }
 
+/**
+ * الفرز المتعدد بالهيكل الجديد — 2026-08-11.
+ * يثبت الجهة/الجهات ومسؤول كل جهة فقط؛ المهام والفنيون مرحلة لاحقة.
+ */
+async function routeTicketToDepartmentsForPlanning(args: {
+  ticket: any;
+  actor: { id: number; role: string };
+  assignments: Array<{ department: z.infer<typeof responsibleDepartmentSchema>; responsibleManagerId?: number; organizationalTitle?: string }>;
+  ticketType?: "internal" | "external" | "procurement";
+  priority?: string;
+  triageNotes?: string;
+}) {
+  const resolved: Array<{ department: z.infer<typeof responsibleDepartmentSchema>; managerId: number; organizationalTitle: string | null }> = [];
+  for (const assignment of args.assignments) {
+    const organizationalTitle = assignment.organizationalTitle?.trim() || null;
+    if (assignment.department === MAINTENANCE_RESPONSIBLE_DEPARTMENT.CONSTRUCTION && !organizationalTitle) {
+      throw new TRPCError({ code: "BAD_REQUEST", message: "العنوان التنظيمي مطلوب عند توجيه العمل إلى قسم الإنشاءات" });
+    }
+    resolved.push({
+      department: assignment.department,
+      managerId: await resolveResponsibleManagerId(assignment.department, assignment.responsibleManagerId, args.actor),
+      organizationalTitle,
+    });
+  }
+  const primary = resolved[0];
+  const routedAt = new Date();
+  await db.withTransaction(async (tx: any) => {
+    const headerUpdate: Record<string, any> = {
+      status: "department_planning", workflowModel: "department_tasks", supervisorId: args.actor.id,
+      ticketType: args.ticketType, priority: args.priority, triageNotes: args.triageNotes,
+      maintenanceResponsibleDepartment: primary.department, maintenanceResponsibleManagerId: primary.managerId,
+      maintenanceRoutedById: args.actor.id, maintenanceRoutedAt: routedAt, maintenanceRoutingNote: args.triageNotes,
+      assignedToId: null, assignedTechnicianId: null, assignedAt: null, maintenancePath: null, inspectionWorkflowStatus: null,
+    };
+    Object.keys(headerUpdate).forEach((key) => headerUpdate[key] === undefined && delete headerUpdate[key]);
+    await db.updateTicket(args.ticket.id, headerUpdate, tx);
+    await db.createTicketDepartments(resolved.map((r) => ({
+      ticketId: args.ticket.id, department: r.department, responsibleManagerId: r.managerId,
+      routedById: args.actor.id, routedAt, routingNote: args.triageNotes ?? null, organizationalTitle: r.organizationalTitle, status: "planning",
+    })), tx);
+    const items = await db.getTicketItems(args.ticket.id, tx);
+    const legacy = items.find((i: any) => i.isLegacySingleItem === 1) ?? items[0];
+    if (legacy) {
+      await db.updateTicketItem(legacy.id, {
+        status: "department_planning", responsibleDepartment: primary.department, responsibleManagerId: primary.managerId,
+        routedById: args.actor.id, routedAt, routingNote: args.triageNotes ?? null,
+        assignedToId: null, assignedTechnicianId: null, maintenancePath: null,
+      }, tx);
+    } else {
+      // حماية بيانات قديمة/استيراد ناقص: الرأس الجديد يجب أن يحتفظ ببند توافق واحد
+      // حتى تبقى إجراءات الـWorkflow القديمة والمستندات التي تتوقع ticket_items آمنة.
+      await db.createTicketItem({
+        ticketId: args.ticket.id, itemNumber: 1, title: args.ticket.title, description: args.ticket.description,
+        descriptionAr: args.ticket.descriptionAr ?? args.ticket.description, assetId: args.ticket.assetId ?? null,
+        responsibleDepartment: primary.department, responsibleManagerId: primary.managerId,
+        routedById: args.actor.id, routedAt, routingNote: args.triageNotes ?? null, status: "department_planning",
+        assignedToId: null, assignedTechnicianId: null, isLegacySingleItem: 1, createdById: args.actor.id,
+      }, tx);
+    }
+  });
+  await db.addTicketStatusHistory({ ticketId: args.ticket.id, fromStatus: args.ticket.status, toStatus: "department_planning", changedById: args.actor.id, notes: `تم اعتماد ${resolved.length} جهة وبدء مرحلة تحليل المهام` });
+  for (const r of resolved) await db.createNotification({
+    userId: r.managerId, title: "بلاغ بانتظار تحليل المهام",
+    message: r.department === MAINTENANCE_RESPONSIBLE_DEPARTMENT.CONSTRUCTION
+      ? `تم توجيه البلاغ ${args.ticket.ticketNumber} إليك تحت العنوان التنظيمي: ${r.organizationalTitle}. أنشئ مهمة واحدة أو عدة مهام ثم وزّع الفنيين.`
+      : `تم توجيه البلاغ ${args.ticket.ticketNumber} إلى الصيانة العامة. راجع البلاغ وأنشئ مهام الجهة ثم وزّع الفنيين.`,
+    type: "warning", relatedTicketId: args.ticket.id,
+  });
+  await db.createAuditLog({ userId: args.actor.id, action: "route_maintenance_ticket_departments", entityType: "ticket", entityId: args.ticket.id,
+    newValues: { departments: resolved.map(r => r.department), managers: resolved.map(r => r.managerId), organizationalTitles: resolved.map(r => r.organizationalTitle), workflowModel: "department_tasks" } });
+  return { departmentsCreated: resolved.length };
+}
+
+function canManageDepartmentPlan(actor: { id: number; role: string }, department: any): boolean {
+  if ([APP_ROLE.OWNER, APP_ROLE.ADMIN].includes(actor.role as any)) return true;
+
+  // في جهة الإنشاءات: مدير الصيانة والتشغيل يرسل العنوان التنظيمي فقط.
+  // إنشاء المهام وتوزيع الفنيين وتحويلها لبلاغات فرعية من مسؤول الإنشاءات المحدد.
+  if (department.department === MAINTENANCE_RESPONSIBLE_DEPARTMENT.CONSTRUCTION) {
+    return department.responsibleManagerId === actor.id && actor.role === APP_ROLE.CONSTRUCTION_PROCUREMENT_MANAGER;
+  }
+
+  if (actor.role === APP_ROLE.MAINTENANCE_MANAGER) return true;
+  return department.responsibleManagerId === actor.id && actor.role === APP_ROLE.GENERAL_MAINTENANCE_MANAGER;
+}
+function assertCanManageDepartmentPlan(actor: { id: number; role: string }, department: any) {
+  if (!canManageDepartmentPlan(actor, department)) throw new TRPCError({ code: "FORBIDDEN", message: "ليس لديك صلاحية لإدارة مهام هذه الجهة" });
+}
+
+/**
+ * تجميد خطة الجهات والمهام بعد إغلاق البلاغ الرئيسي — **لكل الأدوار بلا استثناء**.
+ *
+ * سبب وجوده: إضافة زر إغلاق الرأس بلا هذا الحارس كانت ستفتح ثغرة أسوأ من العطل
+ * الأصلي. بلاغ مغلق كان يقبل:
+ *   • إنشاء مهمة جديدة تحته،
+ *   • إسناد مهمة — وهو يُرجع الجهة من completed إلى active، أي جهة "قيد العمل"
+ *     تحت بلاغ مغلق،
+ *   • تحويل مهمة إلى بلاغ فرعي جديد، فيكسر نسبة الاكتمال وحارس الإغلاق معًا
+ *     (أب مغلق وابن مفتوح).
+ *
+ * ملاحظة مقصودة: لا استثناء لـ admin/owner هنا. تعديل بلاغ مغلق ليس صلاحية
+ * أعلى بل تجاوز لسجل مكتمل؛ من أراد استئناف العمل يفتح بلاغًا جديدًا.
+ */
+const CLOSED_PARENT_STATUSES = new Set(["closed", "requester_confirmed"]);
+function assertDepartmentPlanEditable(ticket: any) {
+  if (CLOSED_PARENT_STATUSES.has(ticket?.status)) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: `البلاغ الرئيسي ${ticket.ticketNumber || ""} مغلق — لا يمكن إضافة مهام أو تعديل خطة الجهات. افتح بلاغًا جديدًا إن لزم عمل إضافي.`,
+    });
+  }
+}
+
 export const ticketsWorkflowRouter = router({
   submitForTriage: ticketProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
     const ticket = await db.getTicketById(input.id);
     if (!ticket) throw new TRPCError({ code: "NOT_FOUND" });
     await db.updateTicket(input.id, { status: "pending_triage" });
     await db.addTicketStatusHistory({ ticketId: input.id, fromStatus: ticket.status, toStatus: "pending_triage", changedById: ctx.user.id });
-    // Notify supervisors
+    // ⚠️ 2026-08-10: هذا الموضع **يبقى بثًّا لكل المشرفين عمدًا** — الإجراء يُعيد
+    // البلاغ إلى طابور الفرز (pending_triage)، أي يصبح بلا مالك محدد بانتظار من
+    // يلتقطه ويفرزه. توجيهه لمشرفه السابق وحده قد يعني ألا يُفرَز إطلاقًا لو كان
+    // غائبًا — نفس منطق إشعار إنشاء البلاغ بـtickets.router.ts.
     const supervisors = await db.getUsersByRole("supervisor");
     for (const sup of supervisors) {
       await db.createNotification({ userId: sup.id, title: "بلاغ بانتظار الفرز", message: `البلاغ ${ticket.ticketNumber} بانتظار الفرز والتصنيف`, type: "info", relatedTicketId: input.id });
@@ -260,6 +381,9 @@ export const ticketsWorkflowRouter = router({
     const ticket = await db.getTicketById(input.id);
     if (!ticket) throw new TRPCError({ code: "NOT_FOUND" });
     if (ticket.status !== "pending_triage") throw new TRPCError({ code: "BAD_REQUEST", message: "البلاغ ليس في مرحلة الفرز" });
+    if (ticket.workflowModel === "department_tasks") {
+      throw new TRPCError({ code: "BAD_REQUEST", message: "هذا البلاغ يستخدم هيكل الجهات والمهام؛ استخدم فرز الجهات المعتمد" });
+    }
     await routeTicketAfterTriage({
       ticket,
       actor: ctx.user,
@@ -273,6 +397,150 @@ export const ticketsWorkflowRouter = router({
     return { success: true };
   }),
 
+  /** الفرز متعدد الجهات: اعتماد الجهات والمسؤولين فقط. */
+  triageMulti: ticketTriageProcedure.input(z.object({
+    id: z.number(),
+    ticketType: z.enum(["internal", "external", "procurement"]).optional(),
+    priority: z.string().optional(),
+    triageNotes: z.string().optional(),
+    assignments: z.array(z.object({
+      department: responsibleDepartmentSchema,
+      responsibleManagerId: z.number().optional(),
+      organizationalTitle: z.string().max(300, "العنوان التنظيمي طويل جدًا").optional(),
+    })).min(1, "يجب اختيار جهة واحدة على الأقل"),
+  })).mutation(async ({ input, ctx }) => {
+    const ticket = await db.getTicketById(input.id);
+    if (!ticket) throw new TRPCError({ code: "NOT_FOUND" });
+    if (ticket.status !== "pending_triage") throw new TRPCError({ code: "BAD_REQUEST", message: "البلاغ ليس في مرحلة الفرز" });
+    const departments = input.assignments.map(a => a.department);
+    if (new Set(departments).size !== departments.length) throw new TRPCError({ code: "BAD_REQUEST", message: "لا يمكن اختيار نفس الجهة أكثر من مرة" });
+    return routeTicketToDepartmentsForPlanning({ ticket, actor: ctx.user, assignments: input.assignments, ticketType: input.ticketType, priority: input.priority, triageNotes: input.triageNotes });
+  }),
+
+  /** قراءة خطة البلاغ التنظيمية مع أقل صلاحية لازمة. */
+  departmentPlan: protectedProcedure.input(z.object({ ticketId: z.number() })).query(async ({ input, ctx }) => {
+    const ticket = await db.getTicketById(input.ticketId);
+    if (!ticket) throw new TRPCError({ code: "NOT_FOUND", message: "البلاغ غير موجود" });
+    await assertTicketReadable(ctx.user, ticket as any);
+    let departments = await db.getTicketDepartments(input.ticketId);
+    let tasks = await db.getTicketTasks(input.ticketId);
+    let assignees = await db.getTaskAssigneesForTasks(tasks.map((t: any) => t.id));
+    if (ctx.user.role === APP_ROLE.TECHNICIAN) {
+      const visibleTaskIds = new Set(assignees.filter((a: any) => a.userId === ctx.user.id).map((a: any) => a.taskId));
+      tasks = tasks.filter((t: any) => visibleTaskIds.has(t.id));
+      const deptIds = new Set(tasks.map((t: any) => t.ticketDepartmentId));
+      departments = departments.filter((d: any) => deptIds.has(d.id));
+      assignees = assignees.filter((a: any) => visibleTaskIds.has(a.taskId));
+    } else if ([APP_ROLE.GENERAL_MAINTENANCE_MANAGER, APP_ROLE.CONSTRUCTION_PROCUREMENT_MANAGER].includes(ctx.user.role as any)) {
+      const expected = ctx.user.role === APP_ROLE.CONSTRUCTION_PROCUREMENT_MANAGER ? MAINTENANCE_RESPONSIBLE_DEPARTMENT.CONSTRUCTION : MAINTENANCE_RESPONSIBLE_DEPARTMENT.GENERAL;
+      departments = departments.filter((d: any) => d.department === expected && d.responsibleManagerId === ctx.user.id);
+      const deptIds = new Set(departments.map((d: any) => d.id));
+      tasks = tasks.filter((t: any) => deptIds.has(t.ticketDepartmentId));
+      const taskIds = new Set(tasks.map((t: any) => t.id));
+      assignees = assignees.filter((a: any) => taskIds.has(a.taskId));
+    }
+    // ملخّص عائلة البلاغات الفرعية — يُحسب من **كل** الأبناء بلا فلترة دور،
+    // لأنه أرقام تجميعية لا تكشف تفاصيل جهة أو فني آخر، ولأن نسبة اكتمال
+    // منقوصة (تحسب أبناء الفني وحده) ستكون مضللة لمن يقرر الإغلاق.
+    const subTickets = await db.getSubTicketsByParent(input.ticketId);
+    const subTicketsSummary = summarizeSubTicketFamily(subTickets as any);
+    const pendingSubTickets = (subTickets as any[])
+      .filter((child: any) => !["closed", "requester_confirmed"].includes(child.status))
+      .map((child: any) => ({ id: child.id, ticketNumber: child.ticketNumber, status: child.status }));
+    return { departments, tasks, assignees, subTicketsSummary, pendingSubTickets };
+  }),
+
+  createDepartmentTask: protectedProcedure.input(z.object({ ticketId: z.number(), ticketDepartmentId: z.number(), title: z.string().max(300).optional(), description: z.string().min(1, "وصف المهمة مطلوب") })).mutation(async ({ input, ctx }) => {
+    const ticket = await db.getTicketById(input.ticketId);
+    if (!ticket) throw new TRPCError({ code: "NOT_FOUND", message: "البلاغ غير موجود" });
+    if (ticket.workflowModel !== "department_tasks") throw new TRPCError({ code: "BAD_REQUEST", message: "هذا البلاغ لا يستخدم هيكل الجهات والمهام الجديد" });
+    assertDepartmentPlanEditable(ticket);
+    const department = await db.getTicketDepartmentById(input.ticketDepartmentId);
+    if (!department || department.ticketId !== input.ticketId) throw new TRPCError({ code: "BAD_REQUEST", message: "الجهة لا تنتمي لهذا البلاغ" });
+    assertCanManageDepartmentPlan(ctx.user, department);
+    const taskId = await db.withTransaction(async (tx: any) => {
+      await db.lockTicketDepartmentForTaskSequence(department.id, tx);
+      const taskNumber = await db.getNextDepartmentTaskNumber(department.id, tx);
+      return db.createTicketTask({ ticketId: input.ticketId, ticketDepartmentId: department.id, taskNumber, title: input.title?.trim() || null, description: input.description.trim(), status: "pending_assignment", createdById: ctx.user.id }, tx);
+    });
+    await db.createAuditLog({ userId: ctx.user.id, action: "create_ticket_department_task", entityType: "ticket", entityId: input.ticketId, newValues: { taskId, ticketDepartmentId: department.id } });
+    return { success: true, taskId };
+  }),
+
+  assignDepartmentTask: protectedProcedure.input(z.object({ ticketId: z.number(), taskId: z.number(), technicianIds: z.array(z.number()).min(1, "اختر فنيًا واحدًا على الأقل") })).mutation(async ({ input, ctx }) => {
+    const parentTicket = await db.getTicketById(input.ticketId);
+    if (!parentTicket) throw new TRPCError({ code: "NOT_FOUND", message: "البلاغ غير موجود" });
+    // بدون هذا الفحص كان الإسناد يُرجع الجهة إلى active تحت بلاغ مغلق
+    assertDepartmentPlanEditable(parentTicket);
+    const task = await db.getTicketTaskById(input.taskId);
+    if (!task || task.ticketId !== input.ticketId) throw new TRPCError({ code: "BAD_REQUEST", message: "المهمة لا تنتمي لهذا البلاغ" });
+    if (task.convertedTicketId) throw new TRPCError({ code: "BAD_REQUEST", message: "تم تحويل المهمة إلى بلاغ فرعي ولا يمكن تغيير توزيعها" });
+    const department = await db.getTicketDepartmentById(task.ticketDepartmentId);
+    if (!department || department.ticketId !== input.ticketId) throw new TRPCError({ code: "BAD_REQUEST", message: "جهة المهمة غير صالحة" });
+    assertCanManageDepartmentPlan(ctx.user, department);
+    const technicianIds = Array.from(new Set(input.technicianIds));
+    for (const id of technicianIds) await assertActiveInternalTechnician(id);
+    await db.withTransaction(async (tx: any) => {
+      await db.lockTicketTaskForPromotion(task.id, tx);
+      const fresh = await db.getTicketTaskById(task.id, tx);
+      if (!fresh) throw new TRPCError({ code: "NOT_FOUND", message: "المهمة لم تعد موجودة" });
+      if (fresh.convertedTicketId) throw new TRPCError({ code: "CONFLICT", message: "تم تحويل المهمة أثناء تحديث التوزيع" });
+      await db.replaceTicketTaskAssignees(task.id, technicianIds, ctx.user.id, tx);
+      await db.updateTicketTask(task.id, { status: "assigned" }, tx);
+      await db.updateTicketDepartment(department.id, { status: "active" }, tx);
+    });
+    const ticket = await db.getTicketById(input.ticketId);
+    for (const id of technicianIds) await db.createNotification({ userId: id, title: "تم إسناد مهمة جديدة إليك", message: `تم إسناد مهمة ضمن البلاغ ${ticket?.ticketNumber ?? input.ticketId}: ${task.title || task.description}`, type: "info", relatedTicketId: input.ticketId });
+    return { success: true };
+  }),
+
+  promoteDepartmentTask: protectedProcedure.input(z.object({ ticketId: z.number(), taskId: z.number() })).mutation(async ({ input, ctx }) => {
+    const parent = await db.getTicketById(input.ticketId);
+    if (!parent) throw new TRPCError({ code: "NOT_FOUND", message: "البلاغ الرئيسي غير موجود" });
+    if (parent.workflowModel !== "department_tasks") throw new TRPCError({ code: "BAD_REQUEST", message: "هذا البلاغ ليس بلاغًا رئيسيًا متعدد الجهات" });
+    assertDepartmentPlanEditable(parent);
+    const task = await db.getTicketTaskById(input.taskId);
+    if (!task || task.ticketId !== input.ticketId) throw new TRPCError({ code: "BAD_REQUEST", message: "المهمة لا تنتمي لهذا البلاغ" });
+    if (task.convertedTicketId) { const existing = await db.getTicketById(task.convertedTicketId); return { success: true, ticketId: task.convertedTicketId, ticketNumber: existing?.ticketNumber }; }
+    const department = await db.getTicketDepartmentById(task.ticketDepartmentId);
+    if (!department || department.ticketId !== input.ticketId) throw new TRPCError({ code: "BAD_REQUEST", message: "جهة المهمة غير صالحة" });
+    assertCanManageDepartmentPlan(ctx.user, department);
+    const result = await db.withTransaction(async (tx: any) => {
+      await db.lockTicketTaskForPromotion(task.id, tx);
+      const freshTask = await db.getTicketTaskById(task.id, tx);
+      if (!freshTask) throw new TRPCError({ code: "NOT_FOUND", message: "المهمة لم تعد موجودة" });
+      if (freshTask.convertedTicketId) return { childId: freshTask.convertedTicketId, ticketNumber: undefined as string | undefined, alreadyExisting: true, assigneeIds: [] as number[] };
+      const freshAssignees = await db.getTaskAssignees(task.id, tx);
+      if (!freshAssignees.length) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "يجب توزيع المهمة على فني واحد على الأقل قبل تحويلها" });
+      await db.lockTicketForSubTicketSequence(parent.id, tx);
+      const seq = await db.allocateNextSubTicketSequence(parent.id, tx);
+      const ticketNumber = `${parent.ticketNumber}-${String(seq).padStart(2, "0")}`;
+      const primaryTechnicianId = freshAssignees[0].userId;
+      const childId = await db.createTicket({
+        ticketNumber, title: freshTask.title?.trim() || `${parent.title} — مهمة ${freshTask.taskNumber}`, description: freshTask.description,
+        status: "under_inspection", priority: parent.priority, category: parent.category, siteId: parent.siteId, sectionId: parent.sectionId,
+        assetId: parent.assetId, locationDetail: parent.locationDetail, reportedById: parent.reportedById, beforePhotoUrl: parent.beforePhotoUrl,
+        originalLanguage: parent.originalLanguage, ticketType: parent.ticketType || "internal", supervisorId: parent.supervisorId ?? ctx.user.id,
+        maintenanceResponsibleDepartment: department.department, maintenanceResponsibleManagerId: department.responsibleManagerId,
+        maintenanceRoutedById: ctx.user.id, maintenanceRoutedAt: new Date(), maintenanceRoutingNote: `بلاغ فرعي من ${parent.ticketNumber} / مهمة ${freshTask.taskNumber}`,
+        assignedToId: primaryTechnicianId, assignedAt: new Date(), inspectionWorkflowStatus: MAINTENANCE_INSPECTION_WORKFLOW_STATUS.PENDING_SUBMISSION,
+        workflowModel: "sub_ticket", parentTicketId: parent.id, sourceTaskId: freshTask.id, subTicketSequence: seq,
+      }, tx);
+      if (!childId) throw new Error("Failed to create sub-ticket");
+      await db.createTicketItem({ ticketId: childId, itemNumber: 1, title: freshTask.title?.trim() || `${parent.title} — مهمة ${freshTask.taskNumber}`, description: freshTask.description, descriptionAr: freshTask.description,
+        assetId: parent.assetId ?? null, responsibleDepartment: department.department, responsibleManagerId: department.responsibleManagerId,
+        routedById: ctx.user.id, routedAt: new Date(), routingNote: `محول من مهمة في ${parent.ticketNumber}`, status: "under_inspection",
+        assignedToId: primaryTechnicianId, assignedAt: new Date(), isLegacySingleItem: 0, createdById: ctx.user.id }, tx);
+      await db.updateTicketTask(freshTask.id, { status: "promoted", convertedTicketId: childId }, tx);
+      return { childId, ticketNumber, alreadyExisting: false, assigneeIds: freshAssignees.map((a: any) => a.userId) };
+    });
+    if (result.alreadyExisting) { const existing = await db.getTicketById(result.childId); return { success: true, ticketId: result.childId, ticketNumber: existing?.ticketNumber }; }
+    await db.addTicketStatusHistory({ ticketId: result.childId, fromStatus: undefined, toStatus: "under_inspection", changedById: ctx.user.id, notes: `تم إنشاء البلاغ الفرعي من المهمة ${task.taskNumber} التابعة للبلاغ ${parent.ticketNumber}` });
+    await db.createAuditLog({ userId: ctx.user.id, action: "promote_ticket_task_to_subticket", entityType: "ticket", entityId: parent.id, newValues: { taskId: task.id, subTicketId: result.childId, subTicketNumber: result.ticketNumber } });
+    for (const id of result.assigneeIds) await db.createNotification({ userId: id, title: "تم تحويل مهمتك إلى بلاغ فرعي", message: `المهمة أصبحت البلاغ ${result.ticketNumber} وتبدأ الآن دورة العمل المستقلة.`, type: "info", relatedTicketId: result.childId });
+    return { success: true, ticketId: result.childId, ticketNumber: result.ticketNumber };
+  }),
+
   triageTicket: ticketTriageProcedure.input(z.object({
     id: z.number(),
     assignedToId: z.number().optional(),
@@ -283,6 +551,9 @@ export const ticketsWorkflowRouter = router({
     const ticket = await db.getTicketById(input.id);
     if (!ticket) throw new TRPCError({ code: "NOT_FOUND" });
     if (ticket.status !== "pending_triage") throw new TRPCError({ code: "BAD_REQUEST", message: "البلاغ ليس في مرحلة الفرز" });
+    if (ticket.workflowModel === "department_tasks") {
+      throw new TRPCError({ code: "BAD_REQUEST", message: "هذا البلاغ يستخدم هيكل الجهات والمهام؛ استخدم فرز الجهات المعتمد" });
+    }
     await routeTicketAfterTriage({
       ticket,
       actor: ctx.user,
@@ -306,7 +577,9 @@ export const ticketsWorkflowRouter = router({
   })).mutation(async ({ input, ctx }) => {
     const ticket = await db.getTicketById(input.id);
     if (!ticket) throw new TRPCError({ code: "NOT_FOUND" });
-    if (!canRecordTicketInspection(ctx.user, ticket as any)) {
+    const canRecordInspection = canRecordTicketInspection(ctx.user, ticket as any) ||
+      (ctx.user.role === APP_ROLE.TECHNICIAN && await isAssignedTicketTechnicianForWorkflow(ctx.user, ticket as any));
+    if (!canRecordInspection) {
       throw new TRPCError({ code: "FORBIDDEN", message: "ليس لديك صلاحية لتسجيل نتيجة فحص لهذا البلاغ" });
     }
     if (ticket.status !== "under_inspection") {
@@ -576,6 +849,7 @@ export const ticketsWorkflowRouter = router({
     if (input.maintenancePath === "C" && !input.justification) {
       throw new TRPCError({ code: "BAD_REQUEST", message: "المسار C يتطلب مبرراً للصيانة الخارجية" });
     }
+    const approvedAt = new Date();
     const updateData: any = {
       status: "work_approved",
       maintenancePath: input.maintenancePath,
@@ -584,6 +858,15 @@ export const ticketsWorkflowRouter = router({
       justification: input.justification,
     };
     await db.updateTicket(input.id, updateData);
+    // البلاغ الأحادي/الفرعي يسلك إجراء الرأس القديم؛ يجب مزامنة بند التنفيذ
+    // الوحيد لأن شاشات A/B/C الحديثة تعتمد ticket_items كمصدر حقيقة.
+    await db.syncSingleTicketItem(input.id, {
+      status: "work_approved",
+      maintenancePath: input.maintenancePath,
+      approvedById: ctx.user.id,
+      approvedAt,
+      justification: input.justification ?? null,
+    });
     await db.addTicketStatusHistory({ ticketId: input.id, fromStatus: ticket.status, toStatus: "work_approved", changedById: ctx.user.id, notes: `المسار: ${input.maintenancePath}` });
     // Notify based on path
     if (input.maintenancePath === "C") {
@@ -609,6 +892,93 @@ export const ticketsWorkflowRouter = router({
         await db.createNotification({ userId: ticket.assignedToId, title: "اعتماد بلاغ - مسار الشراء", message: `تم اعتماد البلاغ ${ticket.ticketNumber} - سيتم رفع طلب شراء المواد اللازمة`, type: "warning", relatedTicketId: input.id });
       }
     }
+    return { success: true };
+  }),
+
+  /**
+   * اعتماد مسار التنفيذ لبند بعينه — الخطوة 3 من ميزة البلاغ متعدد الجهات
+   * (2026-08-08). نظير `approveWork` أعلاه لكن على مستوى البند، لتمكين "4 بنود،
+   * 2 على مسار A و2 على مسار B" (مثال مؤكَّد من صاحب المشروع) — كل بند يُعتمَد
+   * ويتقدّم بمساره المستقل، دون انتظار بقية بنود نفس البلاغ.
+   *
+   * `approveWork` يبقى الإجراء المستخدَم للبلاغات أحادية البند، لكنه منذ
+   * 2026-08-12 يزامن بند التنفيذ الوحيد مع رأس البلاغ حتى لا تنفصل حالة
+   * `ticket_items` عن `tickets` في مسارات A/B/C.
+   *
+   * ✅ توافق رجعي: إن كان هذا **البند الأول** (`itemNumber === 1`)، تُحدَّث أعمدة
+   * البلاغ أيضًا (نفس تحديث `approveWork` تمامًا) — لأن هذا البند يمثّل "الجهة
+   * الرئيسية" التي تعكسها تلك الأعمدة (راجع القاعدة الحرجة #11 و#12 بـCLAUDE.md).
+   * أي شاشة/تقرير/PDF لم يُحدَّث بعد ليقرأ من `ticket_items` يستمر بالعمل بلا كسر.
+   */
+  approveWorkForItem: ticketManagerProcedure.input(z.object({
+    ticketItemId: z.number(),
+    maintenancePath: z.enum(["A", "B", "C"]),
+    justification: z.string().optional(), // Required for Path C
+  })).mutation(async ({ input, ctx }) => {
+    const item = await db.getTicketItemById(input.ticketItemId);
+    if (!item) throw new TRPCError({ code: "NOT_FOUND", message: "بند البلاغ غير موجود" });
+    const ticket = await db.getTicketById(item.ticketId);
+    if (!ticket) throw new TRPCError({ code: "NOT_FOUND" });
+
+    assertTicketItemWorkflowManageable(ctx.user, ticket as any, item as any);
+    if (!canSelectTicketItemMaintenancePath(ctx.user, ticket as any, item as any)) {
+      throw new TRPCError({ code: "BAD_REQUEST", message: "لا يمكن تحديد مسار التنفيذ لهذا البند الآن" });
+    }
+    if (input.maintenancePath === "C" && !input.justification) {
+      throw new TRPCError({ code: "BAD_REQUEST", message: "المسار C يتطلب مبرراً للصيانة الخارجية" });
+    }
+
+    const approvedAt = new Date();
+    await db.updateTicketItem(input.ticketItemId, {
+      status: "work_approved",
+      maintenancePath: input.maintenancePath,
+      approvedById: ctx.user.id,
+      approvedAt,
+      justification: input.justification ?? null,
+    });
+
+    // توافق رجعي: البند الأول يعكس بيانات "الجهة الرئيسية" على أعمدة البلاغ.
+    if (item.itemNumber === 1) {
+      await db.updateTicket(item.ticketId, {
+        status: "work_approved",
+        maintenancePath: input.maintenancePath,
+        approvedById: ctx.user.id,
+        justification: input.justification ?? null,
+      });
+    }
+
+    await db.addTicketStatusHistory({
+      ticketId: item.ticketId,
+      fromStatus: "under_inspection",
+      toStatus: "work_approved",
+      changedById: ctx.user.id,
+      notes: `بند ${item.itemNumber}${item.responsibleDepartment ? ` (${item.responsibleDepartment === MAINTENANCE_RESPONSIBLE_DEPARTMENT.CONSTRUCTION ? "الإنشاءات" : "الصيانة العامة"})` : ""} — المسار: ${input.maintenancePath}`,
+    });
+
+    // نفس إشعارات approveWork، موجَّهة لفني/جهة هذا البند تحديدًا (قد يختلف عن رأس البلاغ).
+    if (input.maintenancePath === "C") {
+      const warehouseUsers = await db.getUsersByRole(APP_ROLE.WAREHOUSE);
+      for (const warehouseUser of warehouseUsers) {
+        await db.createNotification({
+          userId: warehouseUser.id,
+          title: "🔧 أصل بانتظار التجهيز للصيانة الخارجية",
+          message: `تم اعتماد المسار C لبند ${item.itemNumber} ضمن البلاغ ${ticket.ticketNumber}. يرجى تجهيز الأصل، تحديد المندوب، وإصدار وثيقة الخروج.`,
+          type: "warning",
+          relatedTicketId: item.ticketId,
+        });
+      }
+    } else if (item.assignedToId) {
+      await db.createNotification({
+        userId: item.assignedToId,
+        title: input.maintenancePath === "A" ? "اعتماد بدء العمل" : "اعتماد بند - مسار الشراء",
+        message: input.maintenancePath === "A"
+          ? `تم اعتماد بند ${item.itemNumber} ضمن البلاغ ${ticket.ticketNumber} للإصلاح المباشر`
+          : `تم اعتماد بند ${item.itemNumber} ضمن البلاغ ${ticket.ticketNumber} - سيتم رفع طلب شراء المواد اللازمة`,
+        type: input.maintenancePath === "A" ? "success" : "warning",
+        relatedTicketId: item.ticketId,
+      });
+    }
+
     return { success: true };
   }),
 

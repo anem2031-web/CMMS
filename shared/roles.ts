@@ -120,7 +120,6 @@ const CONSTRUCTION_MANAGER_DENIED_PREFIXES = [
   "/scan-asset",
   "/tag",
   "/tickets/inbox",
-  "/tickets/new",
   "/triage",
   "/inventory",
   "/inventory-operations",
@@ -142,10 +141,10 @@ export function canRoleAccessPath(role: string | null | undefined, path: string)
     return !GENERAL_MANAGER_DENIED_PREFIXES.some((prefix) => matchesPrefix(normalizedPath, prefix));
   }
   if (role === APP_ROLE.CONSTRUCTION_PROCUREMENT_MANAGER) {
-    // The shared tickets and inbox pages are allowed, but this role is forced into
-    // the construction tab. New-ticket and triage routes stay denied. Numeric ticket
-    // details remain available; the server verifies routed/read-only scope.
-    if (normalizedPath === "/tickets" || normalizedPath === "/tickets/inbox") return true;
+    // القائمة والتفاصيل الرقمية متاحة بنطاق الخادم، وإنشاء بلاغ جديد متاح
+    // حتى يستطيع مدير الإنشاءات إنشاء بلاغه الشخصي ثم تعديله قبل الفرز.
+    // الفرز العام وبقية مسارات /tickets/* تبقى محجوبة.
+    if (normalizedPath === "/tickets" || normalizedPath === "/tickets/inbox" || normalizedPath === "/tickets/new") return true;
     if (/^\/tickets\/\d+$/.test(normalizedPath)) return true;
     if (normalizedPath.startsWith("/tickets/")) return false;
     return !CONSTRUCTION_MANAGER_DENIED_PREFIXES.some((prefix) => matchesPrefix(normalizedPath, prefix));

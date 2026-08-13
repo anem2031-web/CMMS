@@ -64,6 +64,52 @@ export async function getAttachments(entityType: string, entityId: number) {
   return db.select().from(attachments).where(and(eq(attachments.entityType, entityType), eq(attachments.entityId, entityId))).orderBy(desc(attachments.createdAt));
 }
 
+/**
+ * كل مرفقات نوع كيان بعينه، بلا تحديد entityId — لعرض مجمَّع بمركز المستندات.
+ * الخطوة الجديدة (2026-08-10): "الوثائق المالية المعتمدة"
+ * (entityType = "po_financial_batch"). لا فحص صلاحية هنا — يُفرض على مستوى
+ * الإجراء المستدعي (راجع attachmentsRouter.listByType، مقيَّد بأدوار مالية).
+ */
+export async function getAttachmentsByType(entityType: string) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(attachments).where(eq(attachments.entityType, entityType)).orderBy(desc(attachments.createdAt));
+}
+
+/**
+ * "الوثائق المالية المعتمدة" مع اسم المندوب — الجزء 2 من إصلاحات 2026-08-10.
+ * `attachments.entityId` لهذا النوع يحمل رقم دفعة التسعير (`po_pricing_batches.id`)،
+ * والمندوب هو من قدَّم الدفعة (`submittedById`) — لا عمود مندوب مباشر على
+ * المرفق نفسه، فيُستنتَج بربط بسيط بجدول الدفعات ثم المستخدمين.
+ *
+ * دالة مخصصة منفصلة عن `getAttachmentsByType` العامة عمدًا — لا نُحمِّل كل
+ * استدعاء عام لهذه الدالة (مستقبلًا لأنواع أخرى) بربط لا يخصه.
+ */
+export async function getFinancialBatchAttachmentsWithDelegate() {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select({
+      id: attachments.id,
+      entityType: attachments.entityType,
+      entityId: attachments.entityId,
+      fileName: attachments.fileName,
+      fileUrl: attachments.fileUrl,
+      fileKey: attachments.fileKey,
+      mimeType: attachments.mimeType,
+      fileSize: attachments.fileSize,
+      uploadedById: attachments.uploadedById,
+      createdAt: attachments.createdAt,
+      delegateId: poPricingBatches.submittedById,
+      delegateName: users.name,
+    })
+    .from(attachments)
+    .leftJoin(poPricingBatches, eq(attachments.entityId, poPricingBatches.id))
+    .leftJoin(users, eq(poPricingBatches.submittedById, users.id))
+    .where(eq(attachments.entityType, "po_financial_batch"))
+    .orderBy(desc(attachments.createdAt));
+}
+
 export async function getAttachmentById(id: number) {
   const db = await getDb();
   if (!db) return null;

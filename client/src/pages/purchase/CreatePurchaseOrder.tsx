@@ -336,6 +336,9 @@ export default function CreatePurchaseOrder() {
   const searchStr = useSearch();
   const params = new URLSearchParams(searchStr);
   const ticketId = params.get("ticketId") ? parseInt(params.get("ticketId")!) : undefined;
+  // بند بلاغ محدد ضمن بلاغ متعدد الجهات — الخطوة 4 (2026-08-08). غير مُمرَّر
+  // لأي طلب شراء "عادي" مرتبط ببلاغ أحادي البند، فيسلك المسار القديم حرفيًا.
+  const ticketItemId = params.get("ticketItemId") ? parseInt(params.get("ticketItemId")!) : undefined;
   const fromIdeaId = params.get("fromIdeaId") ? parseInt(params.get("fromIdeaId")!) : undefined;
   const prefillNotes = params.get("prefillNotes") || "";
   const linkIdeaMut = trpc.improvementIdeas.linkToPurchaseOrder.useMutation();
@@ -350,21 +353,40 @@ export default function CreatePurchaseOrder() {
   );
 
   const linkedTicketId = ticketId ?? draftPO?.ticketId ?? undefined;
+  const linkedTicketItemId = ticketItemId ?? draftPO?.ticketItemId ?? undefined;
   const { data: ticket, isLoading: isLinkedTicketLoading } = trpc.tickets.getById.useQuery(
     { id: linkedTicketId || 0 },
     { enabled: !!linkedTicketId }
   );
+  // بند البلاغ المستهدف (إن وُجد) — للتحقق من مساره وحالته بدل البلاغ كاملًا.
+  const { data: linkedTicketItems } = trpc.tickets.items.useQuery(
+    { ticketId: linkedTicketId || 0 },
+    { enabled: !!linkedTicketId && !!linkedTicketItemId }
+  );
+  const linkedTicketItem = linkedTicketItemId
+    ? linkedTicketItems?.find((i: any) => i.id === linkedTicketItemId)
+    : undefined;
 
   const allowedLinkedTicketStatuses = draftId
     ? ["work_approved", "needs_purchase"]
     : ["work_approved"];
+  // ⚠️ 2026-08-08 — الخطوة 4: إن وُجد ticketItemId، يُفحص مسار وحالة *البند* بدل
+  // البلاغ. البلاغ أحادي البند (الأغلبية الساحقة) لا يمرّر ticketItemId إطلاقًا
+  // فيسلك المسار القديم حرفيًا (فحص على ticket مباشرة).
+  const relevantMaintenancePath = linkedTicketItemId ? linkedTicketItem?.maintenancePath : ticket?.maintenancePath;
+  const relevantStatus = linkedTicketItemId ? linkedTicketItem?.status : ticket?.status;
   const isLinkedTicketInvalid = Boolean(
     linkedTicketId &&
     ticket &&
-    (ticket.maintenancePath !== "B" || !allowedLinkedTicketStatuses.includes(ticket.status))
+    (!linkedTicketItemId || linkedTicketItem) &&
+    (relevantMaintenancePath !== "B" || !allowedLinkedTicketStatuses.includes(relevantStatus || ""))
   );
   const isLinkedTicketActionBlocked = Boolean(
-    linkedTicketId && (isLinkedTicketLoading || !ticket || isLinkedTicketInvalid)
+    linkedTicketId && (
+      isLinkedTicketLoading || !ticket ||
+      (linkedTicketItemId && !linkedTicketItem) ||
+      isLinkedTicketInvalid
+    )
   );
 
   // ✅ وحدات القياس من الكاتلوج — تُحدّث القائمة فور إضافة وحدة جديدة من تبويب الكاتلوج
@@ -516,7 +538,7 @@ const handleCatalogSelect = (catalogItem: any) => {
     }
     const validItems = buildItemsPayload();
     if (validItems.length === 0) { toast.error(t.purchaseOrders.items); return; }
-    saveDraftMut.mutate({ ticketId, notes: notes || undefined, items: validItems });
+    saveDraftMut.mutate({ ticketId, ticketItemId, notes: notes || undefined, items: validItems });
   };
 
   const handleSubmit = () => {
@@ -528,6 +550,7 @@ const handleCatalogSelect = (catalogItem: any) => {
     if (validItems.length === 0) { toast.error(t.purchaseOrders.items); return; }
     createMut.mutate({
       ticketId,
+      ticketItemId,
       notes: notes || undefined,
       items: buildItemsPayload(),
     });

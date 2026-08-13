@@ -844,7 +844,7 @@ export const preventiveRouter = router({
         message: notifContent,
         type: notifType,
         relatedTicketId: undefined,
-        relatedPOId: undefined,
+        relatedPoId: undefined,
       });
     }
     return { success: true, issueCount, fixedCount, okCount };

@@ -144,6 +144,32 @@ export async function getNextPONumber() {
   return `${prefix}${String(lastNum + 1).padStart(4, "0")}`;
 }
 
+/**
+ * رقم المسودة (2026-08-13) — تسلسل مستقل تمامًا عن getNextPONumber أعلاه، بادئة
+ * مختلفة (DFT- بدل PR-) قصدًا: حفظ مسودة يجب ألا يستهلك أو يحجز رقمًا من تسلسل
+ * طلبات الشراء الرسمية. بما أن getNextPONumber يفلتر بـ`LIKE 'PR-{year}-%'`،
+ * فصفوف المسودات بادئتها DFT- لا تُحسَب ضمنه أصلًا بلا أي تعديل على تلك الدالة —
+ * التمييز يقع بالكامل على البادئة، لا بحقل status، فلا خطر من عدّ مسودة سهوًا
+ * ضمن تسلسل الأرقام الرسمية حتى لو تغيّرت حالتها لاحقًا لأي سبب.
+ * يُستبدَل هذا الرقم برقم رسمي حقيقي عبر getNextPONumber عند submitDraft فقط —
+ * راجع purchase-orders.router.ts::submitDraft.
+ */
+export async function getNextDraftNumber() {
+  const db = await getDb();
+  if (!db) return "DFT-2026-0001";
+  const year = new Date().getFullYear();
+  const prefix = `DFT-${year}-`;
+  const result = await db
+    .select({ poNumber: purchaseOrders.poNumber })
+    .from(purchaseOrders)
+    .where(like(purchaseOrders.poNumber, `${prefix}%`))
+    .orderBy(desc(purchaseOrders.id))
+    .limit(1);
+  if (!result[0]?.poNumber) return `${prefix}0001`;
+  const lastNum = parseInt(result[0].poNumber.replace(prefix, "")) || 0;
+  return `${prefix}${String(lastNum + 1).padStart(4, "0")}`;
+}
+
 export async function createPurchaseOrder(data: any, tx?: any) {
   const db = tx || await getDb();
   if (!db) return null;
@@ -323,6 +349,21 @@ export async function getPurchaseOrdersByTicketId(ticketId: number) {
     .select()
     .from(purchaseOrders)
     .where(eq(purchaseOrders.ticketId, ticketId))
+    .orderBy(asc(purchaseOrders.id));
+}
+
+/**
+ * طلبات الشراء المرتبطة ببند بلاغ بعينه — الخطوة 4 من ميزة البلاغ متعدد
+ * الجهات (2026-08-08). تُستخدم بدل getPurchaseOrdersByTicketId عندما يكون
+ * الطلب مرتبطًا ببند تحديدًا لا بالبلاغ كاملًا (فرز متعدد الجهات).
+ */
+export async function getPurchaseOrdersByTicketItemId(ticketItemId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select()
+    .from(purchaseOrders)
+    .where(eq(purchaseOrders.ticketItemId, ticketItemId))
     .orderBy(asc(purchaseOrders.id));
 }
 

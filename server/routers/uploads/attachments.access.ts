@@ -31,6 +31,7 @@ import { TRPCError } from "@trpc/server";
 import * as ideasDb from "../../services/improvement-ideas/improvementIdeas";
 import * as db from "../../_core/db";
 import { assertTicketReadable, isTicketReadOnlyForUser } from "../tickets/tickets.access";
+import { APP_ROLE, MAINTENANCE_RESPONSIBLE_DEPARTMENT } from "../../../shared/roles";
 
 /** نفس القائمة المستخدمة بـimprovement-ideas.router.ts حرفيًا */
 const IDEA_FULL_VISIBILITY_ROLES = [
@@ -92,7 +93,19 @@ export async function assertCanAccessAttachments(
     // البلاغ الإنشائي المحوّل إلى المدير قابل للإدارة؛ أما الاستثناء القادم من
     // طلب شراء مرتبط ببلاغ عام فيبقى للقراءة فقط.
     if (mode === "write" && isTicketReadOnlyForUser(user, ticket as any)) {
-      throw new TRPCError({ code: "FORBIDDEN", message: "البلاغ المرتبط متاح للعرض فقط" });
+      // في النموذج الجديد قد تكون الإنشاءات جهة ثانوية، وبالتالي لا تنعكس على
+      // أعمدة رأس البلاغ التي يفحصها الحارس المتزامن القديم. السماح هنا ضيق:
+      // فقط مدير الإنشاءات المعيّن فعليًا كمسؤول للجهة على هذا البلاغ.
+      const managesConstructionDepartment =
+        user.role === APP_ROLE.CONSTRUCTION_PROCUREMENT_MANAGER &&
+        await db.hasTicketDepartmentAssignment(
+          ticket.id,
+          MAINTENANCE_RESPONSIBLE_DEPARTMENT.CONSTRUCTION,
+          user.id,
+        );
+      if (!managesConstructionDepartment) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "البلاغ المرتبط متاح للعرض فقط" });
+      }
     }
   }
 

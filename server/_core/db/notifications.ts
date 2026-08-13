@@ -88,7 +88,7 @@ function queueNotificationTranslation(notificationId: number, title: string, mes
   }).catch(() => {});
 }
 
-export async function createNotification(data: { userId: number; title: string; message: string; type?: string; relatedTicketId?: number; relatedPOId?: number; allowSeniorManagement?: boolean }) {
+export async function createNotification(data: { userId: number; title: string; message: string; type?: string; relatedTicketId?: number; relatedPoId?: number; allowSeniorManagement?: boolean }) {
   const db = await getDb();
   if (!db) return;
 
@@ -113,7 +113,7 @@ export async function createNotification(data: { userId: number; title: string; 
     message: data.message,
     type: data.type as any,
     relatedTicketId: data.relatedTicketId,
-    relatedPOId: data.relatedPOId,
+    relatedPoId: data.relatedPoId,
   });
   if (notifInsertResult?.insertId) {
     queueNotificationTranslation(notifInsertResult.insertId, data.title, data.message, data.userId);
@@ -123,9 +123,9 @@ export async function createNotification(data: { userId: number; title: string; 
   // هذا الدور لا يستقبل أي إشعار عام (كـ"طلب جديد بانتظار المراجعة")، لكن لازم
   // يعرف بأي تطور لاحق يحصل على طلب هو شخصيًا اعتمده (reviewedById بجدول الطلب).
   // نطبّقها هنا مركزياً بدل تكرارها بكل نقطة إشعار بدورة الشراء.
-  if (data.relatedPOId) {
+  if (data.relatedPoId) {
     const poRows = await db.select({ reviewedById: purchaseOrders.reviewedById })
-      .from(purchaseOrders).where(eq(purchaseOrders.id, data.relatedPOId)).limit(1);
+      .from(purchaseOrders).where(eq(purchaseOrders.id, data.relatedPoId)).limit(1);
     const reviewerId = poRows[0]?.reviewedById;
     if (reviewerId && reviewerId !== data.userId) {
       const reviewer = await getUserById(reviewerId);
@@ -136,13 +136,13 @@ export async function createNotification(data: { userId: number; title: string; 
           message: data.message,
           type: data.type as any,
           relatedTicketId: data.relatedTicketId,
-          relatedPOId: data.relatedPOId,
+          relatedPoId: data.relatedPoId,
         });
         if (reviewerNotifResult?.insertId) {
           queueNotificationTranslation(reviewerNotifResult.insertId, data.title, data.message, reviewerId);
         }
         getWebPush().then(wp => {
-          const url = `/purchase-orders/${data.relatedPOId}`;
+          const url = `/purchase-orders/${data.relatedPoId}`;
           wp.sendPushToUser(reviewerId, {
             title: data.title, body: data.message, type: data.type || "info",
             tag: `notif-${reviewerId}-${Date.now()}`, url,
@@ -155,7 +155,7 @@ export async function createNotification(data: { userId: number; title: string; 
   // Send Web Push notification asynchronously (fire-and-forget)
   getWebPush().then(wp => {
     const url = data.relatedTicketId ? `/tickets/${data.relatedTicketId}` :
-                data.relatedPOId ? `/purchase-orders/${data.relatedPOId}` : "/notifications";
+                data.relatedPoId ? `/purchase-orders/${data.relatedPoId}` : "/notifications";
     wp.sendPushToUser(data.userId, {
       title: data.title,
       body: data.message,

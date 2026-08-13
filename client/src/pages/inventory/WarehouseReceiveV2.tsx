@@ -78,6 +78,27 @@ const ITEM_TYPE_COLORS: Record<ItemType, string> = {
   food:        "bg-green-50 text-green-700 border-green-200",
 };
 
+const createManualItemsFromPoCandidates = (candidates: any[]): ReceiveItem[] =>
+  candidates.map((i: any) => ({
+    purchaseOrderItemId:  i.id,
+    itemName:             i.itemName,
+    itemType:             "consumable" as ItemType,
+    requestedQuantity:    i.quantity,
+    receivedQuantity:     i.receivedQuantity || i.quantity,
+    purchaseUnit:         i.unit || "قطعة",
+    conversionFactor:     1,
+    unitCost:             i.actualUnitCost || i.estimatedUnitCost || "",
+    expectedUnitCost:     i.estimatedUnitCost || undefined,
+    taxRate:              15,
+    taxAmount:            "0",
+    lineTotal:            "0",
+    ocrExtracted:         false,
+    manuallyEdited:       false,
+    expanded:             true,
+    hasDiff:              false,
+    showSimilar:          false,
+  }));
+
 // ─────────────────────────────────────────────────────────────
 export default function WarehouseReceiveV2() {
   const [, navigate] = useLocation();
@@ -102,10 +123,12 @@ export default function WarehouseReceiveV2() {
   const [notes, setNotes]               = useState("");
   const [isDuplicate, setIsDuplicate]   = useState(false);
   const [initialized, setInitialized]   = useState(false);
+  const [manualEntrySelected, setManualEntrySelected] = useState(false);
+  const [manualItemsInitialized, setManualItemsInitialized] = useState(false);
   const [ocrConfidence, setOcrConfidence] = useState<number | null>(null);
 
   // ── Queries ────────────────────────────────────────────────
-  const { data: po } = trpc.purchaseOrders.getById.useQuery(
+  const { data: po, isLoading: isPoLoading } = trpc.purchaseOrders.getById.useQuery(
     { id: poId! }, { enabled: !!poId }
   );
 
@@ -121,6 +144,23 @@ export default function WarehouseReceiveV2() {
       setInitialized(true);
     }
   }, [po, initialized, invoiceNumberParam]);
+
+  // إصلاح Race Condition في الإدخال اليدوي: قد يختار المستخدم الإدخال اليدوي
+  // قبل وصول أصناف طلب الشراء. عند وصولها لاحقًا نهيّئ items مرة واحدة
+  // ما دامت القائمة ما زالت فارغة، بدون الكتابة فوق أي تعديل/بيانات موجودة.
+  useEffect(() => {
+    if (!manualEntrySelected || manualItemsInitialized) return;
+
+    // إن كانت هناك أصناف أصلًا (حالة رجوع/مسار سابق)، لا نكتب فوقها.
+    if (items.length > 0) {
+      setManualItemsInitialized(true);
+      return;
+    }
+
+    if (poCandidates.length === 0) return;
+    setItems(createManualItemsFromPoCandidates(poCandidates));
+    setManualItemsInitialized(true);
+  }, [manualEntrySelected, manualItemsInitialized, poCandidates, items.length]);
 
   // مطابقة تقريبية بالاسم لاقتراح ربط تلقائي بين صنف الفاتورة وبند الطلب —
   // اقتراح فقط قابل للتغيير يدوياً، وليس اعتماداً نهائياً
@@ -325,27 +365,14 @@ export default function WarehouseReceiveV2() {
   };
 
   const handleSkipOcr = () => {
-    // بدون OCR، نعتمد بنود الطلب نفسها كأصناف مبدئية قابلة للتعديل يدوياً
+    setManualEntrySelected(true);
+    // بدون OCR، نعتمد بنود الطلب نفسها كأصناف مبدئية قابلة للتعديل يدوياً.
+    // إن لم تكن وصلت بعد، useEffect أعلاه سيهيّئها فور وصول poCandidates.
     if (items.length === 0 && poCandidates.length > 0) {
-      setItems(poCandidates.map((i: any) => ({
-        purchaseOrderItemId:  i.id,
-        itemName:             i.itemName,
-        itemType:             "consumable" as ItemType,
-        requestedQuantity:    i.quantity,
-        receivedQuantity:     i.receivedQuantity || i.quantity,
-        purchaseUnit:         i.unit || "قطعة",
-        conversionFactor:     1,
-        unitCost:             i.actualUnitCost || i.estimatedUnitCost || "",
-        expectedUnitCost:     i.estimatedUnitCost || undefined,
-        taxRate:              15,
-        taxAmount:            "0",
-        lineTotal:            "0",
-        ocrExtracted:         false,
-        manuallyEdited:       false,
-        expanded:             true,
-        hasDiff:              false,
-        showSimilar:          false,
-      })));
+      setItems(createManualItemsFromPoCandidates(poCandidates));
+      setManualItemsInitialized(true);
+    } else if (items.length > 0) {
+      setManualItemsInitialized(true);
     }
     setStep("review");
   };
@@ -674,8 +701,16 @@ export default function WarehouseReceiveV2() {
             <Button variant="outline" className="flex-1" onClick={() => setStep("upload")}>
               <ArrowRight className="w-4 h-4 ml-1" /> رجوع
             </Button>
-            <Button className="flex-1" onClick={() => setStep("items")}>
-              التالي: مراجعة الأصناف
+            <Button
+              className="flex-1"
+              disabled={manualEntrySelected && (isPoLoading || !initialized || !manualItemsInitialized)}
+              onClick={() => setStep("items")}
+            >
+              {manualEntrySelected && (isPoLoading || !initialized || !manualItemsInitialized) ? (
+                <><Loader2 className="w-4 h-4 ml-1 animate-spin" /> جاري تحميل الأصناف...</>
+              ) : (
+                "التالي: مراجعة الأصناف"
+              )}
             </Button>
           </div>
         </div>

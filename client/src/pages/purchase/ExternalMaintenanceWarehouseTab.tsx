@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { mediaUrl } from "@/lib/mediaUrl";
+import { compressImage } from "@/hooks/useOfflineUpload";
 import { printExternalMaintenanceDocument } from "@/lib/printExternalMaintenanceDocument";
 import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -103,13 +104,94 @@ const RECIPIENT_ROLES = new Set([
   "owner",
 ]);
 
-async function uploadFile(file: File): Promise<string> {
+// ── رفع الملفات ─────────────────────────────────────────────────────────────
+// النسخة السابقة كانت ترسل الملف الأصلي كما هو إلى /api/upload بلا ضغط ولا مهلة
+// ولا معالجة للردود غير JSON — وهو سبب "أحيانًا يرفع وأحيانًا يفشل":
+//   • صور الجوال 5-15MB تتجاوز المهلة أو حدود الوسيط (413) على الشبكات البطيئة.
+//   • Android/iOS يرسلان أحيانًا mimetype فارغًا أو application/octet-stream
+//     فيرفضها fileFilter بالسيرفر رغم أنها صورة سليمة.
+//   • أي رد غير JSON (413/429/502 من الوسيط) كان يفجّر response.json() برسالة مبهمة.
+// الحل: نفس نمط useOfflineUpload المستخدم ببقية الصفحات — ضغط داخل المتصفح أولًا.
+const IMAGE_EXT_RE = /\.(jpe?g|png|gif|webp|heic|heif|bmp|tiff?)$/i;
+const UPLOAD_TIMEOUT_MS = 90_000;
+
+function isImageFile(file: File) {
+  return (
+    file.type.startsWith("image/") ||
+    ((file.type === "" || file.type === "application/octet-stream") && IMAGE_EXT_RE.test(file.name))
+  );
+}
+
+async function readUploadError(response: Response): Promise<string> {
+  const text = await response.text().catch(() => "");
+  try {
+    const parsed = JSON.parse(text);
+    if (parsed?.error) return String(parsed.error);
+  } catch {
+    // رد غير JSON (صفحة خطأ من الوسيط) — نعتمد على رمز الحالة أدناه
+  }
+  if (response.status === 401) return "انتهت الجلسة — سجّل الدخول مجددًا ثم أعد رفع الصورة";
+  if (response.status === 413) return "حجم الصورة أكبر من الحد المسموح — التقط صورة أصغر وأعد المحاولة";
+  if (response.status === 415) return "صيغة الملف غير مدعومة — استخدم JPG أو PNG أو PDF";
+  if (response.status === 429) return "تم تجاوز الحد الأقصى للطلبات — انتظر دقيقة ثم أعد المحاولة";
+  return `فشل رفع الملف (HTTP ${response.status})`;
+}
+
+async function postUpload(payload: Blob, filename: string): Promise<string> {
   const formData = new FormData();
-  formData.append("file", file);
-  const response = await fetch("/api/upload", { method: "POST", body: formData });
-  const data = await response.json();
-  if (!response.ok || !data.url) throw new Error(data.error || "فشل رفع الملف");
-  return data.url;
+  formData.append("file", payload, filename);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), UPLOAD_TIMEOUT_MS);
+  try {
+    const response = await fetch("/api/upload", {
+      method: "POST",
+      body: formData,
+      credentials: "include",
+      signal: controller.signal,
+    });
+    if (!response.ok) throw new Error(await readUploadError(response));
+    const text = await response.text();
+    let data: any;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      throw new Error("رد غير متوقع من الخادم أثناء الرفع — أعد المحاولة");
+    }
+    if (!data?.url) throw new Error(data?.error || "فشل رفع الملف");
+    return data.url as string;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function uploadFile(file: File): Promise<string> {
+  let payload: Blob = file;
+  let filename = file.name || "upload";
+
+  if (isImageFile(file)) {
+    // 5-15MB → ~200-400KB: يقصّر زمن الرفع كثيرًا ويمنع أخطاء المهلة والحجم
+    const compressed = await compressImage(file, 1600, 0.8);
+    if (compressed && compressed.size > 0 && compressed.size < file.size) {
+      payload = compressed;
+      filename = `${filename.replace(/\.[^.]+$/, "")}.jpg`;
+    }
+  }
+
+  if (payload.size === 0) throw new Error("الملف وصل فارغًا (0 بايت) — أعد اختيار الصورة");
+  if (payload.size > 15 * 1024 * 1024) throw new Error("حجم الملف أكبر من 15MB — اختر ملفًا أصغر");
+
+  try {
+    return await postUpload(payload, filename);
+  } catch (error: any) {
+    if (error?.name === "AbortError") {
+      throw new Error("انتهت مهلة الرفع — تحقق من الاتصال وأعد المحاولة");
+    }
+    // TypeError = انقطاع شبكة مؤقت؛ محاولة ثانية واحدة فقط
+    if (error instanceof TypeError) {
+      return await postUpload(payload, filename);
+    }
+    throw error;
+  }
 }
 
 function stageLabel(status: string) {
@@ -275,10 +357,18 @@ export default function ExternalMaintenanceWarehouseTab() {
           {waitingPreparation.length === 0 ? (
             <Card><CardContent className="py-7 text-center text-muted-foreground">لا توجد أصول بانتظار التجهيز</CardContent></Card>
           ) : <>{pagedPreparation.map((ticket: any) => (
-            <Card key={ticket.ticketId} className="border-orange-200">
+            <Card key={ticket.ticketItemId ?? ticket.ticketId} className="border-orange-200">
               <CardContent className="p-4 flex flex-wrap items-center justify-between gap-3">
                 <div>
-                  <div className="font-semibold">{ticket.ticketNumber} — {ticket.ticketTitle}</div>
+                  <div className="font-semibold flex items-center gap-2 flex-wrap">
+                    {ticket.ticketNumber} — {ticket.ticketTitle}
+                    {ticket.ticketItemNumber && ticket.ticketItemNumber > 1 && (
+                      <Badge variant="outline" className="text-[10px]">بند {ticket.ticketItemNumber}</Badge>
+                    )}
+                  </div>
+                  {ticket.itemDescription && (
+                    <div className="text-xs text-muted-foreground mt-0.5">{ticket.itemDescription}</div>
+                  )}
                   <div className="text-xs text-muted-foreground mt-1">الأصل: {ticket.assetName || "غير مسجل"} · الفني المسند: {ticket.assignedTechnicianName || "غير مسند"}</div>
                 </div>
                 <Button onClick={() => {
@@ -369,10 +459,10 @@ export default function ExternalMaintenanceWarehouseTab() {
             <div><Label>اسم الأصل *</Label><Input value={prepareForm.assetName} onChange={e => setPrepareForm(f => ({ ...f, assetName: e.target.value }))}/></div>
             <div><Label>حالة الأصل قبل الخروج *</Label><Textarea value={prepareForm.assetBeforeCondition} onChange={e => setPrepareForm(f => ({ ...f, assetBeforeCondition: e.target.value }))}/></div>
             <div><Label>المندوب المسؤول *</Label><select className="w-full border rounded-md h-10 px-3 bg-background" value={prepareForm.delegateId} onChange={e => setPrepareForm(f => ({ ...f, delegateId: e.target.value }))}><option value="">اختر المندوب</option>{delegates.map((u: any) => <option key={u.id} value={u.id}>{u.name}</option>)}</select></div>
-            <div><Label>صورة الأصل قبل الخروج *</Label>{prepareForm.assetBeforePhotoUrl ? <img src={mediaUrl(prepareForm.assetBeforePhotoUrl)} className="max-h-44 rounded border mt-2"/> : null}<Input type="file" accept="image/*" disabled={uploading === "before"} onChange={e => e.target.files?.[0] && handleUpload(e.target.files[0], "before")}/></div>
+            <div><Label>صورة الأصل قبل الخروج *</Label>{prepareForm.assetBeforePhotoUrl ? <img src={mediaUrl(prepareForm.assetBeforePhotoUrl)} className="max-h-44 rounded border mt-2"/> : null}<Input type="file" accept="image/*" disabled={uploading === "before"} onChange={e => { const file = e.target.files?.[0]; e.target.value = ""; if (file) handleUpload(file, "before"); }}/></div>
             <div><Label>ملاحظات المستودع</Label><Textarea value={prepareForm.warehouseNotes} onChange={e => setPrepareForm(f => ({ ...f, warehouseNotes: e.target.value }))}/></div>
           </div>
-          <DialogFooter><Button variant="outline" onClick={() => setPrepareTicket(null)}>إلغاء</Button><Button disabled={prepareMut.isPending || !prepareForm.assetName.trim() || !prepareForm.assetBeforeCondition.trim() || !prepareForm.assetBeforePhotoUrl || !prepareForm.delegateId} onClick={() => prepareMut.mutate({ ticketId: prepareTicket.ticketId, assetName: prepareForm.assetName.trim(), assetBeforePhotoUrl: prepareForm.assetBeforePhotoUrl, assetBeforeCondition: prepareForm.assetBeforeCondition.trim(), delegateId: Number(prepareForm.delegateId), warehouseNotes: prepareForm.warehouseNotes.trim() || undefined })}>{prepareMut.isPending ? <Loader2 className="w-4 h-4 animate-spin"/> : <CheckCircle2 className="w-4 h-4 ml-1"/>} حفظ وإصدار الوثيقة</Button></DialogFooter>
+          <DialogFooter><Button variant="outline" onClick={() => setPrepareTicket(null)}>إلغاء</Button><Button disabled={prepareMut.isPending || !prepareForm.assetName.trim() || !prepareForm.assetBeforeCondition.trim() || !prepareForm.assetBeforePhotoUrl || !prepareForm.delegateId} onClick={() => prepareMut.mutate({ ticketId: prepareTicket.ticketId, ticketItemId: prepareTicket.ticketItemId, assetName: prepareForm.assetName.trim(), assetBeforePhotoUrl: prepareForm.assetBeforePhotoUrl, assetBeforeCondition: prepareForm.assetBeforeCondition.trim(), delegateId: Number(prepareForm.delegateId), warehouseNotes: prepareForm.warehouseNotes.trim() || undefined })}>{prepareMut.isPending ? <Loader2 className="w-4 h-4 animate-spin"/> : <CheckCircle2 className="w-4 h-4 ml-1"/>} حفظ وإصدار الوثيقة</Button></DialogFooter>
         </DialogContent>
       </Dialog>
 
@@ -381,8 +471,8 @@ export default function ExternalMaintenanceWarehouseTab() {
           <DialogHeader><DialogTitle>استلام أصل عائد من الصيانة الخارجية</DialogTitle></DialogHeader>
           <div className="space-y-3">
             <div><Label>حالة الأصل عند العودة *</Label><Textarea value={receiveForm.returnCondition} onChange={e => setReceiveForm(f => ({ ...f, returnCondition: e.target.value }))}/></div>
-            <div><Label>صورة الأصل بعد العودة *</Label>{receiveForm.assetAfterReturnPhotoUrl ? <img src={mediaUrl(receiveForm.assetAfterReturnPhotoUrl)} className="max-h-44 rounded border mt-2"/> : null}<Input type="file" accept="image/*" disabled={uploading === "after"} onChange={e => e.target.files?.[0] && handleUpload(e.target.files[0], "after")}/></div>
-            <div><Label>فاتورة أو تقرير الورشة</Label><Input type="file" disabled={uploading === "report"} onChange={e => e.target.files?.[0] && handleUpload(e.target.files[0], "report")}/></div>
+            <div><Label>صورة الأصل بعد العودة *</Label>{receiveForm.assetAfterReturnPhotoUrl ? <img src={mediaUrl(receiveForm.assetAfterReturnPhotoUrl)} className="max-h-44 rounded border mt-2"/> : null}<Input type="file" accept="image/*" disabled={uploading === "after"} onChange={e => { const file = e.target.files?.[0]; e.target.value = ""; if (file) handleUpload(file, "after"); }}/></div>
+            <div><Label>فاتورة أو تقرير الورشة</Label><Input type="file" disabled={uploading === "report"} onChange={e => { const file = e.target.files?.[0]; e.target.value = ""; if (file) handleUpload(file, "report"); }}/></div>
             <div><Label>ملاحظات المستودع</Label><Textarea value={receiveForm.notes} onChange={e => setReceiveForm(f => ({ ...f, notes: e.target.value }))}/></div>
           </div>
           <DialogFooter><Button variant="outline" onClick={() => setReceiveRow(null)}>إلغاء</Button><Button disabled={receiveMut.isPending || !receiveForm.assetAfterReturnPhotoUrl || !receiveForm.returnCondition.trim()} onClick={() => receiveMut.mutate({ jobId: receiveRow.job.id, assetAfterReturnPhotoUrl: receiveForm.assetAfterReturnPhotoUrl, returnCondition: receiveForm.returnCondition.trim(), workshopReportUrl: receiveForm.workshopReportUrl || undefined, notes: receiveForm.notes.trim() || undefined })}>{receiveMut.isPending ? <Loader2 className="w-4 h-4 animate-spin"/> : <PackageCheck className="w-4 h-4 ml-1"/>} تأكيد الاستلام</Button></DialogFooter>

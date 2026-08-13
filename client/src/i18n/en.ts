@@ -192,6 +192,7 @@ const en: TranslationKeys = {
 
   ticketStatus: {
     new: "New",
+    department_planning: "Department Task Planning",
     pending_triage: "Pending Triage",
     under_inspection: "Under Inspection",
     work_approved: "Work Approved",
@@ -365,10 +366,10 @@ const en: TranslationKeys = {
     filterBySite: "Filter by Site",
     confirmCompletion: "Confirm Completion",
     confirmCompletionTitle: "Confirm Work Completion",
-    confirmCompletionDesc: "Please verify the repair quality and attach at least one photo of the repair location before confirming completion",
+    confirmCompletionDesc: "Please verify the repair quality and write a note before confirming completion. Attaching a photo of the repair location is optional",
     confirmCompletionNote: "Confirmation Note",
     confirmCompletionNotePlaceholder: "Write your note about the repair quality...",
-    confirmCompletionPhotos: "Repair Location Photos (1 to 4 photos)",
+    confirmCompletionPhotos: "Repair Location Photos (optional, up to 4 photos)",
     confirmCompletionPhotosRequired: "At least one photo is required",
     confirmCompletionPhotosMax: "Maximum 4 photos",
     confirmCompletionSubmit: "Confirm Completion",

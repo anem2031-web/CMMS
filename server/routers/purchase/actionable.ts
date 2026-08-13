@@ -49,6 +49,8 @@ interface POInput {
   poNumber: string;
   status: string;
   requestedById: number | null;
+  /** لتقييد ظهور طلب تغيير المندوب على نفس من راجع واختار المندوب أصلًا (2026-08-13) */
+  reviewedById?: number | null;
 }
 
 interface ItemInput {
@@ -140,9 +142,17 @@ export function computeActionablePOs(
     const isCreator = po.requestedById === ctx.id;
     const itemsSummary = buildItemsSummary(poItems);
 
-    // ── طلب تغيير مندوب صنف — بانتظار قرار مدير الصيانة ─────────────
+    // ── طلب تغيير مندوب صنف — بانتظار قرار نفس من راجع واختار المندوب أصلًا ──
+    // ⚠️ 2026-08-13: سابقًا كان يظهر لأي مستخدم يحمل أحد الأدوار الثلاثة، لا
+    // لمن راجع هذا الطلب تحديدًا — نفس الثغرة المصلَحة في الحارس المركزي
+    // canResolvePOItemDelegateChange. الشرط هنا يطابقه حرفيًا حتى لا تُري
+    // القائمة طلبًا لا يملك المستخدم صلاحية فعلية للتصرف به.
     const delegateChangeItems = poItems.filter((i) => Boolean(i.delegateChangeRequestedAt));
-    if (delegateChangeItems.length > 0 && ["maintenance_manager", "general_maintenance_manager", "construction_procurement_manager", "owner", "admin"].includes(ctx.role)) {
+    const isEligibleDelegateChangeResolver =
+      ["owner", "admin"].includes(ctx.role) ||
+      (["maintenance_manager", "general_maintenance_manager", "construction_procurement_manager"].includes(ctx.role) &&
+        (po.reviewedById === null || po.reviewedById === undefined || po.reviewedById === ctx.id));
+    if (delegateChangeItems.length > 0 && isEligibleDelegateChangeResolver) {
       result.push({
         id: po.id, poNumber: po.poNumber, status: po.status,
         reason: `طلب تغيير مندوب — ${delegateChangeItems.length} من ${poItems.length} أصناف`,

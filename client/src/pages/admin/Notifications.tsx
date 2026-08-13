@@ -393,7 +393,7 @@ export default function Notifications() {
               )}>
                 {n.relatedTicketId
                   ? <Ticket className="w-4 h-4 opacity-70" />
-                  : n.relatedPOId
+                  : n.relatedPoId
                     ? <ShoppingCart className="w-4 h-4 opacity-70" />
                     : getTypeIcon(n.type || "info")
                 }
@@ -427,7 +427,7 @@ export default function Notifications() {
                 </p>
 
                 {/* Related links */}
-                {(n.relatedTicketId || n.relatedPOId) && (
+                {(n.relatedTicketId || n.relatedPoId) && (
                   <div className="flex gap-3 mt-2">
                     {n.relatedTicketId && (
                       <button
@@ -442,12 +442,12 @@ export default function Notifications() {
                         {t.notifications.viewTicket}
                       </button>
                     )}
-                    {n.relatedPOId && (
+                    {n.relatedPoId && (
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
                           if (!n.isRead) markReadMut.mutate({ id: n.id });
-                          setLocation(`/purchase-orders/${n.relatedPOId}`);
+                          setLocation(`/purchase-orders/${n.relatedPoId}`);
                         }}
                         className="text-xs text-primary hover:underline flex items-center gap-1 font-medium"
                       >

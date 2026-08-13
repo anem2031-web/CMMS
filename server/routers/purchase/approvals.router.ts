@@ -6,6 +6,57 @@ import { notifyItemRejection } from "../_shared/router-helpers";
 import { assertCanPerformPOAction } from "../../_core/authz/guard";
 import { getActivePricingBatchItems, rejectPricingBatchIfEmpty } from "./pricing-batch-state";
 import { syncPathBTicketFromPurchaseOrder } from "./ticket-purchase-workflow";
+import { generatePurchaseRequestPDF } from "../../services/export/exportService";
+import { storagePut } from "../../_core/storage";
+
+/**
+ * أرشفة نسخة PDF معتمدة من دفعة تسعير — قسم "الوثائق المالية المعتمدة"
+ * بمركز المستندات (2026-08-10). تُستدعى **فقط** عند اعتماد الدفعة فعليًا من
+ * الحسابات (لا عند رفضها بالكامل) — مستند "معتمد" لا معنى له لدفعة مرفوضة.
+ *
+ * تُستخدم **نفس** `generatePurchaseRequestPDF` التي يستدعيها زر "تصدير PDF
+ * لهذه الدفعة" حرفيًا — لا تكرار منطق توليد PDF بمكان آخر.
+ *
+ * ⚠️ قرار مقصود (بموافقة صريحة): **لا تفشل عملية الاعتماد نفسها** لو فشلت
+ * الأرشفة لأي سبب تقني (تخزين، شبكة...). الاعتماد المالي (تحديث الحالة
+ * بقاعدة البيانات، الإشعارات) عملية حرجة يجب ألا تتوقف بسبب خطوة توثيقية
+ * لاحقة — الخطأ يُسجَّل فقط، والمستخدم يستطيع دائمًا توليد نفس المستند يدويًا
+ * عبر زر "تصدير PDF لهذه الدفعة" القائم أصلًا لو فشلت الأرشفة التلقائية.
+ */
+async function archiveApprovedFinancialBatchPdf(args: {
+  poId: number;
+  poNumber: string;
+  batchId: number;
+  batchNumber: number;
+  userId: number;
+}): Promise<void> {
+  try {
+    const buffer = await generatePurchaseRequestPDF(args.poId, args.userId, args.batchId);
+    const fileName = `${args.poNumber}-دفعة${args.batchNumber}-معتمدة-حسابات.pdf`;
+    // ⚠️ إصلاح 2026-08-10: المسار يجب أن يبدأ بـ "cmms/" (شرط صريح بحارس
+    // `/api/media`)، والرابط المُخزَّن يجب أن يكون رابط البروكسي الداخلي لا
+    // رابط التخزين الخام — نفس نمط `/api/upload` بالضبط (راجع تعليقه:
+    // "Always return proxy URL so images load reliably regardless of bucket
+    // ACL or CORS"). الرابط الخام كان يُحوِّل المستخدم لموقع iDrive نفسه بدل
+    // الملف، لأن باكت iDrive e2 لا يضمن وصولاً عامًا موثوقًا بالرابط المباشر.
+    const key = `cmms/financial-documents/po-${args.poId}/batch-${args.batchId}-${Date.now()}.pdf`;
+    const { key: fileKey } = await storagePut(key, buffer, "application/pdf");
+    const proxyUrl = `/api/media?key=${encodeURIComponent(fileKey)}`;
+    await db.createAttachment({
+      entityType: "po_financial_batch",
+      entityId: args.batchId,
+      fileName,
+      fileUrl: proxyUrl,
+      fileKey,
+      mimeType: "application/pdf",
+      fileSize: buffer.length,
+      uploadedById: args.userId,
+    });
+  } catch (e: any) {
+    console.error("[ArchiveApprovedFinancialBatchPdf] Failed:", e?.message || e);
+    // عمدًا: لا رمي خطأ هنا — راجع التعليق أعلى الدالة.
+  }
+}
 
 async function rejectPurchaseOrderIfAllItemsTerminal(
   po: any,
@@ -30,7 +81,7 @@ async function rejectPurchaseOrderIfAllItemsTerminal(
       title: "❌ طلب شراء مرفوض",
       message: `تم إغلاق طلب الشراء رقم ${po.poNumber || po.id} لأن جميع أصنافه أُلغيت أو رُفضت.`,
       type: "error",
-      relatedPOId: po.id,
+      relatedPoId: po.id,
     });
   }
   return true;
@@ -78,6 +129,7 @@ export const approvalsRouter = router({
               poId: po.id,
               poNumber: po.poNumber,
               requestedById: po.requestedById,
+              itemId: item.id,
               itemName: item.itemName,
               actorId: ctx.user.id,
               actorName: ctx.user.name || "مستخدم",
@@ -109,7 +161,7 @@ export const approvalsRouter = router({
       
       // Notify PO creator
       if (po) {
-        await db.createNotification({ userId: po.requestedById, title: "❌ طلب شراء مرفوض", message: `تم رفض جميع أصناف طلب الشراء رقم ${po.poNumber || input.id} من قبل الحسابات بواسطة ${ctx.user.name}.${input.rejectionReason ? ` السبب: ${input.rejectionReason}` : ""}`, type: "error", relatedPOId: input.id });
+        await db.createNotification({ userId: po.requestedById, title: "❌ طلب شراء مرفوض", message: `تم رفض جميع أصناف طلب الشراء رقم ${po.poNumber || input.id} من قبل الحسابات بواسطة ${ctx.user.name}.${input.rejectionReason ? ` السبب: ${input.rejectionReason}` : ""}`, type: "error", relatedPoId: input.id });
       }
     } else {
       // مبلغ العهدة إلزامي عند الاعتماد الفعلي (غير مطلوب في حالة الرفض الكامل أعلاه)
@@ -124,7 +176,7 @@ export const approvalsRouter = router({
       const mgmt = await db.getUsersByRole("senior_management");
       const custodyMsg = input.custodyAmount ? ` مبلغ العهدة: ${Number(input.custodyAmount).toLocaleString("ar-SA")} ر.س.` : "";
       for (const m of mgmt) {
-        await db.createNotification({ userId: m.id, title: "طلب شراء بانتظار اعتمادك", message: `طلب شراء رقم ${po?.poNumber || input.id} بانتظار اعتماد الإدارة العليا.${custodyMsg}`, type: "warning", relatedPOId: input.id, allowSeniorManagement: true });
+        await db.createNotification({ userId: m.id, title: "طلب شراء بانتظار اعتمادك", message: `طلب شراء رقم ${po?.poNumber || input.id} بانتظار اعتماد الإدارة العليا.${custodyMsg}`, type: "warning", relatedPoId: input.id, allowSeniorManagement: true });
       }
     }
     
@@ -170,7 +222,7 @@ export const approvalsRouter = router({
           }
           await notifyItemRejection({
             poId: po.id, poNumber: po.poNumber, requestedById: po.requestedById,
-            itemName: item.itemName, actorId: ctx.user.id, actorName: ctx.user.name || "مستخدم",
+            itemId: item.id, itemName: item.itemName, actorId: ctx.user.id, actorName: ctx.user.name || "مستخدم",
             actorRole: ctx.user.role, reason, kind: "rejected",
           });
         }
@@ -203,6 +255,16 @@ export const approvalsRouter = router({
         custodyAmount: input.custodyAmount || null,
       });
 
+      // أرشفة نسخة معتمدة من مستند الدفعة — "الوثائق المالية المعتمدة" بمركز
+      // المستندات (2026-08-10). راجع تعليق الدالة لسبب عدم رمي خطأ عند الفشل.
+      await archiveApprovedFinancialBatchPdf({
+        poId: po.id,
+        poNumber: po.poNumber,
+        batchId: batch.id,
+        batchNumber: batch.batchNumber,
+        userId: ctx.user.id,
+      });
+
       // ── تحديث حالة الطلب العامة على أساس مجموع الدفعات ──
       // بدون هذا، حالة الطلب الرئيسي تفضل "pending_accounting" للأبد حتى بعد
       // ما كل دفعاته تتاعتمد من الحسابات وتنتقل فعلياً للإدارة العليا — نفس
@@ -219,7 +281,7 @@ export const approvalsRouter = router({
           userId: m.id,
           title: "طلب شراء بانتظار اعتمادك",
           message: `طلب شراء رقم ${po.poNumber} — الدفعة رقم ${batch.batchNumber} (${batchItems.length} صنف) بانتظار اعتماد الإدارة العليا.`,
-          type: "warning", relatedPOId: po.id, allowSeniorManagement: true,
+          type: "warning", relatedPoId: po.id, allowSeniorManagement: true,
         });
       }
     }
@@ -234,6 +296,101 @@ export const approvalsRouter = router({
       entityType: "po_pricing_batch", entityId: batch.id,
     });
     return { success: true };
+  }),
+
+  /**
+   * رفض صنف واحد فوريًا أثناء مراجعة الحسابات لدفعة تسعير — بند جديد
+   * (2026-08-10)، بقرار صريح: الرفض ينفّذ فورًا ويخرج الصنف من الدفعة على
+   * الفور، بدل تجميع الرفوضات وإرسالها مع اعتماد الدفعة النهائي.
+   *
+   * سبب مستقل لكل صنف (لا سبب مشترك) — الحد الأدنى 10 أحرف مفروض بالخادم لا
+   * الواجهة فقط. مستقلة تمامًا عن `approveAccountingBatch` أعلاه (لم تُلمس).
+   */
+  /**
+   * رفض صنف واحد فوريًا أثناء مراجعة الحسابات — بند (2026-08-10)، عُمِّم
+   * لاحقًا بنفس اليوم ليخدم **مسارين معًا بإجراء واحد موحَّد**، بقرار صريح:
+   * "وحّده ليشتغل بنفس طريقة رفض الصنف الفوري الجديدة" بدل زر "رفض الطلب
+   * بالكامل" المنفصل بالمسار الاحتياطي القديم.
+   *
+   * - **صنف ضمن دفعة تسعير** (`item.batchId` موجود): يتحقق أن الدفعة
+   *   `pending_accounting`، ويُغلقها تلقائيًا لو كان آخر صنف فعّال فيها.
+   * - **صنف بلا دفعة** (المسار الاحتياطي القديم — طلبات لم تدخل نظام
+   *   الدفعات): يتحقق أن **الطلب نفسه** `pending_accounting`، ويرفض الطلب
+   *   كاملًا تلقائيًا لو كان آخر صنف فعّال به (نفس آلية `rejectPurchaseOrderIfAllItemsTerminal`
+   *   المستخدَمة أصلًا بالمسارين).
+   *
+   * كلا المسارين يشتركان بنفس القيد (10 أحرف كحد أدنى بالخادم) ونفس مبدأ
+   * "رفض فوري مستقل لكل صنف" — لا سبب مشترك، لا تجميع مع اعتماد لاحق.
+   */
+  rejectAccountingBatchItem: accountantProcedure.input(z.object({
+    itemId: z.number(),
+    reason: z.string().trim().min(10, "سبب الرفض يجب أن يكون 10 أحرف على الأقل"),
+  })).mutation(async ({ input, ctx }) => {
+    const item = await db.getPOItemById(input.itemId);
+    if (!item) throw new TRPCError({ code: "NOT_FOUND", message: "الصنف غير موجود" });
+
+    const po = await db.getPurchaseOrderById(item.purchaseOrderId);
+    if (!po) throw new TRPCError({ code: "NOT_FOUND", message: "طلب الشراء غير موجود" });
+
+    const batch = item.batchId ? await db.getPOPricingBatchById(item.batchId) : null;
+    if (item.batchId && (!batch || batch.status !== "pending_accounting")) {
+      throw new TRPCError({ code: "BAD_REQUEST", message: "هذه الدفعة ليست بانتظار اعتماد الحسابات" });
+    }
+    // ⚠️ إصلاح 2026-08-10: بالمسار الاحتياطي (صنف بلا دفعة)، لا يكفي أن يكون
+    // *الطلب* pending_accounting — قد يكون كذلك بسبب أصناف أخرى جاهزة بينما
+    // هذا الصنف تحديدًا لا يزال عالقًا بمرحلة أبكر (مثال مؤكَّد: بانتظار حسم
+    // "طلب تغيير المندوب"). الفحص الآن على *الصنف نفسه* أيضًا — إنفاذ حقيقي
+    // بالخادم لا مجرد إخفاء زر بالواجهة.
+    if (!item.batchId && (po.status !== "pending_accounting" || item.status !== "estimated" || item.delegateChangeRequestedAt)) {
+      throw new TRPCError({ code: "BAD_REQUEST", message: "هذا الصنف ليس بانتظار اعتماد الحسابات" });
+    }
+
+    const updated = await db.updatePOItemIfNotTerminal(input.itemId, {
+      status: "rejected",
+      managementRejectionReason: input.reason,
+    });
+    if (!updated) {
+      throw new TRPCError({ code: "CONFLICT", message: `الصنف "${item.itemName}" ملغى أو تغيرت حالته بالفعل؛ قم بتحديث الصفحة` });
+    }
+
+    await notifyItemRejection({
+      poId: po.id, poNumber: po.poNumber, requestedById: po.requestedById,
+      itemId: item.id, itemName: item.itemName, actorId: ctx.user.id, actorName: ctx.user.name || "مستخدم",
+      actorRole: ctx.user.role, reason: input.reason, kind: "rejected",
+    });
+
+    let batchNowClosed = false;
+    let poNowClosed = false;
+
+    if (batch) {
+      // لو كان هذا آخر صنف فعّال بالدفعة، أُغلقها تلقائيًا كمرفوضة بالكامل —
+      // نفس نمط rejectPricingBatchIfEmpty المستخدَم بإجراءات أخرى بهذا الملف.
+      const refreshedItems = (await db.getPOItems(item.purchaseOrderId)).filter(i => i.batchId === batch.id);
+      const stillActive = getActivePricingBatchItems(refreshedItems);
+      if (stillActive.length === 0) {
+        await db.updatePOPricingBatch(batch.id, {
+          status: "rejected", rejectedById: ctx.user.id, rejectedAt: new Date(), rejectionReason: input.reason,
+        });
+        await rejectPurchaseOrderIfAllItemsTerminal(
+          po, ctx.user,
+          `تم رفض جميع أصناف الدفعة أثناء مراجعة الحسابات بواسطة ${ctx.user.name || "مستخدم"}`,
+        );
+        batchNowClosed = true;
+      }
+    } else {
+      // المسار الاحتياطي بلا دفعة: الطلب يُرفض كاملًا تلقائيًا لو كان هذا آخر صنف فعّال به.
+      poNowClosed = await rejectPurchaseOrderIfAllItemsTerminal(
+        po, ctx.user,
+        `تم رفض جميع أصناف الطلب أثناء مراجعة الحسابات بواسطة ${ctx.user.name || "مستخدم"}`,
+      );
+    }
+
+    await db.createAuditLog({
+      userId: ctx.user.id, action: "reject_accounting_batch_item",
+      entityType: "po_item", entityId: item.id, newValues: { reason: input.reason },
+    });
+
+    return { success: true, batchNowClosed, poNowClosed };
   }),
 
   // ── اعتماد دفعة تسعير واحدة من الإدارة العليا (بعد اعتماد الحسابات لها) ──
@@ -273,7 +430,7 @@ export const approvalsRouter = router({
           }
           await notifyItemRejection({
             poId: po.id, poNumber: po.poNumber, requestedById: po.requestedById,
-            itemName: item.itemName, actorId: ctx.user.id, actorName: ctx.user.name || "مستخدم",
+            itemId: item.id, itemName: item.itemName, actorId: ctx.user.id, actorName: ctx.user.name || "مستخدم",
             actorRole: ctx.user.role, reason, kind: "rejected",
           });
         }
@@ -324,7 +481,7 @@ export const approvalsRouter = router({
           userId: dId,
           title: "✅ تم اعتماد دفعة من طلب الشراء - ابدأ الشراء الآن",
           message: `تم اعتماد الدفعة رقم ${batch.batchNumber} من طلب الشراء رقم ${po.poNumber}. الأصناف: ${itemNames}.${custodyInfoBatch} يمكنك البدء بالشراء فوراً.`,
-          type: "success", relatedPOId: po.id,
+          type: "success", relatedPoId: po.id,
         });
       }
     }
@@ -382,6 +539,7 @@ export const approvalsRouter = router({
               poId: po.id,
               poNumber: po.poNumber,
               requestedById: po.requestedById,
+              itemId: item.id,
               itemName: item.itemName,
               actorId: ctx.user.id,
               actorName: ctx.user.name || "مستخدم",
@@ -411,7 +569,7 @@ export const approvalsRouter = router({
       
       // Notify PO creator
       if (po) {
-        await db.createNotification({ userId: po.requestedById, title: "❌ طلب شراء مرفوض", message: `تم رفض جميع أصناف طلب الشراء رقم ${po.poNumber || input.id} من قبل الإدارة بواسطة ${ctx.user.name}.${input.rejectionReason ? ` السبب: ${input.rejectionReason}` : ""}`, type: "error", relatedPOId: input.id });
+        await db.createNotification({ userId: po.requestedById, title: "❌ طلب شراء مرفوض", message: `تم رفض جميع أصناف طلب الشراء رقم ${po.poNumber || input.id} من قبل الإدارة بواسطة ${ctx.user.name}.${input.rejectionReason ? ` السبب: ${input.rejectionReason}` : ""}`, type: "error", relatedPoId: input.id });
       }
       
       await syncPathBTicketFromPurchaseOrder(input.id, ctx.user.id, "رُفضت جميع أصناف طلب الشراء");
@@ -468,7 +626,7 @@ export const approvalsRouter = router({
         title: "✅ تم اعتماد طلب الشراء - ابدأ الشراء الآن",
         message: `تم اعتماد طلب الشراء رقم ${po?.poNumber || input.id} من قِبل الإدارة. الأصناف المطلوبة منك: ${itemNames}.${custodyInfo} يمكنك البدء بالشراء فوراً.`,
         type: "success",
-        relatedPOId: input.id
+        relatedPoId: input.id
       });
     }
 
@@ -481,7 +639,7 @@ export const approvalsRouter = router({
           title: "✅ تم اعتماد طلب الشراء",
           message: `تم اعتماد طلب الشراء رقم ${po?.poNumber || input.id}. لا يوجد مندوب مُعيَّن للأصناف.`,
           type: "warning",
-          relatedPOId: input.id
+          relatedPoId: input.id
         });
       }
     }
@@ -514,12 +672,12 @@ export const approvalsRouter = router({
     });
     // Notify PO creator and managers
     if (poReject?.requestedById && poReject.requestedById !== ctx.user.id) {
-      await db.createNotification({ userId: poReject.requestedById, title: "❌ تم رفض طلب الشراء", message: `تم رفض طلب الشراء رقم ${poReject.poNumber} بواسطة ${ctx.user.name}. السبب: ${input.reason}`, type: "critical", relatedPOId: input.id });
+      await db.createNotification({ userId: poReject.requestedById, title: "❌ تم رفض طلب الشراء", message: `تم رفض طلب الشراء رقم ${poReject.poNumber} بواسطة ${ctx.user.name}. السبب: ${input.reason}`, type: "critical", relatedPoId: input.id });
     }
     const managersReject = await db.getPurchaseManagerUsers();
     for (const mgr of managersReject) {
       if (mgr.id !== ctx.user.id) {
-        await db.createNotification({ userId: mgr.id, title: "❌ رفض طلب شراء", message: `تم رفض طلب الشراء رقم ${poReject?.poNumber || input.id} بواسطة ${ctx.user.name}. السبب: ${input.reason}`, type: "critical", relatedPOId: input.id });
+        await db.createNotification({ userId: mgr.id, title: "❌ رفض طلب شراء", message: `تم رفض طلب الشراء رقم ${poReject?.poNumber || input.id} بواسطة ${ctx.user.name}. السبب: ${input.reason}`, type: "critical", relatedPoId: input.id });
       }
     }
     await syncPathBTicketFromPurchaseOrder(input.id, ctx.user.id, "تم رفض طلب الشراء");
@@ -585,7 +743,7 @@ export const approvalsRouter = router({
         }
       }
 
-      const rejectedEvents: Array<{ itemName: string; reason: string }> = [];
+      const rejectedEvents: Array<{ itemId: number; itemName: string; reason: string }> = [];
       for (const reviewItem of input.items) {
         const currentItem: any = reviewableById.get(reviewItem.id);
         const updated = reviewItem.action === "approve"
@@ -607,6 +765,7 @@ export const approvalsRouter = router({
         }
         if (reviewItem.action === "reject") {
           rejectedEvents.push({
+            itemId: reviewItem.id,
             itemName: currentItem.itemName,
             reason: reviewItem.rejectionReason!,
           });
@@ -646,6 +805,7 @@ export const approvalsRouter = router({
         poId: po.id,
         poNumber: po.poNumber,
         requestedById: po.requestedById,
+        itemId: rejectedEvent.itemId,
         itemName: rejectedEvent.itemName,
         actorId: ctx.user.id,
         actorName: ctx.user.name || "مستخدم",
@@ -662,7 +822,7 @@ export const approvalsRouter = router({
           title: "❌ تم رفض جميع أصناف طلب الشراء",
           message: `تم رفض جميع أصناف طلب الشراء رقم ${po.poNumber} بواسطة ${ctx.user.name}.`,
           type: "critical",
-          relatedPOId: input.poId,
+          relatedPoId: input.poId,
         });
       }
     } else if (result.hasApproved) {
@@ -675,7 +835,7 @@ export const approvalsRouter = router({
           title: "طلب شراء جديد — ابدأ التسعير",
           message: `تم تخصيص الأصناف التالية لك في طلب الشراء ${po.poNumber}: ${itemNames}`,
           type: "info",
-          relatedPOId: input.poId,
+          relatedPoId: input.poId,
         });
       }
     }

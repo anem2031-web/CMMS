@@ -9,7 +9,7 @@ import mysql from "mysql2/promise";
 import {
   InsertUser, users, tickets, purchaseOrders, purchaseOrderItems,
   inventory, inventoryTransactions, notifications, auditLogs,
-  ticketStatusHistory, attachments, sites, backups,
+  ticketStatusHistory, ticketItems, ticketDepartments, ticketTasks, ticketTaskAssignees, attachments, sites, backups,
   assets, preventivePlans, pmWorkOrders, assetSpareParts, pmJobs, assetMetrics,
   pmChecklistItems, pmWorkOrderBranches,
   twoFactorSecrets, twoFactorAuditLogs,
@@ -54,7 +54,24 @@ import { getDb } from "./client";
 export async function deleteTicket(id: number) {
   const db = await getDb();
   if (!db) return;
-  // Delete related records first
+  // إذا حُذف بلاغ فرعي، أعد المهمة الأصلية إلى حالة موزعة دون خفض عداد الرأس.
+  await db.update(ticketTasks).set({ convertedTicketId: null, status: "assigned" }).where(eq(ticketTasks.convertedTicketId, id));
+
+  // فصل الروابط التنظيمية قبل حذف خطة الرأس. البلاغات الفرعية لا تُحذف تلقائيًا.
+  const tasks = await db.select({ id: ticketTasks.id }).from(ticketTasks).where(eq(ticketTasks.ticketId, id));
+  const taskIds = tasks.map((t: any) => t.id);
+  await db.update(tickets).set({ parentTicketId: null }).where(eq(tickets.parentTicketId, id));
+  if (taskIds.length > 0) {
+    await db.update(tickets).set({ sourceTaskId: null }).where(inArray(tickets.sourceTaskId, taskIds));
+    await db.delete(ticketTaskAssignees).where(inArray(ticketTaskAssignees.taskId, taskIds));
+    await db.delete(ticketTasks).where(inArray(ticketTasks.id, taskIds));
+  }
+  await db.delete(ticketDepartments).where(eq(ticketDepartments.ticketId, id));
+
+  // ⚠️ بنود البلاغ أولًا: ticket_items.ticketId مفتاح خارجي فعلي بقاعدة
+  // البيانات (ON DELETE RESTRICT، أُضيف 2026-08-08)، فبدون هذا السطر
+  // يفشل حذف أي بلاغ. نفس ترتيب deletePurchaseOrder مع purchaseOrderItems.
+  await db.delete(ticketItems).where(eq(ticketItems.ticketId, id));
   await db.delete(ticketStatusHistory).where(eq(ticketStatusHistory.ticketId, id));
   await db.delete(attachments).where(and(eq(attachments.entityType, "ticket"), eq(attachments.entityId, id)));
   await db.delete(notifications).where(eq(notifications.relatedTicketId, id));
@@ -66,7 +83,7 @@ export async function deletePurchaseOrder(id: number) {
   if (!db) return;
   await db.delete(purchaseOrderItems).where(eq(purchaseOrderItems.purchaseOrderId, id));
   await db.delete(attachments).where(and(eq(attachments.entityType, "purchase_order"), eq(attachments.entityId, id)));
-  await db.delete(notifications).where(eq(notifications.relatedPOId, id));
+  await db.delete(notifications).where(eq(notifications.relatedPoId, id));
   await db.delete(purchaseOrders).where(eq(purchaseOrders.id, id));
 }
 

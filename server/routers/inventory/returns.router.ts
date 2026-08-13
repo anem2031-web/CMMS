@@ -154,7 +154,7 @@ export const returnsRouter = router({
           message: `تم إرجاع ${input.returnedQuantity} ${inventoryItem.unit || "وحدة"} من "${inventoryItem.itemName}"` +
             (po ? ` - طلب الشراء ${po.poNumber}` : " - بلا طلب شراء مرتبط"),
           type: "warning",
-          relatedPOId: input.purchaseOrderId,
+          relatedPoId: input.purchaseOrderId,
         });
       }
 

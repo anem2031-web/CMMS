@@ -13,7 +13,7 @@ import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import { RedisStore } from "rate-limit-redis";
 import IORedis from "ioredis";
 import multer from "multer";
-import { storagePut, storageGetStream, storagePresignedPut } from "./storage";
+import { storagePut, storageGetStream, storagePresignedPut, checkStorageHealth } from "./storage";
 import { nanoid } from "nanoid";
 import sharp from "sharp";
 import { transcodeVideoToCompatibleMp4 } from "./videoTranscode";
@@ -263,12 +263,45 @@ async function startServer() {
         "video/webm",
       ]);
       if (ALLOWED_MIME_TYPES.has(file.mimetype)) {
-        cb(null, true);
-      } else {
-        cb(new Error(`نوع الملف غير مسموح: ${file.mimetype}`));
+        return cb(null, true);
       }
+      // بعض متصفحات Android/iOS ترسل mimetype فارغًا أو application/octet-stream
+      // لصور سليمة تمامًا — نقبلها بالاعتماد على الامتداد بدل رفضها عشوائيًا.
+      // (كان هذا أحد أسباب فشل رفع الصورة "أحيانًا" بصفحة الصيانة الخارجية)
+      const ALLOWED_EXT_RE = /\.(jpe?g|png|webp|gif|heic|heif|bmp|tiff?|pdf|docx?|xlsx?|mp4|webm)$/i;
+      const isAmbiguousMime = !file.mimetype || file.mimetype === "application/octet-stream";
+      if (isAmbiguousMime && ALLOWED_EXT_RE.test(file.originalname || "")) {
+        return cb(null, true);
+      }
+      const rejectError: any = new Error(`نوع الملف غير مسموح: ${file.mimetype || "غير معروف"}`);
+      rejectError.status = 415;
+      cb(rejectError);
     },
   });
+
+  // multer يرمي أخطاءه داخل الـ middleware وليس داخل الـ handler، فبدون هذا الغلاف
+  // كانت الأخطاء (حجم كبير / نوع غير مسموح) تخرج برمز 500 عام بدل رسالة مفهومة.
+  const uploadSingleFile = (req: any, res: any, next: any) => {
+    upload.single("file")(req, res, (err: any) => {
+      if (!err) return next();
+      if (err.code === "LIMIT_FILE_SIZE") {
+        return res.status(413).json({ error: "حجم الملف أكبر من الحد المسموح (16MB)" });
+      }
+      return res.status(err.status || 415).json({ error: err.message || "فشل استقبال الملف" });
+    });
+  };
+
+  // رفع لـ S3 مع محاولة ثانية — أخطاء الشبكة العابرة نحو iDrive e2 كانت تُترجم
+  // لـ 500 "Upload failed" متقطع بلا سبب ظاهر للمستخدم.
+  const storagePutWithRetry = async (key: string, buffer: Buffer, mime: string) => {
+    try {
+      return await storagePut(key, buffer, mime);
+    } catch (firstError: any) {
+      console.warn("[Upload] فشلت المحاولة الأولى للرفع للتخزين، إعادة المحاولة:", firstError?.message);
+      await new Promise(resolve => setTimeout(resolve, 700));
+      return storagePut(key, buffer, mime);
+    }
+  };
 
   // MEDIA PROXY: serves images from iDrive e2 through the server
   // ============================================================
@@ -333,23 +366,41 @@ async function startServer() {
     }
   });
 
-  app.post("/api/upload", requireAuthMiddleware, upload.single("file"), async (req: any, res: any) => {
+  app.post("/api/upload", requireAuthMiddleware, uploadSingleFile, async (req: any, res: any) => {
     try {
       if (!req.file) return res.status(400).json({ error: "No file provided" });
-      const isImage = req.file.mimetype.startsWith("image/");
+      if (!req.file.size) return res.status(400).json({ error: "الملف وصل فارغًا (0 بايت) — أعد المحاولة" });
+      const originalName: string = req.file.originalname || "";
+      const looksLikeImage = /\.(jpe?g|png|webp|gif|heic|heif|bmp|tiff?)$/i.test(originalName);
+      const isImage = req.file.mimetype.startsWith("image/") || looksLikeImage;
       const isVideo = req.file.mimetype.startsWith("video/");
       let fileBuffer = req.file.buffer;
       let mimeType = req.file.mimetype;
-      let ext = req.file.originalname.split(".").pop() || "bin";
+      let ext = originalName.split(".").pop() || "bin";
 
       // تحويل الصور إلى WebP مع تقليص الأبعاد لتسريع الرفع
       if (isImage) {
-        fileBuffer = await sharp(req.file.buffer)
-          .resize(1920, 1920, { fit: "inside", withoutEnlargement: true })
-          .webp({ quality: 75, effort: 2 })
-          .toBuffer();
-        mimeType = "image/webp";
-        ext = "webp";
+        try {
+          fileBuffer = await sharp(req.file.buffer)
+            .resize(1920, 1920, { fit: "inside", withoutEnlargement: true })
+            .webp({ quality: 75, effort: 2 })
+            .toBuffer();
+          mimeType = "image/webp";
+          ext = "webp";
+        } catch (imageError: any) {
+          // النسخ الجاهزة من sharp لا تفك ترميز HEIC/HEIF (صور آيفون الافتراضية)،
+          // وكان هذا يُرجع 500 "Upload failed" لبعض الصور دون غيرها.
+          console.error("[Upload] فشلت معالجة الصورة:", imageError?.message);
+          const isHeic = /heic|heif/i.test(req.file.mimetype) || /\.hei[cf]$/i.test(originalName);
+          if (isHeic) {
+            return res.status(415).json({
+              error: "صيغة HEIC غير مدعومة — غيّر إعداد الكاميرا إلى \"الأكثر توافقًا/JPEG\" أو ارفع الصورة بصيغة JPG",
+            });
+          }
+          // صيغة صالحة لكن sharp تعثّر: نرفع الملف الأصلي بدل إيقاف العملية
+          fileBuffer = req.file.buffer;
+          mimeType = req.file.mimetype || "application/octet-stream";
+        }
       }
 
       // تحويل أي فيديو (WebM أو MP4 غير قياسي من تسجيل المتصفح) إلى
@@ -366,13 +417,13 @@ async function startServer() {
         }
       }
       const fileKey = `cmms/uploads/${Date.now()}-${nanoid(8)}.${ext}`;
-      await storagePut(fileKey, fileBuffer, mimeType);
+      await storagePutWithRetry(fileKey, fileBuffer, mimeType);
       // Always return proxy URL so images load reliably regardless of bucket ACL or CORS
       const proxyUrl = `/api/media?key=${encodeURIComponent(fileKey)}`;
       res.json({ url: proxyUrl, fileKey });
     } catch (error: any) {
-      console.error("Upload error:", error);
-      res.status(500).json({ error: "Upload failed" });
+      console.error("Upload error:", error?.name, error?.message, error?.$metadata?.httpStatusCode);
+      res.status(500).json({ error: "تعذّر حفظ الملف في التخزين — أعد المحاولة بعد لحظات" });
     }
   });
 
@@ -592,6 +643,9 @@ async function startServer() {
 
   server.listen(port, () => {
     console.log(`Server running on http://localhost:${port}/`);
+    // فحص التخزين بعد الإقلاع مباشرة — لا يمنع تشغيل السيرفر ولا يؤخّر الاستماع،
+    // لكنه يكشف خطأ مفتاح/صلاحية/مستودع خلال ثانيتين بدل انتظار شكوى مستخدم.
+    void checkStorageHealth();
   });
 
   // استعادة الـ translation jobs المعلقة عند بدء التشغيل، ثم دوريًا كل 30 دقيقة

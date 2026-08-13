@@ -27,6 +27,7 @@ export const ROLE_LABELS: Record<string, string> = {
 
 export const STATUS_LABELS: Record<string, string> = {
   new: "جديد",
+  department_planning: "تحليل الجهات والمهام",
   approved: "معتمد",
   assigned: "مُسند",
   in_progress: "قيد التنفيذ",
@@ -92,6 +93,7 @@ export const PRIORITY_COLORS: Record<string, string> = {
 
 export const STATUS_COLORS: Record<string, string> = {
   new: "bg-blue-100 text-blue-700",
+  department_planning: "bg-purple-100 text-purple-700",
   approved: "bg-indigo-100 text-indigo-700",
   assigned: "bg-violet-100 text-violet-700",
   in_progress: "bg-yellow-100 text-yellow-700",

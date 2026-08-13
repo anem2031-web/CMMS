@@ -192,6 +192,7 @@ const ur: TranslationKeys = {
 
   ticketStatus: {
     new: "نیا",
+    department_planning: "محکموں اور کاموں کی منصوبہ بندی",
     pending_triage: "ٹریاج زیر التوا",
     under_inspection: "معائنہ جاری",
     work_approved: "کام منظور",
@@ -365,10 +366,10 @@ const ur: TranslationKeys = {
     filterBySite: "مقام سے فلٹر",
     confirmCompletion: "کام کی تکمیل کی تصدیق",
     confirmCompletionTitle: "کام کی تکمیل کی تصدیق",
-    confirmCompletionDesc: "براہ کرم مرمت کے معیار کی تصدیق کریں اور تکمیل کی تصدیق سے پہلے مرمت کی جگہ کی کم از کم ایک تصویر منسلک کریں",
+    confirmCompletionDesc: "براہ کرم مرمت کے معیار کی تصدیق کریں اور تصدیق سے پہلے ایک نوٹ لکھیں۔ مرمت کی جگہ کی تصویر منسلک کرنا اختیاری ہے",
     confirmCompletionNote: "تصدیقی نوٹ",
     confirmCompletionNotePlaceholder: "مرمت کے معیار کے بارے میں اپنا نوٹ لکھیں...",
-    confirmCompletionPhotos: "مرمت کی جگہ کی تصاویر (1 سے 4 تصاویر)",
+    confirmCompletionPhotos: "مرمت کی جگہ کی تصاویر (اختیاری، زیادہ سے زیادہ 4 تصاویر)",
     confirmCompletionPhotosRequired: "کم از کم ایک تصویر درکار ہے",
     confirmCompletionPhotosMax: "زیادہ سے زیادہ 4 تصاویر",
     confirmCompletionSubmit: "تکمیل کی تصدیق کریں",

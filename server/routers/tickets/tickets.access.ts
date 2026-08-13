@@ -32,6 +32,20 @@ export interface TicketVisibilitySubject {
   maintenanceResponsibleDepartment?: string | null;
   maintenanceResponsibleManagerId?: number | null;
   inspectionWorkflowStatus?: string | null;
+  workflowModel?: string | null;
+  sourceTaskId?: number | null;
+}
+
+/**
+ * بند من بنود البلاغ (ticket_items) — الحقول الأربعة اللازمة لفحص الرؤية فقط.
+ * راجع القاعدة الحرجة #12 بـCLAUDE.md: بنود البلاغ مصدر حقيقة إضافي للرؤية،
+ * لا بديل لعمود البلاغ (الذي يبقى يمثّل "الجهة الرئيسية" ويُفحص أولًا كمسار سريع).
+ */
+export interface TicketItemVisibilitySubject {
+  responsibleDepartment?: string | null;
+  responsibleManagerId?: number | null;
+  assignedToId?: number | null;
+  assignedTechnicianId?: number | null;
 }
 
 export function isRoleDeniedFromTickets(role: string): boolean {
@@ -41,11 +55,21 @@ export function isRoleDeniedFromTickets(role: string): boolean {
 export function isConstructionTicketAssignedToUser(
   user: TicketAccessUser,
   ticket: TicketVisibilitySubject,
+  items?: TicketItemVisibilitySubject[],
 ): boolean {
-  return (
-    user.role === APP_ROLE.CONSTRUCTION_PROCUREMENT_MANAGER &&
+  if (user.role !== APP_ROLE.CONSTRUCTION_PROCUREMENT_MANAGER) return false;
+
+  const ticketLevelMatch =
     ticket.maintenanceResponsibleDepartment === MAINTENANCE_RESPONSIBLE_DEPARTMENT.CONSTRUCTION &&
-    ticket.maintenanceResponsibleManagerId === user.id
+    ticket.maintenanceResponsibleManagerId === user.id;
+  if (ticketLevelMatch) return true;
+
+  // بند ثانوي بالفرز المتعدد قد يوجّه هذا المستخدم دون أن يكون "الجهة الرئيسية"
+  // المنعكسة بعمود البلاغ — يُفحص فقط إن مُرِّرت البنود (المسار البطيء).
+  if (!items) return false;
+  return items.some((i) =>
+    i.responsibleDepartment === MAINTENANCE_RESPONSIBLE_DEPARTMENT.CONSTRUCTION &&
+    i.responsibleManagerId === user.id
   );
 }
 
@@ -53,19 +77,32 @@ export function isConstructionTicketAssignedToUser(
  * Visibility used by ticket lists and normal ticket detail access.
  * Construction/procurement managers see only construction tickets explicitly routed to them.
  * Their separate linked-purchase exception is handled by assertTicketReadable().
+ *
+ * ⚠️ 2026-08-08: يقبل `items` اختياريًا (بنود البلاغ). المسار السريع (بلا `items`) يفحص عمود
+ * البلاغ فقط — يكفي لأي بلاغ أحادي البند (كل البلاغات القديمة + أي بلاغ فُرز جهة واحدة).
+ * المسار الكامل (مع `items`) يُستدعى فقط عند فشل المسار السريع — راجع assertTicketReadable.
  */
-export function isTicketVisible(user: TicketAccessUser, ticket: TicketVisibilitySubject): boolean {
+export function isTicketVisible(
+  user: TicketAccessUser,
+  ticket: TicketVisibilitySubject,
+  items?: TicketItemVisibilitySubject[],
+): boolean {
   if (isRoleDeniedFromTickets(user.role)) return false;
 
   if (user.role === APP_ROLE.CONSTRUCTION_PROCUREMENT_MANAGER) {
-    return isConstructionTicketAssignedToUser(user, ticket);
+    // استثناء قراءة فقط: البلاغ الشخصي قبل الفرز مرئي حتى يستطيع منشئه تعديله.
+    if (ticket.status === "pending_triage" && ticket.reportedById === user.id) return true;
+    return isConstructionTicketAssignedToUser(user, ticket, items);
   }
 
   if (REPORTER_SCOPED_ROLES.includes(user.role as any)) {
     return ticket.reportedById === user.id;
   }
   if (ASSIGNEE_SCOPED_ROLES.includes(user.role as any)) {
-    return ticket.assignedToId === user.id || ticket.assignedTechnicianId === user.id;
+    const ticketLevelMatch = ticket.assignedToId === user.id || ticket.assignedTechnicianId === user.id;
+    if (ticketLevelMatch) return true;
+    if (!items) return false;
+    return items.some((i) => i.assignedToId === user.id || i.assignedTechnicianId === user.id);
   }
   return true;
 }
@@ -84,6 +121,11 @@ export function assertTicketVisible(
  * Detail/history/attachment read guard.
  * A construction manager may additionally read a non-routed ticket when it is linked
  * to a purchase order, but that exception remains read-only.
+ *
+ * ⚠️ 2026-08-08 — القاعدة الحرجة #12: بعد الفشل على مستوى البلاغ (المسار السريع، بلا استعلام
+ * إضافي)، تُجلب بنود البلاغ (ticket_items) ويُعاد الفحص عبرها — يغطي أي جهة/فني ثانوي بالفرز
+ * المتعدد لا تعكسه أعمدة tickets. هذا استعلام إضافي واحد فقط، ويُنفَّذ فقط عند فشل المسار
+ * السريع (الحالة الشائعة: بلاغ أحادي البند يطابق دائمًا من المسار السريع، صفر تكلفة إضافية).
  */
 export async function assertTicketReadable(
   user: TicketAccessUser,
@@ -92,9 +134,21 @@ export async function assertTicketReadable(
 ): Promise<void> {
   if (isTicketVisible(user, ticket)) return;
 
+  const items = await db.getTicketItems(ticket.id);
+  if (isTicketVisible(user, ticket, items)) return;
+
+  // النموذج الجديد: الجهة والفني قد يوجدان فقط في طبقة الخطة التنظيمية.
   if (user.role === APP_ROLE.CONSTRUCTION_PROCUREMENT_MANAGER) {
+    const routedThroughDepartmentPlan = await db.hasTicketDepartmentAssignment(
+      ticket.id, MAINTENANCE_RESPONSIBLE_DEPARTMENT.CONSTRUCTION, user.id,
+    );
+    if (routedThroughDepartmentPlan) return;
     const linked = await db.hasPurchaseOrderForTicket(ticket.id);
     if (linked) return;
+  }
+  if (user.role === APP_ROLE.TECHNICIAN) {
+    const assignedThroughTask = await db.isUserAssignedToTicketTasks(ticket.id, ticket.sourceTaskId, user.id);
+    if (assignedThroughTask) return;
   }
 
   throw new TRPCError({ code: "FORBIDDEN", message });
@@ -142,15 +196,50 @@ export function assertTicketWorkflowManageable(
   }
 }
 
+/**
+ * إدارة سير عمل بند بعينه — الخطوة 3 من ميزة البلاغ متعدد الجهات (2026-08-08).
+ * نظير `canManageTicketWorkflow` لكن على مستوى البند، للجهة/المسؤول الثانوي الذي
+ * لا تعكسه أعمدة البلاغ. **لا تستبدل `canManageTicketWorkflow`** — تُستخدم معها
+ * بشرط OR (راجع `approveWorkForItem`): الجهة الرئيسية تمر من الفحص القائم كالمعتاد
+ * بلا استعلام إضافي، والجهة الثانوية تمر من هنا.
+ */
+export function canManageTicketItemWorkflow(
+  user: TicketAccessUser,
+  item: TicketItemVisibilitySubject,
+): boolean {
+  if ([APP_ROLE.OWNER, APP_ROLE.ADMIN, APP_ROLE.MAINTENANCE_MANAGER].includes(user.role as any)) {
+    return true;
+  }
+  if (user.role === APP_ROLE.GENERAL_MAINTENANCE_MANAGER) {
+    return !item.responsibleDepartment || item.responsibleDepartment === MAINTENANCE_RESPONSIBLE_DEPARTMENT.GENERAL;
+  }
+  if (user.role === APP_ROLE.CONSTRUCTION_PROCUREMENT_MANAGER) {
+    return item.responsibleDepartment === MAINTENANCE_RESPONSIBLE_DEPARTMENT.CONSTRUCTION &&
+      item.responsibleManagerId === user.id;
+  }
+  if (user.role === APP_ROLE.SUPERVISOR) return true;
+  return false;
+}
+
+export function assertTicketItemWorkflowManageable(
+  user: TicketAccessUser,
+  ticket: TicketVisibilitySubject,
+  item: TicketItemVisibilitySubject,
+  message = "ليس لديك صلاحية لتنفيذ إجراء على هذا البند",
+): void {
+  // الجهة الرئيسية تمر من الفحص القائم أولًا (بلا تغيير سلوك) — الثانوية من هنا.
+  if (canManageTicketWorkflow(user, ticket)) return;
+  if (canManageTicketItemWorkflow(user, item)) return;
+  throw new TRPCError({ code: "FORBIDDEN", message });
+}
+
 export function isTicketReadOnlyForUser(
   user: TicketAccessUser,
   ticket: TicketVisibilitySubject,
 ): boolean {
-  if (
-    user.role === APP_ROLE.CONSTRUCTION_PROCUREMENT_MANAGER &&
-    !isConstructionTicketAssignedToUser(user, ticket)
-  ) {
-    return true;
+  if (user.role === APP_ROLE.CONSTRUCTION_PROCUREMENT_MANAGER) {
+    if (ticket.status === "pending_triage" && ticket.reportedById === user.id) return false;
+    if (!isConstructionTicketAssignedToUser(user, ticket)) return true;
   }
 
   // After a ticket is routed to construction, the general maintenance manager
@@ -176,6 +265,17 @@ export function isAssignedInspectionTechnician(
   ticket: TicketVisibilitySubject,
 ): boolean {
   return user.role === APP_ROLE.TECHNICIAN && ticket.assignedToId === user.id;
+}
+
+/** كل فنيي المهمة الأصلية يُعاملون كمكلّفين بالبلاغ الفرعي. */
+export async function isAssignedTicketTechnicianForWorkflow(
+  user: TicketAccessUser,
+  ticket: TicketVisibilitySubject & { id: number },
+): Promise<boolean> {
+  if (user.role !== APP_ROLE.TECHNICIAN) return false;
+  if (ticket.assignedToId === user.id || ticket.assignedTechnicianId === user.id) return true;
+  if (!ticket.sourceTaskId) return false;
+  return db.isUserAssignedToTicketTasks(ticket.id, ticket.sourceTaskId, user.id);
 }
 
 /**
@@ -221,5 +321,27 @@ export function canSelectTicketMaintenancePath(
     ticket.inspectionWorkflowStatus === MAINTENANCE_INSPECTION_WORKFLOW_STATUS.APPROVED &&
     (INSPECTION_MANAGER_ROLES as readonly string[]).includes(user.role) &&
     canManageTicketWorkflow(user, ticket)
+  );
+}
+
+/**
+ * نظير `canSelectTicketMaintenancePath` على مستوى البند — الخطوة 3 (2026-08-08).
+ * الفحص يبقى واحدًا على مستوى البلاغ (قرار سابق مؤكَّد)، لذا شرط اعتماد الفحص
+ * (`inspectionWorkflowStatus === APPROVED`) يُفحص على `ticket` كما هو، بينما
+ * "من يملك صلاحية اختيار المسار لهذا البند تحديدًا؟" يُفحص عبر
+ * `canManageTicketWorkflow` (الجهة الرئيسية) OR `canManageTicketItemWorkflow`
+ * (أي جهة أخرى). حالة البند نفسه (`item.status === "under_inspection"`) شرط
+ * إضافي — قد يكون بند واحد معتمدًا بالفعل بينما آخر لا يزال ينتظر.
+ */
+export function canSelectTicketItemMaintenancePath(
+  user: TicketAccessUser,
+  ticket: TicketVisibilitySubject,
+  item: TicketItemVisibilitySubject & { status: string },
+): boolean {
+  return (
+    item.status === "under_inspection" &&
+    ticket.inspectionWorkflowStatus === MAINTENANCE_INSPECTION_WORKFLOW_STATUS.APPROVED &&
+    (INSPECTION_MANAGER_ROLES as readonly string[]).includes(user.role) &&
+    (canManageTicketWorkflow(user, ticket) || canManageTicketItemWorkflow(user, item))
   );
 }

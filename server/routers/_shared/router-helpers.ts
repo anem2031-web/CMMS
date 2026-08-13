@@ -9,11 +9,47 @@ export { detectLanguage, translateFields };
 export type { SupportedLanguage };
 
 /**
+ * إشعار **مشرف البلاغ المعني وحده** بدل بثّ لكل المشرفين — 2026-08-10.
+ *
+ * `tickets.supervisorId` يُملأ عند الفرز (`routeTicketAfterTriage`) ويحمل مَن
+ * فرز البلاغ فعليًا، فهو "صاحب العلاقة" الطبيعي بكل إجراء لاحق عليه.
+ *
+ * ⚠️ **سقوط احتياطي إلزامي**: لو كان `supervisorId` فارغًا (بلاغات قديمة
+ * أُنشئت قبل ميزة الفرز 2026-08-02، أو بلاغ لم يُفرَز بعد)، نعود للبثّ لكل
+ * المشرفين — **الأسوأ من الضجيج هو ألا يصل الإشعار لأحد فيعلق البلاغ**.
+ * لا تُزل هذا السقوط الاحتياطي.
+ *
+ * `extraRecipients` لدمج مستلمين إضافيين (مديرو المسار مثلًا) بلا تكرار —
+ * الإرسال يمر على Map بالمعرّف فيمنع وصول إشعارين لنفس الشخص.
+ */
+export async function notifyTicketSupervisor(
+  ticket: { id: number; supervisorId?: number | null },
+  notification: { title: string; message: string; type: string; relatedTicketId?: number; relatedPoId?: number },
+  options: { excludeUserId?: number; extraRecipients?: Array<{ id: number }> } = {},
+) {
+  const recipients = new Map<number, { id: number }>();
+
+  if (ticket.supervisorId) {
+    recipients.set(ticket.supervisorId, { id: ticket.supervisorId });
+  } else {
+    const supervisors = await db.getUsersByRole("supervisor");
+    for (const sup of supervisors) recipients.set(sup.id, sup);
+  }
+
+  for (const extra of options.extraRecipients || []) recipients.set(extra.id, extra);
+
+  for (const recipient of recipients.values()) {
+    if (options.excludeUserId && recipient.id === options.excludeUserId) continue;
+    await db.createNotification({ userId: recipient.id, ...notification });
+  }
+}
+
+/**
  * Notify a list of users fetched by role.
  */
 export async function notifyByRole(
   role: string,
-  notification: { title: string; message: string; type: string; relatedTicketId?: number; relatedPOId?: number }
+  notification: { title: string; message: string; type: string; relatedTicketId?: number; relatedPoId?: number }
 ) {
   const users = await db.getUsersByRole(role);
   for (const user of users) {
@@ -25,7 +61,7 @@ export async function notifyByRole(
  * Notify maintenance managers.
  */
 export async function notifyManagers(
-  notification: { title: string; message: string; type: string; relatedTicketId?: number; relatedPOId?: number },
+  notification: { title: string; message: string; type: string; relatedTicketId?: number; relatedPoId?: number },
   excludeUserId?: number
 ) {
   const managers = await db.getOperationalManagerUsers();
@@ -47,6 +83,7 @@ export async function notifyItemRejection(params: {
   poId: number;
   poNumber: string;
   requestedById: number;
+  itemId?: number;
   itemName: string;
   actorId: number;
   actorName: string;
@@ -59,6 +96,7 @@ export async function notifyItemRejection(params: {
 
   await db.createProcurementComment({
     purchaseOrderId: params.poId,
+    purchaseOrderItemId: params.itemId,
     userId: params.actorId,
     userName: params.actorName,
     userRole: params.actorRole,
@@ -72,7 +110,7 @@ export async function notifyItemRejection(params: {
       title: isCancel ? "⚠️ تم إلغاء صنف من طلب الشراء" : "❌ تم رفض صنف من طلب الشراء",
       message: `${verb} الصنف "${params.itemName}" من طلب الشراء رقم ${params.poNumber} بواسطة ${params.actorName}.\n\nالسبب:\n${params.reason}`,
       type: isCancel ? "warning" : "error",
-      relatedPOId: params.poId,
+      relatedPoId: params.poId,
     });
   }
 }

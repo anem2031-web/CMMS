@@ -9,9 +9,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
 import { STATUS_COLORS, PRIORITY_COLORS } from "@shared/types";
 import {
   APP_ROLE,
+  MAINTENANCE_MANAGER_FAMILY,
   MAINTENANCE_INSPECTION_RESULT_STATUS,
   MAINTENANCE_INSPECTION_WORKFLOW_STATUS,
   MAINTENANCE_RESPONSIBLE_DEPARTMENT,
@@ -32,7 +34,7 @@ import {
 } from "@shared/ticketUiRules";
 import {
   ArrowRight, Clock, User, MapPin, CheckCircle2, Wrench, ShoppingCart,
-  Camera, Loader2, FileText, AlertCircle, ExternalLink, Upload, X, ZoomIn, Download, Video, PlayCircle, Pencil, Archive, Printer
+  Camera, Loader2, FileText, AlertCircle, ExternalLink, Upload, X, ZoomIn, Download, Video, PlayCircle, Pencil, Archive, Printer, ClipboardList, Users, Plus, GitBranch, Search
 } from "lucide-react";
 import { useState, useMemo, useCallback, useEffect } from "react";
 import { toast } from "sonner";
@@ -42,6 +44,7 @@ import { useStaticLabels } from "@/hooks/useContentTranslation";
 import { useResolvedTranslation, getLocalizedName } from "@/hooks/useTranslatedField";
 import DropZone, { type UploadedFile } from "@/components/common/DropZone";
 import { TechnicianCombobox } from "@/components/tickets/TechnicianCombobox";
+import { TicketItemStepCard } from "@/components/tickets/TicketItemStepCard";
 
 // ── مشغّل فيديو للمرفقات ──
 // بعض المتصفحات (تحديداً Safari على آيفون) لا تدعم صيغة WebM إطلاقاً،
@@ -95,6 +98,14 @@ const currency = language === "en" ? "SAR" : "ر.س";
 const ticketId = parseInt(params?.id || "0");
 
 const { data: ticket, isLoading, refetch } = trpc.tickets.getById.useQuery({ id: ticketId }, { enabled: !!ticketId });
+const { data: parentTicket } = trpc.tickets.getById.useQuery(
+  { id: ticket?.parentTicketId || 0 },
+  { enabled: !!ticket?.parentTicketId && ticket?.workflowModel === "sub_ticket" },
+);
+const { data: departmentPlan, refetch: refetchDepartmentPlan } = trpc.tickets.departmentPlan.useQuery(
+  { ticketId },
+  { enabled: !!ticketId && ticket?.workflowModel === "department_tasks" && ticket?.status !== "pending_triage" },
+);
 
 const { getField } = useResolvedTranslation(
   "TICKET",
@@ -115,6 +126,9 @@ const { getField } = useResolvedTranslation(
   const { data: ticketAttachments } = trpc.attachments.list.useQuery(attachmentsInput, { enabled: !!ticketId });
   const { data: inspectionResultsList, refetch: refetchInspectionResults } = trpc.inspectionResults.listByTicket.useQuery({ ticketId }, { enabled: !!ticketId });
   const { data: ticketConfirmation, refetch: refetchConfirmation } = trpc.tickets.getConfirmation.useQuery({ id: ticketId }, { enabled: !!ticketId });
+  // بنود البلاغ — الخطوة 2 من ميزة البلاغ متعدد الجهات (2026-08-08). قراءة فقط، بنفس حارس
+  // صلاحية البلاغ نفسه (tickets.items تُحقق assertTicketReadable داخليًا).
+  const { data: ticketItems } = trpc.tickets.items.useQuery({ ticketId }, { enabled: !!ticketId });
 
   const approveMut = trpc.tickets.approve.useMutation({ onSuccess: () => { toast.success(t.common.confirm); refetch(); } });
   const assignMut = trpc.tickets.assign.useMutation({
@@ -132,15 +146,31 @@ const { getField } = useResolvedTranslation(
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [editForm, setEditForm] = useState({ title: "", description: "", priority: "", category: "", locationDetail: "" });
   const isManagedConstructionTicket = !!ticket && user?.role === APP_ROLE.CONSTRUCTION_PROCUREMENT_MANAGER &&
-    ticket.maintenanceResponsibleDepartment === MAINTENANCE_RESPONSIBLE_DEPARTMENT.CONSTRUCTION &&
-    ticket.maintenanceResponsibleManagerId === user?.id;
-  const isLinkedTicketReadOnly = user?.role === APP_ROLE.CONSTRUCTION_PROCUREMENT_MANAGER && !isManagedConstructionTicket;
+    (
+      (ticket.maintenanceResponsibleDepartment === MAINTENANCE_RESPONSIBLE_DEPARTMENT.CONSTRUCTION &&
+        ticket.maintenanceResponsibleManagerId === user?.id) ||
+      // ⚠️ 2026-08-08 — نفس إصلاح الخطوة 1 (القاعدة الحرجة #12)، لكن على الواجهة: جهة
+      // ثانوية بالفرز المتعدد لا تعكسها أعمدة البلاغ — تُفحص بنود البلاغ (ticketItems،
+      // مجلوبة أعلاه عبر tickets.items) بدل الاكتفاء بعمود tickets.maintenanceResponsibleDepartment.
+      !!ticketItems?.some((item: any) =>
+        item.responsibleDepartment === MAINTENANCE_RESPONSIBLE_DEPARTMENT.CONSTRUCTION &&
+        item.responsibleManagerId === user?.id
+      ) ||
+      !!departmentPlan?.departments?.some((dept: any) =>
+        dept.department === MAINTENANCE_RESPONSIBLE_DEPARTMENT.CONSTRUCTION && dept.responsibleManagerId === user?.id
+      )
+    );
+  const isLinkedTicketReadOnly = user?.role === APP_ROLE.CONSTRUCTION_PROCUREMENT_MANAGER &&
+    !isManagedConstructionTicket && ticket?.reportedById !== user?.id;
   const isRoutedConstructionReadOnlyForGeneral = !!ticket &&
     user?.role === APP_ROLE.GENERAL_MAINTENANCE_MANAGER &&
     ticket.maintenanceResponsibleDepartment === MAINTENANCE_RESPONSIBLE_DEPARTMENT.CONSTRUCTION;
   const isTicketReadOnly = isLinkedTicketReadOnly || isRoutedConstructionReadOnlyForGeneral;
+  const isCreatorRestrictedForEdit = (MAINTENANCE_MANAGER_FAMILY as readonly string[]).includes(user?.role || "");
+  const isEditAdminOverride = [APP_ROLE.OWNER, APP_ROLE.ADMIN].includes(user?.role as any);
+  const isTicketReporter = ticket?.reportedById === user?.id;
   const canEditTicket = !isTicketReadOnly && !!ticket && isTicketEditableBeforeTriage(ticket.status) &&
-    ([APP_ROLE.OWNER, APP_ROLE.ADMIN, APP_ROLE.MAINTENANCE_MANAGER, APP_ROLE.GENERAL_MAINTENANCE_MANAGER].includes(user?.role as any) || ticket.reportedById === user?.id);
+    (isEditAdminOverride || isTicketReporter) && (!isCreatorRestrictedForEdit || isTicketReporter);
   const openEditDialog = useCallback(() => {
     if (!ticket) return;
     setEditForm({
@@ -164,8 +194,55 @@ const { getField } = useResolvedTranslation(
   const completeMut = trpc.tickets.completeRepair.useMutation({ onSuccess: () => { toast.success(t.tickets.completeRepair); refetch(); } });
   const closeMut = trpc.tickets.close.useMutation({ onSuccess: () => { toast.success(t.tickets.closeTicket); refetch(); } });
 
+  // تنفيذ الإصلاح لكل بند — المرحلة 6 (2026-08-10)
+  const utils = trpc.useUtils();
+  const refetchAll = () => { refetch(); utils.tickets.items.invalidate({ ticketId }); };
+
+  // خطة الجهات والمهام الجديدة.
+  const [departmentTaskDrafts, setDepartmentTaskDrafts] = useState<Record<number, { title: string; description: string }>>({});
+  const [taskAssigneeDrafts, setTaskAssigneeDrafts] = useState<Record<number, number[]>>({});
+  const [taskAssigneeSearches, setTaskAssigneeSearches] = useState<Record<number, string>>({});
+  const refreshDepartmentPlan = () => { refetch(); refetchDepartmentPlan(); utils.tickets.departmentPlan.invalidate({ ticketId }); };
+  const createDepartmentTaskMut = trpc.tickets.createDepartmentTask.useMutation({
+    onSuccess: (_res, vars) => { toast.success("تم إنشاء المهمة داخل الجهة"); setDepartmentTaskDrafts(prev => ({ ...prev, [vars.ticketDepartmentId]: { title: "", description: "" } })); refreshDepartmentPlan(); },
+    onError: (e: any) => toast.error(e.message),
+  });
+  const assignDepartmentTaskMut = trpc.tickets.assignDepartmentTask.useMutation({
+    onSuccess: () => { toast.success("تم توزيع المهمة على الفنيين"); refreshDepartmentPlan(); },
+    onError: (e: any) => toast.error(e.message),
+  });
+  const promoteDepartmentTaskMut = trpc.tickets.promoteDepartmentTask.useMutation({
+    onSuccess: (res: any) => { toast.success(`تم إنشاء البلاغ الفرعي ${res?.ticketNumber || ""}`); refreshDepartmentPlan(); },
+    onError: (e: any) => toast.error(e.message),
+  });
+  const closeParentTicketMut = trpc.tickets.closeParentTicket.useMutation({
+    onSuccess: (res: any) => { toast.success(`تم إغلاق البلاغ الرئيسي بعد اكتمال ${res?.subTicketCount ?? 0} بلاغ فرعي`); refreshDepartmentPlan(); },
+    onError: (e: any) => toast.error(e.message),
+  });
+  const startRepairForItemMut = trpc.tickets.startRepairForItem.useMutation({
+    onSuccess: () => { toast.success("تم بدء تنفيذ البند"); refetchAll(); },
+    onError: (e: any) => toast.error(e.message),
+  });
+  const completeRepairForItemMut = trpc.tickets.completeRepairForItem.useMutation({
+    onSuccess: () => { toast.success("تم رفع نتيجة البند — بانتظار الاعتماد"); refetchAll(); },
+    onError: (e: any) => toast.error(e.message),
+  });
+  const closeTicketItemMut = trpc.tickets.closeTicketItem.useMutation({
+    onSuccess: (res: any) => {
+      toast.success(res?.remainingItems === 0 ? "تم اعتماد البند — كل البنود مكتملة الآن" : `تم اعتماد البند — تبقّى ${res?.remainingItems} بند`);
+      refetchAll();
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
+  const [itemRepairForms, setItemRepairForms] = useState<Record<number, { afterPhotoUrl: string; repairNotes: string; materialsUsed: string }>>({});
+
   // === New Workflow Mutations ===
   const triageMut = trpc.tickets.triageTicket.useMutation({ onSuccess: () => { toast.success("تم نقل البلاغ لمرحلة الفحص"); refetch(); } });
+  // الفرز المتعدد الجهات — 2026-08-08، إجراء مستقل لا يمس triageTicket القائم.
+  const triageMultiMut = trpc.tickets.triageMulti.useMutation({
+    onSuccess: (res: any) => { toast.success(`تم اعتماد ${res?.departmentsCreated ?? 0} جهة — تبدأ الآن مرحلة المهام`); refetch(); refetchDepartmentPlan(); },
+    onError: (e: any) => toast.error(e.message),
+  });
   const inspectMut = trpc.tickets.inspectTicket.useMutation({
     onSuccess: (result, variables) => {
       toast.success(
@@ -190,6 +267,12 @@ const { getField } = useResolvedTranslation(
     onError: (err) => toast.error(err.message),
   });
   const approveWorkMut = trpc.tickets.approveWork.useMutation({ onSuccess: () => { toast.success("تم اعتماد بدء العمل"); refetch(); }, onError: (err) => toast.error(err.message) });
+  // اعتماد المسار لكل بند — الخطوة 3 من ميزة البلاغ متعدد الجهات (2026-08-08).
+  const approveWorkForItemMut = trpc.tickets.approveWorkForItem.useMutation({
+    onSuccess: () => { toast.success("تم اعتماد مسار البند"); refetch(); },
+    onError: (err) => toast.error(err.message),
+  });
+  const [itemPathSelections, setItemPathSelections] = useState<Record<number, { path: "A" | "B" | "C"; justification: string }>>({});
   const markReadyMut = trpc.tickets.markReadyForClosure.useMutation({ onSuccess: () => { toast.success("تم رفع صورة الإصلاح - جاهز للإغلاق"); refetch(); } });
   const closeBySupervisorMut = trpc.tickets.closeBySupervisor.useMutation({ onSuccess: () => { toast.success("تم إغلاق البلاغ"); refetch(); } });
   const completeWithPartsMut = trpc.tickets.completeWithParts.useMutation({ onSuccess: () => { toast.success("تم إكمال العمل بالمواد - البلاغ جاهز للإغلاق"); refetch(); } });
@@ -218,6 +301,17 @@ const { getField } = useResolvedTranslation(
   const [triageAssignedTo, setTriageAssignedTo] = useState("");
   const [triageDepartment, setTriageDepartment] = useState<string>("");
   const [triageResponsibleManagerId, setTriageResponsibleManagerId] = useState("");
+
+  // 2026-08-11: فرز الجهات/المهام هو المسار الافتراضي والإلزامي بالواجهة.
+  // single باقٍ كمسار توافق رجعي داخلي فقط.
+  const [triageMode, setTriageMode] = useState<"single" | "multi">("multi");
+  const [multiAssignments, setMultiAssignments] = useState<Record<string, { selected: boolean; managerId: string; organizationalTitle: string }>>({});
+  const emptyMultiAssignments = () => ({
+    [MAINTENANCE_RESPONSIBLE_DEPARTMENT.GENERAL]: { selected: false, managerId: "", organizationalTitle: "" },
+    [MAINTENANCE_RESPONSIBLE_DEPARTMENT.CONSTRUCTION]: { selected: false, managerId: "", organizationalTitle: "" },
+  });
+  const updateAssignment = (dept: string, patch: Partial<{ selected: boolean; managerId: string; organizationalTitle: string }>) =>
+    setMultiAssignments(prev => ({ ...prev, [dept]: { ...prev[dept], ...patch } }));
 
   const [selectedTech, setSelectedTech] = useState("");
   const [selectedExternalTech, setSelectedExternalTech] = useState("");
@@ -330,17 +424,32 @@ const { getField } = useResolvedTranslation(
   }, [addAttachMut, ticketId]);
 
   // Phase 2: use listTechnicians as primary source for assignment dropdown (includes specialty)
-  // Fallback to users.filter if listTechnicians is not yet populated
-  const technicians = (userTechniciansList && userTechniciansList.length > 0)
-    ? userTechniciansList
-    : (users?.filter(u => u.role === APP_ROLE.TECHNICIAN && u.isActive !== 0) || []);
+  // Fallback to users.filter if listTechnicians is not yet populated.
+  // القائمة مرتبة أبجديًا مرة واحدة، فتستفيد منها كل حقول إسناد الفنيين في الصفحة.
+  const technicians = useMemo(() => {
+    const source = (userTechniciansList && userTechniciansList.length > 0)
+      ? userTechniciansList
+      : (users?.filter(u => u.role === APP_ROLE.TECHNICIAN && u.isActive !== 0) || []);
+    return [...source].sort((a: any, b: any) => {
+      const aName = String(a.name || a.email || "");
+      const bName = String(b.name || b.email || "");
+      return aName.localeCompare(bName, locale, { sensitivity: "base" });
+    });
+  }, [userTechniciansList, users, locale]);
   const role = user?.role || "";
 
   const linkedPOs = allPOs?.filter(po => po.ticketId === ticketId) || [];
 
   const isAdminOrOwner = [APP_ROLE.ADMIN, APP_ROLE.OWNER].includes(role as any);
   const isGeneralMaintenanceScope = role === APP_ROLE.GENERAL_MAINTENANCE_MANAGER &&
-    ticket?.maintenanceResponsibleDepartment !== MAINTENANCE_RESPONSIBLE_DEPARTMENT.CONSTRUCTION;
+    (
+      ticket?.maintenanceResponsibleDepartment !== MAINTENANCE_RESPONSIBLE_DEPARTMENT.CONSTRUCTION ||
+      // ⚠️ 2026-08-08 — نفس مبدأ إصلاح isManagedConstructionTicket أعلاه: بند عام ثانوي
+      // ضمن بلاغ جهته الرئيسية "إنشاءات" لا تعكسه أعمدة البلاغ — يُفحص عبر ticketItems.
+      !!ticketItems?.some((item: any) =>
+        !item.responsibleDepartment || item.responsibleDepartment === MAINTENANCE_RESPONSIBLE_DEPARTMENT.GENERAL
+      )
+    );
   const isManager = [APP_ROLE.MAINTENANCE_MANAGER, APP_ROLE.PURCHASE_MANAGER, APP_ROLE.OWNER, APP_ROLE.ADMIN].includes(role as any) ||
     isGeneralMaintenanceScope || isManagedConstructionTicket;
   const isTicketWorkflowManager = [APP_ROLE.MAINTENANCE_MANAGER, APP_ROLE.OWNER, APP_ROLE.ADMIN].includes(role as any) ||
@@ -398,7 +507,7 @@ const { getField } = useResolvedTranslation(
 
   // === New Workflow Smart Buttons ===
   const canTriage = canRouteTicket && ticket?.status === "pending_triage";
-  const isAssignedInspectionTechnician = role === APP_ROLE.TECHNICIAN && ticket?.assignedToId === user?.id;
+  const isAssignedInspectionTechnician = role === APP_ROLE.TECHNICIAN && (ticket?.assignedToId === user?.id || !!ticket?.currentUserTaskAssignee);
   const isInspectionManager = [APP_ROLE.MAINTENANCE_MANAGER, APP_ROLE.OWNER, APP_ROLE.ADMIN].includes(role as any) ||
     isGeneralMaintenanceScope || isManagedConstructionTicket;
   const inspectionWorkflowStatus = ticket?.inspectionWorkflowStatus;
@@ -584,26 +693,343 @@ const { getField } = useResolvedTranslation(
         )}
       </div>
 
+      {ticket.workflowModel === "sub_ticket" && ticket.parentTicketId && (
+        <Card className="border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-950/20">
+          <CardContent className="py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-2 text-sm">
+              <GitBranch className="w-4 h-4 text-blue-600" />
+              <span>هذا بلاغ فرعي مستقل ناتج عن مهمة في البلاغ الرئيسي</span>
+              <span className="font-mono font-medium">{parentTicket?.ticketNumber || `#${ticket.parentTicketId}`}</span>
+            </div>
+            <Button variant="outline" size="sm" onClick={() => setLocation(`/tickets/${ticket.parentTicketId}`)}>
+              فتح البلاغ الرئيسي
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {ticket.workflowModel === "department_tasks" && ticket.status !== "pending_triage" && departmentPlan && (
+        <Card className="border-purple-200 dark:border-purple-800">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Users className="w-4 h-4 text-purple-600" /> الجهات والمهام
+            </CardTitle>
+            <p className="text-xs text-muted-foreground">
+              تم اعتماد الجهات أولًا. في الإنشاءات يرسل مدير الصيانة والتشغيل عنوانًا تنظيميًا فقط، ثم ينشئ مدير الإنشاءات مهمة واحدة أو عدة مهام تحته ويوزع الفنيين ويحوّل المهام إلى بلاغات فرعية بنفس التسلسل العام.
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {(() => {
+              // لوحة اكتمال العائلة + الإغلاق اليدوي بحارس.
+              // سبب وجودها: الرأس كان يبقى بحالة "تحليل الجهات والمهام" إلى الأبد
+              // بعد انتهاء كل أبنائه، فلا شيء بالواجهة يفرّق بين عائلة انتهت وأخرى
+              // لا تزال قيد العمل. النسبة تظهر فورًا، والزر يظهر عند 100% فقط.
+              const summary = (departmentPlan as any)?.subTicketsSummary;
+              if (!summary || summary.total === 0) return null;
+              const pending = ((departmentPlan as any)?.pendingSubTickets || []) as any[];
+              const parentClosed = ticket.status === "closed" || ticket.status === "requester_confirmed";
+              const canCloseParent = (isSupervisor || isManager) && summary.allFinished && !parentClosed;
+              return (
+                <div className={`rounded-lg border p-3 space-y-2 ${summary.allFinished && !parentClosed ? "border-emerald-300 bg-emerald-50/60 dark:border-emerald-800 dark:bg-emerald-950/30" : "bg-muted/30"}`}>
+                  <div className="flex items-center justify-between gap-3 flex-wrap">
+                    <div className="text-sm font-medium">
+                      اكتمال البلاغات الفرعية: {summary.finished} من {summary.total}
+                      <span className="text-xs text-muted-foreground font-normal mr-2">
+                        ({summary.confirmed} بتأكيد مقدّم البلاغ)
+                      </span>
+                    </div>
+                    <span className="text-sm font-bold tabular-nums">{summary.percent}%</span>
+                  </div>
+                  <div className="h-2 rounded-full bg-muted overflow-hidden">
+                    <div
+                      className={`h-full rounded-full transition-all ${summary.allFinished ? "bg-emerald-500" : "bg-purple-500"}`}
+                      style={{ width: `${summary.percent}%` }}
+                    />
+                  </div>
+                  {parentClosed ? (
+                    <p className="text-xs text-muted-foreground">
+                      البلاغ الرئيسي مغلق — خطة الجهات والمهام مجمّدة ولا تقبل أي إضافة أو تعديل.
+                    </p>
+                  ) : summary.allFinished ? (
+                    <div className="flex items-center justify-between gap-3 flex-wrap">
+                      <p className="text-xs text-emerald-700 dark:text-emerald-400 font-medium">
+                        اكتملت كل الفروع — البلاغ الرئيسي بانتظار الإغلاق
+                      </p>
+                      {canCloseParent && (
+                        <Button size="sm" className="gap-2" disabled={closeParentTicketMut.isPending}
+                          onClick={() => closeParentTicketMut.mutate({ id: ticketId })}>
+                          {closeParentTicketMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+                          إغلاق البلاغ الرئيسي
+                        </Button>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">
+                      بانتظار: {pending.map((child: any) => child.ticketNumber).join("، ")}
+                    </p>
+                  )}
+                </div>
+              );
+            })()}
+            {departmentPlan.departments.map((dept: any) => {
+              const manager = users?.find((u: any) => u.id === dept.responsibleManagerId);
+              const deptTasks = departmentPlan.tasks.filter((task: any) => task.ticketDepartmentId === dept.id);
+              // خطة الجهات تُجمَّد بصريًا بمجرد إغلاق الرأس — مطابق لحارس السيرفر
+              // assertDepartmentPlanEditable، حتى لا يظهر زر يفشل عند الضغط.
+              const planFrozen = ticket.status === "closed" || ticket.status === "requester_confirmed";
+              const canManageDept = !planFrozen && (isAdminOrOwner ||
+                (dept.department === MAINTENANCE_RESPONSIBLE_DEPARTMENT.GENERAL && (
+                  role === APP_ROLE.MAINTENANCE_MANAGER ||
+                  (dept.responsibleManagerId === user?.id && role === APP_ROLE.GENERAL_MAINTENANCE_MANAGER)
+                )) ||
+                (dept.department === MAINTENANCE_RESPONSIBLE_DEPARTMENT.CONSTRUCTION &&
+                  dept.responsibleManagerId === user?.id && role === APP_ROLE.CONSTRUCTION_PROCUREMENT_MANAGER));
+              const draft = departmentTaskDrafts[dept.id] || { title: "", description: "" };
+              return (
+                <div key={dept.id} className="rounded-lg border p-3 space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <p className="font-medium text-sm">{dept.department === MAINTENANCE_RESPONSIBLE_DEPARTMENT.CONSTRUCTION ? "قسم الإنشاءات" : "الصيانة العامة"}</p>
+                      <p className="text-xs text-muted-foreground">مسؤول الجهة: {manager?.name || manager?.email || `#${dept.responsibleManagerId}`}</p>
+                      {dept.department === MAINTENANCE_RESPONSIBLE_DEPARTMENT.CONSTRUCTION && dept.organizationalTitle && (
+                        <p className="mt-1 text-sm font-semibold text-purple-700 dark:text-purple-300">العنوان التنظيمي: {dept.organizationalTitle}</p>
+                      )}
+                    </div>
+                    <Badge variant="secondary">{deptTasks.length} مهمة</Badge>
+                  </div>
+
+                  {canManageDept && (
+                    <div className="rounded-md bg-muted/40 p-3 space-y-2">
+                      <div className="grid sm:grid-cols-2 gap-2">
+                        <Input placeholder="عنوان المهمة (اختياري)" value={draft.title}
+                          onChange={(e) => setDepartmentTaskDrafts(prev => ({ ...prev, [dept.id]: { ...draft, title: e.target.value } }))} />
+                        <Textarea placeholder="وصف المهمة المطلوبة *" rows={2} value={draft.description}
+                          onChange={(e) => setDepartmentTaskDrafts(prev => ({ ...prev, [dept.id]: { ...draft, description: e.target.value } }))} />
+                      </div>
+                      <Button size="sm" className="gap-2" disabled={!draft.description.trim() || createDepartmentTaskMut.isPending}
+                        onClick={() => createDepartmentTaskMut.mutate({ ticketId, ticketDepartmentId: dept.id, title: draft.title || undefined, description: draft.description })}>
+                        {createDepartmentTaskMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />} إنشاء مهمة
+                      </Button>
+                    </div>
+                  )}
+
+                  {deptTasks.length === 0 ? <p className="text-xs text-muted-foreground">لم تُنشأ مهام لهذه الجهة بعد.</p> : (
+                    <div className="space-y-3">
+                      {deptTasks.map((task: any) => {
+                        const persistedAssigneeIds = departmentPlan.assignees.filter((a: any) => a.taskId === task.id).map((a: any) => a.userId);
+                        const selectedIds = taskAssigneeDrafts[task.id] ?? persistedAssigneeIds;
+                        const setSelectedIds = (ids: number[]) => setTaskAssigneeDrafts(prev => ({ ...prev, [task.id]: ids }));
+                        const assigneeSearch = taskAssigneeSearches[task.id] ?? "";
+                        const normalizedAssigneeSearch = assigneeSearch.trim().toLocaleLowerCase();
+                        const visibleTechnicians = normalizedAssigneeSearch
+                          ? technicians.filter((tech: any) => String(tech.name || tech.email || "").toLocaleLowerCase().includes(normalizedAssigneeSearch))
+                          : technicians;
+                        return (
+                          <div key={task.id} className="rounded-md border bg-background p-3 space-y-2">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <div>
+                                <p className="text-sm font-medium">مهمة {task.taskNumber}{task.title ? ` — ${task.title}` : ""}</p>
+                                <p className="text-xs text-muted-foreground whitespace-pre-wrap">{task.description}</p>
+                              </div>
+                              <Badge variant="outline">{task.status === "pending_assignment" ? "بانتظار توزيع الفنيين" : task.status === "assigned" ? "موزعة" : task.status === "promoted" ? "بلاغ فرعي" : task.status}</Badge>
+                            </div>
+
+                            {canManageDept && !task.convertedTicketId && (
+                              <div className="space-y-2">
+                                <div className="flex items-center justify-between gap-2">
+                                  <Label className="text-xs">الفنيون المسندون</Label>
+                                  <span className="text-[11px] text-muted-foreground">المحدد: {selectedIds.length}</span>
+                                </div>
+                                <div className="relative">
+                                  <Search className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
+                                  <Input
+                                    value={assigneeSearch}
+                                    onChange={(e) => setTaskAssigneeSearches(prev => ({ ...prev, [task.id]: e.target.value }))}
+                                    placeholder="بحث باسم الفني..."
+                                    className="h-8 pr-8 text-xs"
+                                  />
+                                </div>
+                                <div className="grid sm:grid-cols-2 gap-1.5 max-h-40 overflow-y-auto rounded border p-2">
+                                  {visibleTechnicians.length > 0 ? visibleTechnicians.map((tech: any) => {
+                                    const checked = selectedIds.includes(tech.id);
+                                    return <label key={tech.id} className="flex items-center gap-2 text-xs cursor-pointer rounded px-1 py-0.5 hover:bg-muted/50">
+                                      <input type="checkbox" checked={checked} onChange={(e) => setSelectedIds(e.target.checked ? [...selectedIds, tech.id] : selectedIds.filter((id: number) => id !== tech.id))} />
+                                      <span>{tech.name || tech.email}</span>
+                                    </label>;
+                                  }) : (
+                                    <p className="sm:col-span-2 py-2 text-center text-xs text-muted-foreground">لا يوجد فني مطابق للاسم المدخل</p>
+                                  )}
+                                </div>
+                                <div className="flex flex-wrap gap-2">
+                                  <Button variant="outline" size="sm" disabled={!selectedIds.length || assignDepartmentTaskMut.isPending}
+                                    onClick={() => assignDepartmentTaskMut.mutate({ ticketId, taskId: task.id, technicianIds: selectedIds })}>
+                                    حفظ توزيع الفنيين
+                                  </Button>
+                                  <Button size="sm" className="gap-2" disabled={!persistedAssigneeIds.length || promoteDepartmentTaskMut.isPending}
+                                    onClick={() => promoteDepartmentTaskMut.mutate({ ticketId, taskId: task.id })}>
+                                    {promoteDepartmentTaskMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <GitBranch className="w-4 h-4" />} تحويل إلى بلاغ فرعي
+                                  </Button>
+                                </div>
+                              </div>
+                            )}
+                            {!!task.convertedTicketId && (
+                              <Button variant="outline" size="sm" className="gap-2" onClick={() => setLocation(`/tickets/${task.convertedTicketId}`)}>
+                                <GitBranch className="w-4 h-4" /> فتح البلاغ الفرعي
+                              </Button>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* بنود البلاغ — الخطوة 2 من ميزة البلاغ متعدد الجهات (2026-08-08). يظهر فقط للبلاغات
+          متعددة البنود فعليًا (>1) — البلاغ ببند واحد يعرض ملخصه بالأعلى كالمعتاد، فبطاقة
+          بند إضافية مطابقة له تمامًا لا تضيف معلومة جديدة. */}
+      {ticketItems && ticketItems.length > 1 && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base flex items-center gap-2">
+              <ClipboardList className="w-4 h-4 text-purple-600" />
+              بنود البلاغ ({ticketItems.length})
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2.5">
+            {ticketItems.map((item: any) => {
+              // من يملك تنفيذ إجراء على هذا البند؟ (فلترة تجميلية — الخادم هو الحارس الحقيقي)
+              const isItemTech = item.assignedToId === user?.id;
+              const isItemManager = isAdminOrOwner || role === APP_ROLE.MAINTENANCE_MANAGER || role === APP_ROLE.SUPERVISOR ||
+                (role === APP_ROLE.GENERAL_MAINTENANCE_MANAGER && (!item.responsibleDepartment || item.responsibleDepartment === MAINTENANCE_RESPONSIBLE_DEPARTMENT.GENERAL)) ||
+                (role === APP_ROLE.CONSTRUCTION_PROCUREMENT_MANAGER && item.responsibleDepartment === MAINTENANCE_RESPONSIBLE_DEPARTMENT.CONSTRUCTION && item.responsibleManagerId === user?.id);
+              const canExecuteItem = !isTicketReadOnly && (isItemTech || isItemManager);
+              const form = itemRepairForms[item.id] || { afterPhotoUrl: "", repairNotes: "", materialsUsed: "" };
+              const setForm = (patch: any) => setItemRepairForms(prev => ({ ...prev, [item.id]: { ...form, ...patch } }));
+
+              const canStart = canExecuteItem && item.maintenancePath &&
+                (item.maintenancePath === "A" ? ["work_approved", "assigned"].includes(item.status) : item.status === "received_warehouse");
+              const canComplete = canExecuteItem && item.status === "in_progress";
+              const canApproveItemClose = !isTicketReadOnly && isItemManager && item.status === "ready_for_closure";
+
+              return (
+                <div key={item.id} className="space-y-2">
+                  <TicketItemStepCard item={item} getStatusLabel={getStatusLabel} />
+
+                  {canStart && (
+                    <Button
+                      onClick={() => startRepairForItemMut.mutate({ ticketItemId: item.id })}
+                      disabled={startRepairForItemMut.isPending}
+                      size="sm" className="w-full gap-2 bg-blue-600 hover:bg-blue-700 text-white"
+                    >
+                      {startRepairForItemMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wrench className="w-4 h-4" />}
+                      بدء تنفيذ بند {item.itemNumber}
+                    </Button>
+                  )}
+
+                  {canComplete && (
+                    <div className="space-y-2 rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-950/20 p-3">
+                      <p className="text-xs font-medium">رفع نتيجة تنفيذ بند {item.itemNumber}</p>
+                      <div className="space-y-1.5">
+                        <Label className="text-xs">صورة بعد الإصلاح (مطلوبة)</Label>
+                        {form.afterPhotoUrl ? (
+                          <div className="relative">
+                            <img src={form.afterPhotoUrl} alt="بعد الإصلاح" className="w-full h-32 object-cover rounded-lg" />
+                            <Button variant="destructive" size="sm" className="absolute top-2 left-2"
+                              onClick={() => setForm({ afterPhotoUrl: "" })}>{t.common.delete}</Button>
+                          </div>
+                        ) : (
+                          <Input type="file" accept="image/*" className="text-xs"
+                            onChange={async (e) => {
+                              const file = e.target.files?.[0];
+                              if (!file) return;
+                              const formData = new FormData();
+                              formData.append("file", file);
+                              try {
+                                const res = await fetch("/api/upload", { method: "POST", body: formData });
+                                const data = await res.json();
+                                if (data.url) { setForm({ afterPhotoUrl: data.url }); toast.success(t.common.save); }
+                              } catch { toast.error("فشل رفع الصورة"); }
+                            }} />
+                        )}
+                      </div>
+                      <Textarea placeholder="ملاحظات الإصلاح..." rows={2} className="text-sm"
+                        value={form.repairNotes} onChange={e => setForm({ repairNotes: e.target.value })} />
+                      <Textarea placeholder="المواد المستخدمة (اختياري)..." rows={2} className="text-sm"
+                        value={form.materialsUsed} onChange={e => setForm({ materialsUsed: e.target.value })} />
+                      <Button
+                        onClick={() => completeRepairForItemMut.mutate({
+                          ticketItemId: item.id,
+                          afterPhotoUrl: form.afterPhotoUrl,
+                          repairNotes: form.repairNotes || undefined,
+                          materialsUsed: form.materialsUsed || undefined,
+                        })}
+                        disabled={completeRepairForItemMut.isPending || !form.afterPhotoUrl || !form.repairNotes.trim()}
+                        size="sm" className="w-full gap-2 bg-emerald-600 hover:bg-emerald-700 text-white"
+                      >
+                        {completeRepairForItemMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+                        إنهاء تنفيذ بند {item.itemNumber}
+                      </Button>
+                    </div>
+                  )}
+
+                  {canApproveItemClose && (
+                    <Button
+                      onClick={() => closeTicketItemMut.mutate({ ticketItemId: item.id })}
+                      disabled={closeTicketItemMut.isPending}
+                      size="sm" className="w-full gap-2 bg-teal-600 hover:bg-teal-700 text-white"
+                    >
+                      {closeTicketItemMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+                      اعتماد إغلاق بند {item.itemNumber}
+                    </Button>
+                  )}
+                </div>
+              );
+            })}
+          </CardContent>
+        </Card>
+      )}
+
       <Card>
         <CardContent className="p-4">
-          <div className="flex items-center justify-between gap-1 overflow-x-auto">
-            {workflowSteps.map((step, i) => (
-              <div key={step.key} className="flex items-center gap-1 flex-1 min-w-0">
-                <div className={`flex items-center gap-1.5 ${step.done ? "text-primary" : "text-muted-foreground/40"}`}>
-                  <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 ${
-                    ticket.status === step.key ? "bg-primary text-primary-foreground ring-2 ring-primary/30" :
-                    step.done ? "bg-primary/20 text-primary" : "bg-muted text-muted-foreground/40"
-                  }`}>
-                    {step.done ? "✓" : i + 1}
+          {ticket.workflowModel === "department_tasks" && ticket.status !== "pending_triage" ? (
+            <div className="flex items-center justify-between gap-1 overflow-x-auto">
+              {[
+                { key: "triage", label: "الفرز", done: true },
+                { key: "departments", label: "اعتماد الجهات", done: true },
+                { key: "tasks", label: "إنشاء وتوزيع المهام", done: (departmentPlan?.tasks?.length || 0) > 0 },
+                { key: "subtickets", label: "البلاغات الفرعية", done: (departmentPlan?.tasks || []).some((task: any) => !!task.convertedTicketId) },
+              ].map((step, i, arr) => (
+                <div key={step.key} className="flex items-center gap-1 flex-1 min-w-0">
+                  <div className={`flex items-center gap-1.5 ${step.done ? "text-primary" : "text-muted-foreground/40"}`}>
+                    <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 ${step.done ? "bg-primary/20 text-primary" : "bg-muted text-muted-foreground/40"}`}>
+                      {step.done ? "✓" : i + 1}
+                    </div>
+                    <span className="text-[11px] font-medium whitespace-nowrap">{step.label}</span>
                   </div>
-                  <span className="text-[11px] font-medium whitespace-nowrap">{step.label}</span>
+                  {i < arr.length - 1 && <div className={`flex-1 h-px mx-1 ${step.done ? "bg-primary/40" : "bg-muted"}`} />}
                 </div>
-                {i < workflowSteps.length - 1 && (
-                  <div className={`flex-1 h-px mx-1 ${step.done ? "bg-primary/40" : "bg-muted"}`} />
-                )}
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          ) : (
+            <div className="flex items-center justify-between gap-1 overflow-x-auto">
+              {workflowSteps.map((step, i) => (
+                <div key={step.key} className="flex items-center gap-1 flex-1 min-w-0">
+                  <div className={`flex items-center gap-1.5 ${step.done ? "text-primary" : "text-muted-foreground/40"}`}>
+                    <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 ${ticket.status === step.key ? "bg-primary text-primary-foreground ring-2 ring-primary/30" : step.done ? "bg-primary/20 text-primary" : "bg-muted text-muted-foreground/40"}`}>
+                      {step.done ? "✓" : i + 1}
+                    </div>
+                    <span className="text-[11px] font-medium whitespace-nowrap">{step.label}</span>
+                  </div>
+                  {i < workflowSteps.length - 1 && <div className={`flex-1 h-px mx-1 ${step.done ? "bg-primary/40" : "bg-muted"}`} />}
+                </div>
+              ))}
+            </div>
+          )}
           {["needs_purchase", "purchase_pending_estimate", "purchase_pending_accounting", "purchase_pending_management", "purchase_approved", "partial_purchase", "purchased", "received_warehouse"].includes(ticket.status) && (
             <div className="mt-3 pt-3 border-t">
               <div className="flex items-center gap-2 text-xs text-amber-600 bg-amber-50 rounded-lg p-2">
@@ -982,7 +1408,7 @@ const { getField } = useResolvedTranslation(
                   <div className="flex items-center gap-2 mb-2">
                     <span className="text-amber-600 dark:text-amber-400 font-semibold text-sm">🔍 فرز وتصنيف البلاغ</span>
                   </div>
-                  <Button onClick={() => { setTriageAssignedTo(""); setTriageDepartment(""); setTriageResponsibleManagerId(""); setShowTriageDialog(true); }} className="w-full gap-2 bg-amber-600 hover:bg-amber-700 text-white" size="lg">
+                  <Button onClick={() => { setTriageAssignedTo(""); setTriageDepartment(""); setTriageResponsibleManagerId(""); setTriageMode("multi"); setMultiAssignments(emptyMultiAssignments()); setShowTriageDialog(true); }} className="w-full gap-2 bg-amber-600 hover:bg-amber-700 text-white" size="lg">
                     <CheckCircle2 className="w-4 h-4" />
                     بدء الفرز وتعيين الفني
                   </Button>
@@ -1262,8 +1688,10 @@ const { getField } = useResolvedTranslation(
                 )}
               </div>
 
-              {/* Maintenance manager: select path only after inspection approval */}
-              {canApproveWork && (
+              {/* Maintenance manager: select path only after inspection approval.
+                  ⚠️ 2026-08-08: يعمل فقط للبلاغات أحادية البند (الأغلبية الساحقة) — بلاغ
+                  متعدد البنود يستخدم الكتلة الجديدة أدناه (اعتماد كل بند على حدة). */}
+              {canApproveWork && (!ticketItems || ticketItems.length <= 1) && (
                 <div className="space-y-3 bg-green-50 dark:bg-green-950/20 rounded-xl p-4 border border-green-200 dark:border-green-800">
                   <div className="flex items-center gap-2 mb-1">
                     <span className="text-green-600 dark:text-green-400 font-semibold text-sm">✅ نتيجة الفحص معتمدة — اختر مسار التنفيذ</span>
@@ -1298,6 +1726,75 @@ const { getField } = useResolvedTranslation(
                   </Button>
                 </div>
               )}
+
+              {/* اعتماد مسار كل بند على حدة — الخطوة 3 من ميزة البلاغ متعدد الجهات
+                  (2026-08-08). يظهر فقط للبلاغات متعددة البنود، ولكل مستخدم فقط البنود
+                  التي يملك صلاحية إدارتها (نفس منطق canManageTicketItemWorkflow بالخادم؛
+                  الخادم هو الحارس الحقيقي — هذا الفلتر بالواجهة تجميلي فقط). */}
+              {!isTicketReadOnly && ticket?.status === "under_inspection" &&
+                ticket?.inspectionWorkflowStatus === MAINTENANCE_INSPECTION_WORKFLOW_STATUS.APPROVED &&
+                ticketItems && ticketItems.length > 1 &&
+                ticketItems.filter((item: any) => {
+                  if (item.status !== "under_inspection") return false;
+                  if (isAdminOrOwner || role === APP_ROLE.MAINTENANCE_MANAGER || role === APP_ROLE.SUPERVISOR) return true;
+                  if (role === APP_ROLE.GENERAL_MAINTENANCE_MANAGER) {
+                    return !item.responsibleDepartment || item.responsibleDepartment === MAINTENANCE_RESPONSIBLE_DEPARTMENT.GENERAL;
+                  }
+                  if (role === APP_ROLE.CONSTRUCTION_PROCUREMENT_MANAGER) {
+                    return item.responsibleDepartment === MAINTENANCE_RESPONSIBLE_DEPARTMENT.CONSTRUCTION && item.responsibleManagerId === user?.id;
+                  }
+                  return false;
+                }).map((item: any) => {
+                  const sel = itemPathSelections[item.id] || { path: "A" as const, justification: "" };
+                  return (
+                    <div key={item.id} className="space-y-3 bg-green-50 dark:bg-green-950/20 rounded-xl p-4 border border-green-200 dark:border-green-800">
+                      <div className="flex items-center gap-2 mb-1 flex-wrap">
+                        <span className="text-green-600 dark:text-green-400 font-semibold text-sm">
+                          ✅ بند {item.itemNumber} — اختر مسار التنفيذ
+                        </span>
+                      </div>
+                      {item.description && <p className="text-sm text-muted-foreground">{item.description}</p>}
+                      <Select
+                        value={sel.path}
+                        onValueChange={(v: "A" | "B" | "C") =>
+                          setItemPathSelections(prev => ({ ...prev, [item.id]: { ...sel, path: v } }))
+                        }
+                      >
+                        <SelectTrigger className="w-full">
+                          <SelectValue placeholder="اختر مسار الصيانة" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="A">🔧 المسار A - صيانة داخلية مباشرة</SelectItem>
+                          <SelectItem value="B">🛒 المسار B - صيانة داخلية + شراء قطع غيار</SelectItem>
+                          <SelectItem value="C">🚛 المسار C - صيانة خارجية (ورشة خارجية)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      {sel.path === "C" && (
+                        <Textarea
+                          placeholder="مبرر الصيانة الخارجية (مطلوب للمسار C)..."
+                          value={sel.justification}
+                          onChange={e => setItemPathSelections(prev => ({ ...prev, [item.id]: { ...sel, justification: e.target.value } }))}
+                          rows={2}
+                          className="text-sm"
+                        />
+                      )}
+                      <Button
+                        onClick={() => approveWorkForItemMut.mutate({
+                          ticketItemId: item.id,
+                          maintenancePath: sel.path,
+                          justification: sel.justification || undefined,
+                        })}
+                        disabled={approveWorkForItemMut.isPending || (sel.path === "C" && !sel.justification.trim())}
+                        className="w-full gap-2 bg-green-600 hover:bg-green-700 text-white"
+                        size="lg"
+                      >
+                        {approveWorkForItemMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+                        اعتماد بند {item.itemNumber} (المسار {sel.path})
+                      </Button>
+                    </div>
+                  );
+                })}
+
 
               {/* Technician: Upload After Photo (Path A) */}
               {canMarkReadyForClosure && (
@@ -1463,7 +1960,6 @@ const { getField } = useResolvedTranslation(
                     disabled={
                       confirmCompletionMut.isPending ||
                       !confirmNote.trim() ||
-                      confirmPhotos.filter(f => f.status === "done").length < 1 ||
                       confirmPhotos.filter(f => f.status === "done").length > 4
                     }
                     className="w-full gap-2 bg-emerald-600 hover:bg-emerald-700 text-white"
@@ -1623,6 +2119,14 @@ const { getField } = useResolvedTranslation(
               <p className="font-medium text-sm">{ticket?.ticketNumber}</p>
               <p className="text-sm text-muted-foreground">{ticket && getField("title")}</p>
             </div>
+
+            {/* الهيكل الجديد إلزامي للبلاغات الجديدة: جهة واحدة أو أكثر ثم المهام. */}
+            <div className="rounded-lg border border-purple-200 dark:border-purple-800 bg-purple-50/60 dark:bg-purple-950/20 p-3">
+              <p className="text-sm font-medium">فرز حسب الجهات والمهام</p>
+              <p className="text-xs text-muted-foreground mt-1">اختر جهة واحدة أو عدة جهات أولًا؛ بعد الاعتماد يبدأ مسؤول كل جهة بإنشاء المهام وتوزيع الفنيين.</p>
+            </div>
+
+            {triageMode === "single" && (
             <div className="space-y-2">
               <Label>الجهة المسؤولة *</Label>
               <Select value={triageDepartment} onValueChange={(value) => {
@@ -1637,7 +2141,8 @@ const { getField } = useResolvedTranslation(
                 </SelectContent>
               </Select>
             </div>
-            {selectedDepartmentManagers.length > 1 && (
+            )}
+            {triageMode === "single" && selectedDepartmentManagers.length > 1 && (
               <div className="space-y-2">
                 <Label>المسؤول المستلم *</Label>
                 <Select value={triageResponsibleManagerId} onValueChange={setTriageResponsibleManagerId}>
@@ -1650,7 +2155,7 @@ const { getField } = useResolvedTranslation(
                 </Select>
               </div>
             )}
-            {triageDepartment === MAINTENANCE_RESPONSIBLE_DEPARTMENT.GENERAL && (
+            {triageMode === "single" && triageDepartment === MAINTENANCE_RESPONSIBLE_DEPARTMENT.GENERAL && (
               <div className="space-y-2">
                 <Label>تعيين فني <span className="text-muted-foreground text-xs">(مطلوب)</span></Label>
                 <TechnicianCombobox
@@ -1664,16 +2169,93 @@ const { getField } = useResolvedTranslation(
                 />
               </div>
             )}
+
+            {/* الفرز المتعدد: الجهة والمسؤول فقط؛ المهام والفنيون لاحقًا. */}
+            {triageMode === "multi" && (
+              <div className="space-y-3 rounded-lg border border-purple-200 dark:border-purple-800 bg-purple-50/50 dark:bg-purple-950/20 p-3">
+                <p className="text-xs text-muted-foreground">
+                  اختر الجهة أو الجهات المسؤولة وحدد مسؤول كل جهة. إنشاء المهام وتوزيع الفنيين يتم لاحقًا داخل الجهة.
+                </p>
+                {[
+                  { key: MAINTENANCE_RESPONSIBLE_DEPARTMENT.GENERAL, label: "الصيانة العامة", mgrs: generalManagers },
+                  { key: MAINTENANCE_RESPONSIBLE_DEPARTMENT.CONSTRUCTION, label: "قسم الإنشاءات", mgrs: constructionManagers },
+                ].map(({ key, label, mgrs }) => {
+                  const a = multiAssignments[key] || { selected: false, managerId: "", organizationalTitle: "" };
+                  return (
+                    <div key={key} className="rounded-md border bg-background p-3 space-y-2">
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input type="checkbox" checked={a.selected} onChange={(e) => updateAssignment(key, { selected: e.target.checked })} className="w-4 h-4 accent-purple-600" />
+                        <span className="text-sm font-medium">{label}</span>
+                      </label>
+                      {a.selected && (
+                        <div className="space-y-2 pt-1">
+                          {mgrs.length > 1 ? (
+                            <>
+                              <Label className="text-xs">مسؤول الجهة *</Label>
+                              <Select value={a.managerId} onValueChange={(v) => updateAssignment(key, { managerId: v })}>
+                                <SelectTrigger><SelectValue placeholder="اختر المسؤول" /></SelectTrigger>
+                                <SelectContent>{mgrs.map((m: any) => <SelectItem key={m.id} value={String(m.id)}>{m.name || m.username}</SelectItem>)}</SelectContent>
+                              </Select>
+                            </>
+                          ) : mgrs.length === 1 ? (
+                            <p className="text-xs text-muted-foreground">مسؤول الجهة: {mgrs[0].name || mgrs[0].username}</p>
+                          ) : null}
+                          {key === MAINTENANCE_RESPONSIBLE_DEPARTMENT.CONSTRUCTION && (
+                            <div className="space-y-1">
+                              <Label className="text-xs">العنوان التنظيمي للإنشاءات *</Label>
+                              <Input
+                                value={a.organizationalTitle}
+                                maxLength={300}
+                                onChange={(e) => updateAssignment(key, { organizationalTitle: e.target.value })}
+                                placeholder="مثال: إعادة تأهيل مبنى الإدارة"
+                              />
+                              <p className="text-[11px] text-muted-foreground">هذا العنوان تنظيمي فقط؛ مدير الإنشاءات ينشئ تحته مهمة واحدة أو عدة مهام.</p>
+                            </div>
+                          )}
+                          <p className="text-[11px] text-muted-foreground">المهام والفنيون يتم تحديدهم بعد اعتماد الجهة.</p>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {triageMode === "single" && (
             <p className="text-xs text-muted-foreground">
               {triageDepartment === MAINTENANCE_RESPONSIBLE_DEPARTMENT.CONSTRUCTION
                 ? "سيصل البلاغ إلى مدير الإنشاءات والمشتريات، وهو من يعيّن الفني المسؤول."
                 : "سيبقى البلاغ ضمن مسار الصيانة العامة ويُعيّن الفني مباشرةً."}
             </p>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowTriageDialog(false)}>إلغاء</Button>
             <Button
               onClick={() => {
+                if (triageMode === "multi") {
+                  const selected = Object.entries(multiAssignments).filter(([, v]) => v?.selected);
+                  if (selected.length === 0) { toast.error("يجب اختيار جهة واحدة على الأقل"); return; }
+                  for (const [dept, v] of selected) {
+                    const mgrs = dept === MAINTENANCE_RESPONSIBLE_DEPARTMENT.CONSTRUCTION ? constructionManagers : generalManagers;
+                    if (mgrs.length === 0) { toast.error("لا يوجد مسؤول نشط لإحدى الجهات المختارة"); return; }
+                    if (mgrs.length > 1 && !v.managerId) { toast.error("يجب تحديد مسؤول كل جهة"); return; }
+                    if (dept === MAINTENANCE_RESPONSIBLE_DEPARTMENT.CONSTRUCTION && !v.organizationalTitle.trim()) { toast.error("يجب إدخال العنوان التنظيمي للإنشاءات"); return; }
+                  }
+                  triageMultiMut.mutate({
+                    id: ticket!.id,
+                    assignments: selected.map(([dept, v]) => {
+                      const mgrs = dept === MAINTENANCE_RESPONSIBLE_DEPARTMENT.CONSTRUCTION ? constructionManagers : generalManagers;
+                      return {
+                        department: dept as any,
+                        responsibleManagerId: v.managerId ? parseInt(v.managerId) : (mgrs.length === 1 ? mgrs[0].id : undefined),
+                        organizationalTitle: dept === MAINTENANCE_RESPONSIBLE_DEPARTMENT.CONSTRUCTION ? v.organizationalTitle.trim() : undefined,
+                      };
+                    }),
+                  });
+                  setShowTriageDialog(false);
+                  return;
+                }
                 const assignedToId = triageDepartment === MAINTENANCE_RESPONSIBLE_DEPARTMENT.GENERAL && triageAssignedTo
                   ? parseInt(triageAssignedTo)
                   : undefined;
@@ -1687,16 +2269,20 @@ const { getField } = useResolvedTranslation(
                 setShowTriageDialog(false);
               }}
               disabled={
-                triageMut.isPending ||
-                !triageDepartment ||
-                (selectedDepartmentManagers.length === 0) ||
-                (selectedDepartmentManagers.length > 1 && !triageResponsibleManagerId) ||
-                (triageDepartment === MAINTENANCE_RESPONSIBLE_DEPARTMENT.GENERAL && !triageAssignedTo)
+                triageMode === "multi"
+                  ? (triageMultiMut.isPending || Object.values(multiAssignments).filter((v: any) => v?.selected).length === 0)
+                  : (
+                    triageMut.isPending ||
+                    !triageDepartment ||
+                    (selectedDepartmentManagers.length === 0) ||
+                    (selectedDepartmentManagers.length > 1 && !triageResponsibleManagerId) ||
+                    (triageDepartment === MAINTENANCE_RESPONSIBLE_DEPARTMENT.GENERAL && !triageAssignedTo)
+                  )
               }
               className="bg-amber-600 hover:bg-amber-700 text-white"
             >
-              {triageMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
-              تأكيد الفرز
+              {(triageMode === "multi" ? triageMultiMut.isPending : triageMut.isPending) ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+              {triageMode === "multi" ? "تأكيد الفرز المتعدد" : "تأكيد الفرز"}
             </Button>
           </DialogFooter>
         </DialogContent>

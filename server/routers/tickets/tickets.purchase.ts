@@ -18,6 +18,7 @@ export const ticketsPurchaseRouter = router({
     if (ticket.status !== "in_progress") throw new TRPCError({ code: "BAD_REQUEST", message: "البلاغ يجب أن يكون قيد التنفيذ" });
     if (ticket.maintenancePath !== "B") throw new TRPCError({ code: "BAD_REQUEST", message: "هذا الإجراء للمسار B فقط" });
     await db.updateTicket(input.id, { status: "needs_purchase", materialsUsed: input.materialsNeeded });
+    await db.syncSingleTicketItem(input.id, { status: "needs_purchase", materialsUsed: input.materialsNeeded });
     await db.addTicketStatusHistory({ ticketId: input.id, fromStatus: "in_progress", toStatus: "needs_purchase", changedById: ctx.user.id });
     // إشعار المدراء: كانت هذه الخطوة لا تنبّه أحداً — البلاغ يدخل حالة "بانتظار الشراء"
     // بصمت وينتظر أن يتفقّده أحد المدراء يدوياً ليقدّم التقدير (submitEstimate).

@@ -85,6 +85,10 @@ export const externalMaintenanceRouter = router({
 
   prepareByWarehouse: warehouseProcedure.input(z.object({
     ticketId: z.number(),
+    // بند البلاغ المستهدف — الخطوة 5 (2026-08-08). اختياري: إن أُغفل، يُستخدم
+    // البند الأول تلقائيًا (البلاغ أحادي البند — الأغلبية الساحقة — لا يحتاج
+    // الواجهة القديمة تمرير هذا الحقل إطلاقًا، فيسلك نفس السلوك القديم حرفيًا).
+    ticketItemId: z.number().optional(),
     assetName: z.string().trim().min(1, "اسم الأصل مطلوب"),
     assetBeforePhotoUrl: z.string().trim().min(1, "صورة الأصل قبل الخروج مطلوبة"),
     assetBeforeCondition: z.string().trim().min(1, "وصف حالة الأصل قبل الخروج مطلوب"),
@@ -93,14 +97,32 @@ export const externalMaintenanceRouter = router({
   })).mutation(async ({ input, ctx }) => {
     const ticket = await db.getTicketById(input.ticketId);
     if (!ticket) throw new TRPCError({ code: "NOT_FOUND", message: "البلاغ غير موجود" });
-    if (ticket.maintenancePath !== "C" || ticket.status !== "work_approved") {
-      throw new TRPCError({ code: "BAD_REQUEST", message: "البلاغ ليس في مرحلة تجهيز أصل المسار C" });
+
+    let ticketItemId = input.ticketItemId;
+    if (!ticketItemId) {
+      const items = await db.getTicketItems(input.ticketId);
+      const primary = items.find((i: any) => i.itemNumber === 1) ?? items[0];
+      if (!primary) throw new TRPCError({ code: "BAD_REQUEST", message: "لا يوجد بند لهذا البلاغ" });
+      ticketItemId = primary.id;
+    }
+    const item = await db.getTicketItemById(ticketItemId);
+    if (!item || item.ticketId !== input.ticketId) {
+      throw new TRPCError({ code: "BAD_REQUEST", message: "بند البلاغ غير مطابق لهذا البلاغ" });
+    }
+    if (item.maintenancePath !== "C" || item.status !== "work_approved") {
+      throw new TRPCError({ code: "BAD_REQUEST", message: "البند ليس في مرحلة تجهيز أصل المسار C" });
     }
     await assertActiveUserWithRole(input.delegateId, [APP_ROLE.DELEGATE], "يجب اختيار مندوب صالح");
 
     try {
       const result = await db.prepareExternalMaintenanceJob({
-        ...input,
+        ticketId: input.ticketId,
+        ticketItemId,
+        assetName: input.assetName,
+        assetBeforePhotoUrl: input.assetBeforePhotoUrl,
+        assetBeforeCondition: input.assetBeforeCondition,
+        delegateId: input.delegateId,
+        warehouseNotes: input.warehouseNotes,
         warehousePreparedById: ctx.user.id,
       });
       const gateUsers = await db.getUsersByRole(APP_ROLE.GATE_SECURITY);
@@ -157,7 +179,7 @@ export const externalMaintenanceRouter = router({
           message: `وافقت الحراسة على خروج الأصل للبلاغ ${result.ticket.ticketNumber}. الطلب ${result.poNumber} جاهز للتسعير بنفس دورة طلب الشراء.`,
           type: "success",
           relatedTicketId: result.ticket.id,
-          relatedPOId: result.purchaseOrderId,
+          relatedPoId: result.purchaseOrderId,
         });
       }
       await db.createAuditLog({

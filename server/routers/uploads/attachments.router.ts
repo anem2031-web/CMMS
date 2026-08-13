@@ -3,8 +3,30 @@ import { z } from "zod";
 import { router, protectedProcedure } from "../_shared/procedures";
 import * as db from "../../_core/db";
 import { assertCanAccessAttachments } from "./attachments.access";
+import { APP_ROLE } from "@shared/roles";
 
 export const attachmentsRouter = router({
+  /**
+   * قائمة مجمَّعة لكل مرفقات نوع بعينه — لعرض "الوثائق المالية المعتمدة"
+   * بمركز المستندات (2026-08-10). **مقيَّد صراحةً** بأدوار مالية (لا يستخدم
+   * assertCanAccessAttachments العام لأن هذا استعلام مجمَّع بلا entityId
+   * واحد يمكن فحص ملكيته — القيد هنا على مستوى الدور مباشرة).
+   */
+  listByType: protectedProcedure.input(z.object({
+    entityType: z.enum(["po_financial_batch"]),
+  })).query(async ({ input, ctx }) => {
+    // نفس الأدوار التي تملك أصلًا أزرار اعتماد الدفعة (حسابات/إدارة عليا) —
+    // لا فرق أوسع، لا فرق أضيق.
+    const allowedRoles = [APP_ROLE.ACCOUNTANT, APP_ROLE.SENIOR_MANAGEMENT, APP_ROLE.OWNER, APP_ROLE.ADMIN];
+    if (!allowedRoles.includes(ctx.user.role as any)) {
+      throw new TRPCError({ code: "FORBIDDEN", message: "ليس لديك صلاحية للاطلاع على الوثائق المالية" });
+    }
+    // الجزء 2 من إصلاحات 2026-08-10: نستخدم الاستعلام المُثرى باسم المندوب —
+    // القيمة الوحيدة المسموحة بالمخطط أعلاه هي "po_financial_batch" أصلًا،
+    // فلا حاجة لفرع عام يخدم أنواعًا أخرى هنا.
+    return db.getFinancialBatchAttachmentsWithDelegate();
+  }),
+
   list: protectedProcedure.input(z.object({
     entityType: z.string(),
     entityId: z.number(),

@@ -193,6 +193,7 @@ const ar = {
   // Ticket statuses
   ticketStatus: {
     new: "جديد",
+    department_planning: "تحليل الجهات والمهام",
     pending_triage: "بانتظار الفرز",
     under_inspection: "قيد الفحص",
     work_approved: "تم اعتماد العمل",
@@ -372,10 +373,10 @@ const ar = {
     filterBySite: "تصفية حسب الموقع",
     confirmCompletion: "تأكيد إتمام العمل",
     confirmCompletionTitle: "تأكيد إتمام العمل",
-    confirmCompletionDesc: "يرجى التأكد من جودة الإصلاح وإرفاق صورة واحدة على الأقل لمكان الإصلاح قبل تأكيد إتمام العمل",
+    confirmCompletionDesc: "يرجى التأكد من جودة الإصلاح وكتابة ملاحظة قبل تأكيد إتمام العمل. إرفاق صورة لمكان الإصلاح اختياري",
     confirmCompletionNote: "ملاحظة التأكيد",
     confirmCompletionNotePlaceholder: "اكتب ملاحظتك حول جودة الإصلاح...",
-    confirmCompletionPhotos: "صور مكان الإصلاح (1 إلى 4 صور)",
+    confirmCompletionPhotos: "صور مكان الإصلاح (اختياري، حتى 4 صور)",
     confirmCompletionPhotosRequired: "يجب إرفاق صورة واحدة على الأقل",
     confirmCompletionPhotosMax: "الحد الأقصى 4 صور",
     confirmCompletionSubmit: "تأكيد الإنهاء",

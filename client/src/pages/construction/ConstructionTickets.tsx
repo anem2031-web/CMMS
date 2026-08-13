@@ -14,6 +14,7 @@ import { MAINTENANCE_INSPECTION_WORKFLOW_STATUS, MAINTENANCE_RESPONSIBLE_DEPARTM
 import { useStaticLabels } from "@/hooks/useContentTranslation";
 import { useTranslatedField } from "@/hooks/useTranslatedField";
 import { useTranslation } from "@/contexts/LanguageContext";
+import { TICKET_ITEM_STEPS, getTicketItemStepIndex } from "@/lib/ticketItemSteps";
 
 const inspectionStatusLabel = (value?: string | null) => {
   switch (value) {
@@ -51,6 +52,23 @@ export function ConstructionTicketsPanel() {
     maintenanceResponsibleDepartment: MAINTENANCE_RESPONSIBLE_DEPARTMENT.CONSTRUCTION,
   });
   const { data: technicians = [] } = trpc.users.listTechnicians.useQuery();
+
+  // بند "مهمتي" داخل كل بلاغ — الخطوة 2 من ميزة البلاغ متعدد الجهات (2026-08-08).
+  // بعد إصلاح الصلاحيات بالخطوة 1، قد تظهر هنا بلاغات المستخدم فيها جهة ثانوية
+  // (لا الرئيسية) — هذا الاستعلام يجلب بنده تحديدًا لعرضه بدل حقول البلاغ العامة.
+  const ticketIds = useMemo(() => tickets.map((t: any) => t.id), [tickets]);
+  const { data: myItems = [] } = trpc.tickets.myItemsForTickets.useQuery(
+    { ticketIds },
+    { enabled: ticketIds.length > 0 },
+  );
+  const myItemByTicketId = useMemo(() => {
+    const map = new Map<number, any>();
+    for (const item of myItems) {
+      // بلاغ متعدد البنود قد يملك المستخدم أكثر من بند فيه (حالة نادرة) — نعرض الأول فقط.
+      if (!map.has(item.ticketId)) map.set(item.ticketId, item);
+    }
+    return map;
+  }, [myItems]);
 
   const filtered = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -92,7 +110,15 @@ export function ConstructionTicketsPanel() {
 
     return (
       <div className="space-y-3">
-        {items.map((ticket: any) => (
+        {items.map((ticket: any) => {
+          // بند "مهمتي" — يُعرَض فقط عندما يمثّل مهمة إضافية (بند رقم >1) أو
+          // مسارًا مختلفًا عن رأس البلاغ، تفاديًا لتكرار نفس المعلومة مرتين
+          // للبلاغات أحادية البند (الأغلبية الساحقة، بما فيها كل البلاغات القديمة).
+          const myItem = myItemByTicketId.get(ticket.id);
+          const showItemCard = myItem && myItem.itemNumber > 1;
+          const currentStep = showItemCard ? getTicketItemStepIndex(myItem.status, myItem.maintenancePath) : null;
+
+          return (
           <Card
             key={ticket.id}
             className="cursor-pointer transition-all hover:border-primary/30 hover:shadow-md"
@@ -103,18 +129,38 @@ export function ConstructionTicketsPanel() {
                 <div className="min-w-0 flex-1">
                   <div className="mb-2 flex flex-wrap items-center gap-2">
                     <span className="font-mono text-xs text-muted-foreground">{ticket.ticketNumber}</span>
-                    <Badge className={STATUS_COLORS[ticket.status] || "bg-gray-100 text-gray-700"}>{getStatusLabel(ticket.status)}</Badge>
+                    {showItemCard && (
+                      <Badge variant="outline" className="text-purple-700 border-purple-300">بند {myItem.itemNumber}</Badge>
+                    )}
+                    <Badge className={STATUS_COLORS[showItemCard ? myItem.status : ticket.status] || "bg-gray-100 text-gray-700"}>
+                      {getStatusLabel(showItemCard ? myItem.status : ticket.status)}
+                    </Badge>
                     <Badge variant="outline" className={PRIORITY_COLORS[ticket.priority] || ""}>{getPriorityLabel(ticket.priority)}</Badge>
                     {ticket.status === "under_inspection" && inspectionStatusLabel(ticket.inspectionWorkflowStatus) && (
                       <Badge variant="secondary">{inspectionStatusLabel(ticket.inspectionWorkflowStatus)}</Badge>
                     )}
                   </div>
                   <h3 className="truncate font-semibold">{getField(ticket, "title")}</h3>
+                  {showItemCard && myItem.description && (
+                    <p className="mt-1 text-sm text-muted-foreground">المطلوب: {myItem.description}</p>
+                  )}
                   <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
                     <span className="flex items-center gap-1"><Building2 className="h-3.5 w-3.5" />{getCategoryLabel(ticket.category)}</span>
                     <span className="flex items-center gap-1"><UserRound className="h-3.5 w-3.5" />{ticket.assignedToUserName || "لم يُعيّن فني بعد"}</span>
                     <span className="flex items-center gap-1"><Clock3 className="h-3.5 w-3.5" />{new Date(ticket.updatedAt || ticket.createdAt).toLocaleDateString(locale)}</span>
                   </div>
+                  {showItemCard && currentStep !== null && (
+                    <div className="mt-2 flex items-center gap-1.5">
+                      {TICKET_ITEM_STEPS.map((step, idx) => (
+                        <span key={step.key} className={`text-[10px] px-1.5 py-0.5 rounded ${
+                          idx === currentStep ? "bg-blue-100 text-blue-700 font-semibold" :
+                          idx < currentStep ? "bg-emerald-50 text-emerald-600" : "text-muted-foreground/50"
+                        }`}>
+                          {idx < currentStep ? "✓ " : ""}{step.label}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </div>
                 <Button variant="outline" size="sm" className="shrink-0 gap-1" onClick={(event) => {
                   event.stopPropagation();
@@ -125,7 +171,8 @@ export function ConstructionTicketsPanel() {
               </div>
             </CardContent>
           </Card>
-        ))}
+          );
+        })}
       </div>
     );
   };

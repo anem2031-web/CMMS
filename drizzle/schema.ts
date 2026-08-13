@@ -788,6 +788,11 @@ export const deliveryDocuments = mysqlTable("delivery_documents", {
 export const externalMaintenanceJobs = mysqlTable("external_maintenance_jobs", {
 	id: int().autoincrement().notNull(),
 	ticketId: int().notNull(),
+	// بند البلاغ الذي يخص سجل الصيانة الخارجية هذا — الخطوة 5 من ميزة البلاغ
+	// متعدد الجهات (2026-08-08). NULL للسجلات القديمة (تُملأ رجعيًا بترحيل
+	// الخطوة نحو بند البلاغ الأول). بلا مفتاح خارجي فعلي، بنفس اتفاقية
+	// ticketId ذاته غير المفروضة بقاعدة البيانات أصلًا بهذا المشروع.
+	ticketItemId: int(),
 	status: mysqlEnum([
 		'waiting_warehouse_preparation',
 		'waiting_gate_exit',
@@ -836,7 +841,13 @@ export const externalMaintenanceJobs = mysqlTable("external_maintenance_jobs", {
 	updatedAt: timestamp({ mode: 'string' }).defaultNow().onUpdateNow().notNull(),
 },
 (table) => [
-	uniqueIndex("uq_external_maintenance_ticket").on(table.ticketId),
+	// ⚠️ 2026-08-08 — الخطوة 5: الفهرس الفريد انتقل من ticketId (يمنع أكثر من
+	// سجل صيانة خارجية واحد لكل *بلاغ*) إلى ticketItemId (يمنع أكثر من سجل
+	// واحد لكل *بند* — NULL يُعامَل بتفرّد بـMySQL/TiDB فلا يمنع تكرار NULL،
+	// بنفس نمط warehouseTransfers.batchId المعتمد بالمشروع). هذا يسمح لبلاغ
+	// متعدد البنود أن يملك أكثر من سجل صيانة خارجية، بند لكل سجل.
+	uniqueIndex("uq_external_maintenance_ticket_item").on(table.ticketItemId),
+	index("idx_external_maintenance_ticket").on(table.ticketId),
 	index("idx_external_maintenance_status").on(table.status),
 	index("idx_external_maintenance_delegate").on(table.delegateId),
 	index("idx_external_maintenance_po").on(table.purchaseOrderId),
@@ -1573,6 +1584,12 @@ export const purchaseOrders = mysqlTable("purchase_orders", {
 	id: int().autoincrement().notNull(),
 	poNumber: varchar({ length: 20 }).notNull(),
 	ticketId: int(),
+	// بند البلاغ الذي يخص هذا الطلب تحديدًا — الخطوة 4 من ميزة البلاغ متعدد
+	// الجهات (2026-08-08). NULL للطلبات القديمة وللطلبات غير المرتبطة ببند
+	// محدد (تبقى مرتبطة بالبلاغ عبر ticketId وحده، توافقًا رجعيًا كاملًا).
+	// بلا مفتاح خارجي فعلي — بنفس اتفاقية ticketId ذاته (غير مفروض بقاعدة
+	// البيانات في هذا المشروع، راجع ملاحظة "3 مواضع فقط بها FK فعلي" بـCLAUDE.md).
+	ticketItemId: int(),
 	requestedById: int().notNull(),
 	status: mysqlEnum(['draft','pending_review','pending_estimate','pending_accounting','pending_management','approved','partial_purchase','purchased','received','closed','rejected','revision_needed']).default('draft').notNull(),
 	totalEstimatedCost: decimal({ precision: 12, scale: 2 }),
@@ -1739,12 +1756,71 @@ export const ticketStatusHistory = mysqlTable("ticket_status_history", {
 	createdAt: timestamp({ mode: 'string' }).default('CURRENT_TIMESTAMP').notNull(),
 });
 
+// ══════════════════════════════════════════════════════════════════════
+// ticket_items — وحدات التنفيذ القديمة/التوافقية للبلاغ
+//
+// أُنشئ هذا الجدول في 2026-08-08 لتمثيل البنود المستقلة ومسارات A/B/C. منذ
+// 2026-08-11 لم يعد هو طبقة التنظيم الجديدة للجهة/المهمة؛ تلك الطبقة أصبحت
+// ticket_departments → ticket_tasks → ticket_task_assignees. يبقى هذا الجدول
+// مصدر حقيقة لوحدة الـWorkflow التنفيذية للبلاغات القديمة والبلاغات الفرعية،
+// كما يبقى بند توافق واحد على الرأس حتى لا تنكسر الشاشات/التقارير القديمة.
+//
+// ⚠️ أعمدة tickets الحالية (status, maintenancePath, repairNotes, ...) تبقى
+// ملخصًا للتوافق. لا تستخدم ticket_items لتمثيل "الجهة" أو "المهمة" الجديدة.
+// راجع CLAUDE.md القاعدة #14.
+// ══════════════════════════════════════════════════════════════════════
+export const ticketItems = mysqlTable("ticket_items", {
+	id: int().autoincrement().notNull(),
+	ticketId: int().notNull().references(() => tickets.id, { onDelete: "restrict" } ),
+	itemNumber: int().default(1).notNull(),
+	title: varchar({ length: 300 }),
+	description: text(),
+	descriptionAr: text("description_ar"),
+	descriptionEn: text("description_en"),
+	descriptionUr: text("description_ur"),
+	assetId: int(),
+	responsibleDepartment: mysqlEnum([
+		'maintenance_report_department_general',
+		'maintenance_report_department_construction',
+	]),
+	responsibleManagerId: int(),
+	routedById: int(),
+	routedAt: timestamp({ mode: 'string' }),
+	routingNote: text(),
+	maintenancePath: mysqlEnum(['A','B','C']),
+	justification: text(),
+	approvedById: int(),
+	approvedAt: timestamp({ mode: 'string' }),
+	status: mysqlEnum(['new','pending_triage','department_planning','under_inspection','work_approved','ready_for_closure','approved','assigned','in_progress','needs_purchase','purchase_pending_estimate','purchase_pending_accounting','purchase_pending_management','purchase_approved','partial_purchase','purchased','received_warehouse','out_for_repair','repaired','verified','closed','requester_confirmed']).default('pending_triage').notNull(),
+	assignedToId: int(),
+	assignedTechnicianId: int(),
+	assignedAt: timestamp({ mode: 'string' }),
+	repairNotes: text(),
+	afterPhotoUrl: text(),
+	materialsUsed: text(),
+	estimatedCost: decimal({ precision: 12, scale: 2 }),
+	actualCost: decimal({ precision: 12, scale: 2 }),
+	closedAt: timestamp({ mode: 'string' }),
+	isLegacySingleItem: tinyint().default(0).notNull(),
+	createdById: int(),
+	createdAt: timestamp({ mode: 'string' }).default('CURRENT_TIMESTAMP').notNull(),
+	updatedAt: timestamp({ mode: 'string' }).defaultNow().onUpdateNow().notNull(),
+},
+(table) => [
+	uniqueIndex("uq_ticket_items_ticket_number").on(table.ticketId, table.itemNumber),
+	index("idx_ticket_items_ticket").on(table.ticketId),
+	index("idx_ticket_items_status").on(table.status),
+	index("idx_ticket_items_department").on(table.responsibleDepartment),
+	index("idx_ticket_items_manager").on(table.responsibleManagerId),
+	index("idx_ticket_items_assigned").on(table.assignedToId),
+]);
+
 export const tickets = mysqlTable("tickets", {
 	id: int().autoincrement().notNull(),
 	ticketNumber: varchar({ length: 20 }).notNull(),
 	title: varchar({ length: 300 }).notNull(),
 	description: text(),
-	status: mysqlEnum(['new','pending_triage','under_inspection','work_approved','ready_for_closure','approved','assigned','in_progress','needs_purchase','purchase_pending_estimate','purchase_pending_accounting','purchase_pending_management','purchase_approved','partial_purchase','purchased','received_warehouse','out_for_repair','repaired','verified','closed','requester_confirmed']).default('new').notNull(),
+	status: mysqlEnum(['new','pending_triage','department_planning','under_inspection','work_approved','ready_for_closure','approved','assigned','in_progress','needs_purchase','purchase_pending_estimate','purchase_pending_accounting','purchase_pending_management','purchase_approved','partial_purchase','purchased','received_warehouse','out_for_repair','repaired','verified','closed','requester_confirmed']).default('new').notNull(),
 	priority: mysqlEnum(['low','medium','high','critical']).default('medium').notNull(),
 	category: mysqlEnum(['electrical','plumbing','hvac','structural','mechanical','general','safety','cleaning']).default('general').notNull(),
 	siteId: int(),
@@ -1810,7 +1886,81 @@ export const tickets = mysqlTable("tickets", {
 	maintenanceRoutedById: int(),
 	maintenanceRoutedAt: timestamp({ mode: 'string' }),
 	maintenanceRoutingNote: text(),
-});
+	// 2026-08-11 — نموذج البلاغات المتعددة الجديد. البلاغ الرئيسي حاوية تنظيمية
+	// للجهات والمهام، والبلاغ الفرعي فقط يدخل دورة التنفيذ A/B/C.
+	workflowModel: mysqlEnum(['legacy','department_tasks','sub_ticket']).default('legacy').notNull(),
+	parentTicketId: int(),
+	sourceTaskId: int(),
+	subTicketSequence: int(),
+	// عداد دائم على البلاغ الرئيسي، لا ينقص عند حذف بلاغ فرعي حتى لا يُعاد استخدام -01/-02.
+	subTicketCounter: int().default(0).notNull(),
+},
+(table) => [
+	index("idx_tickets_parent").on(table.parentTicketId),
+	uniqueIndex("uq_tickets_source_task").on(table.sourceTaskId),
+	uniqueIndex("uq_tickets_parent_sub_sequence").on(table.parentTicketId, table.subTicketSequence),
+]);
+
+// ══════════════════════════════════════════════════════════════════════
+// ticket_departments / ticket_tasks / ticket_task_assignees — 2026-08-11
+// بلاغ رئيسي → جهة/جهات → مسؤول لكل جهة → مهام → فنيون متعددون
+// → تحويل اختياري للمهمة إلى بلاغ فرعي مستقل.
+// ticket_items يبقى لوحدة الـWorkflow التنفيذية والتوافق الرجعي.
+// ══════════════════════════════════════════════════════════════════════
+export const ticketDepartments = mysqlTable("ticket_departments", {
+	id: int().autoincrement().notNull(),
+	ticketId: int().notNull().references(() => tickets.id, { onDelete: "restrict" }),
+	department: mysqlEnum([
+		'maintenance_report_department_general',
+		'maintenance_report_department_construction',
+	]).notNull(),
+	responsibleManagerId: int().notNull(),
+	routedById: int().notNull(),
+	routedAt: timestamp({ mode: 'string' }).default('CURRENT_TIMESTAMP').notNull(),
+	routingNote: text(),
+	// عنوان تنظيمي يرسله مدير الصيانة والتشغيل لجهة الإنشاءات قبل أن يقسمه مدير الجهة إلى مهام.
+	organizationalTitle: varchar({ length: 300 }),
+	status: mysqlEnum(['planning','active','completed']).default('planning').notNull(),
+	createdAt: timestamp({ mode: 'string' }).default('CURRENT_TIMESTAMP').notNull(),
+	updatedAt: timestamp({ mode: 'string' }).defaultNow().onUpdateNow().notNull(),
+},
+(table) => [
+	uniqueIndex("uq_ticket_departments_ticket_department").on(table.ticketId, table.department),
+	index("idx_ticket_departments_ticket").on(table.ticketId),
+	index("idx_ticket_departments_manager").on(table.responsibleManagerId),
+]);
+
+export const ticketTasks = mysqlTable("ticket_tasks", {
+	id: int().autoincrement().notNull(),
+	ticketId: int().notNull(),
+	ticketDepartmentId: int().notNull().references(() => ticketDepartments.id, { onDelete: "restrict" }),
+	taskNumber: int().notNull(),
+	title: varchar({ length: 300 }),
+	description: text().notNull(),
+	status: mysqlEnum(['pending_assignment','assigned','promoted','completed','cancelled']).default('pending_assignment').notNull(),
+	convertedTicketId: int(),
+	createdById: int().notNull(),
+	createdAt: timestamp({ mode: 'string' }).default('CURRENT_TIMESTAMP').notNull(),
+	updatedAt: timestamp({ mode: 'string' }).defaultNow().onUpdateNow().notNull(),
+},
+(table) => [
+	uniqueIndex("uq_ticket_tasks_department_number").on(table.ticketDepartmentId, table.taskNumber),
+	index("idx_ticket_tasks_ticket").on(table.ticketId),
+	index("idx_ticket_tasks_department").on(table.ticketDepartmentId),
+	index("idx_ticket_tasks_converted").on(table.convertedTicketId),
+]);
+
+export const ticketTaskAssignees = mysqlTable("ticket_task_assignees", {
+	id: int().autoincrement().notNull(),
+	taskId: int().notNull().references(() => ticketTasks.id, { onDelete: "restrict" }),
+	userId: int().notNull(),
+	assignedById: int().notNull(),
+	assignedAt: timestamp({ mode: 'string' }).default('CURRENT_TIMESTAMP').notNull(),
+},
+(table) => [
+	uniqueIndex("uq_ticket_task_assignees_task_user").on(table.taskId, table.userId),
+	index("idx_ticket_task_assignees_user").on(table.userId),
+]);
 
 export const translationJobs = mysqlTable("translation_jobs", {
 	id: int().autoincrement().notNull(),
@@ -2115,6 +2265,25 @@ export const warehouseTransferNumberCounter = mysqlTable("warehouse_transfer_num
 	year: int().notNull(),
 });
 
+// ══════════════════════════════════════════════════════════════════════
+// ticket_number_counter — عدّاد أرقام البلاغات (2026-08-09)
+//
+// أُضيف بعد اكتشاف أن البلاغات كانت الكيان الوحيد بالمشروع الذي يُولَّد رقمه
+// بالبحث عن أعلى رقم موجود حاليًا (SELECT MAX) بدل عدّاد مستقل — ما جعل رقم
+// البلاغ **يُعاد استخدامه** بعد حذف بلاغ يحمل أعلى رقم. حالة مؤكَّدة بالإنتاج:
+// MT-2026-00174 و MT-2026-00175 كانا لبلاغين حُذفا، ثم أُعيد الرقمان لبلاغين
+// جديدين مختلفين تمامًا.
+//
+// النمط مطابق حرفيًا للعدّادات الستة الأخرى بالمشروع (delivery/disposal/
+// inventoryCount/inventorySettlement/warehouseTransfer*): AUTO_INCREMENT
+// بقاعدة البيانات نفسها هو ضامن التفرّد — آمن مع الطلبات المتزامنة بلا أقفال.
+// ══════════════════════════════════════════════════════════════════════
+export const ticketNumberCounter = mysqlTable("ticket_number_counter", {
+	id: int().autoincrement().notNull(),
+	year: int().notNull(),
+	createdAt: timestamp({ mode: 'string' }).default('CURRENT_TIMESTAMP').notNull(),
+});
+
 
 // ══════════════════════════════════════════════════════════════════════
 // الثوابت والأنواع المساعدة التالية (قوائم الحالات/الأدوار/إلخ) لا تمثّل جداول
@@ -2135,7 +2304,7 @@ export const technicianStatuses = ["active", "inactive"] as const;
 
 export const ticketStatuses = [
   "new",
-  "pending_triage", "under_inspection", "work_approved",
+  "pending_triage", "department_planning", "under_inspection", "work_approved",
   "ready_for_closure",
   "approved", "assigned", "in_progress",
   "needs_purchase", "purchase_pending_estimate", "purchase_pending_accounting",

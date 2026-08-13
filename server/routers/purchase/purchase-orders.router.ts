@@ -54,7 +54,7 @@ async function queuePONotesTranslation(poId: number, notes: string, userId: numb
 async function assertTicketAllowsNewPurchaseOrder(
   user: { id: number; role: string },
   ticketId?: number,
-  options: { currentPurchaseOrderId?: number; submittingExistingDraft?: boolean } = {},
+  options: { currentPurchaseOrderId?: number; submittingExistingDraft?: boolean; ticketItemId?: number } = {},
 ): Promise<any | null> {
   return assertCanCreateTicketLinkedPurchaseOrder(user, ticketId, options);
 }
@@ -265,6 +265,7 @@ export const purchaseOrdersRouter = router({
         poId: po.id,
         poNumber: po.poNumber,
         requestedById: po.requestedById,
+        itemId: item.id,
         itemName: item.itemName,
         actorId: ctx.user.id,
         actorName: ctx.user.name || "مستخدم",
@@ -283,7 +284,7 @@ export const purchaseOrdersRouter = router({
         rejectedAt: new Date(),
         rejectionReason: `تم إلغاء جميع أصناف طلب الشراء بواسطة ${ctx.user.name}`,
       });
-      await db.createNotification({ userId: po.requestedById, title: "⚠️ تم إلغاء جميع أصناف طلب الشراء", message: `تم إلغاء جميع أصناف طلب الشراء رقم ${po.poNumber} بواسطة ${ctx.user.name}.`, type: "warning", relatedPOId: item.purchaseOrderId });
+      await db.createNotification({ userId: po.requestedById, title: "⚠️ تم إلغاء جميع أصناف طلب الشراء", message: `تم إلغاء جميع أصناف طلب الشراء رقم ${po.poNumber} بواسطة ${ctx.user.name}.`, type: "warning", relatedPoId: item.purchaseOrderId });
     }
     await syncPathBTicketFromPurchaseOrder(
       item.purchaseOrderId,
@@ -478,7 +479,7 @@ export const purchaseOrdersRouter = router({
     }
     const managersWH = await db.getPurchaseManagerUsers();
     for (const mgr of managersWH) {
-      await db.createNotification({ userId: mgr.id, title: "📦 وصلت بضاعة للمستودع", message: `استلم المستودع الصنف "${item.itemName}" بكمية ${input.receivedQuantity} — فاتورة المورد رقم ${input.supplierInvoiceNumber}`, type: "info", relatedPOId: item.purchaseOrderId });
+      await db.createNotification({ userId: mgr.id, title: "📦 وصلت بضاعة للمستودع", message: `استلم المستودع الصنف "${item.itemName}" بكمية ${input.receivedQuantity} — فاتورة المورد رقم ${input.supplierInvoiceNumber}`, type: "info", relatedPoId: item.purchaseOrderId });
     }
     await db.createAuditLog({ userId: ctx.user.id, action: "deliver_to_warehouse", entityType: "po_item", entityId: input.itemId, newValues: { receivedQuantity: input.receivedQuantity, supplierInvoiceNumber: input.supplierInvoiceNumber } });
     return { success: true };
@@ -513,6 +514,7 @@ export const purchaseOrdersRouter = router({
     // تعليق دائم في سجل الطلب
     await db.createProcurementComment({
       purchaseOrderId: po.id,
+      purchaseOrderItemId: input.itemId,
       userId: ctx.user.id,
       userName: ctx.user.name || "مندوب",
       userRole: ctx.user.role,
@@ -526,7 +528,7 @@ export const purchaseOrdersRouter = router({
       title: "⛔ تعذّر شراء صنف - يحتاج تصرفك",
       message: `قام المندوب ${ctx.user.name} بإلغاء شراء الصنف "${item.itemName}" من طلب الشراء ${po.poNumber}.\n\nالسبب:\n${input.note}\n\nيمكنك تعديل الصنف وإعادة إرساله للمندوب مباشرة للشراء، أو إلغاءه نهائياً.`,
       type: "warning",
-      relatedPOId: po.id,
+      relatedPoId: po.id,
     });
 
     // إعادة حساب حالة الطلب
@@ -652,7 +654,7 @@ export const purchaseOrdersRouter = router({
             message: `اكتملت الصيانة الخارجية للبلاغ ${purchaseContext.ticket.ticketNumber}. يرجى توثيق موافقة دخول الأصل.`,
             type: "warning",
             relatedTicketId: purchaseContext.ticket.id,
-            relatedPOId: item.purchaseOrderId,
+            relatedPoId: item.purchaseOrderId,
           });
         }
       }
@@ -665,7 +667,7 @@ export const purchaseOrdersRouter = router({
           title: "📦 صنف تم شراؤه - بانتظار الاستلام",
           message: `تم شراء الصنف: "${item.itemName}" (الكمية: ${item.quantity} ${item.unit || ''}). طلب الشراء رقم: ${po?.poNumber || item.purchaseOrderId}. المندوب: ${buyer.name}. يرجى تسجيل استلام البضاعة عند وصولها.`,
           type: "info",
-          relatedPOId: item.purchaseOrderId
+          relatedPoId: item.purchaseOrderId
         });
       }
     }
@@ -679,7 +681,7 @@ export const purchaseOrdersRouter = router({
           ? `أكد ${buyer.name} اكتمال الصيانة الخارجية للطلب ${po?.poNumber || item.purchaseOrderId}. الأصل بانتظار موافقة الدخول.`
           : `قام ${buyer.name} بشراء صنف "${item.itemName}" من طلب الشراء رقم ${po?.poNumber || item.purchaseOrderId}.`,
         type: "info",
-        relatedPOId: item.purchaseOrderId
+        relatedPoId: item.purchaseOrderId
       });
     }
     await db.createAuditLog({ userId: ctx.user.id, action: "confirm_purchase", entityType: "po_item", entityId: input.itemId });
@@ -688,6 +690,7 @@ export const purchaseOrdersRouter = router({
 
   saveDraft: protectedProcedure.input(z.object({
     ticketId: z.number().optional(),
+    ticketItemId: z.number().optional(), // الخطوة 4 (2026-08-08) — بند محدد ضمن بلاغ متعدد الجهات
     notes: z.string().optional(),
     items: z.array(z.object({
       itemName: z.string().min(1),
@@ -701,14 +704,19 @@ export const purchaseOrdersRouter = router({
   })).mutation(async ({ input, ctx }) => {
     if (input.items.length === 0) throw new TRPCError({ code: "BAD_REQUEST", message: "يجب إضافة صنف واحد على الأقل" });
     if (input.items.length > 20) throw new TRPCError({ code: "BAD_REQUEST", message: `الحد الأقصى 20 صنف لكل طلب شراء` });
-    await assertTicketAllowsNewPurchaseOrder(ctx.user, input.ticketId);
+    await assertTicketAllowsNewPurchaseOrder(ctx.user, input.ticketId, { ticketItemId: input.ticketItemId });
 
-    const poNumber = await db.getNextPONumber();
+    // ⚠️ 2026-08-13: كان يستدعي getNextPONumber() هنا — أي أن مسودة واحدة تُنشأ
+    // ثم تُترك أو تُحذف كانت تستهلك/تحجز رقمًا حقيقيًا من تسلسل PR-YYYY-NNNN
+    // بلا داعٍ. الآن يُستدعى مولّد مستقل ببادئة مختلفة (DFT-)؛ الرقم الرسمي لا
+    // يُخصَّص إلا عند submitDraft. راجع docs/PO_DRAFT_INDEPENDENT_NUMBERING.md.
+    const poNumber = await db.getNextDraftNumber();
     // ✅ إصلاح حرج #5: نفس مبدأ create() — إنشاء الرأس والبنود معاً ضمن معاملة واحدة
     const poId = await db.withTransaction(async (tx: any) => {
       const newPoId = await db.createPurchaseOrder({
         poNumber,
         ticketId: input.ticketId,
+        ticketItemId: input.ticketItemId,
         requestedById: ctx.user.id,
         status: "draft",
         notes: input.notes,
@@ -736,15 +744,27 @@ export const purchaseOrdersRouter = router({
     if (!po) throw new TRPCError({ code: "NOT_FOUND", message: "طلب الشراء غير موجود" });
     if (po.status !== "draft") throw new TRPCError({ code: "BAD_REQUEST", message: "الطلب ليس مسودة" });
     assertCanPerformPOAction("submitDraft", ctx.user, po, { isCreator: String(po.requestedById) === String(ctx.user.id) });
-    await assertTicketAllowsNewPurchaseOrder(ctx.user, po.ticketId ?? undefined, { currentPurchaseOrderId: po.id, submittingExistingDraft: true });
+    await assertTicketAllowsNewPurchaseOrder(ctx.user, po.ticketId ?? undefined, { currentPurchaseOrderId: po.id, submittingExistingDraft: true, ticketItemId: po.ticketItemId ?? undefined });
 
     const items = await db.getPOItems(input.id);
     if (items.length === 0) throw new TRPCError({ code: "BAD_REQUEST", message: "لا يوجد أصناف في الطلب" });
 
-    // ✅ تسجيل تاريخ التحويل من مسودة إلى طلب رسمي (2026-07-28) — هو ما تُرتَّب
-    // وتُفلتر به القائمة، حتى لا يظهر الطلب بتاريخ إنشاء مسودته فيضيع بين
-    // الطلبات القديمة. createdAt يبقى كما هو دون تعديل.
-    await db.updatePurchaseOrder(input.id, { status: "pending_review", submittedAt: new Date() });
+    // ⚠️ 2026-08-13: هذه اللحظة — لا لحظة حفظ المسودة — هي التي يُخصَّص فيها
+    // الرقم الرسمي فعليًا (بنفس نظام الترقيم الحالي getNextPONumber، بلا تعديل
+    // عليه) ويُستبدَل رقم المسودة (DFT-) به نهائيًا. createdAt يُصبح أيضًا لحظة
+    // الإرسال بدل لحظة إنشاء المسودة — لأن createdAt هو الحقل المعروض فعليًا
+    // كـ"تاريخ الطلب" في كل مكان بالنظام (قائمة الطلبات، صفحة التفاصيل)، فتحديثه
+    // هنا يجعل كل ذلك العرض صحيحًا تلقائيًا بلا أي تعديل على صفحات/تقارير أخرى.
+    // submittedAt يبقى كما كان (لم يُحذف ولم يتغيّر سلوكه) — يصبح مطابقًا لـ
+    // createdAt لطلبات هذا المسار فقط، وهذا تكرار غير ضار لا يستحق إزالته الآن.
+    const officialPoNumber = await db.getNextPONumber();
+    const submittedAt = new Date();
+    await db.updatePurchaseOrder(input.id, {
+      status: "pending_review",
+      poNumber: officialPoNumber,
+      createdAt: submittedAt,
+      submittedAt,
+    });
 
     // أخطر المدراء
     const managers = await db.getPurchaseManagerUsers();
@@ -752,10 +772,10 @@ export const purchaseOrdersRouter = router({
       if (mgr.id !== ctx.user.id) {
         await db.createNotification({
           userId: mgr.id,
-          title: `🛒 طلب شراء جديد #${po.poNumber}`,
+          title: `🛒 طلب شراء جديد #${officialPoNumber}`,
           message: `قام ${ctx.user.name} بإرسال طلب شراء يحتوي على ${items.length} صنف. بانتظار المراجعة.`,
           type: "warning",
-          relatedPOId: input.id,
+          relatedPoId: input.id,
         });
       }
     }
@@ -790,7 +810,7 @@ export const purchaseOrdersRouter = router({
     if (!po) throw new TRPCError({ code: "NOT_FOUND", message: "المسودة غير موجودة" });
     if (po.status !== "draft") throw new TRPCError({ code: "BAD_REQUEST", message: "لا يمكن تعديل طلب ليس مسودة" });
     assertCanPerformPOAction("editDraft", ctx.user, po, { isCreator: String(po.requestedById) === String(ctx.user.id) });
-    await assertTicketAllowsNewPurchaseOrder(ctx.user, po.ticketId ?? undefined, { currentPurchaseOrderId: po.id, submittingExistingDraft: true });
+    await assertTicketAllowsNewPurchaseOrder(ctx.user, po.ticketId ?? undefined, { currentPurchaseOrderId: po.id, submittingExistingDraft: true, ticketItemId: po.ticketItemId ?? undefined });
     if (input.items.length > 20) throw new TRPCError({ code: "BAD_REQUEST", message: "الحد الأقصى 20 صنف" });
 
     // تحديث ملاحظات الطلب
@@ -857,6 +877,7 @@ export const purchaseOrdersRouter = router({
 
   create: protectedProcedure.input(z.object({
     ticketId: z.number().optional(),
+    ticketItemId: z.number().optional(), // الخطوة 4 (2026-08-08) — بند محدد ضمن بلاغ متعدد الجهات
     notes: z.string().optional(),
     items: z.array(z.object({
       itemName: z.string().min(1),
@@ -876,7 +897,7 @@ export const purchaseOrdersRouter = router({
     if (input.items.length > 20) {
       throw new TRPCError({ code: "BAD_REQUEST", message: `الحد الأقصى 20 صنف لكل طلب شراء. لديك ${input.items.length} صنف` });
     }
-    await assertTicketAllowsNewPurchaseOrder(ctx.user, input.ticketId);
+    await assertTicketAllowsNewPurchaseOrder(ctx.user, input.ticketId, { ticketItemId: input.ticketItemId });
     const poNumber = await db.getNextPONumber();
     // ✅ إصلاح حرج #5: إنشاء رأس الطلب وبنوده معاً ضمن معاملة ذرية واحدة —
     // إما ينجحان كلاهما أو يُلغى كل شيء تلقائياً (rollback) عند أي فشل جزئي.
@@ -886,6 +907,7 @@ export const purchaseOrdersRouter = router({
       const newPoId = await db.createPurchaseOrder({
         poNumber,
         ticketId: input.ticketId,
+        ticketItemId: input.ticketItemId,
         requestedById: ctx.user.id,
         status: "pending_review",
         submittedAt: new Date(),
@@ -912,7 +934,7 @@ export const purchaseOrdersRouter = router({
           title: `🛒 طلب شراء جديد #${poNumber}`,
           message: `قام ${ctx.user.name} بإنشاء طلب شراء جديد يحتوي على ${input.items.length} صنف. بانتظار المراجعة.`,
           type: "warning",
-          relatedPOId: poId!,
+          relatedPoId: poId!,
         });
       }
     }
@@ -955,7 +977,7 @@ export const purchaseOrdersRouter = router({
       const poDelManagers = await db.getPurchaseManagerUsers();
       for (const mgr of poDelManagers) {
         if (mgr.id !== ctx.user.id) {
-          await db.createNotification({ userId: mgr.id, title: `حذف طلب شراء #${po.poNumber}`, message: `قام ${ctx.user.name} بحذف طلب الشراء`, type: "po_deleted", relatedPOId: input.id });
+          await db.createNotification({ userId: mgr.id, title: `حذف طلب شراء #${po.poNumber}`, message: `قام ${ctx.user.name} بحذف طلب الشراء`, type: "po_deleted", relatedPoId: input.id });
         }
       }
     } catch (notifyError) {
@@ -1196,6 +1218,7 @@ export const purchaseOrdersRouter = router({
     const finalItemName = input.itemName ?? oldItem.itemName;
     await db.createProcurementComment({
       purchaseOrderId: po.id,
+      purchaseOrderItemId: oldItem.id,
       userId: ctx.user.id,
       userName: ctx.user.name || "User",
       userRole: ctx.user.role,
@@ -1215,7 +1238,7 @@ export const purchaseOrdersRouter = router({
           ? `تم تعديل الصنف "${finalItemName}" من طلب الشراء ${po.poNumber} وإعادة إرساله لك للتسعير.`
           : `تم تعديل الصنف "${finalItemName}" من طلب الشراء ${po.poNumber} وإعادة إرساله لك للشراء مباشرة.`,
         type: wasRevisionRequest ? "info" : "success",
-        relatedPOId: po.id,
+        relatedPoId: po.id,
       });
     }
 
@@ -1254,16 +1277,17 @@ export const purchaseOrdersRouter = router({
     const item = await db.getPOItemById(input.itemId);
     if (!item) throw new TRPCError({ code: "NOT_FOUND", message: "الصنف غير موجود" });
 
+    const po = await db.getPurchaseOrderById(item.purchaseOrderId);
+    if (!po) throw new TRPCError({ code: "NOT_FOUND", message: "طلب الشراء غير موجود" });
+
     assertCanRequestDelegateChange(ctx.user, {
       delegateId: item.delegateId,
       itemStatus: item.status,
       batchId: item.batchId,
       estimatedUnitCost: item.estimatedUnitCost,
       delegateChangeRequestedAt: item.delegateChangeRequestedAt,
+      reviewedById: po.reviewedById,
     });
-
-    const po = await db.getPurchaseOrderById(item.purchaseOrderId);
-    if (!po) throw new TRPCError({ code: "NOT_FOUND", message: "طلب الشراء غير موجود" });
 
     const requestSaved = await db.requestPOItemDelegateChangeAtomic({
       itemId: item.id,
@@ -1278,16 +1302,32 @@ export const purchaseOrdersRouter = router({
       });
     }
 
-    const maintenanceManagers = await db.getPurchaseManagerUsers();
-    for (const manager of maintenanceManagers) {
-      if (!manager.isActive) continue;
+    // ⚠️ 2026-08-13: الإشعار يذهب لنفس من راجع الطلب واختار المندوب لهذا
+    // الصنف أصلًا (po.reviewedById) — لا بثًّا لكل مديري المشتريات. هو الشخص
+    // الوحيد المخوَّل بحسم الطلب فعليًا (راجع canResolvePOItemDelegateChange)،
+    // فبثّ الإشعار لغيره كان يُري مديرين إشعارًا لا يقدرون على التصرف بموجبه.
+    // Fallback: طلب قديم بلا reviewedById مسجَّل — يُبث لكل المديرين كسابقًا،
+    // مطابقًا لتوسعة الحارس المؤقتة لنفس الحالة.
+    if (po.reviewedById) {
       await db.createNotification({
-        userId: manager.id,
+        userId: po.reviewedById,
         title: "طلب تغيير مندوب صنف",
         message: `طلب المندوب ${ctx.user.name || "المندوب"} تغيير مسؤول الصنف "${item.itemName}" في طلب الشراء ${po.poNumber}. السبب: ${input.reason}`,
         type: "warning",
-        relatedPOId: po.id,
+        relatedPoId: po.id,
       });
+    } else {
+      const maintenanceManagers = await db.getPurchaseManagerUsers();
+      for (const manager of maintenanceManagers) {
+        if (!manager.isActive) continue;
+        await db.createNotification({
+          userId: manager.id,
+          title: "طلب تغيير مندوب صنف",
+          message: `طلب المندوب ${ctx.user.name || "المندوب"} تغيير مسؤول الصنف "${item.itemName}" في طلب الشراء ${po.poNumber}. السبب: ${input.reason}`,
+          type: "warning",
+          relatedPoId: po.id,
+        });
+      }
     }
 
     await db.createAuditLog({
@@ -1313,15 +1353,16 @@ export const purchaseOrdersRouter = router({
     const item = await db.getPOItemById(input.itemId);
     if (!item) throw new TRPCError({ code: "NOT_FOUND", message: "الصنف غير موجود" });
 
+    const po = await db.getPurchaseOrderById(item.purchaseOrderId);
+    if (!po) throw new TRPCError({ code: "NOT_FOUND", message: "طلب الشراء غير موجود" });
+
     assertCanResolveDelegateChange(ctx.user, {
       delegateId: item.delegateId,
       itemStatus: item.status,
       batchId: item.batchId,
       delegateChangeRequestedAt: item.delegateChangeRequestedAt,
+      reviewedById: po.reviewedById,
     });
-
-    const po = await db.getPurchaseOrderById(item.purchaseOrderId);
-    if (!po) throw new TRPCError({ code: "NOT_FOUND", message: "طلب الشراء غير موجود" });
 
     const newDelegate = await db.getUserById(input.delegateId);
     if (!newDelegate || newDelegate.role !== "delegate" || !newDelegate.isActive) {
@@ -1348,7 +1389,7 @@ export const purchaseOrdersRouter = router({
         title: "تم تحويل مسؤولية صنف",
         message: `تم تحويل الصنف "${item.itemName}" من طلب الشراء ${po.poNumber} إلى المندوب ${newDelegate.name || "المختار"}.`,
         type: "info",
-        relatedPOId: po.id,
+        relatedPoId: po.id,
       });
     }
 
@@ -1359,7 +1400,7 @@ export const purchaseOrdersRouter = router({
         ? `قرر ${ctx.user.name || "مدير الصيانة"} إبقاء الصنف "${item.itemName}" من طلب الشراء ${po.poNumber} ضمن مسؤوليتك، وهو جاهز للتسعير.`
         : `عيّنك ${ctx.user.name || "مدير الصيانة"} مسؤولًا عن الصنف "${item.itemName}" من طلب الشراء ${po.poNumber}. الصنف جاهز للتسعير.`,
       type: "success",
-      relatedPOId: po.id,
+      relatedPoId: po.id,
     });
 
     await db.createAuditLog({
@@ -1496,7 +1537,7 @@ export const purchaseOrdersRouter = router({
         title: "طلب شراء بانتظار الاعتماد",
         message: `طلب شراء رقم ${po.poNumber} — دفعة جديدة رقم ${batchNumber} (${readyItems.length} صنف) بانتظار اعتماد الحسابات.`,
         type: "warning",
-        relatedPOId: input.purchaseOrderId,
+        relatedPoId: input.purchaseOrderId,
       });
     }
 
@@ -1934,7 +1975,7 @@ list: protectedProcedure.input(z.object({
       title: "⚠️ طلب مراجعة لطلب شراء",
       message: `قام المندوب ${ctx.user.name} بإعادة طلب الشراء #${po.poNumber} للمراجعة: ${input.note}`,
       type: "warning",
-      relatedPOId: input.id
+      relatedPoId: input.id
     });
 
     await syncPathBTicketFromPurchaseOrder(input.id, ctx.user.id, "أعيد طلب الشراء للمراجعة");
@@ -1993,6 +2034,7 @@ list: protectedProcedure.input(z.object({
 
     await db.createProcurementComment({
       purchaseOrderId: po.id,
+      purchaseOrderItemId: item.id,
       userId: ctx.user.id,
       userName: ctx.user.name || "User",
       userRole: ctx.user.role,
@@ -2006,7 +2048,7 @@ list: protectedProcedure.input(z.object({
       title: "⚠️ طلب مراجعة صنف",
       message: `الصنف "${item.itemName}" يحتاج مراجعة.\n\nالسبب:\n${input.note}\n\nيمكنك تعديل الصنف وإعادة إرساله، أو إلغاءه نهائياً.`,
       type: "warning",
-      relatedPOId: po.id,
+      relatedPoId: po.id,
     });
 
     await db.createAuditLog({
@@ -2047,7 +2089,7 @@ list: protectedProcedure.input(z.object({
           title: "طلب شراء بانتظار الاعتماد",
           message: `طلب شراء رقم ${po.poNumber} بانتظار اعتماد الحسابات (بعض الأصناف قيد المراجعة).`,
           type: "warning",
-          relatedPOId: po.id,
+          relatedPoId: po.id,
         });
       }
     }
@@ -2125,6 +2167,7 @@ list: protectedProcedure.input(z.object({
 
     await db.createProcurementComment({
       purchaseOrderId: po.id,
+      purchaseOrderItemId: item.id,
       userId: ctx.user.id,
       userName: ctx.user.name || "User",
       userRole: ctx.user.role,
@@ -2139,7 +2182,7 @@ list: protectedProcedure.input(z.object({
         title: "🛒 صنف جاهز للشراء",
         message: `تم تعديل الصنف "${item.itemName}" من طلب الشراء ${po.poNumber} وهو جاهز للشراء الآن مباشرة.`,
         type: "success",
-        relatedPOId: po.id,
+        relatedPoId: po.id,
       });
     }
 
@@ -2196,6 +2239,7 @@ list: protectedProcedure.input(z.object({
 
     await db.createProcurementComment({
       purchaseOrderId: po.id,
+      purchaseOrderItemId: item.id,
       userId: ctx.user.id,
       userName: ctx.user.name || "User",
       userRole: ctx.user.role,
@@ -2293,6 +2337,7 @@ list: protectedProcedure.input(z.object({
 
     await db.createProcurementComment({
       purchaseOrderId: po.id,
+      purchaseOrderItemId: item.id,
       userId: ctx.user.id,
       userName: ctx.user.name || "User",
       userRole: ctx.user.role,
@@ -2307,7 +2352,7 @@ list: protectedProcedure.input(z.object({
         title: "✏️ صنف جاهز للتسعير",
         message: `تم تعديل الصنف "${item.itemName}" من طلب الشراء ${po.poNumber} وهو جاهز للتسعير الآن.`,
         type: "info",
-        relatedPOId: po.id,
+        relatedPoId: po.id,
       });
     }
 
@@ -2350,7 +2395,7 @@ list: protectedProcedure.input(z.object({
     const poManagers = await db.getPurchaseManagerUsers();
     for (const mgr of poManagers) {
       if (mgr.id !== ctx.user.id) {
-        await db.createNotification({ userId: mgr.id, title: `تعديل طلب شراء #${po.poNumber}`, message: `قام ${ctx.user.name} بتعديل طلب الشراء`, type: "po_updated", relatedPOId: input.id });
+        await db.createNotification({ userId: mgr.id, title: `تعديل طلب شراء #${po.poNumber}`, message: `قام ${ctx.user.name} بتعديل طلب الشراء`, type: "po_updated", relatedPoId: input.id });
       }
     }
     return { success: true };

@@ -109,6 +109,25 @@ export default function PurchaseOrderDetail() {
   const { data: po, isLoading, refetch } = trpc.purchaseOrders.getById.useQuery({ id: poId }, { enabled: !!poId });
   const { data: users } = trpc.users.list.useQuery();
 
+  // ── تجميع سجل الملاحظات حسب الصنف — الجزء 4 من إصلاحات 2026-08-10 ────────
+  // بدل قسم منفصل أسفل الصفحة، كل ملاحظة تُعرض أسفل بطاقة صنفها مباشرة.
+  // ملاحظات بلا purchaseOrderItemId (إجراءات على مستوى الطلب كاملًا، مثل
+  // "أُعيد تقديم الطلب" أو "رُفض الطلب بالكامل") تبقى بقسم عام صغير منفصل.
+  const { itemComments, generalComments } = useMemo(() => {
+    const byItem = new Map<number, any[]>();
+    const general: any[] = [];
+    for (const c of (po?.comments || [])) {
+      if (c.purchaseOrderItemId != null) {
+        const list = byItem.get(c.purchaseOrderItemId) || [];
+        list.push(c);
+        byItem.set(c.purchaseOrderItemId, list);
+      } else {
+        general.push(c);
+      }
+    }
+    return { itemComments: byItem, generalComments: general };
+  }, [po?.comments]);
+
   // ── ترجمة حقول طلب الشراء (ملاحظات، اعتماد حسابات، اعتماد إدارة، سبب الرفض)
   const { translations: poTranslations } = useEntityTranslation(
     "PO",
@@ -145,6 +164,25 @@ export default function PurchaseOrderDetail() {
   const approveManagementBatchMut = trpc.purchaseOrders.approveManagementBatch.useMutation({
     onSuccess: () => { toast.success("تم اعتماد الدفعة"); refetch(); refetchBatches(); },
     onError: (e: any) => { toast.error(e.message); refetch(); refetchBatches(); },
+  });
+
+  // رفض صنف فوري أثناء مراجعة الحسابات لدفعة تسعير — 2026-08-10.
+  // ينفَّذ الرفض فورًا (سبب مستقل بكل صنف)، لا يُجمَّع مع اعتماد الدفعة.
+  const [rejectItemDialog, setRejectItemDialog] = useState<{ itemId: number; itemName: string } | null>(null);
+  const [rejectItemReason, setRejectItemReason] = useState("");
+  const REJECT_ITEM_MIN_LENGTH = 10;
+  const rejectAccountingBatchItemMut = trpc.purchaseOrders.rejectAccountingBatchItem.useMutation({
+    onSuccess: (res: any) => {
+      toast.success(
+        res?.batchNowClosed ? "تم رفض الصنف — رُفضت الدفعة بالكامل لعدم وجود أصناف فعّالة متبقية" :
+        res?.poNowClosed ? "تم رفض الصنف — رُفض الطلب بالكامل لعدم وجود أصناف فعّالة متبقية" :
+        "تم رفض الصنف"
+      );
+      setRejectItemDialog(null);
+      setRejectItemReason("");
+      refetch(); refetchBatches();
+    },
+    onError: (e: any) => toast.error(e.message),
   });
   const reviewItemsMut = trpc.purchaseOrders.reviewItems.useMutation({ onSuccess: () => { toast.success(t.common.confirm); refetch(); }, onError: (e) => toast.error(e.message) });
   const approveAccMut = trpc.purchaseOrders.approveAccounting.useMutation({
@@ -374,7 +412,14 @@ const submitDraftMut = trpc.purchaseOrders.submitDraft.useMutation({
     (role === "senior_management" && po?.status === "pending_management");
   // الأدوار المسموح لها بتعديل أصناف طلب الشراء بشكل عام (يطابق صلاحية editItem في السيرفر)
   const canEditItems = isMaintenanceManagerVariant || isAdminOrOwner;
-  const canManageDelegateChange = isMaintenanceManagerVariant || isAdminOrOwner;
+  // ⚠️ 2026-08-13: حسم طلب تغيير المندوب مقصور على نفس من راجع طلب الشراء
+  // واختار المندوب لهذا الصنف أصلًا (po.reviewedById) — لا كل مدير من هذه
+  // الأدوار الثلاثة. owner/admin يتجاوزان دائمًا كصمام أمان (مثلًا لو غادر
+  // المراجع الأصلي الشركة). طلب قديم بلا reviewedById مسجَّل يبقى مفتوحًا
+  // لكل مدير مؤهَّل — مطابقًا تمامًا لحارس السيرفر canResolvePOItemDelegateChange.
+  const canManageDelegateChange = isAdminOrOwner ||
+    (isMaintenanceManagerVariant &&
+      (po?.reviewedById === null || po?.reviewedById === undefined || String(po?.reviewedById) === String(userId)));
   const delegateUsers = (users || []).filter((u: any) => u.role === "delegate");
   const isRequester = String(po?.requestedById) === String(userId);
   // الأصناف التي أعادها المندوب لاتخاذ قرار: القرار النهائي للمنشئ أو owner/admin.
@@ -388,10 +433,17 @@ const submitDraftMut = trpc.purchaseOrders.submitDraft.useMutation({
     canResolveReturnedItem &&
     ["needs_item_revision", "purchase_cancelled"].includes(editingItem.status);
 
+  // ⚠️ 2026-08-13: كانت تُحوّل السلسلة الخام إلى Date ثم .toISOString() قبل
+  // الإرسال. purchaseOrderItems.updatedAt معرَّف بـ`mode: 'string'` بالمخطط —
+  // القيمة الواصلة من السيرفر أصلًا سلسلة MySQL خام ("2026-08-13 10:30:00")
+  // لا كائن Date ولا ISO، والسيرفر يقارنها نصًّا بنص (String(a) !== String(b)).
+  // إعادة تنسيقها هنا كانت تضمن عدم التطابق دائمًا (فاصل T مفقود، لاحقة .000Z
+  // زائدة، واحتمال فارق منطقة زمنية بين متصفح المستخدم والسيرفر) — فيرفض الحفظ
+  // بلا أي تعارض تعديل حقيقي، في كل مرة، لا أحيانًا. القيمة رمز مطابقة خام
+  // (كـETag) لا تاريخ يُعرَض، فتُمرَّر كما وصلت دون أي تحويل.
   const getLastKnownUpdatedAt = (item: any): string | undefined => {
-    if (!item?.updatedAt) return undefined;
-    const value = item.updatedAt instanceof Date ? item.updatedAt : new Date(item.updatedAt);
-    return Number.isNaN(value.getTime()) ? undefined : value.toISOString();
+    if (item?.updatedAt === null || item?.updatedAt === undefined) return undefined;
+    return String(item.updatedAt);
   };
 const visibleItems = useMemo(() => {
   if (!po?.items) return [];
@@ -418,6 +470,27 @@ const visibleItems = useMemo(() => {
     role === "purchase_manager" ||
     role === "food_warehouse_manager"
   ) {
+    // ⚠️ 2026-08-10 (تصحيح): دور الحسابات يرى فقط الأصناف **الجاهزة فعليًا
+    // لقراره الآن** — نفس الشرط تمامًا الذي يُظهر زر "رفض الصنف" (canRejectThisItem)
+    // لا كل الأصناف التي مرّت بمرحلة الحسابات تاريخيًا. صنف مرفوض مسبقًا، أو
+    // بدفعة اعتُمدت/رُفضت بالفعل، أو بطلب تجاوز مرحلة الحسابات = لا يظهر.
+    if (role === "accountant") {
+      return po.items.filter((item: any) => {
+        if (item.status === "rejected" || item.status === "cancelled") return false;
+        if (item.batchId != null) {
+          const itemBatch = (pricingBatches as any[]).find((b: any) => b.id === item.batchId);
+          return itemBatch?.status === "pending_accounting";
+        }
+        // ⚠️ إصلاح 2026-08-10: المسار الاحتياطي (صنف بلا دفعة) كان يفحص حالة
+        // *الطلب* فقط — لكن الطلب قد يصبح pending_accounting بسبب أصناف أخرى
+        // جاهزة، بينما هذا الصنف تحديدًا لا يزال عالقًا بمرحلة أبكر (مثال
+        // مؤكَّد: بانتظار حسم "طلب تغيير المندوب" — لم يُسعَّر بعد إطلاقًا).
+        // الشرط الآن على *الصنف نفسه*: مُسعَّر فعليًا (نفس معيار readyToSubmitCount
+        // المستخدَم أصلًا بمكان آخر بالملف لتحديد "الصنف جاهز للإرسال").
+        return po.status === "pending_accounting" &&
+          item.status === "estimated" && !item.delegateChangeRequestedAt;
+      });
+    }
     return po.items.filter(
       (item: any) =>
         item.status !== "needs_item_revision"
@@ -425,7 +498,7 @@ const visibleItems = useMemo(() => {
   }
 
   return po.items;
-}, [po?.items, isAdminOrOwner, role, userId]);
+}, [po?.items, po?.status, isAdminOrOwner, role, userId, pricingBatches]);
   const totalEstimated = useMemo(() => visibleItems.filter((item: any) => !["rejected", "cancelled", "purchase_cancelled"].includes(item.status)).reduce((sum: number, item: any) => sum + (parseFloat(item.estimatedTotalCost || "0")), 0), [visibleItems]);
   const totalActual = useMemo(() => visibleItems.filter((item: any) => !["rejected", "cancelled", "purchase_cancelled"].includes(item.status)).reduce((sum: number, item: any) => sum + (parseFloat(item.actualTotalCost || "0")), 0), [visibleItems]);
 
@@ -714,6 +787,23 @@ const visibleItems = useMemo(() => {
             // Admin/owner can act on all items; delegate only sees their own
             const isMyItem = isAdminOrOwner || (isDelegate && item.delegateId === userId);
 
+            // رفض صنف فوري من الحسابات — 2026-08-10، عُمِّم لاحقًا بنفس اليوم
+            // ليخدم مسارين معًا بزر واحد موحَّد أمام كل صنف بهذا الجدول (لا
+            // قسم منفصل، ولا زر "رفض الطلب بالكامل" منفصل بالمسار الاحتياطي):
+            // (أ) صنف بدفعة تسعير لا تزال بانتظار اعتماد الحسابات، أو
+            // (ب) صنف بلا دفعة (المسار الاحتياطي القديم)، مُسعَّر فعليًا، والطلب
+            //     نفسه بانتظار الحسابات. ⚠️ إصلاح 2026-08-10: أُضيف شرط
+            //     "مُسعَّر فعليًا وبلا طلب تغيير مندوب معلَّق" — وإلا يظهر الزر
+            //     على صنف لم يصل الحسابات أصلًا (لا يزال بانتظار حسم مدير
+            //     الصيانة لطلب تغيير مندوبه)، لمجرد أن الطلب العام تحوّل
+            //     لـpending_accounting بسبب أصناف أخرى جاهزة.
+            const itemBatch = item.batchId ? (pricingBatches as any[]).find((b: any) => b.id === item.batchId) : null;
+            const canRejectThisItem = isAccountant &&
+              item.status !== "rejected" && item.status !== "cancelled" &&
+              (
+                itemBatch?.status === "pending_accounting" ||
+                (!item.batchId && po.status === "pending_accounting" && item.status === "estimated" && !item.delegateChangeRequestedAt)
+              );
             const isCancelledRaw = item.status === "cancelled";
             const isRejected = item.status === "rejected";
             const isPurchaseCancelled = item.status === "purchase_cancelled";
@@ -788,6 +878,19 @@ const visibleItems = useMemo(() => {
                       <XCircle className="w-3.5 h-3.5" />
                     </Button>
                   )}
+                  {/* رفض صنف فوري من الحسابات — 2026-08-10. أمام كل صنف مباشرة،
+                      لا زر واحد أسفل الطلب بالكامل. */}
+                  {canRejectThisItem && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="shrink-0 h-8 gap-1 text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700"
+                      onClick={() => { setRejectItemDialog({ itemId: item.id, itemName: getField(item, "itemName") }); setRejectItemReason(""); }}
+                    >
+                      <XCircle className="w-3.5 h-3.5" />
+                      رفض الصنف
+                    </Button>
+                  )}
                 </div>
 
                 {(item.estimatedUnitCost || item.actualUnitCost) && (
@@ -854,7 +957,9 @@ const visibleItems = useMemo(() => {
         </p>
       </div>
       {!canManageDelegateChange && (
-        <Badge className="bg-blue-100 text-blue-800">بانتظار مدير الصيانة</Badge>
+        <Badge className="bg-blue-100 text-blue-800">
+          {po?.reviewedByName ? `بانتظار ${po.reviewedByName}` : "بانتظار مدير الصيانة"}
+        </Badge>
       )}
     </div>
 
@@ -986,7 +1091,7 @@ const visibleItems = useMemo(() => {
             setDelegateChangeReason("");
           }}
         >
-          تغيير المندوب
+          إعادة تعيين المندوب
         </Button>
       )}
     </div>
@@ -1333,6 +1438,30 @@ const visibleItems = useMemo(() => {
                     </Button>
                   </div>
                 )}
+
+                {/* سجل ملاحظات هذا الصنف تحديدًا — الجزء 4 (2026-08-10)، بدل
+                    قسم منفصل أسفل الصفحة يجمع كل الأصناف معًا بلا تمييز. */}
+                {(itemComments.get(item.id) || []).length > 0 && (
+                  <div className="border-t pt-2 space-y-2">
+                    <p className="text-[11px] font-medium text-muted-foreground flex items-center gap-1.5">
+                      <FileText className="w-3 h-3" /> سجل ملاحظات هذا الصنف
+                    </p>
+                    {(itemComments.get(item.id) || []).map((comment: any) => (
+                      <div key={comment.id} className="space-y-1">
+                        <div className="flex items-center justify-between flex-wrap gap-1">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-[11px] font-bold">{comment.userName}</span>
+                            <Badge variant="outline" className="text-[9px] py-0 h-3.5">{comment.userRole}</Badge>
+                          </div>
+                          <span className="text-[10px] text-muted-foreground">{new Date(comment.createdAt).toLocaleString(locale)}</span>
+                        </div>
+                        <p className="text-xs text-muted-foreground bg-muted/30 p-2 rounded-lg border-l-2 border-primary/20 whitespace-pre-wrap">
+                          {comment.note}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             );
           })}
@@ -1511,6 +1640,7 @@ const visibleItems = useMemo(() => {
             status: isAutoClosed ? "rejected" : batch.status,
             activeItemCount,
             isAutoClosed,
+            batchItems,
           };
         });
         if (visibleBatches.length === 0) return null;
@@ -1629,54 +1759,25 @@ const visibleItems = useMemo(() => {
               <label className="text-xs font-medium text-orange-800">المندوب عليه عهدة بمبلغ (ر.س.) *</label>
               <Input type="number" placeholder={t.purchaseOrders.custodyAmountPlaceholder} value={custodyAmount} onChange={e => setCustodyAmount(e.target.value)} className="bg-white" />
             </div>
-            
-            <div className="bg-white p-3 rounded-md border border-orange-100 space-y-2 mb-3">
-              <h4 className="text-sm font-medium text-orange-800">مراجعة الأصناف (اختياري)</h4>
-              <p className="text-xs text-orange-600 mb-2">يمكنك استبعاد أصناف محددة من الاعتماد.</p>
-              {po.items?.filter((i: any) => i.status !== "rejected").map((item: any) => (
-                <div key={item.id} className="flex items-center justify-between py-2 border-b border-orange-50 last:border-0">
-                  <div className="flex-1 min-w-0">
-                    <p className={`text-sm break-words ${lateRejections[item.id] ? 'line-through text-gray-400' : 'text-gray-800 font-medium'}`}>{getField(item, "itemName")}</p>
-                    <p className="text-xs text-gray-500">التكلفة المقدرة: {Number(item.estimatedTotalCost || 0).toLocaleString("ar-SA")} ر.س.</p>
-                  </div>
-                  <Button 
-                    variant={lateRejections[item.id] ? "outline" : "ghost"} 
-                    size="sm" 
-                    className={lateRejections[item.id] ? "text-orange-600 border-orange-200 bg-orange-50" : "text-red-600 hover:text-red-700 hover:bg-red-50"}
-                    onClick={() => setLateRejections(prev => ({ ...prev, [item.id]: !prev[item.id] }))}
-                  >
-                    {lateRejections[item.id] ? t.purchaseOrders.undoReject : t.purchaseOrders.rejectItem}
-                  </Button>
-                </div>
-              ))}
-            </div>
 
-            <div className="flex gap-2">
-              <Button onClick={() => {
-                const rejectedIds = Object.keys(lateRejections).filter(id => lateRejections[Number(id)]).map(Number);
-                if (rejectedIds.length > 0 && !rejectReason.trim()) {
-                  toast.error(t.purchaseOrders.enterRejectReason);
-                  return;
-                }
+            {/* رفض صنف مستقل بات متاحًا مباشرة أمام كل صنف بجدول "الأصناف" أعلى
+                هذه البطاقة — 2026-08-10. لا حاجة لقائمة استبعاد منفصلة هنا، ولا
+                زر "رفض الطلب بالكامل": رفض كل الأصناف الفعّالة يرفض الطلب تلقائيًا. */}
+            <p className="text-xs text-orange-600">
+              لرفض صنف معيّن، استخدم زر "رفض الصنف" أمامه مباشرة بقائمة الأصناف أعلاه.
+              اعتماد هذا الطلب يشمل كل الأصناف التي لم تُرفض.
+            </p>
+
+            <Button onClick={() => {
                 printWindowRef.current = window.open("", "_blank");
-                approveAccMut.mutate({ 
-                  id: po.id, 
+                approveAccMut.mutate({
+                  id: po.id,
                   custodyAmount: custodyAmount || undefined,
-                  rejectedItemIds: rejectedIds.length > 0 ? rejectedIds : undefined,
-                  rejectionReason: rejectedIds.length > 0 ? rejectReason : undefined
                 });
-              }} disabled={approveAccMut.isPending || !(parseFloat(custodyAmount || "") > 0)} className="flex-1 gap-1.5">
+              }} disabled={approveAccMut.isPending || !(parseFloat(custodyAmount || "") > 0)} className="w-full gap-1.5">
                 {approveAccMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
-                {Object.values(lateRejections).some(Boolean) ? t.purchaseOrders.approveWithExclusion : t.common.confirm}
+                {t.common.confirm}
               </Button>
-              <Button variant="destructive" onClick={() => {
-                if (!rejectReason.trim()) { toast.error(t.purchaseOrders.justification); return; }
-                rejectMut.mutate({ id: po.id, reason: rejectReason });
-              }} disabled={rejectMut.isPending} className="gap-1">
-                <XCircle className="w-4 h-4" /> رفض الطلب بالكامل
-              </Button>
-            </div>
-            <Input placeholder={t.purchaseOrders.rejectReasonPlaceholder} value={rejectReason} onChange={e => setRejectReason(e.target.value)} />
           </CardContent>
         </Card>
       )}
@@ -1758,17 +1859,19 @@ const visibleItems = useMemo(() => {
         </Card>
       )}
 
-      {po.comments && po.comments.length > 0 && (
+      {/* ملاحظات على مستوى الطلب كاملًا (لا تخص صنفًا محددًا) — الجزء 4
+          (2026-08-10). ملاحظات كل صنف انتقلت لتظهر أسفل بطاقته مباشرة أعلاه. */}
+      {generalComments.length > 0 && (
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-bold flex items-center gap-2">
               <FileText className="w-4 h-4 text-muted-foreground" />
-              سجل الملاحظات والتعديلات
+              ملاحظات عامة على الطلب
             </CardTitle>
           </CardHeader>
           <CardContent className="p-0">
             <div className="divide-y">
-              {po.comments.map((comment: any) => (
+              {generalComments.map((comment: any) => (
                 <div key={comment.id} className="p-4 space-y-2">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
@@ -1898,11 +2001,13 @@ const visibleItems = useMemo(() => {
       >
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>طلب تغيير مندوب الصنف</DialogTitle>
+            <DialogTitle>طلب إعادة تعيين المندوب</DialogTitle>
           </DialogHeader>
           <div className="space-y-3 py-2">
             <p className="text-sm text-muted-foreground">
-              سيتم إيقاف تسعير الصنف مؤقتًا وإرسال الطلب إلى مدير الصيانة لاختيار المندوب المسؤول.
+              سيتوقف تسعير الصنف مؤقتًا، ويُرسل الطلب إلى
+              {po?.reviewedByName ? <> <strong>{po.reviewedByName}</strong></> : " من راجع هذا الطلب واختار المندوب أصلًا"}
+              {" "}لاختيار مندوب جديد.
             </p>
             <div className="rounded-lg bg-muted/40 border p-2 text-sm">
               الصنف: <strong>{delegateChangeDialogItem?.itemName}</strong>
@@ -2108,6 +2213,54 @@ const visibleItems = useMemo(() => {
             >
               {cancelPurchaseMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Ban className="w-4 h-4" />}
               تأكيد إلغاء الشراء
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* رفض صنف فوري أثناء مراجعة الحسابات — 2026-08-10 */}
+      <Dialog open={!!rejectItemDialog} onOpenChange={(open) => { if (!open) { setRejectItemDialog(null); setRejectItemReason(""); } }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-700">
+              <XCircle className="w-5 h-5" />
+              رفض الصنف
+            </DialogTitle>
+          </DialogHeader>
+          {rejectItemDialog && (
+            <div className="space-y-4">
+              <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+                <p className="font-semibold text-sm">{rejectItemDialog.itemName}</p>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium">سبب الرفض *</Label>
+                <Textarea
+                  placeholder="اكتب سبب رفض هذا الصنف..."
+                  value={rejectItemReason}
+                  onChange={(e) => setRejectItemReason(e.target.value)}
+                  rows={4}
+                  className="resize-none"
+                  autoFocus
+                />
+                <p className={`text-[11px] ${rejectItemReason.trim().length < REJECT_ITEM_MIN_LENGTH ? "text-red-600" : "text-emerald-600"}`}>
+                  {rejectItemReason.trim().length}/{REJECT_ITEM_MIN_LENGTH} حرفًا على الأقل
+                </p>
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setRejectItemDialog(null); setRejectItemReason(""); }}>{t.common.cancel}</Button>
+            <Button
+              variant="destructive"
+              className="gap-1.5"
+              disabled={rejectItemReason.trim().length < REJECT_ITEM_MIN_LENGTH || rejectAccountingBatchItemMut.isPending}
+              onClick={() => {
+                if (!rejectItemDialog) return;
+                rejectAccountingBatchItemMut.mutate({ itemId: rejectItemDialog.itemId, reason: rejectItemReason.trim() });
+              }}
+            >
+              {rejectAccountingBatchItemMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <XCircle className="w-4 h-4" />}
+              تأكيد رفض الصنف
             </Button>
           </DialogFooter>
         </DialogContent>

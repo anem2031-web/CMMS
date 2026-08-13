@@ -480,7 +480,7 @@ export const receiptsV2Router = router({
           message: `تم استلام ${input.items.length} صنف من طلب ${po.poNumber}` +
             (input.hasDiscrepancy ? " ⚠️ يوجد فروقات" : ""),
           type: input.hasDiscrepancy ? "warning" : "info",
-          relatedPOId: input.purchaseOrderId,
+          relatedPoId: input.purchaseOrderId,
         });
       }
 

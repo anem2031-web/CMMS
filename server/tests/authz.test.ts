@@ -468,4 +468,26 @@ describe("تغيير مندوب الصنف قبل التسعير", () => {
     expect(canResolvePOItemDelegateChange({ role: "delegate", userId: 10 }, pendingRequest)).toBe(false);
     expect(canResolvePOItemDelegateChange({ role: "purchase_manager", userId: 20 }, pendingRequest)).toBe(false);
   });
+
+  // 2026-08-13: الحسم يعود حصرًا لنفس من راجع الطلب واختار المندوب أصلًا،
+  // لا لأي مستخدم يحمل أحد الأدوار المؤهَّلة — راجع الشرح في engine.ts.
+  it("الحسم مقصور على نفس مراجع الطلب (po.reviewedById) لا كل مدير مؤهَّل", () => {
+    const pendingRequest = { ...base, delegateChangeRequestedAt: new Date(), reviewedById: 42 };
+    expect(canResolvePOItemDelegateChange({ role: "maintenance_manager", userId: 42 }, pendingRequest)).toBe(true);
+    expect(canResolvePOItemDelegateChange({ role: "maintenance_manager", userId: 99 }, pendingRequest)).toBe(false);
+    expect(canResolvePOItemDelegateChange({ role: "general_maintenance_manager", userId: 99 }, pendingRequest)).toBe(false);
+    expect(canResolvePOItemDelegateChange({ role: "construction_procurement_manager", userId: 99 }, pendingRequest)).toBe(false);
+  });
+
+  it("owner/admin يتجاوزان قيد المراجع الأصلي كصمام أمان", () => {
+    const pendingRequest = { ...base, delegateChangeRequestedAt: new Date(), reviewedById: 42 };
+    expect(canResolvePOItemDelegateChange({ role: "owner", userId: 99 }, pendingRequest)).toBe(true);
+    expect(canResolvePOItemDelegateChange({ role: "admin", userId: 99 }, pendingRequest)).toBe(true);
+  });
+
+  it("طلب قديم بلا reviewedById مسجَّل يبقى مفتوحًا لكل مدير مؤهَّل (توافق رجعي)", () => {
+    const pendingRequestNoReviewer = { ...base, delegateChangeRequestedAt: new Date() }; // reviewedById غائب
+    expect(canResolvePOItemDelegateChange({ role: "maintenance_manager", userId: 99 }, pendingRequestNoReviewer)).toBe(true);
+    expect(canResolvePOItemDelegateChange({ role: "maintenance_manager", userId: 1 }, { ...pendingRequestNoReviewer, reviewedById: null })).toBe(true);
+  });
 });

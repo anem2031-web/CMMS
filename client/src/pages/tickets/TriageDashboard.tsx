@@ -115,6 +115,20 @@ export default function TriageDashboard() {
     maintenanceResponsibleManagerId: "",
   });
 
+  // ── الفرز المتعدد الجهات (2026-08-08) ─────────────────────────────────────
+  // الهيكل الجديد هو الافتراضي والإلزامي بالواجهة: جهة واحدة أو أكثر ثم المهام.
+  // يبقى مسار single القديم بالكود للتوافق الرجعي فقط ولا تعرضه الواجهة الجديدة.
+  const [triageMode, setTriageMode] = useState<"single" | "multi">("multi");
+  const [multiAssignments, setMultiAssignments] = useState<Record<string, { selected: boolean; managerId: string; organizationalTitle: string }>>({});
+
+  const emptyMultiAssignments = () => ({
+    [MAINTENANCE_RESPONSIBLE_DEPARTMENT.GENERAL]: { selected: false, managerId: "", organizationalTitle: "" },
+    [MAINTENANCE_RESPONSIBLE_DEPARTMENT.CONSTRUCTION]: { selected: false, managerId: "", organizationalTitle: "" },
+  });
+
+  const updateAssignment = (dept: string, patch: Partial<{ selected: boolean; managerId: string; organizationalTitle: string }>) =>
+    setMultiAssignments(prev => ({ ...prev, [dept]: { ...prev[dept], ...patch } }));
+
 
   // ── Quick Triage Dialog ───────────────────────────────────────────────────
   const [quickTriageDialog, setQuickTriageDialog] = useState<any>(null);
@@ -134,6 +148,16 @@ export default function TriageDashboard() {
   const triageMut = trpc.tickets.triage.useMutation({
     onSuccess: () => {
       toast.success(t.triage.sortedSuccess);
+      utils.tickets.list.invalidate();
+      setTriageDialog(null);
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
+
+  // الفرز المتعدد الجهات (2026-08-08) — إجراء مستقل، لا يمس triage العادي.
+  const triageMultiMut = trpc.tickets.triageMulti.useMutation({
+    onSuccess: (res: any) => {
+      toast.success(`تم اعتماد ${res?.departmentsCreated ?? 0} جهة — يمكن الآن تحليل البلاغ وإنشاء المهام`);
       utils.tickets.list.invalidate();
       setTriageDialog(null);
     },
@@ -212,7 +236,56 @@ export default function TriageDashboard() {
     });
   };
 
+  // الفرز المتعدد الجهات (2026-08-08)
+  const selectedDepartments = Object.entries(multiAssignments).filter(([, v]) => v?.selected);
+
+  // معمَّمة لتخدم كلتا النافذتين (الفرز السريع والفرز الكامل) بلا تكرار منطق —
+  // 2026-08-08، بعد أن أصبح خيار الفرز المتعدد متاحًا من نافذة الفرز السريع أيضًا.
+  const handleMultiTriageFor = (ticket: any, onDone?: () => void) => {
+    if (!ticket) return;
+    if (selectedDepartments.length === 0) {
+      toast.error("يجب اختيار جهة واحدة على الأقل");
+      return;
+    }
+    for (const [dept, v] of selectedDepartments) {
+      const mgrs = managersForDepartment(dept);
+      if (mgrs.length === 0) {
+        toast.error("لا يوجد مسؤول نشط لإحدى الجهات المختارة");
+        return;
+      }
+      if (mgrs.length > 1 && !v.managerId) {
+        toast.error("يجب تحديد مسؤول كل جهة");
+        return;
+      }
+      if (dept === MAINTENANCE_RESPONSIBLE_DEPARTMENT.CONSTRUCTION && !v.organizationalTitle.trim()) {
+        toast.error("يجب إدخال العنوان التنظيمي للإنشاءات");
+        return;
+      }
+    }
+    triageMultiMut.mutate({
+      id: ticket.id,
+      ticketType: triageForm.ticketType,
+      priority: triageForm.priority || undefined,
+      triageNotes: triageForm.triageNotes || undefined,
+      assignments: selectedDepartments.map(([dept, v]) => {
+        const mgrs = managersForDepartment(dept);
+        return {
+          department: dept as any,
+          responsibleManagerId: v.managerId
+            ? parseInt(v.managerId)
+            : mgrs.length === 1 ? mgrs[0].id : undefined,
+          organizationalTitle: dept === MAINTENANCE_RESPONSIBLE_DEPARTMENT.CONSTRUCTION ? v.organizationalTitle.trim() : undefined,
+        };
+      }),
+    }, { onSuccess: onDone });
+  };
+
+  // مستخدَمة حاليًا من نافذة الفرز الكامل فقط (معطَّلة الظهور — راجع الملاحظة أدناه).
+  const handleMultiTriage = () => handleMultiTriageFor(triageDialog, () => setTriageDialog(null));
+
   const openTriageDialog = (ticket: any) => {
+    setTriageMode("multi");
+    setMultiAssignments(emptyMultiAssignments());
     setTriageForm({
       ticketType: "internal",
       priority: ticket.priority || "medium",
@@ -576,12 +649,17 @@ export default function TriageDashboard() {
                             setQuickTriageAssignedTo("");
                             setQuickTriageDepartment("");
                             setQuickTriageManagerId("");
+                            setTriageMode("multi");
+                            setMultiAssignments(emptyMultiAssignments());
                           }}
-                          title="نقل سريع لمرحلة الفحص مع تعيين فني"
+                          title="نقل سريع لمرحلة الفحص مع تعيين فني — يدعم الفرز المتعدد أيضًا"
                         >
                           <Zap className="w-4 h-4 ml-1" />
                           {t.triage.sortTicket}
                         </Button>
+                        {/* الزر الثالث (الفرز الكامل) مُعطَّل الظهور بطلب صريح 2026-08-08 — الكود محفوظ
+                            بلا حذف (النافذة نفسها لا تزال موجودة أدناه وتعمل، فقط بلا زر يفتحها من هنا).
+                            لإعادة تفعيله لاحقًا: أزل التعليق عن الكتلة التالية.
                         <Button
                           size="sm"
                           onClick={() => openTriageDialog(ticket)}
@@ -590,6 +668,7 @@ export default function TriageDashboard() {
                           <ClipboardList className="w-4 h-4 ml-1" />
                           {t.triage.sortTicket}
                         </Button>
+                        */}
                       </>
                     )}
 
@@ -627,6 +706,14 @@ export default function TriageDashboard() {
                 <p className="font-medium text-sm">{quickTriageDialog.ticketNumber}</p>
                 <p className="text-sm text-muted-foreground">{quickTriageDialog.title}</p>
               </div>
+
+              {/* الهيكل الجديد إلزامي للبلاغات الجديدة: جهة واحدة أو أكثر ثم المهام. */}
+              <div className="rounded-lg border border-purple-200 dark:border-purple-800 bg-purple-50/60 dark:bg-purple-950/20 p-3">
+                <p className="text-sm font-medium">فرز حسب الجهات والمهام</p>
+                <p className="text-xs text-muted-foreground mt-1">اختر جهة واحدة أو عدة جهات أولًا؛ بعد الاعتماد يبدأ مسؤول كل جهة بإنشاء المهام وتوزيع الفنيين.</p>
+              </div>
+
+              {triageMode === "single" && (
               <div className="space-y-2">
                 <Label>الجهة المسؤولة *</Label>
                 <Select value={quickTriageDepartment} onValueChange={(value) => {
@@ -641,7 +728,8 @@ export default function TriageDashboard() {
                   </SelectContent>
                 </Select>
               </div>
-              {managersForDepartment(quickTriageDepartment).length > 1 && (
+              )}
+              {triageMode === "single" && managersForDepartment(quickTriageDepartment).length > 1 && (
                 <div className="space-y-2">
                   <Label>المسؤول المستلم *</Label>
                   <Select value={quickTriageManagerId} onValueChange={setQuickTriageManagerId}>
@@ -654,7 +742,7 @@ export default function TriageDashboard() {
                   </Select>
                 </div>
               )}
-              {quickTriageDepartment === MAINTENANCE_RESPONSIBLE_DEPARTMENT.GENERAL && (
+              {triageMode === "single" && quickTriageDepartment === MAINTENANCE_RESPONSIBLE_DEPARTMENT.GENERAL && (
                 <div className="space-y-2">
                   <Label>تعيين الفني المسؤول *</Label>
                   <TechnicianCombobox
@@ -665,11 +753,76 @@ export default function TriageDashboard() {
                   />
                 </div>
               )}
+              {triageMode === "single" && (
               <p className="text-xs text-muted-foreground">
                 {quickTriageDepartment === MAINTENANCE_RESPONSIBLE_DEPARTMENT.CONSTRUCTION
                   ? "سيتم توجيه البلاغ إلى مدير الإنشاءات ليختار الفني المسؤول."
                   : "سيتم نقل البلاغ إلى مسار الصيانة العامة."}
               </p>
+              )}
+
+              {/* الفرز المتعدد الجهات — 2026-08-08. نفس بنية نافذة الفرز الكامل حرفيًا. */}
+              {triageMode === "multi" && (
+                <div className="space-y-3 rounded-lg border border-purple-200 dark:border-purple-800 bg-purple-50/50 dark:bg-purple-950/20 p-3">
+                  <p className="text-xs text-muted-foreground">
+                    اختر الجهة أو الجهات المسؤولة وحدد مسؤول كل جهة. إنشاء المهام وتوزيع الفنيين يتم لاحقًا داخل الجهة.
+                  </p>
+                  {[
+                    { key: MAINTENANCE_RESPONSIBLE_DEPARTMENT.GENERAL, label: "الصيانة العامة" },
+                    { key: MAINTENANCE_RESPONSIBLE_DEPARTMENT.CONSTRUCTION, label: "قسم الإنشاءات" },
+                  ].map(({ key, label }) => {
+                    const a = multiAssignments[key] || { selected: false, managerId: "", organizationalTitle: "" };
+                    const mgrs = managersForDepartment(key);
+                    return (
+                      <div key={key} className="rounded-md border bg-background p-3 space-y-2">
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={a.selected}
+                            onChange={(e) => updateAssignment(key, { selected: e.target.checked })}
+                            className="w-4 h-4 accent-purple-600"
+                          />
+                          <span className="text-sm font-medium">{label}</span>
+                        </label>
+
+                        {a.selected && (
+                          <div className="space-y-2 pt-1">
+                            {mgrs.length > 1 ? (
+                              <>
+                                <Label className="text-xs">مسؤول الجهة *</Label>
+                                <Select value={a.managerId} onValueChange={(v) => updateAssignment(key, { managerId: v })}>
+                                  <SelectTrigger><SelectValue placeholder="اختر المسؤول" /></SelectTrigger>
+                                  <SelectContent>
+                                    {mgrs.map((m: any) => (
+                                      <SelectItem key={m.id} value={String(m.id)}>{m.name || m.username}</SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </>
+                            ) : mgrs.length === 1 ? (
+                              <p className="text-xs text-muted-foreground">مسؤول الجهة: {mgrs[0].name || mgrs[0].username}</p>
+                            ) : null}
+                            {key === MAINTENANCE_RESPONSIBLE_DEPARTMENT.CONSTRUCTION && (
+                              <div className="space-y-1">
+                                <Label className="text-xs">العنوان التنظيمي للإنشاءات *</Label>
+                                <Input
+                                  value={a.organizationalTitle}
+                                  maxLength={300}
+                                  onChange={(e) => updateAssignment(key, { organizationalTitle: e.target.value })}
+                                  placeholder="مثال: إعادة تأهيل مبنى الإدارة"
+                                />
+                                <p className="text-[11px] text-muted-foreground">عنوان تنظيمي فقط؛ مدير الإنشاءات ينشئ تحته مهمة واحدة أو عدة مهام.</p>
+                              </div>
+                            )}
+                            <p className="text-[11px] text-muted-foreground">المهام والفنيون يتم تحديدهم بعد اعتماد الجهة.</p>
+
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           )}
           <DialogFooter>
@@ -677,6 +830,10 @@ export default function TriageDashboard() {
             <Button
               onClick={() => {
                 if (!quickTriageDialog) return;
+                if (triageMode === "multi") {
+                  handleMultiTriageFor(quickTriageDialog, () => setQuickTriageDialog(null));
+                  return;
+                }
                 const assignedToId = quickTriageAssignedTo
                   ? parseInt(quickTriageAssignedTo)
                   : undefined;
@@ -692,22 +849,30 @@ export default function TriageDashboard() {
                 setQuickTriageDialog(null);
               }}
               disabled={
-                quickTriageMut.isPending ||
-                !quickTriageDepartment ||
-                managersForDepartment(quickTriageDepartment).length === 0 ||
-                (managersForDepartment(quickTriageDepartment).length > 1 && !quickTriageManagerId) ||
-                (quickTriageDepartment === MAINTENANCE_RESPONSIBLE_DEPARTMENT.GENERAL && !quickTriageAssignedTo)
+                triageMode === "multi"
+                  ? (triageMultiMut.isPending || selectedDepartments.length === 0)
+                  : (
+                    quickTriageMut.isPending ||
+                    !quickTriageDepartment ||
+                    managersForDepartment(quickTriageDepartment).length === 0 ||
+                    (managersForDepartment(quickTriageDepartment).length > 1 && !quickTriageManagerId) ||
+                    (quickTriageDepartment === MAINTENANCE_RESPONSIBLE_DEPARTMENT.GENERAL && !quickTriageAssignedTo)
+                  )
               }
               className="bg-blue-600 hover:bg-blue-700 text-white"
             >
               <Zap className="w-4 h-4 ml-1" />
-              {quickTriageMut.isPending ? "جاري..." : "تأكيد الفرز"}
+              {(triageMode === "multi" ? triageMultiMut.isPending : quickTriageMut.isPending)
+                ? "جاري..."
+                : triageMode === "multi" ? `تأكيد الفرز المتعدد (${selectedDepartments.length})` : "تأكيد الفرز"}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* ── Full Triage Dialog ── */}
+      {/* ── Full Triage Dialog (معطَّل الظهور — 2026-08-08، الكود محفوظ للاستخدام المستقبلي) ── */}
+      {/* راجع docs/CHANGELOG_TECHNICAL.md لسبب التعطيل. لإعادة تفعيله: أعد زر "فرز وتصنيف البلاغ"
+          (البنفسجي) ببطاقة البلاغ الذي كان يستدعي openTriageDialog. */}
       <Dialog open={!!triageDialog} onOpenChange={() => setTriageDialog(null)}>
         <DialogContent className="max-w-md">
           <DialogHeader>
@@ -721,6 +886,12 @@ export default function TriageDashboard() {
               <div className="p-3 bg-muted rounded-lg">
                 <p className="font-medium text-sm">{triageDialog.ticketNumber}</p>
                 <p className="text-sm text-muted-foreground">{triageDialog.title}</p>
+              </div>
+
+              {/* الهيكل الجديد إلزامي للبلاغات الجديدة: جهة واحدة أو أكثر ثم المهام. */}
+              <div className="rounded-lg border border-purple-200 dark:border-purple-800 bg-purple-50/60 dark:bg-purple-950/20 p-3">
+                <p className="text-sm font-medium">فرز حسب الجهات والمهام</p>
+                <p className="text-xs text-muted-foreground mt-1">اختر جهة واحدة أو عدة جهات أولًا؛ بعد الاعتماد يبدأ مسؤول كل جهة بإنشاء المهام وتوزيع الفنيين.</p>
               </div>
 
               <div className="space-y-2">
@@ -754,6 +925,7 @@ export default function TriageDashboard() {
                 </Select>
               </div>
 
+              {triageMode === "single" && (
               <div className="space-y-2">
                 <Label>الجهة المسؤولة *</Label>
                 <Select
@@ -772,8 +944,72 @@ export default function TriageDashboard() {
                   </SelectContent>
                 </Select>
               </div>
+              )}
 
-              {managersForDepartment(triageForm.maintenanceResponsibleDepartment).length > 1 && (
+              {/* الفرز المتعدد الجهات — 2026-08-08 */}
+              {triageMode === "multi" && (
+                <div className="space-y-3 rounded-lg border border-purple-200 dark:border-purple-800 bg-purple-50/50 dark:bg-purple-950/20 p-3">
+                  <p className="text-xs text-muted-foreground">
+                    اختر الجهة أو الجهات المسؤولة وحدد مسؤول كل جهة. إنشاء المهام وتوزيع الفنيين يتم لاحقًا داخل الجهة.
+                  </p>
+                  {[
+                    { key: MAINTENANCE_RESPONSIBLE_DEPARTMENT.GENERAL, label: "الصيانة العامة" },
+                    { key: MAINTENANCE_RESPONSIBLE_DEPARTMENT.CONSTRUCTION, label: "قسم الإنشاءات" },
+                  ].map(({ key, label }) => {
+                    const a = multiAssignments[key] || { selected: false, managerId: "", organizationalTitle: "" };
+                    const mgrs = managersForDepartment(key);
+                    return (
+                      <div key={key} className="rounded-md border bg-background p-3 space-y-2">
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={a.selected}
+                            onChange={(e) => updateAssignment(key, { selected: e.target.checked })}
+                            className="w-4 h-4 accent-purple-600"
+                          />
+                          <span className="text-sm font-medium">{label}</span>
+                        </label>
+
+                        {a.selected && (
+                          <div className="space-y-2 pt-1">
+                            {mgrs.length > 1 ? (
+                              <>
+                                <Label className="text-xs">مسؤول الجهة *</Label>
+                                <Select value={a.managerId} onValueChange={(v) => updateAssignment(key, { managerId: v })}>
+                                  <SelectTrigger><SelectValue placeholder="اختر المسؤول" /></SelectTrigger>
+                                  <SelectContent>
+                                    {mgrs.map((m: any) => (
+                                      <SelectItem key={m.id} value={String(m.id)}>{m.name || m.username}</SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </>
+                            ) : mgrs.length === 1 ? (
+                              <p className="text-xs text-muted-foreground">مسؤول الجهة: {mgrs[0].name || mgrs[0].username}</p>
+                            ) : null}
+                            {key === MAINTENANCE_RESPONSIBLE_DEPARTMENT.CONSTRUCTION && (
+                              <div className="space-y-1">
+                                <Label className="text-xs">العنوان التنظيمي للإنشاءات *</Label>
+                                <Input
+                                  value={a.organizationalTitle}
+                                  maxLength={300}
+                                  onChange={(e) => updateAssignment(key, { organizationalTitle: e.target.value })}
+                                  placeholder="مثال: إعادة تأهيل مبنى الإدارة"
+                                />
+                                <p className="text-[11px] text-muted-foreground">عنوان تنظيمي فقط؛ مدير الإنشاءات ينشئ تحته مهمة واحدة أو عدة مهام.</p>
+                              </div>
+                            )}
+                            <p className="text-[11px] text-muted-foreground">المهام والفنيون يتم تحديدهم بعد اعتماد الجهة.</p>
+
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {triageMode === "single" && managersForDepartment(triageForm.maintenanceResponsibleDepartment).length > 1 && (
                 <div className="space-y-2">
                   <Label>المسؤول المستلم *</Label>
                   <Select
@@ -790,7 +1026,7 @@ export default function TriageDashboard() {
                 </div>
               )}
 
-              {triageForm.maintenanceResponsibleDepartment === MAINTENANCE_RESPONSIBLE_DEPARTMENT.GENERAL && (
+              {triageMode === "single" && triageForm.maintenanceResponsibleDepartment === MAINTENANCE_RESPONSIBLE_DEPARTMENT.GENERAL && (
               <div className="space-y-2">
                 <Label>تعيين الفني المسؤول *</Label>
                 <TechnicianCombobox
@@ -819,18 +1055,24 @@ export default function TriageDashboard() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setTriageDialog(null)}>إلغاء</Button>
             <Button
-              onClick={handleFullTriage}
+              onClick={triageMode === "multi" ? handleMultiTriage : handleFullTriage}
               disabled={
-                triageMut.isPending ||
-                !triageForm.maintenanceResponsibleDepartment ||
-                managersForDepartment(triageForm.maintenanceResponsibleDepartment).length === 0 ||
-                (managersForDepartment(triageForm.maintenanceResponsibleDepartment).length > 1 && !triageForm.maintenanceResponsibleManagerId) ||
-                (triageForm.maintenanceResponsibleDepartment === MAINTENANCE_RESPONSIBLE_DEPARTMENT.GENERAL && !triageForm.assignedToId)
+                triageMode === "multi"
+                  ? (triageMultiMut.isPending || selectedDepartments.length === 0)
+                  : (
+                    triageMut.isPending ||
+                    !triageForm.maintenanceResponsibleDepartment ||
+                    managersForDepartment(triageForm.maintenanceResponsibleDepartment).length === 0 ||
+                    (managersForDepartment(triageForm.maintenanceResponsibleDepartment).length > 1 && !triageForm.maintenanceResponsibleManagerId) ||
+                    (triageForm.maintenanceResponsibleDepartment === MAINTENANCE_RESPONSIBLE_DEPARTMENT.GENERAL && !triageForm.assignedToId)
+                  )
               }
               className="bg-purple-600 hover:bg-purple-700 text-white"
             >
               <ArrowRight className="w-4 h-4 ml-1" />
-              {triageMut.isPending ? "جاري الحفظ..." : "تأكيد الفرز"}
+              {(triageMode === "multi" ? triageMultiMut.isPending : triageMut.isPending)
+                ? "جاري الحفظ..."
+                : triageMode === "multi" ? `تأكيد الفرز المتعدد (${selectedDepartments.length})` : "تأكيد الفرز"}
             </Button>
           </DialogFooter>
         </DialogContent>

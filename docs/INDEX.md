@@ -175,3 +175,31 @@ client/src/
 
 - [المسار C — صيانة الأصول خارج الشركة](PATH_C_EXTERNAL_MAINTENANCE_WORKFLOW.md)
 - [تقرير اختبار المسار C](TEST_REPORT_PATH_C_EXTERNAL_MAINTENANCE_WORKFLOW.md)
+
+## 13) توثيق تحديث 2026-08-08 — البلاغ متعدد الجهات والمسارات (الخطوة 1)
+
+- [تسليم الخطوة 1 — بنود البلاغ](تسليم-الخطوة-1-بنود-البلاغ.md) — خطوات التطبيق والتجربة والتراجع بلغة مبسّطة.
+- التفاصيل التقنية الكاملة: `docs/CHANGELOG_TECHNICAL.md` (بند 2026-08-08).
+- **الخطوات 2→7 لم تبدأ بعد** — راجع `docs/PENDING_TASKS.md` قبل أي عمل على هذه الميزة.
+
+**جدول جديد:** `ticket_items` — بنود البلاغ (مهام متعددة داخل البلاغ الواحد)، بنفس نمط
+`purchase_orders → purchase_order_items`. كل بلاغ له بند واحد على الأقل؛ البلاغات السابقة لهذا التاريخ
+لها بند واحد مُرحَّل تلقائيًا (`isLegacySingleItem = 1`).
+
+| الطبقة | الملف |
+|---|---|
+| الترحيل | `drizzle/migrations/2026_08_08_ticket_items_multi_task.sql` |
+| المخطط | `drizzle/schema.ts` (`ticketItems`، مُعرَّف قبل `tickets` مباشرة) |
+| قاعدة البيانات | `server/_core/db/tickets.ts` (قسم TICKET ITEMS) — و`deletes.ts` (حذف البنود قبل البلاغ) |
+| الراوتر | `server/routers/tickets/tickets.router.ts` (`tickets.items` — قراءة فقط) |
+
+⚠️ أعمدة `tickets` القديمة (`status`, `maintenancePath`, ...) **باقية عمدًا** كـ"ملخص" لضمان عمل كل
+الشاشات والتقارير القائمة دون كسر — راجع القاعدة الحرجة #11 في `/CLAUDE.md`.
+
+## 14) توثيق تحديث 2026-08-12 — تعارض ترقيم البلاغات على قاعدة مشتركة
+
+- `docs/TICKET_NUMBERING_SHARED_DB_COMPATIBILITY_FIX.md` — يشرح حادثة تكرار `00224/00225`، سبب اختلاف
+  `ticket_number_counter` عن الأرقام الفعلية أثناء تعايش النسختين، تنظيف البيانات، والحل الانتقالي الذي أعاد
+  `getNextTicketNumber()` للاعتماد على أعلى رقم بلاغ رئيسي فعلي مع استبعاد البلاغات الفرعية.
+- التفاصيل التنفيذية المختصرة موجودة أيضًا في `docs/CHANGELOG_TECHNICAL.md` تحت تاريخ 2026-08-12.
+

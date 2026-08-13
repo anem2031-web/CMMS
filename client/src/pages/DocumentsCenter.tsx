@@ -11,7 +11,8 @@
 // بلا أي تعديل. لا جداول جديدة، لا أرقام تسلسلية جديدة، لا Workflow.
 // ============================================================
 import { trpc } from "@/lib/trpc";
-import { useState, useMemo } from "react";
+import { useAuth } from "@/_core/hooks/useAuth";
+import { useState, useMemo, useEffect } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,7 +22,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   FileStack, Search, RefreshCw, Printer, ShoppingCart, PackageCheck,
-  Truck, RotateCcw, Trash2, ClipboardCheck, Scale, Eye, Download,
+  Truck, RotateCcw, Trash2, ClipboardCheck, Scale, Eye, Download, Landmark,
 } from "lucide-react";
 import { toast } from "sonner";
 import { buildReceiptHtml } from "@/lib/printReceiptDocument";
@@ -32,7 +33,7 @@ import {
 } from "@/lib/printInventoryOperationDocuments";
 import { viewDocumentAsPdf, downloadDocumentAsPdf } from "@/lib/exportHtmlToPdf";
 
-type DocType = "purchase_order" | "receipt" | "delivery" | "return" | "disposal" | "count" | "settlement";
+type DocType = "purchase_order" | "receipt" | "delivery" | "return" | "disposal" | "count" | "settlement" | "po_financial_batch";
 
 type DocRow = {
   type: DocType;
@@ -41,6 +42,7 @@ type DocRow = {
   date: string | Date;
   referenceLabel: string;
   printCount: number | null;
+  delegateId?: number | null; // فقط لنوع po_financial_batch — الجزء 2 (2026-08-10)
 };
 
 const TYPE_META: Record<DocType, { label: string; icon: any; color: string }> = {
@@ -51,6 +53,9 @@ const TYPE_META: Record<DocType, { label: string; icon: any; color: string }> = 
   disposal:       { label: "عملية استبعاد", icon: Trash2,         color: "bg-red-100 text-red-700 border-red-200" },
   count:          { label: "عملية جرد",     icon: ClipboardCheck, color: "bg-teal-100 text-teal-700 border-teal-200" },
   settlement:     { label: "تسوية جرد",     icon: Scale,          color: "bg-purple-100 text-purple-700 border-purple-200" },
+  // آخر عنصر بالقائمة = أقصى اليسار بصف الفلاتر (الصفحة RTL) — طلب صريح من
+  // صاحب المشروع (2026-08-10): "جوار طلب الشراء من اليسار"، لا قسم منفصل.
+  po_financial_batch: { label: "الوثائق المالية المعتمدة", icon: Landmark, color: "bg-emerald-100 text-emerald-700 border-emerald-200" },
 };
 
 function relativeOrDate(d: any) {
@@ -59,9 +64,21 @@ function relativeOrDate(d: any) {
 }
 
 export default function DocumentsCenter() {
+  const { user } = useAuth();
+  const role = (user?.role as string) || "";
+  // ── تقييد دور الحسابات — 2026-08-10 ──────────────────────────────────
+  // طلب صريح من صاحب المشروع: دور "accountant" تحديدًا لا يرى بمركز
+  // المستندات إلا "الوثائق المالية المعتمدة" — لا صف فلاتر لبقية الأنواع،
+  // ولا حتى جلب بياناتها من الأساس (توفير حقيقي عبر enabled، لا إخفاء بصري
+  // فقط). الأدوار المالية الأخرى (senior_management/owner/admin) تبقى ترى كل
+  // الأنواع + هذا القسم معًا — القيد على "accountant" وحده.
+  const isAccountantOnly = role === "accountant";
+
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState<DocType | "all">("all");
   const [dateFrom, setDateFrom] = useState("");
+  // فلترة "الوثائق المالية المعتمدة" حسب المندوب — الجزء 2 (2026-08-10)
+  const [delegateFilter, setDelegateFilter] = useState<string>("all");
   const [dateTo, setDateTo] = useState("");
   const [sort, setSort] = useState<"newest" | "oldest">("newest");
   const [page, setPage] = useState(1);
@@ -71,20 +88,46 @@ export default function DocumentsCenter() {
   const [downloadingKey, setDownloadingKey] = useState<string | null>(null);
 
   // ── نفس الاستعلامات المستخدمة أصلاً في كل صفحة (نفس الصلاحيات والنطاق) ──
-  const poQ       = trpc.purchaseOrders.list.useQuery({});
-  const receiptsQ = trpc.warehouseReceipts.list.useQuery();
-  const deliveryQ = trpc.deliveryDocuments.list.useQuery();
-  const returnQ   = trpc.returnDocuments.list.useQuery();
-  const disposalQ = trpc.disposal.list.useQuery();
-  const countQ    = trpc.inventoryCount.listOperations.useQuery();
-  const settleQ   = trpc.inventoryCount.listSettlements.useQuery();
+  // لا تُجلَب إطلاقًا لدور الحسابات (enabled) — راجع isAccountantOnly أعلاه.
+  const poQ       = trpc.purchaseOrders.list.useQuery({}, { enabled: !isAccountantOnly });
+  const receiptsQ = trpc.warehouseReceipts.list.useQuery(undefined, { enabled: !isAccountantOnly });
+  const deliveryQ = trpc.deliveryDocuments.list.useQuery(undefined, { enabled: !isAccountantOnly });
+  const returnQ   = trpc.returnDocuments.list.useQuery(undefined, { enabled: !isAccountantOnly });
+  const disposalQ = trpc.disposal.list.useQuery(undefined, { enabled: !isAccountantOnly });
+  const countQ    = trpc.inventoryCount.listOperations.useQuery(undefined, { enabled: !isAccountantOnly });
+  const settleQ   = trpc.inventoryCount.listSettlements.useQuery(undefined, { enabled: !isAccountantOnly });
 
-  const isLoading = poQ.isLoading || receiptsQ.isLoading || deliveryQ.isLoading ||
-    returnQ.isLoading || disposalQ.isLoading || countQ.isLoading || settleQ.isLoading;
+  // ── الوثائق المالية المعتمدة (2026-08-10) ──────────────────────────────
+  // نسخ PDF مؤرشفة فعليًا عند اعتماد الحسابات لدفعة تسعير. مندمجة بنفس جدول
+  // وفلاتر بقية الأنواع (طلب صريح من صاحب المشروع)، لا قسم منفصل — الفرق
+  // الوحيد أن الملف مُخزَّن سلفًا (لا يُعاد توليده حيًا)، ومقيَّدة بأدوار مالية
+  // (الخادم يرفض الاستعلام لغير المخوَّلين تلقائيًا؛ enabled هنا تحسين عرض
+  // فقط، لا حارس صلاحية حقيقي — راجع attachments.router.ts::listByType).
+  const financialRoles = ["accountant", "senior_management", "owner", "admin"];
+  const canViewFinancialDocs = financialRoles.includes(role);
+  const financialDocsQ = trpc.attachments.listByType.useQuery(
+    { entityType: "po_financial_batch" },
+    { enabled: canViewFinancialDocs },
+  );
+
+  // تُبقي زر "الوثائق المالية المعتمدة" ظاهرًا كمُحدَّد لدور الحسابات — تجميلي
+  // فقط، النتيجة المعروضة صحيحة أصلًا حتى بلا هذا (سطر واحد ممكن دون تأثير وظيفي).
+  useEffect(() => {
+    if (isAccountantOnly) setTypeFilter("po_financial_batch");
+  }, [isAccountantOnly]);
+
+  const isLoading = isAccountantOnly
+    ? financialDocsQ.isLoading
+    : (poQ.isLoading || receiptsQ.isLoading || deliveryQ.isLoading ||
+       returnQ.isLoading || disposalQ.isLoading || countQ.isLoading || settleQ.isLoading ||
+       (canViewFinancialDocs && financialDocsQ.isLoading));
 
   const refresh = () => {
-    poQ.refetch(); receiptsQ.refetch(); deliveryQ.refetch();
-    returnQ.refetch(); disposalQ.refetch(); countQ.refetch(); settleQ.refetch();
+    if (!isAccountantOnly) {
+      poQ.refetch(); receiptsQ.refetch(); deliveryQ.refetch();
+      returnQ.refetch(); disposalQ.refetch(); countQ.refetch(); settleQ.refetch();
+    }
+    if (canViewFinancialDocs) financialDocsQ.refetch();
   };
 
   // ── تطبيع كل الأنواع لشكل صف موحّد للعرض فقط (لا تُستخدم للطباعة) ──
@@ -118,8 +161,15 @@ export default function DocumentsCenter() {
       type: "settlement", id: s.id, documentNumber: s.settlementNumber,
       date: s.appliedAt || s.createdAt, referenceLabel: s.reason || "—", printCount: null,
     }));
+    if (canViewFinancialDocs) {
+      (financialDocsQ.data as any[] || []).forEach(doc => out.push({
+        type: "po_financial_batch", id: doc.id, documentNumber: doc.fileName,
+        date: doc.createdAt, referenceLabel: doc.delegateName || "بلا مندوب", printCount: null,
+        delegateId: doc.delegateId ?? null,
+      }));
+    }
     return out;
-  }, [poQ.data, receiptsQ.data, deliveryQ.data, returnQ.data, disposalQ.data, countQ.data, settleQ.data]);
+  }, [poQ.data, receiptsQ.data, deliveryQ.data, returnQ.data, disposalQ.data, countQ.data, settleQ.data, canViewFinancialDocs, financialDocsQ.data]);
 
   // ── الفلترة والبحث والترتيب — على القائمة المجمَّعة كاملة ──
   const filtered = useMemo(() => {
@@ -128,6 +178,10 @@ export default function DocumentsCenter() {
     const to   = dateTo   ? new Date(`${dateTo}T23:59:59.999`) : null;
     let list = rows.filter(r => {
       if (typeFilter !== "all" && r.type !== typeFilter) return false;
+      // فلترة المندوب — تنطبق فقط على نوع "الوثائق المالية المعتمدة"
+      if (r.type === "po_financial_batch" && delegateFilter !== "all") {
+        if (String(r.delegateId ?? "") !== delegateFilter) return false;
+      }
       const d = r.date ? new Date(r.date) : null;
       if (from && (!d || d < from)) return false;
       if (to && (!d || d > to)) return false;
@@ -143,7 +197,7 @@ export default function DocumentsCenter() {
       return sort === "newest" ? db - da : da - db;
     });
     return list;
-  }, [rows, search, typeFilter, dateFrom, dateTo, sort]);
+  }, [rows, search, typeFilter, delegateFilter, dateFrom, dateTo, sort]);
 
   const counts = useMemo(() => {
     const c: Record<string, number> = { all: rows.length };
@@ -153,6 +207,15 @@ export default function DocumentsCenter() {
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const pageRows = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+
+  // قائمة المندوبين الفريدة لهذا الفلتر — من بيانات "الوثائق المالية المعتمدة" فقط
+  const financialDelegateOptions = useMemo(() => {
+    const map = new Map<string, string>();
+    (financialDocsQ.data as any[] || []).forEach((doc: any) => {
+      if (doc.delegateId != null) map.set(String(doc.delegateId), doc.delegateName || `مستخدم #${doc.delegateId}`);
+    });
+    return Array.from(map.entries());
+  }, [financialDocsQ.data]);
 
   const utils = trpc.useUtils();
   const incrementDeliveryPrintMut = trpc.deliveryDocuments.incrementPrint.useMutation();
@@ -214,11 +277,20 @@ export default function DocumentsCenter() {
   };
 
   // ── الطباعة: كل نوع يستدعي بالضبط نفس القالب المستخدم بصفحته الأصلية ──
+  // يجلب رابط الملف المؤرشف فعليًا (لا توليد حي) لصف "الوثائق المالية المعتمدة"
+  const getFinancialDocUrl = (row: DocRow): string => {
+    const doc = (financialDocsQ.data as any[] || []).find(d => d.id === row.id);
+    if (!doc?.fileUrl) throw new Error("تعذر إيجاد رابط الملف المؤرشف");
+    return doc.fileUrl as string;
+  };
+
   const handlePrint = async (row: DocRow) => {
     const key = `${row.type}-${row.id}`;
     setPrintingKey(key);
     try {
-      if (row.type === "purchase_order") {
+      if (row.type === "po_financial_batch") {
+        window.open(getFinancialDocUrl(row), "_blank");
+      } else if (row.type === "purchase_order") {
         const res = await fetch(`/api/export/po/${row.id}/pdf`, { credentials: "include" });
         if (!res.ok) throw new Error("تعذر تجهيز ملف طلب الشراء");
         const blob = await res.blob();
@@ -244,7 +316,9 @@ export default function DocumentsCenter() {
     const key = `${row.type}-${row.id}`;
     setViewingKey(key);
     try {
-      if (row.type === "purchase_order") {
+      if (row.type === "po_financial_batch") {
+        window.open(getFinancialDocUrl(row), "_blank");
+      } else if (row.type === "purchase_order") {
         const res = await fetch(`/api/export/po/${row.id}/pdf`, { credentials: "include" });
         if (!res.ok) throw new Error("تعذر تجهيز ملف طلب الشراء");
         const blob = await res.blob();
@@ -266,7 +340,16 @@ export default function DocumentsCenter() {
     const key = `${row.type}-${row.id}`;
     setDownloadingKey(key);
     try {
-      if (row.type === "purchase_order") {
+      if (row.type === "po_financial_batch") {
+        const doc = (financialDocsQ.data as any[] || []).find(d => d.id === row.id);
+        const baseUrl = getFinancialDocUrl(row);
+        // نستخدم دعم البروكسي المدمج لفرض التنزيل (download=1) بدل الاعتماد
+        // فقط على سمة a.download — أكثر موثوقية عبر المتصفحات المختلفة.
+        const sep = baseUrl.includes("?") ? "&" : "?";
+        const downloadUrl = `${baseUrl}${sep}download=1&filename=${encodeURIComponent(doc?.fileName || `${row.documentNumber}.pdf`)}`;
+        const a = document.createElement("a");
+        a.href = downloadUrl; a.download = doc?.fileName || `${row.documentNumber}.pdf`; a.click();
+      } else if (row.type === "purchase_order") {
         const res = await fetch(`/api/export/po/${row.id}/pdf`, { credentials: "include" });
         if (!res.ok) throw new Error("تعذر تجهيز ملف طلب الشراء");
         const blob = await res.blob();
@@ -286,10 +369,14 @@ export default function DocumentsCenter() {
   };
 
 
-  const quickFilters: { key: DocType | "all"; label: string }[] = [
-    { key: "all", label: "الكل" },
-    ...(Object.keys(TYPE_META) as DocType[]).map(t => ({ key: t, label: TYPE_META[t].label })),
-  ];
+  const quickFilters: { key: DocType | "all"; label: string }[] = isAccountantOnly
+    ? [{ key: "po_financial_batch", label: TYPE_META.po_financial_batch.label }]
+    : [
+        { key: "all", label: "الكل" },
+        ...(Object.keys(TYPE_META) as DocType[])
+          .filter(t => t !== "po_financial_batch" || canViewFinancialDocs)
+          .map(t => ({ key: t, label: TYPE_META[t].label })),
+      ];
 
   return (
     <div className="space-y-6">
@@ -348,6 +435,20 @@ export default function DocumentsCenter() {
           <span className="text-xs text-muted-foreground">إلى تاريخ</span>
           <Input type="date" value={dateTo} onChange={e => { setDateTo(e.target.value); setPage(1); }} className="w-[150px]" min={dateFrom || undefined} />
         </div>
+        {typeFilter === "po_financial_batch" && financialDelegateOptions.length > 0 && (
+          <div className="flex flex-col gap-1">
+            <span className="text-xs text-muted-foreground">المندوب</span>
+            <Select value={delegateFilter} onValueChange={v => { setDelegateFilter(v); setPage(1); }}>
+              <SelectTrigger className="w-[170px]"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">كل المندوبين</SelectItem>
+                {financialDelegateOptions.map(([id, name]) => (
+                  <SelectItem key={id} value={id}>{name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
         <div className="flex flex-col gap-1">
           <span className="text-xs text-muted-foreground">الترتيب</span>
           <Select value={sort} onValueChange={v => setSort(v as any)}>
@@ -358,8 +459,8 @@ export default function DocumentsCenter() {
             </SelectContent>
           </Select>
         </div>
-        {(search || typeFilter !== "all" || dateFrom || dateTo) && (
-          <Button variant="ghost" size="sm" className="h-9" onClick={() => { setSearch(""); setTypeFilter("all"); setDateFrom(""); setDateTo(""); setPage(1); }}>
+        {(search || typeFilter !== "all" || dateFrom || dateTo || delegateFilter !== "all") && (
+          <Button variant="ghost" size="sm" className="h-9" onClick={() => { setSearch(""); setTypeFilter("all"); setDateFrom(""); setDateTo(""); setDelegateFilter("all"); setPage(1); }}>
             مسح الفلاتر
           </Button>
         )}
@@ -421,14 +522,18 @@ export default function DocumentsCenter() {
                         >
                           <Eye className="w-3.5 h-3.5" />
                         </Button>
-                        <Button
-                          size="sm" variant="outline" className="gap-1.5 px-2"
-                          disabled={downloadingKey === key}
-                          title="تنزيل PDF"
-                          onClick={() => handleDownloadPdf(row)}
-                        >
-                          <Download className="w-3.5 h-3.5" />
-                        </Button>
+                        {/* زر التنزيل غير فعّال لـ"الوثائق المالية المعتمدة" تحديدًا —
+                            حُذف من هذا النوع بطلب صريح (2026-08-10)، بقي للأنواع الأخرى. */}
+                        {row.type !== "po_financial_batch" && (
+                          <Button
+                            size="sm" variant="outline" className="gap-1.5 px-2"
+                            disabled={downloadingKey === key}
+                            title="تنزيل PDF"
+                            onClick={() => handleDownloadPdf(row)}
+                          >
+                            <Download className="w-3.5 h-3.5" />
+                          </Button>
+                        )}
                       </div>
                     </TableCell>
                   </TableRow>
