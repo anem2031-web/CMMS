@@ -97,6 +97,28 @@ function isInspectionLocked(status?: string | null): boolean {
   ].includes(status as any);
 }
 
+/**
+ * قيد "بلاغه فقط" لمدير الإنشاءات والمشتريات عند الفرز (2026-08-13).
+ *
+ * `ticketTriageProcedure` فحص دور فقط — لا تميّز بين بلاغ المستخدم وبلاغ غيره.
+ * هذا الحارس يُستدعى داخل كل إجراء فرز (triage/triageMulti/triageTicket) بعد
+ * جلب البلاغ مباشرة، ويرفض دوره تحديدًا إن لم يكن هو منشئ البلاغ. بقية
+ * الأدوار المسموح لها بـticketTriageProcedure (مدير الصيانة العامة، الأدمن،
+ * المالك) تتجاوز هذا الحارس بلا قيد — نطاقهم الأوسع (كل الطابور) لم يتغيّر.
+ */
+function assertConstructionManagerOwnTicketForTriage(
+  actor: { id: number; role: string },
+  ticket: { reportedById: number | null },
+): void {
+  if (actor.role !== APP_ROLE.CONSTRUCTION_PROCUREMENT_MANAGER) return;
+  if (ticket.reportedById !== actor.id) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "يمكنك تصنيف البلاغات التي أنشأتها بنفسك فقط",
+    });
+  }
+}
+
 async function resolveResponsibleManagerId(
   department: z.infer<typeof responsibleDepartmentSchema>,
   requestedManagerId: number | undefined,
@@ -380,6 +402,7 @@ export const ticketsWorkflowRouter = router({
   })).mutation(async ({ input, ctx }) => {
     const ticket = await db.getTicketById(input.id);
     if (!ticket) throw new TRPCError({ code: "NOT_FOUND" });
+    assertConstructionManagerOwnTicketForTriage(ctx.user, ticket);
     if (ticket.status !== "pending_triage") throw new TRPCError({ code: "BAD_REQUEST", message: "البلاغ ليس في مرحلة الفرز" });
     if (ticket.workflowModel === "department_tasks") {
       throw new TRPCError({ code: "BAD_REQUEST", message: "هذا البلاغ يستخدم هيكل الجهات والمهام؛ استخدم فرز الجهات المعتمد" });
@@ -411,6 +434,7 @@ export const ticketsWorkflowRouter = router({
   })).mutation(async ({ input, ctx }) => {
     const ticket = await db.getTicketById(input.id);
     if (!ticket) throw new TRPCError({ code: "NOT_FOUND" });
+    assertConstructionManagerOwnTicketForTriage(ctx.user, ticket);
     if (ticket.status !== "pending_triage") throw new TRPCError({ code: "BAD_REQUEST", message: "البلاغ ليس في مرحلة الفرز" });
     const departments = input.assignments.map(a => a.department);
     if (new Set(departments).size !== departments.length) throw new TRPCError({ code: "BAD_REQUEST", message: "لا يمكن اختيار نفس الجهة أكثر من مرة" });
@@ -550,6 +574,7 @@ export const ticketsWorkflowRouter = router({
   })).mutation(async ({ input, ctx }) => {
     const ticket = await db.getTicketById(input.id);
     if (!ticket) throw new TRPCError({ code: "NOT_FOUND" });
+    assertConstructionManagerOwnTicketForTriage(ctx.user, ticket);
     if (ticket.status !== "pending_triage") throw new TRPCError({ code: "BAD_REQUEST", message: "البلاغ ليس في مرحلة الفرز" });
     if (ticket.workflowModel === "department_tasks") {
       throw new TRPCError({ code: "BAD_REQUEST", message: "هذا البلاغ يستخدم هيكل الجهات والمهام؛ استخدم فرز الجهات المعتمد" });

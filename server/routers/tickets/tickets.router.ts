@@ -29,11 +29,9 @@ export const ticketsRouter = router({
     let filters: any = { ...(input || {}) };
     if (role === APP_ROLE.OPERATOR) filters.reportedById = ctx.user.id;
     else if (role === APP_ROLE.TECHNICIAN) filters.assignedToId = ctx.user.id;
-    else if (role === APP_ROLE.CONSTRUCTION_PROCUREMENT_MANAGER) {
-      filters.constructionManagerScopeUserId = ctx.user.id;
-      delete filters.maintenanceResponsibleDepartment;
-      delete filters.maintenanceResponsibleManagerId;
-    }
+    // ⚠️ 2026-08-13: أُزيل فرع CONSTRUCTION_PROCUREMENT_MANAGER هنا عمدًا —
+    // يرى الآن كل البلاغات بلا تضييق بقاعدة البيانات، مطابقًا لتوسيع الرؤية في
+    // isTicketVisible. راجع docs/CONSTRUCTION_MANAGER_TICKET_READ_ACCESS.md.
     return db.getTickets(filters);
   }),
 
@@ -74,12 +72,9 @@ export const ticketsRouter = router({
     } else if (role === APP_ROLE.TECHNICIAN) {
       filters.assignedToId = ctx.user.id;
       childVisibilityFilters.assignedToId = ctx.user.id;
-    } else if (role === APP_ROLE.CONSTRUCTION_PROCUREMENT_MANAGER) {
-      filters.constructionManagerScopeUserId = ctx.user.id;
-      delete filters.maintenanceResponsibleDepartment;
-      delete filters.maintenanceResponsibleManagerId;
-      childVisibilityFilters.constructionManagerScopeUserId = ctx.user.id;
     }
+    // ⚠️ 2026-08-13: أُزيل فرع CONSTRUCTION_PROCUREMENT_MANAGER هنا عمدًا —
+    // نفس السبب أعلاه في list.
     return db.getTicketsPaginated(filters, page, pageSize, {
       quickFilter: quickFilter === "all" ? undefined : quickFilter,
       sort,
@@ -108,11 +103,8 @@ export const ticketsRouter = router({
     let filters: any = { ...(input || {}) };
     if (role === APP_ROLE.OPERATOR) filters.reportedById = ctx.user.id;
     else if (role === APP_ROLE.TECHNICIAN) filters.assignedToId = ctx.user.id;
-    else if (role === APP_ROLE.CONSTRUCTION_PROCUREMENT_MANAGER) {
-      filters.constructionManagerScopeUserId = ctx.user.id;
-      delete filters.maintenanceResponsibleDepartment;
-      delete filters.maintenanceResponsibleManagerId;
-    }
+    // ⚠️ 2026-08-13: أُزيل فرع CONSTRUCTION_PROCUREMENT_MANAGER هنا عمدًا —
+    // نفس السبب أعلاه في list.
     return db.getTicketsInboxCounts(filters);
   }),
 

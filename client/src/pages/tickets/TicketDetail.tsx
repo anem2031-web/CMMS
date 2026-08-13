@@ -457,7 +457,14 @@ const { getField } = useResolvedTranslation(
   const isSupervisor = [APP_ROLE.SUPERVISOR, APP_ROLE.MAINTENANCE_MANAGER, APP_ROLE.OWNER, APP_ROLE.ADMIN].includes(role as any) ||
     isGeneralMaintenanceScope || isManagedConstructionTicket;
   const isTechnician = role === APP_ROLE.TECHNICIAN || isAdminOrOwner;
-  const canRouteTicket = [APP_ROLE.MAINTENANCE_MANAGER, APP_ROLE.GENERAL_MAINTENANCE_MANAGER, APP_ROLE.OWNER, APP_ROLE.ADMIN].includes(role as any);
+  // ⚠️ 2026-08-13: مدير الإنشاءات والمشتريات يستطيع الآن تصنيف بلاغه الشخصي
+  // فقط — بنفس نموذج الفرز (الحوار أدناه) المستخدَم مع مدير الصيانة العامة
+  // حرفيًا، بلا أي تعديل عليه. القيد الفعلي (بلاغه فقط) مطبَّق هنا بمطابقة
+  // reportedById، ومكرَّر بالسيرفر (assertConstructionManagerOwnTicketForTriage)
+  // فلا يمكن تجاوزه حتى بنداء API مباشر. راجع
+  // docs/CONSTRUCTION_MANAGER_OWN_TICKET_TRIAGE.md.
+  const canRouteTicket = [APP_ROLE.MAINTENANCE_MANAGER, APP_ROLE.GENERAL_MAINTENANCE_MANAGER, APP_ROLE.OWNER, APP_ROLE.ADMIN].includes(role as any) ||
+    (role === APP_ROLE.CONSTRUCTION_PROCUREMENT_MANAGER && ticket?.reportedById === user?.id);
   const constructionManagers = users?.filter((u: any) => u.role === APP_ROLE.CONSTRUCTION_PROCUREMENT_MANAGER && u.isActive !== 0) || [];
   const generalManagers = users?.filter((u: any) =>
     [APP_ROLE.GENERAL_MAINTENANCE_MANAGER, APP_ROLE.MAINTENANCE_MANAGER].includes(u.role as any) && u.isActive !== 0
@@ -1043,8 +1050,11 @@ const { getField } = useResolvedTranslation(
 
       {isTicketReadOnly && (
         <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/20 dark:text-amber-300">
+          {/* ⚠️ 2026-08-13: الرسالة كانت مخصَّصة لحالة "مرتبط بطلب شراء" الضيقة
+              فقط. isLinkedTicketReadOnly أصبحت تغطي أيضًا استعراضه العام لأي
+              بلاغ خارج نطاق جهته — رسالة عامة تصح للحالتين معًا. */}
           {isLinkedTicketReadOnly
-            ? "هذا البلاغ مرتبط بطلب شراء متاح لك، لذلك يُعرض للقراءة فقط. لا يمكنك تعديل البلاغ أو تغيير مساره أو تعيين فني له."
+            ? "هذا البلاغ خارج نطاق جهتك، لذلك يُعرض لك للقراءة فقط. لا يمكنك تعديل البلاغ أو تغيير مساره أو تعيين فني له."
             : "تم توجيه هذا البلاغ إلى قسم الإنشاءات، ويمكنك متابعته للقراءة فقط. أصبحت إجراءات المتابعة والتعيين لدى مدير الإنشاءات والمشتريات."}
         </div>
       )}
@@ -2179,7 +2189,18 @@ const { getField } = useResolvedTranslation(
                 {[
                   { key: MAINTENANCE_RESPONSIBLE_DEPARTMENT.GENERAL, label: "الصيانة العامة", mgrs: generalManagers },
                   { key: MAINTENANCE_RESPONSIBLE_DEPARTMENT.CONSTRUCTION, label: "قسم الإنشاءات", mgrs: constructionManagers },
-                ].map(({ key, label, mgrs }) => {
+                ]
+                  // ⚠️ 2026-08-13: مدير الإنشاءات والمشتريات يصنّف بلاغه الشخصي فقط (راجع
+                  // canRouteTicket أعلاه)، فلا معنى لعرض خيار توجيهه لجهة ليست جهته. يبقى
+                  // "قسم الإنشاءات" وحده ظاهرًا له؛ بقية سير العمل (المهام، الفنيون، الإغلاق)
+                  // يستمر بنفس آلية الفرز المتعدد المستخدَمة مع مدير الصيانة العامة حرفيًا —
+                  // لا تعديل عليها. بقية الأدوار (مدير الصيانة العامة/الأدمن/المالك) تبقى ترى
+                  // الخيارين معًا كما كانت. راجع docs/CONSTRUCTION_MANAGER_OWN_TICKET_TRIAGE.md.
+                  .filter(({ key }) =>
+                    role !== APP_ROLE.CONSTRUCTION_PROCUREMENT_MANAGER ||
+                    key === MAINTENANCE_RESPONSIBLE_DEPARTMENT.CONSTRUCTION
+                  )
+                  .map(({ key, label, mgrs }) => {
                   const a = multiAssignments[key] || { selected: false, managerId: "", organizationalTitle: "" };
                   return (
                     <div key={key} className="rounded-md border bg-background p-3 space-y-2">

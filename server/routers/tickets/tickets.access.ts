@@ -89,11 +89,15 @@ export function isTicketVisible(
 ): boolean {
   if (isRoleDeniedFromTickets(user.role)) return false;
 
-  if (user.role === APP_ROLE.CONSTRUCTION_PROCUREMENT_MANAGER) {
-    // استثناء قراءة فقط: البلاغ الشخصي قبل الفرز مرئي حتى يستطيع منشئه تعديله.
-    if (ticket.status === "pending_triage" && ticket.reportedById === user.id) return true;
-    return isConstructionTicketAssignedToUser(user, ticket, items);
-  }
+  // ⚠️ 2026-08-13: مدير الإنشاءات والمشتريات يرى الآن كل البلاغات — قرار صريح
+  // من صاحب المشروع (استعراض فقط لما هو خارج جهته). لم يعد لدوره فرع خاص هنا؛
+  // يسقط إلى `return true` بنهاية الدالة كبقية الأدوار غير المقيَّدة.
+  // **القراءة فقط لما هو خارج نطاقه مطبَّقة مسبقًا وبلا تغيير** عبر
+  // isTicketReadOnlyForUser (تمنع أزرار التعديل بالواجهة) وعبر
+  // canManageTicketWorkflow/canManageTicketItemWorkflow (يرفضان أي محاولة
+  // تعديل فعلية بالسيرفر حتى لو استُدعي الإجراء مباشرة). لا تُعِد تضييق هذه
+  // الرؤية بدون تحديث الحراس الثلاثة معًا — راجع
+  // docs/CONSTRUCTION_MANAGER_TICKET_READ_ACCESS.md.
 
   if (REPORTER_SCOPED_ROLES.includes(user.role as any)) {
     return ticket.reportedById === user.id;

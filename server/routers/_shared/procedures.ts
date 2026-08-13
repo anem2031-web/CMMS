@@ -47,10 +47,19 @@ export const ticketProcedure = denyRolesMiddleware([
   APP_ROLE.CONSTRUCTION_PROCUREMENT_MANAGER,
 ]);
 
-/** Only the general-maintenance side (plus legacy/admin/owner) routes new reports. */
+/**
+ * ⚠️ 2026-08-13: مدير الإنشاءات والمشتريات أُضيف هنا ليستطيع تصنيف بلاغه
+ * الشخصي فقط — بنفس آلية الفرز المستخدَمة مع مدير الصيانة العامة حرفيًا (نفس
+ * `triage`/`triageMulti`/`triageTicket`). هذا الإجراء فحص **دور** فقط ولا
+ * يميّز بين بلاغه وبلاغ غيره، لذلك القيد الفعلي (بلاغه فقط) مطبَّق **داخل كل
+ * إجراء على حدة** عبر assertConstructionManagerOwnTicketForTriage في
+ * tickets.workflow.ts — لا تعتمد على هذه القائمة وحدها لفرض الملكية.
+ * راجع docs/CONSTRUCTION_MANAGER_OWN_TICKET_TRIAGE.md.
+ */
 export const ticketTriageProcedure = roleMiddleware([
   APP_ROLE.MAINTENANCE_MANAGER,
   APP_ROLE.GENERAL_MAINTENANCE_MANAGER,
+  APP_ROLE.CONSTRUCTION_PROCUREMENT_MANAGER,
   APP_ROLE.OWNER,
   APP_ROLE.ADMIN,
 ]);

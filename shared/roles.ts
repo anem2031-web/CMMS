@@ -119,7 +119,12 @@ const GENERAL_MANAGER_DENIED_PREFIXES = [
 const CONSTRUCTION_MANAGER_DENIED_PREFIXES = [
   "/scan-asset",
   "/tag",
-  "/tickets/inbox",
+  // ⚠️ 2026-08-13: أُزيلت "/tickets/inbox" من هذه القائمة عمدًا — قرار صريح من
+  // صاحب المشروع بتمكين مدير الإنشاءات والمشتريات من استعراض صندوق البلاغات
+  // العام وكل البلاغات (بلا اقتصار على جهته)، على أن يبقى استعراضًا فقط خارج
+  // نطاقه. "/triage" يبقى محجوبًا عمدًا — لم يُطلب منح صلاحية الفرز/التصنيف
+  // لبلاغات خارج جهته، هذا قرار منفصل لم يُحسم بعد. راجع
+  // docs/CONSTRUCTION_MANAGER_TICKET_READ_ACCESS.md.
   "/triage",
   "/inventory",
   "/inventory-operations",
