@@ -47,6 +47,7 @@ import { ENV } from '../env';
 
 
 import { getDb } from "./client";
+import { calculateInventoryValue, calculateMovementTotal } from "../inventory-costing";
 
 // ============================================================
 // INVENTORY
@@ -63,9 +64,11 @@ export async function getInventoryItems() {
   // (وليس receiptId الثابت في inventory، ولا averageCost المتوسط التراكمي)
   const lastPurchases = await db
     .select({
-      inventoryId: inventoryTransactions.inventoryId,
-      invoiceDate: warehouseReceipts.invoiceDate,
-      unitCost:    inventoryTransactions.unitCost,
+      inventoryId:         inventoryTransactions.inventoryId,
+      receiptId:           inventoryTransactions.receiptId,
+      purchaseOrderItemId: inventoryTransactions.purchaseOrderItemId,
+      invoiceDate:         warehouseReceipts.invoiceDate,
+      unitCost:            inventoryTransactions.unitCost,
     })
     .from(inventoryTransactions)
     .leftJoin(warehouseReceipts, eq(inventoryTransactions.receiptId, warehouseReceipts.id))
@@ -89,13 +92,55 @@ export async function getInventoryItems() {
     ))
     .orderBy(desc(inventoryTransactions.createdAt));
 
+  // unitCost في inventory_transactions أصبح تكلفة "وحدة المخزون/الصرف"
+  // حتى تتسق كمية الحركة مع تكلفتها. أما بطاقة الصنف بعنوان "آخر سعر شراء"
+  // فيجب أن تعرض سعر وحدة الشراء الأصلي من سطر سند الاستلام.
+  const receiptIds = Array.from(new Set(
+    lastPurchases.map(tx => tx.receiptId).filter((id): id is number => !!id),
+  ));
+  const purchaseReceiptCostByExactKey = new Map<string, string>();
+  const purchaseReceiptCostByFallbackKey = new Map<string, string>();
+  if (receiptIds.length > 0) {
+    const receiptCostRows = await db
+      .select({
+        receiptId:           warehouseReceiptItems.receiptId,
+        inventoryId:         warehouseReceiptItems.inventoryId,
+        purchaseOrderItemId: warehouseReceiptItems.purchaseOrderItemId,
+        unitCost:            warehouseReceiptItems.unitCost,
+      })
+      .from(warehouseReceiptItems)
+      .where(and(
+        inArray(warehouseReceiptItems.receiptId, receiptIds),
+        inArray(warehouseReceiptItems.inventoryId, itemIds),
+      ));
+
+    for (const row of receiptCostRows) {
+      if (!row.inventoryId) continue;
+      const fallbackKey = `${row.receiptId}:${row.inventoryId}`;
+      if (!purchaseReceiptCostByFallbackKey.has(fallbackKey)) {
+        purchaseReceiptCostByFallbackKey.set(fallbackKey, row.unitCost);
+      }
+      const exactKey = `${row.receiptId}:${row.inventoryId}:${row.purchaseOrderItemId ?? 0}`;
+      purchaseReceiptCostByExactKey.set(exactKey, row.unitCost);
+    }
+  }
+
   // نأخذ أول ظهور لكل inventoryId (الأحدث، بسبب الترتيب التنازلي أعلاه)
   const latestInvoiceDateByItem = new Map<number, Date | null>();
   const latestPurchasePriceByItem = new Map<number, string | null>();
   for (const tx of lastPurchases) {
     if (!latestInvoiceDateByItem.has(tx.inventoryId)) {
       latestInvoiceDateByItem.set(tx.inventoryId, tx.invoiceDate);
-      latestPurchasePriceByItem.set(tx.inventoryId, tx.unitCost);
+      const exactKey = tx.receiptId
+        ? `${tx.receiptId}:${tx.inventoryId}:${tx.purchaseOrderItemId ?? 0}`
+        : "";
+      const fallbackKey = tx.receiptId ? `${tx.receiptId}:${tx.inventoryId}` : "";
+      latestPurchasePriceByItem.set(
+        tx.inventoryId,
+        (exactKey && purchaseReceiptCostByExactKey.get(exactKey))
+          || (fallbackKey && purchaseReceiptCostByFallbackKey.get(fallbackKey))
+          || tx.unitCost,
+      );
     }
   }
   const latestIssueDateByItem = new Map<number, Date | null>();
@@ -129,13 +174,35 @@ export async function updateInventoryItem(id: number, data: any) {
 export async function addInventoryTransaction(data: any) {
   const db = await getDb();
   if (!db) return;
-  await db.insert(inventoryTransactions).values(data);
-  // Update inventory quantity
+
   const item = await db.select().from(inventory).where(eq(inventory.id, data.inventoryId)).limit(1);
-  if (item[0]) {
-    const newQty = data.type === "in" ? item[0].quantity + data.quantity : item[0].quantity - data.quantity;
-    await db.update(inventory).set({ quantity: Math.max(0, newQty) }).where(eq(inventory.id, data.inventoryId));
-  }
+  if (!item[0]) return;
+
+  const currentQty = Number(item[0].quantity || 0);
+  const averageCost = parseFloat((item[0] as any).averageCost || "0");
+  const rawNewQty = data.type === "in"
+    ? currentQty + data.quantity
+    : currentQty - data.quantity;
+  // نحافظ على السلوك القديم في هذه المرحلة (عدم النزول تحت صفر)،
+  // ونوحد فقط القيمة المحاسبية للحركة والرصيد.
+  const newQty = Math.max(0, rawNewQty);
+  const movementUnitCost = data.unitCost != null
+    ? parseFloat(String(data.unitCost))
+    : averageCost;
+  const movementTotalCost = data.totalCost != null
+    ? parseFloat(String(data.totalCost))
+    : calculateMovementTotal(data.quantity, movementUnitCost);
+
+  await db.insert(inventoryTransactions).values({
+    ...data,
+    unitCost: movementUnitCost.toFixed(4),
+    totalCost: movementTotalCost.toFixed(2),
+  });
+
+  await db.update(inventory).set({
+    quantity: newQty,
+    totalCostValue: calculateInventoryValue(newQty, averageCost).toFixed(2),
+  } as any).where(eq(inventory.id, data.inventoryId));
 }
 
 export async function getInventoryByBarcode(code: string) {

@@ -51,6 +51,11 @@ import { getDb } from "./client";
 import { getInventoryItemById, getUserById } from "./deletes";
 import { getNextInventoryCode, getNextItemBarcode } from "./warehouse-receipts";
 import { createInventoryItemV2 } from "./warehouse-returns";
+import {
+  calculateInventoryValue,
+  calculateMovementTotal,
+  calculateMovingWeightedAverage,
+} from "../inventory-costing";
 
 export async function createWarehouseReceiptDraft(data: {
   receiptNumber:    string;
@@ -277,14 +282,19 @@ export async function processApprovedReceiptItems(
         const oldQty     = existing.quantity || 0;
         const oldCost    = parseFloat((existing as any).averageCost || "0");
         const newQty     = oldQty + qty;
-        const newAvgCost = newQty > 0
-          ? ((oldQty * oldCost) + (qty * unitCost)) / newQty
-          : unitCost;
+        // المسار القديم لا يخزن conversionFactor، لذلك يعامل الكمية كوحدة
+        // المخزون كما كان دائماً، لكن يستخدم نفس قاعدة المتوسط والقيمة المركزية.
+        const newAvgCost = calculateMovingWeightedAverage({
+          currentQuantity: oldQty,
+          currentAverageCost: oldCost,
+          incomingQuantity: qty,
+          incomingUnitCost: unitCost,
+        });
 
         await db.update(inventory).set({
           quantity:       newQty,
           averageCost:    newAvgCost.toFixed(4),
-          totalCostValue: (newQty * newAvgCost).toFixed(2),
+          totalCostValue: calculateInventoryValue(newQty, newAvgCost).toFixed(2),
           lastRestockedAt: new Date(),
         } as any).where(eq(inventory.id, item.inventoryId));
       }
@@ -312,6 +322,8 @@ export async function processApprovedReceiptItems(
       inventoryId:         item.inventoryId,
       type:                "in",
       quantity:            Math.round(qty),
+      unitCost:            unitCost.toFixed(4),
+      totalCost:           calculateMovementTotal(qty, unitCost).toFixed(2),
       reason:              `اعتماد فاتورة ${(receipt as any).receiptNumber || receiptId}`,
       purchaseOrderItemId: item.purchaseOrderItemId,
       performedById,
@@ -650,7 +662,7 @@ export async function addNewItemDuringCount(params: {
   const manufacturerBarcode = await getNextItemBarcode();
 
   const cost = params.cost ?? 0;
-  const totalCostValue = cost * params.quantity;
+  const totalCostValue = calculateInventoryValue(params.quantity, cost);
 
   const inventoryId = await createInventoryItemV2({
     itemName:            params.itemName,
@@ -668,6 +680,8 @@ export async function addNewItemDuringCount(params: {
     inventoryId,
     type:            "in",
     quantity:        Math.round(params.quantity),
+    unitCost:        cost.toFixed(4),
+    totalCost:       calculateMovementTotal(params.quantity, cost).toFixed(2),
     reason:          `صنف جديد أُضيف أثناء عملية الجرد ${op.operationNumber}`,
     performedById:   params.createdById,
     transactionType: "adjustment",
@@ -922,19 +936,25 @@ export async function applySettlement(params: {
       expiryDate: item.expiryDate ? new Date(item.expiryDate) : null,
     });
 
-    // 2) التطبيق الفعلي على المخزون
+    const averageCost = parseFloat((inv as any).averageCost || "0");
+
+    // 2) التطبيق الفعلي على المخزون — الكمية والقيمة تتحركان معاً.
     await db.update(inventory).set({
       quantity: after,
+      totalCostValue: calculateInventoryValue(after, averageCost).toFixed(2),
       expiryDate: item.expiryDate ? new Date(item.expiryDate) : inv.expiryDate,
       updatedAt: new Date(),
-    }).where(eq(inventory.id, item.inventoryId));
+    } as any).where(eq(inventory.id, item.inventoryId));
 
     // 3) تسجيل حركة تظهر تلقائياً بصفحة "تتبع صنف" (نوع adjustment)
     if (diff !== 0) {
+      const movementQuantity = Math.abs(diff);
       await db.insert(inventoryTransactions).values({
         inventoryId:     item.inventoryId,
         type:            diff > 0 ? "in" : "out",
         quantity:        Math.abs(Math.round(diff)),
+        unitCost:        averageCost.toFixed(4),
+        totalCost:       calculateMovementTotal(movementQuantity, averageCost).toFixed(2),
         reason:          params.reason,
         performedById:   params.appliedById,
         transactionType: "adjustment",

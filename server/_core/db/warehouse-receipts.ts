@@ -48,6 +48,7 @@ import { ENV } from '../env';
 
 import { getDb } from "./client";
 import { getInventoryItemById, getUserById } from "./deletes";
+import { calculateInventoryValue, calculateMovementTotal } from "../inventory-costing";
 
 export async function getNextReceiptNumber(tx?: any): Promise<string> {
   const db = tx || await getDb();
@@ -167,13 +168,25 @@ export async function issueDisposal(disposalOperationId: number): Promise<void> 
       throw new Error(`الكمية المطلوب استبعادها (${qty}) أكبر من الرصيد المتاح (${inv.quantity}) للصنف "${inv.itemName}"`);
     }
 
-    // خصم الرصيد
+    const averageCost = parseFloat((inv as any).averageCost || "0");
+    const newQuantity = inv.quantity - qty;
+    const movementTotalCost = calculateMovementTotal(qty, averageCost);
+
+    // مصدر التكلفة المحاسبية هو متوسط تكلفة المخزون على الخادم، وليس القيم
+    // القادمة من الواجهة. نزامن سطر مستند الاستبعاد مع القيمة الفعلية.
+    await db.update(disposalItems).set({
+      unitCost: averageCost.toFixed(4),
+      totalCost: movementTotalCost.toFixed(2),
+    } as any).where(eq(disposalItems.id, item.id));
+
+    // خصم الرصيد مع تحديث قيمة المخزون بنفس الحركة المنطقية.
     await db
       .update(inventory)
       .set({
-        quantity: inv.quantity - qty,
+        quantity: newQuantity,
+        totalCostValue: calculateInventoryValue(newQuantity, averageCost).toFixed(2),
         updatedAt: new Date(),
-      })
+      } as any)
       .where(eq(inventory.id, item.inventoryId));
 
     // تسجيل حركة المخزون
@@ -185,8 +198,8 @@ export async function issueDisposal(disposalOperationId: number): Promise<void> 
       performedById:   op[0].createdBy,
       transactionType: "disposal",
       documentUrl:     op[0].operationNumber, // المرجع المباشر في سجل الحركة
-      unitCost:        item.unitCost,
-      totalCost:       item.totalCost,
+      unitCost:        averageCost.toFixed(4),
+      totalCost:       movementTotalCost.toFixed(2),
     });
   }
 }

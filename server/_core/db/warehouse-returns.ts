@@ -50,6 +50,7 @@ import { getDb } from "./client";
 import { getInventoryItemById, getUserById } from "./deletes";
 import { getPOItemById, getPurchaseOrderById, getPOItems, updatePurchaseOrder } from "./purchase";
 import { getNextDeliveryNumber } from "./warehouse-receipts";
+import { calculateInventoryValue, calculateMovementTotal } from "../inventory-costing";
 
 export async function createWarehouseReturn(data: InsertWarehouseReturn) {
   const db = await getDb();
@@ -169,19 +170,21 @@ export async function getInventoryTransactions(inventoryId?: number) {
 export async function getInventoryPurchaseHistory(inventoryId: number) {
   const db = await getDb();
   if (!db) return [];
-  return db
+
+  const rows = await db
     .select({
-      transactionId: inventoryTransactions.id,
-      quantity:      inventoryTransactions.quantity,
-      unitCost:      inventoryTransactions.unitCost,
-      createdAt:     inventoryTransactions.createdAt,
-      receiptId:     inventoryTransactions.receiptId,
-      receiptNumber: warehouseReceipts.receiptNumber,
-      invoiceNumber: warehouseReceipts.invoiceNumber,
-      invoiceDate:   warehouseReceipts.invoiceDate,
-      vendorName:    warehouseReceipts.vendorName,
-      purchaseOrderId: warehouseReceipts.purchaseOrderId,
-      poNumber:      purchaseOrders.poNumber,
+      transactionId:      inventoryTransactions.id,
+      quantity:           inventoryTransactions.quantity,
+      transactionUnitCost: inventoryTransactions.unitCost,
+      purchaseOrderItemId: inventoryTransactions.purchaseOrderItemId,
+      createdAt:          inventoryTransactions.createdAt,
+      receiptId:          inventoryTransactions.receiptId,
+      receiptNumber:      warehouseReceipts.receiptNumber,
+      invoiceNumber:      warehouseReceipts.invoiceNumber,
+      invoiceDate:        warehouseReceipts.invoiceDate,
+      vendorName:         warehouseReceipts.vendorName,
+      purchaseOrderId:    warehouseReceipts.purchaseOrderId,
+      poNumber:           purchaseOrders.poNumber,
     })
     .from(inventoryTransactions)
     .leftJoin(warehouseReceipts, eq(inventoryTransactions.receiptId, warehouseReceipts.id))
@@ -192,6 +195,54 @@ export async function getInventoryPurchaseHistory(inventoryId: number) {
       eq(inventoryTransactions.transactionType, "purchase"),
     ))
     .orderBy(desc(inventoryTransactions.createdAt));
+
+  const receiptIds = Array.from(new Set(
+    rows.map(row => row.receiptId).filter((id): id is number => !!id),
+  ));
+  const exactCost = new Map<string, string>();
+  const fallbackCost = new Map<string, string>();
+  if (receiptIds.length > 0) {
+    const receiptItems = await db
+      .select({
+        receiptId:           warehouseReceiptItems.receiptId,
+        inventoryId:         warehouseReceiptItems.inventoryId,
+        purchaseOrderItemId: warehouseReceiptItems.purchaseOrderItemId,
+        unitCost:            warehouseReceiptItems.unitCost,
+      })
+      .from(warehouseReceiptItems)
+      .where(and(
+        inArray(warehouseReceiptItems.receiptId, receiptIds),
+        eq(warehouseReceiptItems.inventoryId, inventoryId),
+      ));
+
+    for (const item of receiptItems) {
+      const fallbackKey = `${item.receiptId}:${inventoryId}`;
+      if (!fallbackCost.has(fallbackKey)) fallbackCost.set(fallbackKey, item.unitCost);
+      exactCost.set(`${item.receiptId}:${inventoryId}:${item.purchaseOrderItemId ?? 0}`, item.unitCost);
+    }
+  }
+
+  return rows.map(row => {
+    const exactKey = row.receiptId
+      ? `${row.receiptId}:${inventoryId}:${row.purchaseOrderItemId ?? 0}`
+      : "";
+    const fallbackKey = row.receiptId ? `${row.receiptId}:${inventoryId}` : "";
+    return {
+      transactionId: row.transactionId,
+      quantity: row.quantity,
+      unitCost: (exactKey && exactCost.get(exactKey))
+        || (fallbackKey && fallbackCost.get(fallbackKey))
+        || row.transactionUnitCost,
+      createdAt: row.createdAt,
+      receiptId: row.receiptId,
+      receiptNumber: row.receiptNumber,
+      invoiceNumber: row.invoiceNumber,
+      invoiceDate: row.invoiceDate,
+      vendorName: row.vendorName,
+      purchaseOrderId: row.purchaseOrderId,
+      poNumber: row.poNumber,
+    };
+  });
 }
 
 // ── Phase 2C: سجل الحركة الكامل لصنف معيّن — كشف حساب بنكي ──────────────
@@ -428,10 +479,13 @@ export async function issueDelivery(params: {
       throw new Error("الرصيد المتاح تغيّر أثناء عملية التسليم؛ حدّث الصفحة وحاول مرة أخرى");
     }
 
+    const deliveryUnitCost = parseFloat((item as any).averageCost || "0");
     await tx.insert(inventoryTransactions).values({
       inventoryId: params.inventoryId,
       type: "out",
       quantity: params.quantity,
+      unitCost: deliveryUnitCost.toFixed(4),
+      totalCost: calculateMovementTotal(params.quantity, deliveryUnitCost).toFixed(2),
       reason: params.notes || "تسليم من المخزون",
       ticketId: params.ticketId,
       purchaseOrderItemId: params.purchaseOrderItemId,
@@ -626,24 +680,34 @@ export async function addInventoryTransactionV2(data: {
   const db = tx || await getDb();
   if (!db) return;
 
-  // إدراج الحركة
-  await db.insert(inventoryTransactions).values(data as any);
-
-  // تحديث رصيد المخزون
+  // نقرأ متوسط تكلفة الصنف أولاً حتى تُسجل كل حركة بقيمتها المحاسبية
+  // حتى لو لم يرسل المستدعي unitCost/totalCost صراحة.
   const item = await db.select().from(inventory).where(eq(inventory.id, data.inventoryId)).limit(1);
-  if (item[0]) {
-    const currentQty = item[0].quantity || 0;
-    const newQty = data.type === "in"
-      ? currentQty + data.quantity
-      : Math.max(0, currentQty - data.quantity);
+  if (!item[0]) return;
 
-    const newTotalValue = newQty * parseFloat((item[0] as any).averageCost || "0");
+  const currentQty = Number(item[0].quantity || 0);
+  const averageCost = parseFloat((item[0] as any).averageCost || "0");
+  const movementUnitCost = data.unitCost != null
+    ? parseFloat(String(data.unitCost))
+    : averageCost;
+  const movementTotalCost = data.totalCost != null
+    ? parseFloat(String(data.totalCost))
+    : calculateMovementTotal(data.quantity, movementUnitCost);
 
-    await db.update(inventory).set({
-      quantity:       newQty,
-      totalCostValue: newTotalValue.toFixed(2),
-    } as any).where(eq(inventory.id, data.inventoryId));
-  }
+  await db.insert(inventoryTransactions).values({
+    ...data,
+    unitCost: movementUnitCost.toFixed(4),
+    totalCost: movementTotalCost.toFixed(2),
+  } as any);
+
+  const newQty = data.type === "in"
+    ? currentQty + data.quantity
+    : Math.max(0, currentQty - data.quantity);
+
+  await db.update(inventory).set({
+    quantity:       newQty,
+    totalCostValue: calculateInventoryValue(newQty, averageCost).toFixed(2),
+  } as any).where(eq(inventory.id, data.inventoryId));
 }
 
 // ─────────────────────────────────────────────────────────────

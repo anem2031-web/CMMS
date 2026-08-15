@@ -8,6 +8,13 @@ import { z } from "zod";
 import { router, inventoryReadProcedure, warehouseProcedure } from "../_shared/procedures";
 import * as db from "../../_core/db";
 import { analyzeInvoiceFromUrl, analyzeInvoiceFromBase64 } from "../../services/ocr/invoiceOcr.service";
+import {
+  calculateInventoryValue,
+  calculateIssueQuantity,
+  calculateIssueUnitCost,
+  calculateMovementTotal,
+  calculateMovingWeightedAverage,
+} from "../../_core/inventory-costing";
 
 // ─── مخطط الصنف المستلم ─────────────────────────────────────
 const receivedItemSchema = z.object({
@@ -593,8 +600,11 @@ async function processReceiptItem(params: {
   let isNew = false;
   let internalCode = "";
 
-  const unitCost = parseFloat(item.unitCost);
-  const issueQuantity = item.receivedQuantity * item.conversionFactor;
+  // تكلفة الفاتورة تكون بوحدة الشراء، بينما رصيد المخزون محفوظ بوحدة الصرف.
+  // لذلك نحول الكمية والتكلفة معاً حتى لا تتضاعف قيمة المخزون عند كرتون/قطعة ونحوها.
+  const purchaseUnitCost = parseFloat(item.unitCost);
+  const issueQuantity = calculateIssueQuantity(item.receivedQuantity, item.conversionFactor);
+  const issueUnitCost = calculateIssueUnitCost(purchaseUnitCost, item.conversionFactor);
 
   if (inventoryId) {
     const existing = await db.getInventoryItemById(inventoryId, tx);
@@ -603,14 +613,17 @@ async function processReceiptItem(params: {
     const oldQty     = existing.quantity || 0;
     const oldAvgCost = parseFloat((existing as any).averageCost || "0");
     const newQty     = oldQty + issueQuantity;
-    const newAvgCost = newQty > 0
-      ? ((oldQty * oldAvgCost) + (issueQuantity * unitCost)) / newQty
-      : unitCost;
+    const newAvgCost = calculateMovingWeightedAverage({
+      currentQuantity: oldQty,
+      currentAverageCost: oldAvgCost,
+      incomingQuantity: issueQuantity,
+      incomingUnitCost: issueUnitCost,
+    });
 
     await db.updateInventoryItemV2(inventoryId, {
       lastRestockedAt: new Date(),
       averageCost:     newAvgCost.toFixed(4),
-      totalCostValue:  (newQty * newAvgCost).toFixed(2),
+      totalCostValue:  calculateInventoryValue(newQty, newAvgCost).toFixed(2),
       ...(item.linkedItemId ? { linkedItemId: item.linkedItemId } : {}),
       // نحفظ الباركود المولَّد أثناء إدخال الفاتورة فقط إذا كان الصنف
       // الموجود لا يملك باركوداً أصلاً — حتى لا نستبدل باركوداً صحيحاً
@@ -626,8 +639,8 @@ async function processReceiptItem(params: {
       inventoryId,
       type:                "in",
       quantity:            issueQuantity,
-      unitCost:            unitCost.toFixed(4),
-      totalCost:           (issueQuantity * unitCost).toFixed(2),
+      unitCost:            issueUnitCost.toFixed(4),
+      totalCost:           calculateMovementTotal(issueQuantity, issueUnitCost).toFixed(2),
       reason:              `استلام من ${sourceLabel} - فاتورة ${receiptNumber}`,
       purchaseOrderItemId: item.purchaseOrderItemId,
       performedById,
@@ -652,7 +665,7 @@ async function processReceiptItem(params: {
       issueUnit:           item.issueUnit,
       conversionFactor:    item.conversionFactor.toString(),
       minQuantity:         0,
-      averageCost:         unitCost.toFixed(4),
+      averageCost:         issueUnitCost.toFixed(4),
       totalCostValue:      "0",
       internalCode,
       manufacturerBarcode: item.manufacturerBarcode,
@@ -667,8 +680,8 @@ async function processReceiptItem(params: {
       inventoryId,
       type:                "in",
       quantity:            issueQuantity,
-      unitCost:            unitCost.toFixed(4),
-      totalCost:           (issueQuantity * unitCost).toFixed(2),
+      unitCost:            issueUnitCost.toFixed(4),
+      totalCost:           calculateMovementTotal(issueQuantity, issueUnitCost).toFixed(2),
       reason:              `استلام أول - ${sourceLabel} - فاتورة ${receiptNumber}`,
       purchaseOrderItemId: item.purchaseOrderItemId,
       performedById,
@@ -676,7 +689,7 @@ async function processReceiptItem(params: {
       receiptId,
     }, tx);
 
-    return { inventoryId, isNew, internalCode, newAverageCost: unitCost };
+    return { inventoryId, isNew, internalCode, newAverageCost: issueUnitCost };
   }
 }
 

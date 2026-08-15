@@ -16,6 +16,7 @@ import {
 } from "../../../drizzle/schema";
 import { getDb, withTransaction } from "./client";
 import { addInventoryTransactionV2, createInventoryItemV2, updateInventoryItemV2 } from "./warehouse-returns";
+import { calculateMovingWeightedAverage } from "../inventory-costing";
 
 // ─────────────────────────────────────────────────────────────
 // المخازن — قراءة
@@ -251,7 +252,12 @@ export async function createWarehouseTransfer(params: {
       const oldAvgCost = parseFloat(dest.averageCost || "0");
       const sourceAvgCost = parseFloat(source.averageCost || "0");
       const newQty = oldQty + params.quantity;
-      const newAvgCost = newQty > 0 ? (oldQty * oldAvgCost + params.quantity * sourceAvgCost) / newQty : sourceAvgCost;
+      const newAvgCost = calculateMovingWeightedAverage({
+        currentQuantity: oldQty,
+        currentAverageCost: oldAvgCost,
+        incomingQuantity: params.quantity,
+        incomingUnitCost: sourceAvgCost,
+      });
       await updateInventoryItemV2(
         toInventoryId,
         { averageCost: newAvgCost.toFixed(4) },

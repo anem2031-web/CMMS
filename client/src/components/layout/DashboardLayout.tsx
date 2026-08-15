@@ -233,6 +233,9 @@ function getNestedValue(obj: any, path: string): string {
 }
 
 function canSeeItem(item: MenuItemDef, role: string): boolean {
+  // حارس البوابة: القائمة الجانبية تعرض وظيفة الحراسة فقط.
+  // هذا قيد عرض فقط ولا يغيّر Route Guard أو صلاحيات الـBackend.
+  if (role === "gate_security") return item.path === "/gate-security";
   if (!item.roles) return true;
   return item.roles.includes(role);
 }
