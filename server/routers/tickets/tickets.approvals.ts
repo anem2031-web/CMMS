@@ -179,8 +179,8 @@ export const ticketsApprovalsRouter = router({
 
   completeRepair: protectedProcedure.input(z.object({
     id: z.number(),
-    afterPhotoUrl: z.string().min(1, "صورة بعد الإصلاح مطلوبة"),
-    repairNotes: z.string().optional(),
+    afterPhotoUrl: z.string().optional(),
+    repairNotes: z.string().trim().min(1, "ملاحظات الإصلاح مطلوبة"),
     materialsUsed: z.string().optional(),
   })).mutation(async ({ input, ctx }) => {
     const ticket = await db.getTicketById(input.id);
@@ -288,8 +288,8 @@ export const ticketsApprovalsRouter = router({
 
   completeRepairForItem: protectedProcedure.input(z.object({
     ticketItemId: z.number(),
-    afterPhotoUrl: z.string().min(1, "صورة بعد الإصلاح مطلوبة"),
-    repairNotes: z.string().optional(),
+    afterPhotoUrl: z.string().optional(),
+    repairNotes: z.string().trim().min(1, "ملاحظات الإصلاح مطلوبة"),
     materialsUsed: z.string().optional(),
   })).mutation(async ({ input, ctx }) => {
     const item = await db.getTicketItemById(input.ticketItemId);
@@ -354,8 +354,8 @@ export const ticketsApprovalsRouter = router({
     if (item.status !== "ready_for_closure") {
       throw new TRPCError({ code: "BAD_REQUEST", message: "البند ليس جاهزاً للإغلاق" });
     }
-    if (!item.repairNotes?.trim() || !item.afterPhotoUrl?.trim()) {
-      throw new TRPCError({ code: "BAD_REQUEST", message: "لا يمكن إغلاق البند دون ملاحظات الإصلاح وصورة ما بعد الإصلاح" });
+    if (!item.repairNotes?.trim()) {
+      throw new TRPCError({ code: "BAD_REQUEST", message: "لا يمكن إغلاق البند دون ملاحظات الإصلاح" });
     }
 
     await db.updateTicketItem(item.id, { status: "closed", closedAt: new Date() });

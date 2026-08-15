@@ -273,7 +273,7 @@ const { getField } = useResolvedTranslation(
     onError: (err) => toast.error(err.message),
   });
   const [itemPathSelections, setItemPathSelections] = useState<Record<number, { path: "A" | "B" | "C"; justification: string }>>({});
-  const markReadyMut = trpc.tickets.markReadyForClosure.useMutation({ onSuccess: () => { toast.success("تم رفع صورة الإصلاح - جاهز للإغلاق"); refetch(); } });
+  const markReadyMut = trpc.tickets.markReadyForClosure.useMutation({ onSuccess: () => { toast.success("تم توثيق الإصلاح - جاهز للإغلاق"); refetch(); } });
   const closeBySupervisorMut = trpc.tickets.closeBySupervisor.useMutation({ onSuccess: () => { toast.success("تم إغلاق البلاغ"); refetch(); } });
   const completeWithPartsMut = trpc.tickets.completeWithParts.useMutation({ onSuccess: () => { toast.success("تم إكمال العمل بالمواد - البلاغ جاهز للإغلاق"); refetch(); } });
   const approveGateExitMut = trpc.tickets.approveGateExit.useMutation({ onSuccess: () => { toast.success("تمت الموافقة على خروج الأصل"); refetch(); } });
@@ -942,7 +942,7 @@ const { getField } = useResolvedTranslation(
                     <div className="space-y-2 rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-950/20 p-3">
                       <p className="text-xs font-medium">رفع نتيجة تنفيذ بند {item.itemNumber}</p>
                       <div className="space-y-1.5">
-                        <Label className="text-xs">صورة بعد الإصلاح (مطلوبة)</Label>
+                        <Label className="text-xs">صورة بعد الإصلاح (اختيارية)</Label>
                         {form.afterPhotoUrl ? (
                           <div className="relative">
                             <img src={form.afterPhotoUrl} alt="بعد الإصلاح" className="w-full h-32 object-cover rounded-lg" />
@@ -964,7 +964,7 @@ const { getField } = useResolvedTranslation(
                             }} />
                         )}
                       </div>
-                      <Textarea placeholder="ملاحظات الإصلاح..." rows={2} className="text-sm"
+                      <Textarea placeholder="ملاحظات الإصلاح (مطلوبة)..." rows={2} className="text-sm"
                         value={form.repairNotes} onChange={e => setForm({ repairNotes: e.target.value })} />
                       <Textarea placeholder="المواد المستخدمة (اختياري)..." rows={2} className="text-sm"
                         value={form.materialsUsed} onChange={e => setForm({ materialsUsed: e.target.value })} />
@@ -975,7 +975,7 @@ const { getField } = useResolvedTranslation(
                           repairNotes: form.repairNotes || undefined,
                           materialsUsed: form.materialsUsed || undefined,
                         })}
-                        disabled={completeRepairForItemMut.isPending || !form.afterPhotoUrl || !form.repairNotes.trim()}
+                        disabled={completeRepairForItemMut.isPending || !form.repairNotes.trim()}
                         size="sm" className="w-full gap-2 bg-emerald-600 hover:bg-emerald-700 text-white"
                       >
                         {completeRepairForItemMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
@@ -1374,11 +1374,11 @@ const { getField } = useResolvedTranslation(
                   <h4 className="text-sm font-semibold flex items-center gap-2">
                     <CheckCircle2 className="w-4 h-4 text-emerald-600" /> {t.tickets.completeRepair}
                   </h4>
-                  <Textarea placeholder={t.tickets.repairNotes} value={repairNotes} onChange={e => setRepairNotes(e.target.value)} rows={3} />
+                  <Textarea placeholder={`${t.tickets.repairNotes} (مطلوبة)`} value={repairNotes} onChange={e => setRepairNotes(e.target.value)} rows={3} />
                   <Textarea placeholder={t.tickets.materialsUsed} value={materialsUsed} onChange={e => setMaterialsUsed(e.target.value)} rows={2} />
 
                   <div className="space-y-2">
-                    <p className="text-sm font-medium">{t.tickets.photos}:</p>
+                    <p className="text-sm font-medium">{t.tickets.photos} (اختيارية):</p>
                     {afterPhotoUrl ? (
                       <div className="relative">
                         <img src={afterPhotoUrl} alt="after" className="rounded-lg max-h-40 object-cover border" />
@@ -1397,7 +1397,7 @@ const { getField } = useResolvedTranslation(
                     )}
                   </div>
 
-                  <Button onClick={() => completeMut.mutate({ id: ticket.id, repairNotes, materialsUsed, afterPhotoUrl })} disabled={completeMut.isPending || !afterPhotoUrl} className="w-full gap-2" size="lg">
+                  <Button onClick={() => completeMut.mutate({ id: ticket.id, repairNotes: repairNotes.trim(), materialsUsed, afterPhotoUrl: afterPhotoUrl || undefined })} disabled={completeMut.isPending || !repairNotes.trim()} className="w-full gap-2" size="lg">
                     {completeMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
                     {t.tickets.completeRepair}
                   </Button>
@@ -1806,13 +1806,13 @@ const { getField } = useResolvedTranslation(
                 })}
 
 
-              {/* Technician: Upload After Photo (Path A) */}
+              {/* Technician: Complete repair documentation (Path A) */}
               {canMarkReadyForClosure && (
                 <div className="space-y-3 bg-purple-50 dark:bg-purple-950/20 rounded-xl p-4 border border-purple-200 dark:border-purple-800">
                   <div className="flex items-center gap-2 mb-1">
-                    <span className="text-purple-600 dark:text-purple-400 font-semibold text-sm">📸 رفع صورة الإصلاح - المسار A</span>
+                    <span className="text-purple-600 dark:text-purple-400 font-semibold text-sm">📝 توثيق الإصلاح - المسار A</span>
                   </div>
-                  <Textarea placeholder="ملاحظات الإصلاح..." value={repairNotes} onChange={e => setRepairNotes(e.target.value)} rows={2} className="text-sm" />
+                  <Textarea placeholder="ملاحظات الإصلاح (مطلوبة)..." value={repairNotes} onChange={e => setRepairNotes(e.target.value)} rows={2} className="text-sm" />
                   {afterPhotoUrl ? (
                     <div className="relative">
                       <img src={afterPhotoUrl} alt="after repair" className="rounded-lg max-h-40 object-cover border w-full" />
@@ -1826,7 +1826,7 @@ const { getField } = useResolvedTranslation(
                       input.click();
                     }} disabled={uploading}>
                       {uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Camera className="w-4 h-4" />}
-                      {uploading ? t.common.loading : "رفع صورة بعد الإصلاح"}
+                      {uploading ? t.common.loading : "رفع صورة بعد الإصلاح (اختياري)"}
                     </Button>
                   )}
                   <Button
@@ -1849,7 +1849,7 @@ const { getField } = useResolvedTranslation(
                       {ticket?.maintenancePath === "C" ? "🔧 توثيق إعادة تركيب الأصل - المسار C" : "🔧 إتمام العمل بعد استلام المواد - المسار B"}
                     </span>
                   </div>
-                  <Textarea placeholder="ملاحظات الإصلاح..." value={repairNotes} onChange={e => setRepairNotes(e.target.value)} rows={2} className="text-sm" />
+                  <Textarea placeholder="ملاحظات الإصلاح (مطلوبة)..." value={repairNotes} onChange={e => setRepairNotes(e.target.value)} rows={2} className="text-sm" />
                   {afterPhotoUrl ? (
                     <div className="relative">
                       <img src={afterPhotoUrl} alt="after repair" className="rounded-lg max-h-40 object-cover border w-full" />
@@ -1863,13 +1863,13 @@ const { getField } = useResolvedTranslation(
                       input.click();
                     }} disabled={uploading}>
                       {uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Camera className="w-4 h-4" />}
-                      {uploading ? t.common.loading : "رفع صورة بعد الإصلاح (مطلوب)"}
+                      {uploading ? t.common.loading : "رفع صورة بعد الإصلاح (اختياري)"}
                     </Button>
                   )}
                   <Button
                     onClick={() => completeWithPartsMut.mutate({
                       id: ticket.id,
-                      afterPhotoUrl: afterPhotoUrl.trim(),
+                      afterPhotoUrl: afterPhotoUrl.trim() || undefined,
                       repairNotes: repairNotes.trim(),
                     })}
                     disabled={

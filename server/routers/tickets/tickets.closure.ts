@@ -164,8 +164,8 @@ export const ticketsClosureRouter = router({
     if (!isLegacyRepairedTicket && !isReadyPathBOrC) {
       throw new TRPCError({ code: "BAD_REQUEST", message: "البلاغ ليس جاهزاً للإغلاق في مساره المعتمد" });
     }
-    if (isReadyPathBOrC && (!ticket.repairNotes?.trim() || !ticket.afterPhotoUrl?.trim())) {
-      throw new TRPCError({ code: "BAD_REQUEST", message: "لا يمكن إغلاق البلاغ دون ملاحظات الإصلاح وصورة ما بعد الإصلاح" });
+    if (isReadyPathBOrC && !ticket.repairNotes?.trim()) {
+      throw new TRPCError({ code: "BAD_REQUEST", message: "لا يمكن إغلاق البلاغ دون ملاحظات الإصلاح" });
     }
     if (ticket.maintenancePath === "C") {
       const externalJob = await db.getExternalMaintenanceJobByTicketId(ticket.id);
@@ -201,7 +201,7 @@ export const ticketsClosureRouter = router({
   markReadyForClosure: protectedProcedure.input(z.object({
     id: z.number(),
     afterPhotoUrl: z.string().optional(),
-    repairNotes: z.string().optional(),
+    repairNotes: z.string().trim().min(1, "ملاحظات الإصلاح مطلوبة"),
   })).mutation(async ({ input, ctx }) => {
     const ticket = await db.getTicketById(input.id);
     if (!ticket) throw new TRPCError({ code: "NOT_FOUND" });
@@ -217,7 +217,7 @@ export const ticketsClosureRouter = router({
     if (!isPathARepairEvidenceComplete(input.repairNotes, input.afterPhotoUrl)) {
       throw new TRPCError({
         code: "BAD_REQUEST",
-        message: "يجب كتابة ملاحظات الإصلاح وإرفاق صورة بعد الإصلاح قبل إرسال البلاغ للإغلاق",
+        message: "يجب كتابة ملاحظات الإصلاح قبل إرسال البلاغ للإغلاق",
       });
     }
     await db.updateTicket(input.id, { status: "ready_for_closure", afterPhotoUrl: input.afterPhotoUrl, repairNotes: input.repairNotes });
@@ -242,6 +242,9 @@ export const ticketsClosureRouter = router({
     if (ticket.status !== "ready_for_closure") throw new TRPCError({ code: "BAD_REQUEST", message: "البلاغ ليس جاهزاً للإغلاق" });
     if (ticket.maintenancePath !== "A") {
       throw new TRPCError({ code: "BAD_REQUEST", message: "إغلاق المشرف مخصص للمسار A فقط" });
+    }
+    if (!ticket.repairNotes?.trim()) {
+      throw new TRPCError({ code: "BAD_REQUEST", message: "لا يمكن إغلاق البلاغ دون ملاحظات الإصلاح" });
     }
     // ⚠️ المرحلة 6 (2026-08-10): نفس حارس close — بلاغ متعدد البنود لا يُغلق قبل اكتمالها.
     await assertAllTicketItemsClosed(input.id);
@@ -289,7 +292,7 @@ export const ticketsClosureRouter = router({
 
   completeWithParts: protectedProcedure.input(z.object({
     id: z.number(),
-    afterPhotoUrl: z.string().trim().min(1, "صورة بعد الإصلاح مطلوبة"),
+    afterPhotoUrl: z.string().trim().optional(),
     repairNotes: z.string().trim().min(1, "ملاحظات الإصلاح مطلوبة"),
   })).mutation(async ({ input, ctx }) => {
     const ticket = await db.getTicketById(input.id);
@@ -308,7 +311,7 @@ export const ticketsClosureRouter = router({
     if (!isPathBRepairEvidenceComplete(input.repairNotes, input.afterPhotoUrl)) {
       throw new TRPCError({
         code: "BAD_REQUEST",
-        message: "يجب كتابة ملاحظات الإصلاح وإرفاق صورة بعد الإصلاح قبل إرسال البلاغ للإغلاق",
+        message: "يجب كتابة ملاحظات الإصلاح قبل إرسال البلاغ للإغلاق",
       });
     }
     if (ticket.maintenancePath === "B") {
