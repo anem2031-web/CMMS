@@ -1,5 +1,6 @@
 import { trpc } from "@/lib/trpc";
 import { mediaUrl } from "@/lib/mediaUrl";
+import { goBackOrFallback } from "@/lib/backStack";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { useRoute, useLocation } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -542,7 +543,7 @@ const visibleItems = useMemo(() => {
   return (
     <div className="space-y-6 max-w-5xl">
       <div className="flex items-center gap-3">
-        <Button variant="ghost" size="icon" onClick={() => setLocation("/purchase-orders")}>
+        <Button variant="ghost" size="icon" onClick={() => goBackOrFallback(setLocation, "/purchase-orders")}>
           <ArrowRight className="w-5 h-5" />
         </Button>
         <div className="flex-1">

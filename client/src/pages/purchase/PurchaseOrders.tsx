@@ -1,4 +1,5 @@
 import { trpc } from "@/lib/trpc";
+import { readHistoryEntryState, writeHistoryEntryState } from "@/lib/backStack";
 import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -15,7 +16,7 @@ import {
 } from "@/components/ui/pagination";
 import { Input } from "@/components/ui/input";
 import { Plus, ShoppingCart, Trash2, User, Package, Search } from "lucide-react";
-import { useState, useEffect, Fragment } from "react";
+import { useState, useEffect, Fragment, useMemo, useRef } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useTranslation } from "@/contexts/LanguageContext";
 import { useStaticLabels } from "@/hooks/useContentTranslation";
@@ -39,6 +40,18 @@ const PO_STATUS_COLORS: Record<string, string> = {
 // الأدوار التي تملك صلاحية رؤية فلتر المستخدم
 const FULL_ACCESS_ROLES = ["owner", "admin", "maintenance_manager", "general_maintenance_manager", "construction_procurement_manager", "purchase_manager", "senior_management", "executive_director", "accountant", "warehouse"];
 
+type PurchaseOrdersHistoryState = {
+  statusFilter: string;
+  dateFrom: string;
+  dateTo: string;
+  requestedById: string;
+  searchQuery: string;
+  currentPage: number;
+  view: "actionable" | "all";
+};
+
+const PURCHASE_ORDERS_HISTORY_KEY = "__cmmsPurchaseOrdersState";
+
 export default function PurchaseOrders() {
   const [, setLocation] = useLocation();
   const { t, language } = useTranslation();
@@ -46,21 +59,27 @@ export default function PurchaseOrders() {
   const { user } = useAuth();
   const utils = trpc.useUtils();
 
+  const savedHistoryState = useMemo(
+    () => readHistoryEntryState<PurchaseOrdersHistoryState>(PURCHASE_ORDERS_HISTORY_KEY),
+    [],
+  );
+
   // فلاتر
-  const [statusFilter, setStatusFilter] = useState("all");
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
-  const [requestedById, setRequestedById] = useState("all");
-  const [searchQuery, setSearchQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState(savedHistoryState?.statusFilter ?? "all");
+  const [dateFrom, setDateFrom] = useState(savedHistoryState?.dateFrom ?? "");
+  const [dateTo, setDateTo] = useState(savedHistoryState?.dateTo ?? "");
+  const [requestedById, setRequestedById] = useState(savedHistoryState?.requestedById ?? "all");
+  const [searchQuery, setSearchQuery] = useState(savedHistoryState?.searchQuery ?? "");
 
   // ── تقسيم الصفحات (Pagination): 10 طلبات بكل صفحة ──
   const PAGE_SIZE = 10;
-  const [currentPage, setCurrentPage] = useState(1);
+  const [currentPage, setCurrentPage] = useState(savedHistoryState?.currentPage && savedHistoryState.currentPage > 0 ? savedHistoryState.currentPage : 1);
+  const didMountFilters = useRef(false);
 
   // ── عرض "بانتظار إجرائي" مقابل "جميع الطلبات" ──
   // مدير الصيانة دوره إشرافي ويتابع جميع الطلبات بغض النظر عن منشئها، لذلك
   // يبدأ من العرض الكامل. بقية الأدوار تبدأ من الطلبات التي تنتظر إجراءها.
-  const [view, setView] = useState<"actionable" | "all">("actionable");
+  const [view, setView] = useState<"actionable" | "all">(savedHistoryState?.view ?? "actionable");
   useEffect(() => {
     if (["maintenance_manager", "general_maintenance_manager", "construction_procurement_manager"].includes(user?.role || "")) {
       setView("all");
@@ -138,12 +157,32 @@ export default function PurchaseOrders() {
 
   // إعادة التعيين للصفحة الأولى تلقائياً عند تغيّر أي فلتر أو البحث
   useEffect(() => {
+    if (!didMountFilters.current) {
+      didMountFilters.current = true;
+      return;
+    }
     setCurrentPage(1);
   }, [statusFilter, dateFrom, dateTo, requestedById, searchQuery]);
+
+  useEffect(() => {
+    writeHistoryEntryState<PurchaseOrdersHistoryState>(PURCHASE_ORDERS_HISTORY_KEY, {
+      statusFilter,
+      dateFrom,
+      dateTo,
+      requestedById,
+      searchQuery,
+      currentPage,
+      view,
+    });
+  }, [statusFilter, dateFrom, dateTo, requestedById, searchQuery, currentPage, view]);
 
   const totalPages = Math.max(1, Math.ceil(filteredPos.length / PAGE_SIZE));
   const safePage = Math.min(currentPage, totalPages);
   const paginatedPos = filteredPos.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+
+  useEffect(() => {
+    if (currentPage > totalPages) setCurrentPage(totalPages);
+  }, [currentPage, totalPages]);
 
   return (
     <div className="space-y-6">

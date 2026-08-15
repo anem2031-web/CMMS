@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
+import { readHistoryEntryState, writeHistoryEntryState } from "@/lib/backStack";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -26,6 +27,15 @@ const inspectionStatusLabel = (value?: string | null) => {
   }
 };
 
+type ConstructionTicketsHistoryState = {
+  search: string;
+  status: string;
+  technicianId: string;
+  view: "actionable" | "all";
+};
+
+const CONSTRUCTION_TICKETS_HISTORY_KEY = "__cmmsConstructionTicketsState";
+
 const MANAGER_ACTION_STATUSES = new Set([
   "under_inspection",
   "work_approved",
@@ -44,9 +54,23 @@ export function ConstructionTicketsPanel() {
   const { language } = useTranslation();
   const { getStatusLabel, getPriorityLabel, getCategoryLabel } = useStaticLabels();
   const { getField } = useTranslatedField();
-  const [search, setSearch] = useState("");
-  const [status, setStatus] = useState("all");
-  const [technicianId, setTechnicianId] = useState("all");
+  const savedHistoryState = useMemo(
+    () => readHistoryEntryState<ConstructionTicketsHistoryState>(CONSTRUCTION_TICKETS_HISTORY_KEY),
+    [],
+  );
+  const [search, setSearch] = useState(savedHistoryState?.search ?? "");
+  const [status, setStatus] = useState(savedHistoryState?.status ?? "all");
+  const [technicianId, setTechnicianId] = useState(savedHistoryState?.technicianId ?? "all");
+  const [view, setView] = useState<"actionable" | "all">(savedHistoryState?.view ?? "actionable");
+
+  useEffect(() => {
+    writeHistoryEntryState<ConstructionTicketsHistoryState>(CONSTRUCTION_TICKETS_HISTORY_KEY, {
+      search,
+      status,
+      technicianId,
+      view,
+    });
+  }, [search, status, technicianId, view]);
 
   const { data: tickets = [], isLoading } = trpc.tickets.list.useQuery({
     maintenanceResponsibleDepartment: MAINTENANCE_RESPONSIBLE_DEPARTMENT.CONSTRUCTION,
@@ -225,7 +249,7 @@ export function ConstructionTicketsPanel() {
         </div>
       </div>
 
-      <Tabs defaultValue="actionable" dir="rtl">
+      <Tabs value={view} onValueChange={(value) => setView(value as "actionable" | "all")} dir="rtl">
         <TabsList>
           <TabsTrigger value="actionable">بانتظار إجرائي ({actionable.length})</TabsTrigger>
           <TabsTrigger value="all">جميع بلاغات الإنشاءات ({filtered.length})</TabsTrigger>

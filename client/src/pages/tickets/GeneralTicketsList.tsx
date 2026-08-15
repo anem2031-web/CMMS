@@ -1,4 +1,5 @@
 import { trpc } from "@/lib/trpc";
+import { readHistoryEntryState, writeHistoryEntryState } from "@/lib/backStack";
 import { summarizeSubTicketFamily } from "@shared/ticketUiRules";
 import { keepPreviousData } from "@tanstack/react-query";
 import { useLocation, useSearch } from "wouter";
@@ -19,7 +20,7 @@ import { APP_ROLE, MAINTENANCE_INSPECTION_WORKFLOW_STATUS, MAINTENANCE_MANAGER_F
 import { isTicketEditableBeforeTriage } from "@shared/ticketUiRules";
 import { Plus, Search, ClipboardList, Pencil, Trash2, ChevronLeft, ChevronRight, ChevronDown, GitBranch } from "lucide-react";
 import { ExportButton } from "@/components/common/ExportButton";
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useTranslation } from "@/contexts/LanguageContext";
 import { useStaticLabels } from "@/hooks/useContentTranslation";
@@ -29,6 +30,20 @@ import { toast } from "sonner";
 
 // يبني قائمة أرقام الصفحات المطلوب عرضها (مع نقاط حذف "..." عند كثرة الصفحات)
 // مثال لـ 10 صفحات وأنت بالصفحة 1: [1, 2, "dots", 10]
+type TicketsListHistoryState = {
+  search: string;
+  statusFilter: string;
+  priorityFilter: string;
+  siteFilter: string;
+  sectionFilter: string;
+  technicianFilter: string;
+  page: number;
+  expandedFamilies: Record<number, boolean>;
+  expandedSubTickets: Record<number, boolean>;
+};
+
+const TICKETS_LIST_HISTORY_KEY = "__cmmsTicketsListState";
+
 function getPageNumbers(current: number, total: number): (number | "dots")[] {
   if (total <= 7) {
     return Array.from({ length: total }, (_, i) => i + 1);
@@ -58,17 +73,22 @@ export default function GeneralTicketsList() {
     };
   }, []); // Empty dependency array ensures this only runs once on mount
 
-  const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState(initialFilters.status || "all");
-  const [priorityFilter, setPriorityFilter] = useState(initialFilters.priority || "all");
-  const [siteFilter, setSiteFilter] = useState("all");
-  const [sectionFilter, setSectionFilter] = useState("all");
-  const [technicianFilter, setTechnicianFilter] = useState("all");
-  const [page, setPage] = useState(1);
+  const savedHistoryState = useMemo(
+    () => readHistoryEntryState<TicketsListHistoryState>(TICKETS_LIST_HISTORY_KEY),
+    [],
+  );
+  const [search, setSearch] = useState(savedHistoryState?.search ?? "");
+  const [statusFilter, setStatusFilter] = useState(savedHistoryState?.statusFilter ?? initialFilters.status ?? "all");
+  const [priorityFilter, setPriorityFilter] = useState(savedHistoryState?.priorityFilter ?? initialFilters.priority ?? "all");
+  const [siteFilter, setSiteFilter] = useState(savedHistoryState?.siteFilter ?? "all");
+  const [sectionFilter, setSectionFilter] = useState(savedHistoryState?.sectionFilter ?? "all");
+  const [technicianFilter, setTechnicianFilter] = useState(savedHistoryState?.technicianFilter ?? "all");
+  const [page, setPage] = useState(savedHistoryState?.page && savedHistoryState.page > 0 ? savedHistoryState.page : 1);
   // البلاغ الرئيسي يمثل "عائلة" واحدة في القائمة. التوسعة الأولى تعرض الرئيسي/الفرعيات،
   // والتوسعة الثانية تعرض بطاقات البلاغات الفرعية نفسها.
-  const [expandedFamilies, setExpandedFamilies] = useState<Record<number, boolean>>({});
-  const [expandedSubTickets, setExpandedSubTickets] = useState<Record<number, boolean>>({});
+  const [expandedFamilies, setExpandedFamilies] = useState<Record<number, boolean>>(savedHistoryState?.expandedFamilies ?? {});
+  const [expandedSubTickets, setExpandedSubTickets] = useState<Record<number, boolean>>(savedHistoryState?.expandedSubTickets ?? {});
+  const didMountFilters = useRef(false);
   const PAGE_SIZE = 10;
   
   const { t, language } = useTranslation();
@@ -99,8 +119,26 @@ export default function GeneralTicketsList() {
   // أي تغيير في البحث أو الفلاتر يرجعنا تلقائياً لأول صفحة
   // (تفادياً للوقوف على صفحة فاضية بعد ما تتغير نتائج الفلترة)
   useEffect(() => {
+    if (!didMountFilters.current) {
+      didMountFilters.current = true;
+      return;
+    }
     setPage(1);
   }, [search, statusFilter, priorityFilter, siteFilter, sectionFilter, technicianFilter]);
+
+  useEffect(() => {
+    writeHistoryEntryState<TicketsListHistoryState>(TICKETS_LIST_HISTORY_KEY, {
+      search,
+      statusFilter,
+      priorityFilter,
+      siteFilter,
+      sectionFilter,
+      technicianFilter,
+      page,
+      expandedFamilies,
+      expandedSubTickets,
+    });
+  }, [search, statusFilter, priorityFilter, siteFilter, sectionFilter, technicianFilter, page, expandedFamilies, expandedSubTickets]);
 
   const { data: ticketsData, isLoading } = trpc.tickets.listPaginated.useQuery({
     status: statusFilter !== "all" ? statusFilter : undefined,
@@ -121,6 +159,10 @@ export default function GeneralTicketsList() {
   const totalTickets = ticketsData?.total ?? 0;
   const totalPages = ticketsData?.totalPages ?? 1;
   const pageNumbers = useMemo(() => getPageNumbers(page, totalPages), [page, totalPages]);
+
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+  }, [page, totalPages]);
 
   const updateMutation = trpc.tickets.update.useMutation({
     onSuccess: () => {

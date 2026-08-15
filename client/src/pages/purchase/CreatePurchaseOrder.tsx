@@ -1,4 +1,5 @@
 import { trpc } from "@/lib/trpc";
+import { goBackOrFallback } from "@/lib/backStack";
 import { useLocation, useSearch, useRoute } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -559,7 +560,7 @@ const handleCatalogSelect = (catalogItem: any) => {
   return (
     <div className="max-w-4xl space-y-6">
       <div className="flex items-center gap-3">
-        <Button variant="ghost" size="icon" onClick={() => setLocation(linkedTicketId ? `/tickets/${linkedTicketId}` : "/purchase-orders")}>
+        <Button variant="ghost" size="icon" onClick={() => goBackOrFallback(setLocation, linkedTicketId ? `/tickets/${linkedTicketId}` : "/purchase-orders")}>
           <ArrowRight className="w-5 h-5" />
         </Button>
         <div>
@@ -576,7 +577,7 @@ const handleCatalogSelect = (catalogItem: any) => {
               <p className="text-sm font-medium text-teal-800">{t.purchaseOrders.relatedTicket}: {ticket.ticketNumber}</p>
               <p className="text-xs text-teal-600">{ticket.title} — {ticket.locationDetail || ""}</p>
             </div>
-            <Button variant="ghost" size="sm" className="mr-auto text-xs" onClick={() => setLocation(`/tickets/${linkedTicketId}`)}>
+            <Button variant="ghost" size="sm" className="mr-auto text-xs" onClick={() => goBackOrFallback(setLocation, `/tickets/${linkedTicketId}`)}>
               {t.common.back}
             </Button>
           </CardContent>

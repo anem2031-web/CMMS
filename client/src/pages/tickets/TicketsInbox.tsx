@@ -8,6 +8,7 @@
 //     — لا يوجد هنا أي منطق انتقال حالات أو mutations خاصة بالبلاغ.
 // ============================================================
 import { trpc } from "@/lib/trpc";
+import { readHistoryEntryState, writeHistoryEntryState } from "@/lib/backStack";
 import { keepPreviousData } from "@tanstack/react-query";
 import { useLocation, useSearch } from "wouter";
 import { Button } from "@/components/ui/button";
@@ -25,7 +26,7 @@ import {
 } from "@/components/ui/pagination";
 import { STATUS_COLORS, PRIORITY_COLORS } from "@shared/types";
 import { Search, RefreshCw, Inbox, ExternalLink, ChevronLeft, ChevronRight, UserX } from "lucide-react";
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useTranslation } from "@/contexts/LanguageContext";
 import { useStaticLabels } from "@/hooks/useContentTranslation";
@@ -77,6 +78,22 @@ function relativeTime(dateInput: string | Date, locale: string, justNow: string)
 type QuickFilter = "all" | "critical" | "unassigned" | "stale" | "ready_for_closure";
 type SortMode = "important" | "newest" | "oldest" | "updated";
 
+type TicketsInboxHistoryState = {
+  search: string;
+  quickFilter: QuickFilter;
+  sort: SortMode;
+  statusFilter: string;
+  priorityFilter: string;
+  siteFilter: string;
+  sectionFilter: string;
+  technicianFilter: string;
+  dateFrom: string;
+  dateTo: string;
+  page: number;
+};
+
+const TICKETS_INBOX_HISTORY_KEY = "__cmmsTicketsInboxState";
+
 export default function TicketsInbox() {
   const [, setLocation] = useLocation();
   const searchParamsText = useSearch();
@@ -95,18 +112,23 @@ export default function TicketsInbox() {
   const showAllTab = canSeeAllTicketsTab(user?.role);
   const showConstructionTab = canSeeConstructionTicketsTab(user?.role);
 
-  const [search, setSearch] = useState("");
-  const [quickFilter, setQuickFilter] = useState<QuickFilter>("all");
-  const [sort, setSort] = useState<SortMode>("important");
-  const [statusFilter, setStatusFilter] = useState("all");
-  const [priorityFilter, setPriorityFilter] = useState("all");
-  const [siteFilter, setSiteFilter] = useState("all");
-  const [sectionFilter, setSectionFilter] = useState("all");
-  const [technicianFilter, setTechnicianFilter] = useState("all");
+  const savedHistoryState = useMemo(
+    () => readHistoryEntryState<TicketsInboxHistoryState>(TICKETS_INBOX_HISTORY_KEY),
+    [],
+  );
+  const [search, setSearch] = useState(savedHistoryState?.search ?? "");
+  const [quickFilter, setQuickFilter] = useState<QuickFilter>(savedHistoryState?.quickFilter ?? "all");
+  const [sort, setSort] = useState<SortMode>(savedHistoryState?.sort ?? "important");
+  const [statusFilter, setStatusFilter] = useState(savedHistoryState?.statusFilter ?? "all");
+  const [priorityFilter, setPriorityFilter] = useState(savedHistoryState?.priorityFilter ?? "all");
+  const [siteFilter, setSiteFilter] = useState(savedHistoryState?.siteFilter ?? "all");
+  const [sectionFilter, setSectionFilter] = useState(savedHistoryState?.sectionFilter ?? "all");
+  const [technicianFilter, setTechnicianFilter] = useState(savedHistoryState?.technicianFilter ?? "all");
   // فلترة بتاريخ إنشاء البلاغ (نطاق اختياري YYYY-MM-DD)
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
-  const [page, setPage] = useState(1);
+  const [dateFrom, setDateFrom] = useState(savedHistoryState?.dateFrom ?? "");
+  const [dateTo, setDateTo] = useState(savedHistoryState?.dateTo ?? "");
+  const [page, setPage] = useState(savedHistoryState?.page && savedHistoryState.page > 0 ? savedHistoryState.page : 1);
+  const didMountFilters = useRef(false);
   const PAGE_SIZE = 10;
 
   const [previewTicket, setPreviewTicket] = useState<any>(null);
@@ -132,8 +154,28 @@ export default function TicketsInbox() {
 
   // أي تغيير في البحث/الفلاتر/الترتيب يعيدنا لأول صفحة (نفس سلوك الصفحة الحالية)
   useEffect(() => {
+    if (!didMountFilters.current) {
+      didMountFilters.current = true;
+      return;
+    }
     setPage(1);
   }, [search, quickFilter, sort, statusFilter, priorityFilter, siteFilter, sectionFilter, technicianFilter, dateFrom, dateTo, activeTab]);
+
+  useEffect(() => {
+    writeHistoryEntryState<TicketsInboxHistoryState>(TICKETS_INBOX_HISTORY_KEY, {
+      search,
+      quickFilter,
+      sort,
+      statusFilter,
+      priorityFilter,
+      siteFilter,
+      sectionFilter,
+      technicianFilter,
+      dateFrom,
+      dateTo,
+      page,
+    });
+  }, [search, quickFilter, sort, statusFilter, priorityFilter, siteFilter, sectionFilter, technicianFilter, dateFrom, dateTo, page]);
 
   useEffect(() => {
     const invalidRequestedTab = requestedTab && requestedTab !== activeTab;
@@ -184,6 +226,10 @@ export default function TicketsInbox() {
   const totalTickets = ticketsData?.total ?? 0;
   const totalPages = ticketsData?.totalPages ?? 1;
   const pageNumbers = useMemo(() => getPageNumbers(page, totalPages), [page, totalPages]);
+
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+  }, [page, totalPages]);
 
   const locale = language === "ar" ? "ar-SA" : language === "ur" ? "ur-PK" : "en-US";
   const ti = t.ticketsInbox;
