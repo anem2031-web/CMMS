@@ -58,7 +58,9 @@ export default function WarehouseReturnsList() {
                       <span>الكمية: {doc.returnedQuantity} {doc.unit || ""}</span>
                     </div>
                     <p className="text-xs text-muted-foreground">
-                      {doc.receiptNumber ? `مرتبط بسند ${doc.receiptNumber}` : "إرجاع عام بلا سند معروف"}
+                      {doc.sourceDeliveryNumber
+                        ? `مرتجع من الجهة إلى المخزن · عكس سند الصرف ${doc.sourceDeliveryNumber}`
+                        : (doc.receiptNumber ? `مرتجع إلى المورد · مرتبط بسند ${doc.receiptNumber}` : "مرتجع إلى المورد · بلا سند استلام معروف")}
                       {doc.poNumber ? ` · طلب ${doc.poNumber}` : ""}
                     </p>
                     <p className="text-xs text-muted-foreground">السبب: {doc.reason}</p>

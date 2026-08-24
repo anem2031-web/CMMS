@@ -12,7 +12,9 @@ module.exports = {
       OAUTH_SERVER_URL: 'http://localhost:8080',
       OWNER_OPEN_ID: 'admin',
       BUILT_IN_FORGE_API_URL: 'https://api.openai.com/v1',
-      BUILT_IN_FORGE_API_KEY: '',
+      // Catalog semantic matching uses DeepSeek directly via server/_core/llm.ts.
+      // Do not define an empty API key here: that would shadow the real .env key.
+      DEEPSEEK_API_URL: 'https://api.deepseek.com',
       S3_ENDPOINT: 'https://s3.eu-central-1.idrivee2.com',
       S3_REGION: 'eu-central-1',
       S3_ACCESS_KEY: 'V1hMCeNkFgDPVm1e7n5s',

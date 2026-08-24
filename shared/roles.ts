@@ -30,6 +30,21 @@ export const APP_ROLE = {
 
 export type AppRole = (typeof APP_ROLE)[keyof typeof APP_ROLE];
 
+/** Standalone Catalog module access approved in 2B-10. */
+export const CATALOG_MODULE_ROLES = [
+  APP_ROLE.OWNER,
+  APP_ROLE.ADMIN,
+  APP_ROLE.CONSTRUCTION_PROCUREMENT_MANAGER,
+] as const;
+
+export function canRoleAccessCatalogModule(role?: string | null): boolean {
+  return !!role && (CATALOG_MODULE_ROLES as readonly string[]).includes(role);
+}
+
+export function isCatalogAdminRole(role?: string | null): boolean {
+  return role === APP_ROLE.OWNER || role === APP_ROLE.ADMIN;
+}
+
 /**
  * Stable, globally distinctive values stored on maintenance tickets.
  * The long names intentionally avoid collisions with generic department/type enums.
@@ -79,7 +94,7 @@ export const TICKET_MAINTENANCE_MANAGER_ROLES = [
   APP_ROLE.GENERAL_MAINTENANCE_MANAGER,
 ] as const;
 
-/** Roles that retain the catalog and construction modules. */
+/** Legacy construction-workflow family; standalone Catalog access is defined separately above. */
 export const CONSTRUCTION_MAINTENANCE_MANAGER_ROLES = [
   APP_ROLE.MAINTENANCE_MANAGER,
   APP_ROLE.CONSTRUCTION_PROCUREMENT_MANAGER,
@@ -142,6 +157,9 @@ function matchesPrefix(path: string, prefix: string): boolean {
 export function canRoleAccessPath(role: string | null | undefined, path: string): boolean {
   if (!role) return false;
   const normalizedPath = path.split(/[?#]/, 1)[0] || "/";
+  if (matchesPrefix(normalizedPath, "/catalog")) {
+    return canRoleAccessCatalogModule(role);
+  }
   if (role === APP_ROLE.GENERAL_MAINTENANCE_MANAGER) {
     return !GENERAL_MANAGER_DENIED_PREFIXES.some((prefix) => matchesPrefix(normalizedPath, prefix));
   }

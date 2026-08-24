@@ -19,6 +19,12 @@ import PurchaseOrderDetail from "@/pages/purchase/PurchaseOrderDetail";
 import CreatePurchaseOrder from "@/pages/purchase/CreatePurchaseOrder";
 import Inventory from "@/pages/inventory/Inventory";
 import InventoryOperations from "@/pages/inventory/InventoryOperations";
+import InventoryReconciliation from "@/pages/inventory/InventoryReconciliation";
+import InventoryReportsCenter from "@/pages/inventory/InventoryReportsCenter";
+import InventoryStockBalanceReport from "@/pages/inventory/InventoryStockBalanceReport";
+import InventoryMovementReport from "@/pages/inventory/InventoryMovementReport";
+import InventoryValuationReport from "@/pages/inventory/InventoryValuationReport";
+import InventoryAnalyticsReport from "@/pages/inventory/InventoryAnalyticsReport";
 import Reports from "@/pages/reports/Reports";
 import UsersPage from "@/pages/admin/Users";
 import Sites from "@/pages/admin/Sites";
@@ -94,6 +100,12 @@ function Router() {
             <Route path="/my-items" component={MyItems} />
             <Route path="/inventory" component={Inventory} />
             <Route path="/inventory-operations" component={InventoryOperations} />
+            <Route path="/inventory/reconciliation" component={InventoryReconciliation} />
+            <Route path="/inventory/reports/stock-balance" component={InventoryStockBalanceReport} />
+            <Route path="/inventory/reports/movements" component={InventoryMovementReport} />
+            <Route path="/inventory/reports/valuation" component={InventoryValuationReport} />
+            <Route path="/inventory/reports/analytics" component={InventoryAnalyticsReport} />
+            <Route path="/inventory/reports" component={InventoryReportsCenter} />
             <Route path="/reports" component={Reports} />
             <Route path="/reports/technicians" component={TechnicianReport} />
             <Route path="/reports/purchase-cycle" component={PurchaseCycleReport} />

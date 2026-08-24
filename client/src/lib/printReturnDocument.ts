@@ -70,15 +70,22 @@ ${qrDataUrl ? `<div class="item-id-row">
     <div class="field"><span class="field-label">اسم الصنف</span><span class="field-value">${doc.itemName}</span></div>
     <div class="field"><span class="field-label">الكمية المُرجَعة</span><span class="field-value">${doc.returnedQuantity} ${doc.unit||""}</span></div>
     <div class="field"><span class="field-label">نفّذ الإرجاع</span><span class="field-value">${doc.returnedByName}</span></div>
-    ${doc.receiptNumber ? `<div class="field"><span class="field-label">سند الاستلام المرتبط</span><span class="field-value">${doc.receiptNumber}</span></div>` : `<div class="field"><span class="field-label">سند الاستلام</span><span class="field-value">— (إرجاع عام بلا مصدر معروف)</span></div>`}
-    ${doc.invoiceNumber ? `<div class="field"><span class="field-label">رقم فاتورة المورد</span><span class="field-value">${doc.invoiceNumber}</span></div>` : ""}
-    ${doc.vendorName ? `<div class="field"><span class="field-label">المورد</span><span class="field-value">${doc.vendorName}</span></div>` : ""}
+    ${doc.sourceDeliveryNumber
+      ? `<div class="field"><span class="field-label">سند الصرف الأصلي</span><span class="field-value">${doc.sourceDeliveryNumber}</span></div>
+         <div class="field"><span class="field-label">المستلم الأصلي</span><span class="field-value">${doc.sourceDeliveredToName || doc.recipientName || "—"}</span></div>
+         ${doc.lotCode ? `<div class="field"><span class="field-label">الـLot الأصلي</span><span class="field-value">${doc.lotCode}</span></div>` : ""}`
+      : `${doc.receiptNumber ? `<div class="field"><span class="field-label">سند الاستلام المرتبط</span><span class="field-value">${doc.receiptNumber}</span></div>` : `<div class="field"><span class="field-label">سند الاستلام</span><span class="field-value">— (إرجاع عام بلا مصدر معروف)</span></div>`}
+         ${doc.invoiceNumber ? `<div class="field"><span class="field-label">رقم فاتورة المورد</span><span class="field-value">${doc.invoiceNumber}</span></div>` : ""}
+         ${doc.vendorName ? `<div class="field"><span class="field-label">المورد</span><span class="field-value">${doc.vendorName}</span></div>` : ""}`}
     <div class="field" style="grid-column:1/-1"><span class="field-label">سبب الإرجاع</span><span class="field-value">${doc.reason}</span></div>
   </div>
 </div>
 <div class="sig-section">
-  <div class="sig-box">توقيع منفّذ الإرجاع<br/>${doc.returnedByName}</div>
-  <div class="sig-box">توقيع المستلم<br/>${doc.recipientName || "&nbsp;"}</div>
+  ${doc.sourceDeliveryNumber
+    ? `<div class="sig-box">توقيع مستلم المستودع<br/>${doc.returnedByName}</div>
+       <div class="sig-box">توقيع مُعيد الصنف<br/>${doc.recipientName || doc.sourceDeliveredToName || "&nbsp;"}</div>`
+    : `<div class="sig-box">توقيع منفّذ الإرجاع<br/>${doc.returnedByName}</div>
+       <div class="sig-box">توقيع المستلم<br/>${doc.recipientName || "&nbsp;"}</div>`}
 </div>
 <div class="footer">
   <span>وثيقة آلية — نظام CMMS</span>

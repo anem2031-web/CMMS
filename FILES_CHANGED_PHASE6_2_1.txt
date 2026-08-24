@@ -1,0 +1,24 @@
+Main Phase 6 / 6.2.1 — Stock Balance & Status implementation
+
+New:
+- server/services/reports/inventoryStockBalanceReport.ts
+- client/src/pages/inventory/InventoryStockBalanceReport.tsx
+- server/tests/stockBalanceReportPhase6Step2_1.test.ts
+- docs/CMMS_MAIN_PHASE6_STEP6_2_1_STOCK_BALANCE_STATUS_IMPLEMENTATION_2026-08-23.md
+- FILES_CHANGED_PHASE6_2_1.txt
+
+Updated:
+- server/routers/reports/inventory-reports.router.ts
+- server/_core/index.ts
+- client/src/App.tsx
+- client/src/pages/inventory/InventoryReportsCenter.tsx
+- client/src/i18n/ar.ts
+- client/src/i18n/en.ts
+- client/src/i18n/ur.ts
+- docs/CMMS_MAIN_PHASE6_STEP6_2_STOCK_BALANCE_MOVEMENT_REPORTS_APPROVED_SCOPE_2026-08-23.md
+- docs/PENDING_TASKS.md
+- docs/INDEX.md
+- docs/CHANGELOG_TECHNICAL.md
+- docs/inventory/INVENTORY_DEVELOPMENT_PLAN_AND_CHANGE_CONTROL.md
+
+No SQL / migration / schema / DB-data change.

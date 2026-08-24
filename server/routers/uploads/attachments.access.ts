@@ -14,11 +14,10 @@
  *  2. **فحص ملكية لكل نوع** بما يطابق **بالضبط** قواعد الوصول الخاصة بوحدة
  *     ذلك الكيان نفسها — لا أشد ولا أضعف.
  *
- * ⚠️ ملاحظة موثَّقة: `catalog_item` لا يفرض تحقق ملكية هنا، وذلك **مطابقة
- * مقصودة** لسلوك وحدته الأصلية (`catalog` هو `protectedProcedure` بلا فحص
- * ملكية، أي أن أي مستخدم مسجّل دخول يقدر أصلًا يقرأ أي صنف كتالوج مباشرة).
- * تشديد المرفقات وحدها هنا كان سيعطي إحساسًا زائفًا بالأمان دون إغلاق أي شيء
- * فعليًا. الكتالوج بطبيعته بيانات مرجعية مشتركة، فالانكشاف هنا أقل حساسية.
+ * `catalog_item` بيانات مرجعية مشتركة للقراءة داخل بعض الـworkflows، لكن الكتابة
+ * على مرفقاته تعتبر إدارة Master Data. وفق سياسة 2B-10 لا يسمح بالكتابة إلا
+ * للمالك/الأدمن/مدير الإنشاءات والمشتريات؛ بقية الأدوار قد تستهلك صورة الصنف
+ * كمرجع تشغيلي لكنها لا تستطيع إضافة/حذف مرفقاته.
  *
  * `improvement_idea` و`ticket` على النقيض: وحدتاهما تفرضان فعليًا قيود ملكية
  * حقيقية، فكان تجاوزهما عبر المرفقات ثغرة حقيقية — وكلاهما مُغلَق الآن هنا
@@ -82,8 +81,15 @@ export async function assertCanAccessAttachments(
     }
   }
 
-  if (entityType === "catalog_item" && user.role === "general_maintenance_manager") {
-    throw new TRPCError({ code: "FORBIDDEN", message: "ليس لديك صلاحية للوصول إلى الكتالوج" });
+  if (entityType === "catalog_item" && mode === "write") {
+    const catalogManagers = [
+      APP_ROLE.OWNER,
+      APP_ROLE.ADMIN,
+      APP_ROLE.CONSTRUCTION_PROCUREMENT_MANAGER,
+    ];
+    if (!catalogManagers.includes(user.role as any)) {
+      throw new TRPCError({ code: "FORBIDDEN", message: "ليس لديك صلاحية لتعديل مرفقات أصناف الكتالوج" });
+    }
   }
 
   if (entityType === "ticket") {
@@ -109,5 +115,5 @@ export async function assertCanAccessAttachments(
     }
   }
 
-  // catalog_item: لا فحص ملكية — مطابقة مقصودة لسلوك وحدته (راجع أعلى الملف).
+  // catalog_item: القراءة مرجعية مشتركة؛ الكتابة مقيّدة بسياسة إدارة الكتالوج أعلاه.
 }

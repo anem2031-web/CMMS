@@ -1,0 +1,9 @@
+server/services/reports/inventoryMovementReport.ts
+server/tests/inventoryMovementReportPhase6Step2_2.test.ts
+server/tests/unifiedReportExportReviewPhase6Step2_3.test.ts
+docs/CMMS_MAIN_PHASE6_STEP6_2_3_UNIFIED_EXPORT_REVIEW_IMPLEMENTATION_2026-08-23.md
+docs/inventory/INVENTORY_DEVELOPMENT_PLAN_AND_CHANGE_CONTROL.md
+docs/PENDING_TASKS.md
+docs/INDEX.md
+docs/CHANGELOG_TECHNICAL.md
+FILES_CHANGED_PHASE6_2_3.txt

@@ -217,7 +217,56 @@
     - أي إجراء جديد يعدّل `ticket_departments`/`ticket_tasks` مستقبلًا **يجب أن يستدعي `assertDepartmentPlanEditable`
       أولًا**. راجع `docs/PARENT_TICKET_CLOSURE_AND_PLAN_FREEZE.md`.
 
+
+17. **Inventory Lots / 2B-8 — لا تفعّل نظام الدفعات جزئيًا ولا تسمح بحركة Aggregate-only (2026-08-17).**
+    التصميم المعتمد يفصل `inventory_lots` (هوية المصدر/الدفعة) عن `inventory_lot_balances` (رصيد نفس الدفعة حسب `inventoryId`/المخزن). Catalog Item يبقى هوية الصنف الواحدة.
+    - عند تفعيل `INVENTORY_LOTS_ENABLED` يجب دائمًا أن يساوي `inventory.quantity` مجموع Lot Balances لنفس Inventory، وأن يساوي `inventory_lots.remainingQuantity` مجموع Balances لنفس Lot عبر المخازن.
+    - **أي** استلام/صرف/مرتجع/تحويل/استبعاد/جرد/تسوية يغيّر كمية يجب أن يحدّث Aggregate Inventory والـLot/Balance المطابق **داخل نفس Transaction**. لا تضف مسارًا يغيّر أحدهما فقط.
+    - التحويل بين المخازن ينقل **نفس Lot ونفس QR** بين `fromInventoryId` و`toInventoryId`; لا ينشئ Lot جديدًا ولا ينقص `remainingQuantity` لمجرد تغير الموقع.
+    - الرصيد الافتتاحي مصدره `opening_balance`: اختيار Catalog Item إلزامي، ولا مورد/فاتورة وهمية. Receipt source نوعه `receipt`.
+    - QR التشغيلي يحمل `trackingToken` داخليًا ولا يضم بيانات المورد/الفاتورة/التكلفة داخله.
+    - الصرف المعتمد بعد التفعيل سيكون QR/Lot إلزاميًا؛ لا FIFO/FEFO حاليًا. **كود الصرف المركزي `issueDelivery()` والواجهتان `Inventory.tsx`/`PurchaseCycle.tsx` أصبحت Lot-aware خلف الـFeature Gate بتاريخ 2026-08-17؛ لا تعِد تنفيذها من الصفر.** يبقى UAT التشغيلي بعد اكتمال بقية الحركات.
+    - **مرتجع المورد أصبح Lot-aware خلف Feature Gate:** يبدأ باختيار `warehouseId` صريح ثم `trackingToken`. الخادم يحل الصنف وReceipt/PO والمورد/الفاتورة داخل المستودع المحدد فقط ولا يثق بمعرفات المصدر من العميل. `opening_balance` ممنوع. كل تخفيضات Lot/Aggregate + سجل المرتجع + Inventory Transaction تتم في Transaction واحدة. لا تحذف Warehouse Context أو تعد إلى اختيار Balance تلقائي عبر المخازن.
+    - **التحويل بين المخازن أصبح Lot-aware خلف Feature Gate (2026-08-18):** كل بند تحويل يمثل Lot واحدًا، والعميل يرسل `trackingToken` وليس `lotId`. التحويل ينقص Balance المصدر ويزيد Balance الهدف لنفس `lotId` داخل نفس Transaction مع Aggregate Inventory وحركتي OUT/IN و`warehouse_transfers.lotId`. **لا تعدّل `inventory_lots.remainingQuantity` في التحويل** لأنه تغيير موقع فقط. عند وجود Catalog identity لا تستخدم fallback بالاسم/الكود إلى Inventory هدف مختلف؛ أنشئ/استخدم Inventory مطابقًا للـCatalog.
+    - **الاستبعاد/التالف أصبح Lot-aware خلف Feature Gate (2026-08-18):** عند التفعيل يختار المستخدم المستودع أولًا ثم يمسح `trackingToken`. الخادم يعيد حل الـLot داخل نفس `warehouseId` وداخل Transaction ولا يثق بـ`lotId` أو `inventoryId` من العميل. الخصم ذري من Lot Balance + `remainingQuantity` + Aggregate Inventory، مع `disposal_items.lotId` و`inventory_transactions.lotId`. تكلفة المستند من `inventory.averageCost`. لا تسمح بتغيير المستودع بعد إضافة أول بند في عملية الاستبعاد.
+    - **الجرد الدوري/التسوية أصبحا Lot-aware خلف Feature Gate (2026-08-18):** الجرد الدوري يجب أن يكون داخل مستودع محدد وبـLot/QR؛ الجرد الشامل يحمل Snapshot لكل Balance موجب والجزئي يبدأ فارغًا ويضاف له ما يُمسح فقط. `recordCountItem` لا يحفظ Lot بدون إعادة تحقق من نفس Tracking Token. عند التسوية لا تضبط Aggregate Inventory مباشرة إلى الكمية المعدودة؛ طبّق فرق الـLot نفسه على Balance + `remainingQuantity` + Aggregate داخل Transaction. قبل التعديل يجب التحقق أن Snapshot لم يصبح stale وأن `inventory.quantity = SUM(balances)` و`lot.remainingQuantity = SUM(balances across warehouses)`؛ أي اختلاف يوقف التسوية. التسوية اليدوية Aggregate-only تبقى موقوفة عند تفعيل Lots حتى Workflow مستقل معتمد.
+    - **UAT النهائي لـ2B-8 نجح بتاريخ 2026-08-18** بعد تفعيل الـGate محليًا: Receipt/Purchase، Delivery من Purchase Cycle وInventory، Transfer، Supplier Return، Disposal، Periodic Count/Settlement، ثم فحوص سلامة كمية وروابط بدون `MISMATCH`. يمكن استخدام `INVENTORY_LOTS_ENABLED=true` في البيئة المعتمدة بعد النشر. على Railway يجب إضافة المتغير في Service Variables؛ `.env` المحلي لا ينتقل عبر GitHub. راجع `docs/inventory/INVENTORY_DEVELOPMENT_PLAN_AND_CHANGE_CONTROL.md` و`docs/CHANGELOG_TECHNICAL.md`.
+    - **الصرف بدون QR / اختيار Lot يدوي / FIFO / FEFO مؤجل** إلى قرار Workflow مستقل؛ لا تغيّر هذا السلوك كجزء من صيانة 2B-8 بدون موافقة صريحة.
+
+
+18. **2B-9 Catalog Taxonomy ↔ Warehouse Taxonomy — COMPLETE / UAT PASSED (2026-08-19).**
+    - `catalog_nodes` هي **المصدر الوحيد للتصنيف**. لا تضف `inventory.categoryId` أو `warehouse_categories` أو أي Taxonomy موازية.
+    - Inventory يقرأ التصنيف من `inventory.linkedItemId → catalog_items.nodeId → catalog_nodes`. الصنف لا يتغير تصنيفه بسبب وجوده في مخزن مختلف.
+    - المخزن الرئيسي عام. `warehouses.catalogNodeId` في المخزن الفرعي هو التخصص/التصنيف الطبيعي فقط **وليس قيد محتوى**؛ صنف من كهرباء يمكن أن يوجد في مخزن دهان ويبقى تحت تصنيفه الحقيقي.
+    - `categoryMismatch` في التحويل يبقى **Warning وليس Block** ما لم يصدر قرار Workflow جديد.
+    - الجرد الدوري له ثلاثة نطاقات معتمدة: **كل المخزن / Catalog node + descendants / جزئي يدوي بالـQR**.
+    - Category-scoped count يحفظ `inventory_count_operations.catalogNodeId`; الخادم يفرض النطاق عند كل QR/Lot ويعيد `COUNT_LOT_OUTSIDE_CATEGORY_SCOPE` إذا كان Lot خارج العقدة المختارة وفروعها.
+    - الإدخال اليدوي للجرد هو **Per-Lot** فقط؛ لا Aggregate-only. الخادم يعيد التحقق من Warehouse + Count Item + Lot/Inventory relation + Catalog identity + category scope قبل حفظ الكمية.
+    - UAT النهائي Passed: Inventory taxonomy/tree، Cross-category warehouse behavior، QR scope rejection، custom tree scrollbar، Manual Lot count، Full Count regression، Manual Partial QR regression، Tree Search، وتسوية فرق فعلي على `CNT-2026-60023` / `ADJ-2026-30005` مع بقاء Lot invariants سليمة.
+    - ظهرت Inventory aggregate mismatches تاريخية من نسخة Cloud قديمة كانت تسمح `delivery` بلا `lotId`; **لا تصلحها تلقائيًا ولا تعتبرها Regression في 2B-9**. البيانات الجديدة النظيفة المستخدمة للإغلاق بقيت متطابقة.
+    - مفاتيح رسالة out-of-scope موجودة بالعربية/English/Urdu؛ Runtime العربي Passed. English/Urdu لم يُسجل لهما switch-test مستقل في جلسة الإغلاق، وهذا لا يغير حالة 2B-9 المغلقة.
+    - **لا تبدأ 2B-10 تلقائيًا.** Broad FKs/Governance/Integrity/Security تحتاج موافقة صريحة منفصلة.
+
+
 ---
+
+19. **2B-10 Catalog access policy — IMPLEMENTED / UAT PENDING (2026-08-19).**
+    - وحدة `/catalog` المستقلة متاحة فقط لـ`owner` و`admin` و`construction_procurement_manager`. بقية الأدوار لا ترى الوحدة ولا تدخلها مباشرة.
+    - `owner/admin` يملكان الصلاحية الكاملة: إضافة/تعديل/تعطيل، إعدادات، Import/Export.
+    - `construction_procurement_manager`: التصنيفات والأصناف = عرض/إضافة/تعديل فقط؛ الوحدات = عرض/إضافة/تعديل فقط؛ الموردون و«الأصناف الجديدة» = كامل الصلاحية داخل تبويبيهما؛ لا Delete/Deactivate للأصناف/التصنيفات/الوحدات ولا Settings ولا Import/Export.
+    - **لا توسّع هذه السياسة إلى منع القراءة المرجعية التشغيلية**: `catalogReadProcedure` يبقى متاحًا للأدوار التي تحتاج Catalog داخل PO/Receipt/Warehouse/Inventory حتى لا ينكسر الـWorkflow الحالي. هذه قراءة مرجعية وليست صلاحية دخول لوحدة الكتالوج.
+    - حماية الـBackend هي المصدر الحاسم؛ إخفاء الأزرار/التبويبات في الواجهة طبقة إضافية فقط. كتابة مرفقات `catalog_item` تتبع نفس سياسة الإدارة (owner/admin/construction فقط).
+    - لا Schema/SQL/DB migration لهذا التغيير.
+
+
+20. **Main Phase 5.4 Inventory Reconciliation is future-facing and read-only (approved 2026-08-23).**
+    - Old/experimental Inventory data remains untouched; do not use 5.4 as Historical Cleanup, Backfill, Revaluation, or Ledger reconstruction.
+    - 5.4 approved steps: 5.4.1 Integrity Rules (CLOSED) → 5.4.2 Read-only Engine (CLOSED) → 5.4.3 Exception Report (OFFICIALLY CLOSED) → 5.4.4 Runtime UAT & Closure (NOT STARTED).
+    - Core invariants: Inventory quantity ↔ Lot balances; global Lot remaining ↔ warehouse balances; no negative stock; current value consistency with approved rounding tolerance; valid Lot Balance → Inventory → Warehouse identity.
+    - Reconciliation findings must not auto-fix data. Centralized numbering, Batch all-or-nothing redesign, Workflow/Accounting redesign, and production cutover are outside 5.4.
+    - **Current stop: 5.4.3 is OFFICIALLY CLOSED after Runtime UI verification (`53/53` PASS, zero exceptions) and owner confirmation that the PDF user-guide download button works. Do not start 5.4.4 automatically.**
+    - References: `docs/CMMS_PHASE5_STEP4_INVENTORY_RECONCILIATION_APPROVED_SCOPE_2026-08-23.md` and `docs/CMMS_PHASE5_STEP4_1_INVENTORY_INTEGRITY_RULES_CLOSURE_2026-08-23.md`.
+
 
 ## 📂 أين أجد التفاصيل الكاملة
 
@@ -258,3 +307,36 @@
 
 1. لا تحذف أي بند سابق من `CHANGELOG_TECHNICAL.md` إلا إذا تأكدت أن السبب الأصلي له لم يعد قائمًا إطلاقًا،
    وحتى في هذه الحالة، أضف ملاحظة توضح متى ولماذا أصبح البند القديم غير ذي صلة بدل حذفه بصمت.
+
+
+## 41) Main Phase 5 / 5.4.2 — Read-only Reconciliation Engine implementation — 2026-08-23
+
+- Added pure evaluator `server/services/inventory-reconciliation-core.ts` for the five approved 5.4.1 rules.
+- Added SELECT-only DB adapter `server/services/inventory-reconciliation.ts`.
+- Added query-only tRPC endpoint `inventoryReconciliation.run`; no mutation/repair API exists.
+- Inventory quantity/value reconciliation is scoped to Inventory rows participating in Lot Balances, so experimental non-Lot rows remain outside future-facing failure scope.
+- No historical transaction reconstruction, baseline table, cleanup/backfill/revaluation, numbering, workflow/accounting, or Batch Transfer semantic change.
+- Targeted TypeScript syntax/transpile, pure evaluator harness and explicit read-only source scan = PASS. Full Vitest/full typecheck not claimed because uploaded Full Project has no node_modules.
+- Reference: `docs/CMMS_PHASE5_STEP4_2_READ_ONLY_RECONCILIATION_ENGINE_IMPLEMENTATION_2026-08-23.md`.
+- **5.4.2 = COMPLETE / TARGETED CHECKS PASSED / LIVE DB RUNTIME VERIFICATION PASSED / OFFICIALLY CLOSED. 5.4.3 = OFFICIALLY CLOSED. 5.4.4 = NOT STARTED.**
+
+
+## 42) Main Phase 5 / 5.4.2 — Official closure — 2026-08-23
+
+- Owner extracted the implementation package and restarted the server.
+- Deployed `runInventoryReconciliation()` executed against Live DB with `readOnly=true`.
+- Runtime result: 53 checks performed, 53 passed, 0 exceptions; Lot-tracked Inventory=5, Lots=4, Lot Balance rows=5.
+- Historical reconstruction and Auto-fix remain disabled. No data/schema/migration/numbering/workflow/accounting/batch-transfer semantic change was made.
+- Reference: `docs/CMMS_PHASE5_STEP4_2_READ_ONLY_RECONCILIATION_ENGINE_CLOSURE_2026-08-23.md`.
+- **Historical stop: after 5.4.2 official closure and before 5.4.3. Superseded by the 5.4.3 closure below.**
+
+
+## 43) Main Phase 5 / 5.4.3 — Reconciliation Exception Report — Official closure — 2026-08-23
+
+- Owner explicitly started 5.4.3 after 5.4.2 closure.
+- Read-only report UI uses `inventoryReconciliation.run`; no repair mutation, SQL or DB write exists.
+- Runtime UI matched the engine: `53/53` checks PASS, `0` exceptions; tracked Inventory=`5`, total Inventory=`698`, Lots=`4`, Lot Balances=`5`.
+- Search/warehouse/exception filters and refresh are present. A concise one-page Arabic **دليل تقرير مطابقة المخزون** was added and the owner confirmed the download button works.
+- No deliberate Live DB exception was introduced to test a failing row; this is an accepted limit because data must not be corrupted for UAT.
+- **5.4.3 = IMPLEMENTED / TARGETED CHECKS PASSED / RUNTIME UI VERIFICATION PASSED / OFFICIALLY CLOSED.**
+- **Exact current stop: after 5.4.3 closure and before 5.4.4 Runtime UAT & Closure. Do not start 5.4.4 automatically.**

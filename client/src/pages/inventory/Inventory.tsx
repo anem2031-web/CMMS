@@ -1,6 +1,7 @@
 import { trpc } from "@/lib/trpc";
 import { useLocation } from "wouter";
 import { InventoryItemCard } from "@/components/inventory/InventoryItemCard";
+import LotLabelsPrintScreen, { type LotLabelItem } from "@/components/inventory/LotLabelsPrintScreen";
 import BarcodeScanner from "@/components/common/BarcodeScanner";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Card, CardContent } from "@/components/ui/card";
@@ -11,18 +12,277 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TechnicianCombobox } from "@/components/tickets/TechnicianCombobox";
 import {
   Package, Plus, AlertTriangle, Loader2,
-  Pencil, Trash2, QrCode, Printer, Search, X, ArrowDownUp, CalendarDays, Truck
+  Pencil, Trash2, QrCode, Printer, Search, X, ArrowDownUp, CalendarDays, Truck,
+  ChevronRight, ChevronDown, Check
 } from "lucide-react";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo, type ReactNode } from "react";
 import QRCode from "qrcode";
 import { toast } from "sonner";
 import { ExportButton } from "@/components/common/ExportButton";
-import { useTranslation, useLanguage } from "@/contexts/LanguageContext";
+import { useTranslation } from "@/contexts/LanguageContext";
+
+
+type InventoryCatalogNode = {
+  id: number;
+  parentId?: number | null;
+  code?: string | null;
+  nameAr?: string | null;
+  nameEn?: string | null;
+  level?: number | null;
+  sortOrder?: number | null;
+};
+
+// 2B-9 — فلتر Inventory يستخدم نفس Catalog taxonomy كشجرة منبثقة.
+// اختيار أي عقدة يعني: هذه العقدة + كل descendants، بينما تبقى النتائج محصورة
+// في المخزن المختار فقط. لا توجد أي شجرة تصنيفات خاصة بالمخزن.
+function InventoryCatalogTreePicker({
+  nodes,
+  value,
+  onChange,
+  language,
+  primaryNodeId,
+  disabled,
+}: {
+  nodes: InventoryCatalogNode[];
+  value: string;
+  onChange: (nodeId: string) => void;
+  language: string;
+  primaryNodeId?: number | null;
+  disabled?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const [expandedNodeIds, setExpandedNodeIds] = useState<Set<number>>(() => new Set());
+
+  const nodeById = useMemo(
+    () => new Map(nodes.map(node => [Number(node.id), node])),
+    [nodes],
+  );
+
+  const childrenByParent = useMemo(() => {
+    const map = new Map<number | null, InventoryCatalogNode[]>();
+    for (const node of nodes) {
+      const rawParentId = node.parentId ? Number(node.parentId) : null;
+      const parentId = rawParentId && nodeById.has(rawParentId) ? rawParentId : null;
+      const list = map.get(parentId) || [];
+      list.push(node);
+      map.set(parentId, list);
+    }
+    for (const list of map.values()) {
+      list.sort((a, b) => {
+        const sortDiff = Number(a.sortOrder || 0) - Number(b.sortOrder || 0);
+        if (sortDiff) return sortDiff;
+        const codeDiff = String(a.code || "").localeCompare(String(b.code || ""), undefined, { numeric: true });
+        if (codeDiff) return codeDiff;
+        const aName = language === "en" ? (a.nameEn || a.nameAr || "") : (a.nameAr || a.nameEn || "");
+        const bName = language === "en" ? (b.nameEn || b.nameAr || "") : (b.nameAr || b.nameEn || "");
+        return String(aName).localeCompare(String(bName), language === "en" ? "en" : "ar");
+      });
+    }
+    return map;
+  }, [nodes, nodeById, language]);
+
+  const selectedNodeId = value && value !== "all" ? Number(value) : null;
+  const selectedPath = useMemo(() => {
+    if (!selectedNodeId) return [] as InventoryCatalogNode[];
+    const path: InventoryCatalogNode[] = [];
+    const visited = new Set<number>();
+    let current = nodeById.get(selectedNodeId);
+    while (current && !visited.has(Number(current.id))) {
+      path.push(current);
+      visited.add(Number(current.id));
+      current = current.parentId ? nodeById.get(Number(current.parentId)) : undefined;
+    }
+    return path.reverse();
+  }, [selectedNodeId, nodeById]);
+
+  useEffect(() => {
+    if (!selectedNodeId) return;
+    setExpandedNodeIds(prev => {
+      const next = new Set(prev);
+      const visited = new Set<number>();
+      let current = nodeById.get(selectedNodeId);
+      while (current?.parentId && !visited.has(Number(current.id))) {
+        visited.add(Number(current.id));
+        next.add(Number(current.parentId));
+        current = nodeById.get(Number(current.parentId));
+      }
+      return next;
+    });
+  }, [selectedNodeId, nodeById]);
+
+  const normalizedSearch = search.trim().toLowerCase();
+  const visibleNodeIds = useMemo(() => {
+    if (!normalizedSearch) return null;
+    const visible = new Set<number>();
+
+    const addAncestors = (node: InventoryCatalogNode) => {
+      const visited = new Set<number>();
+      let current: InventoryCatalogNode | undefined = node;
+      while (current && !visited.has(Number(current.id))) {
+        visible.add(Number(current.id));
+        visited.add(Number(current.id));
+        current = current.parentId ? nodeById.get(Number(current.parentId)) : undefined;
+      }
+    };
+    const addDescendants = (nodeId: number) => {
+      const queue = [nodeId];
+      const visited = new Set<number>();
+      while (queue.length) {
+        const currentId = queue.shift()!;
+        if (visited.has(currentId)) continue;
+        visited.add(currentId);
+        visible.add(currentId);
+        for (const child of childrenByParent.get(currentId) || []) queue.push(Number(child.id));
+      }
+    };
+
+    for (const node of nodes) {
+      const haystack = `${node.nameAr || ""} ${node.nameEn || ""} ${node.code || ""}`.toLowerCase();
+      if (!haystack.includes(normalizedSearch)) continue;
+      addAncestors(node);
+      addDescendants(Number(node.id));
+    }
+    return visible;
+  }, [nodes, normalizedSearch, nodeById, childrenByParent]);
+
+  const nodeLabel = (node: InventoryCatalogNode) =>
+    language === "en"
+      ? (node.nameEn || node.nameAr || `#${node.id}`)
+      : (node.nameAr || node.nameEn || `#${node.id}`);
+
+  const selectedPathLabel = selectedPath.map(nodeLabel).join(language === "en" ? " > " : " › ");
+
+  const toggleExpanded = (nodeId: number) => {
+    setExpandedNodeIds(prev => {
+      const next = new Set(prev);
+      if (next.has(nodeId)) next.delete(nodeId);
+      else next.add(nodeId);
+      return next;
+    });
+  };
+
+  const chooseValue = (nodeId: string) => {
+    onChange(nodeId);
+    setOpen(false);
+  };
+
+  const renderNode = (node: InventoryCatalogNode, depth: number): ReactNode => {
+    if (visibleNodeIds && !visibleNodeIds.has(Number(node.id))) return null;
+    const nodeId = Number(node.id);
+    const children = childrenByParent.get(nodeId) || [];
+    const hasChildren = children.length > 0;
+    const expanded = !!normalizedSearch || expandedNodeIds.has(nodeId);
+    const selected = selectedNodeId === nodeId;
+    const isPrimary = !!primaryNodeId && Number(primaryNodeId) === nodeId;
+
+    return (
+      <div key={nodeId}>
+        <div
+          className={`flex items-center gap-1 rounded-md border px-1.5 py-1 mb-1 transition-colors ${
+            selected ? "border-blue-500 bg-blue-50 text-blue-900" : "border-transparent hover:border-slate-200 hover:bg-slate-50"
+          }`}
+          style={{ paddingInlineStart: `${depth * 16 + 6}px` }}
+        >
+          <button
+            type="button"
+            className="w-7 h-7 shrink-0 inline-flex items-center justify-center rounded hover:bg-slate-100 disabled:opacity-30"
+            disabled={!hasChildren}
+            onClick={() => hasChildren && toggleExpanded(nodeId)}
+            aria-label={expanded ? "طي التصنيف" : "فتح التصنيف"}
+          >
+            {hasChildren ? (expanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />) : <span className="w-4" />}
+          </button>
+          <button
+            type="button"
+            onClick={() => chooseValue(String(nodeId))}
+            className="min-w-0 flex-1 text-start flex items-center justify-between gap-2 rounded px-1 py-1"
+            title="فلترة المخزون بهذا المستوى وكل الفروع التابعة له"
+          >
+            <span className="min-w-0">
+              <span className="block text-sm font-medium truncate">
+                {node.code ? `${node.code} · ` : ""}{nodeLabel(node)}
+              </span>
+              {(hasChildren || isPrimary) && (
+                <span className="block text-[11px] text-muted-foreground">
+                  {isPrimary ? "التصنيف الرئيسي للمخزن" : "يشمل هذا المستوى وجميع الفروع تحته"}
+                </span>
+              )}
+            </span>
+            {selected && <Check className="w-4 h-4 text-blue-600 shrink-0" />}
+          </button>
+        </div>
+        {hasChildren && expanded && children.map(child => renderNode(child, depth + 1))}
+      </div>
+    );
+  };
+
+  const roots = childrenByParent.get(null) || [];
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          disabled={disabled}
+          className="w-full justify-between font-normal min-h-10 h-auto py-2"
+        >
+          <span className={`truncate ${selectedPathLabel ? "text-foreground" : "text-muted-foreground"}`}>
+            {selectedPathLabel || "كل التصنيفات"}
+          </span>
+          <ChevronDown className="w-4 h-4 shrink-0 opacity-60" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-[min(520px,calc(100vw-2rem))] p-3" align="start">
+        <div className="space-y-2">
+          <div>
+            <p className="text-sm font-semibold">شجرة تصنيفات الكتالوج</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              اختر أي مستوى؛ الفلتر سيعرض هذا المستوى وجميع الفروع التابعة له داخل المخزن المحدد.
+            </p>
+          </div>
+          <Input
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="ابحث بالاسم أو الكود..."
+            className="h-9"
+          />
+          <button
+            type="button"
+            onClick={() => chooseValue("all")}
+            className={`w-full flex items-center justify-between rounded-md border px-3 py-2 text-sm text-start ${
+              !selectedNodeId ? "border-blue-500 bg-blue-50 text-blue-900" : "hover:bg-slate-50"
+            }`}
+          >
+            <span>كل التصنيفات</span>
+            {!selectedNodeId && <Check className="w-4 h-4 text-blue-600" />}
+          </button>
+          {selectedPath.length > 0 && (
+            <div className="rounded-md border border-blue-100 bg-blue-50 px-2.5 py-2 text-xs text-blue-900">
+              <span className="font-semibold">التصنيف المختار:</span> {selectedPathLabel}
+            </div>
+          )}
+          <div className="max-h-80 overflow-y-auto rounded-md border p-2">
+            {roots.length === 0 ? (
+              <p className="text-sm text-muted-foreground py-5 text-center">لا توجد تصنيفات نشطة.</p>
+            ) : visibleNodeIds && visibleNodeIds.size === 0 ? (
+              <p className="text-sm text-muted-foreground py-5 text-center">لا يوجد تصنيف مطابق للبحث.</p>
+            ) : (
+              roots.map(node => renderNode(node, 0))
+            )}
+          </div>
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
 
 export default function Inventory() {
   const [, navigate] = useLocation();
@@ -33,18 +293,45 @@ export default function Inventory() {
   const [deliverQty, setDeliverQty] = useState("");
   const [deliverToId, setDeliverToId] = useState("");
   const [deliverNotes, setDeliverNotes] = useState("");
+  const [deliverLotInfo, setDeliverLotInfo] = useState<any>(null);
+  const [lotDialogItem, setLotDialogItem] = useState<any>(null);
+  const [printLotQr, setPrintLotQr] = useState<LotLabelItem | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchMode, setSearchMode] = useState<"name" | "code" | "qr">("name");
+  const [qrSearchInventoryIds, setQrSearchInventoryIds] = useState<number[]>([]);
   const [sortBy, setSortBy] = useState<"recent" | "name" | "quantity">("recent");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const { t, language } = useTranslation();
 
   const { data: items, isLoading, refetch } = trpc.inventory.list.useQuery();
+  const { data: inventoryTaxonomy = [] } = trpc.inventory.taxonomy.useQuery();
+  const { data: inventoryCatalogNodes = [] } = trpc.catalog.nodes.list.useQuery({ isActive: true });
+  const taxonomyByInventoryId = new Map(
+    (inventoryTaxonomy as any[]).map((row: any) => [Number(row.inventoryId), row]),
+  );
+  const inventoryItemsWithTaxonomy = (items as any[] || []).map((item: any) => ({
+    ...item,
+    ...(taxonomyByInventoryId.get(Number(item.id)) || {}),
+  }));
+  const { data: lotTrackingStatus } = trpc.inventoryCount.lotTrackingStatus.useQuery();
+  const lotsEnabled = !!lotTrackingStatus?.enabled;
+  const { data: lotSummaries = [] } = trpc.inventory.lotSummaries.useQuery(undefined, {
+    enabled: lotsEnabled,
+  });
+  const { data: selectedInventoryLots = [], isLoading: lotsDialogLoading } = trpc.inventory.listLots.useQuery(
+    { inventoryId: lotDialogItem?.id || 0 },
+    { enabled: lotsEnabled && !!lotDialogItem?.id },
+  );
+  const lotSummaryByInventoryId = new Map(
+    (lotSummaries as any[]).map((row: any) => [Number(row.inventoryId), row]),
+  );
 
   // ── اختيار المخزن — أول حقل يظهر بالصفحة، وكل التفاصيل أدناه خاصة بالمخزن المختار فقط ──
   const { data: warehousesList } = trpc.warehouse.list.useQuery();
   const [selectedWarehouseId, setSelectedWarehouseId] = useState<string>("");
+  // 2B-9 — فلتر التصنيف يستهلك Catalog taxonomy فقط؛ لا توجد تصنيفات خاصة بالمخزن.
+  const [selectedCatalogNodeId, setSelectedCatalogNodeId] = useState<string>("all");
 
   // اختيار المخزن الرئيسي تلقائيًا أول مرة تُحمَّل فيها القائمة (بدل ترك الصفحة فارغة بانتظار اختيار يدوي)
   useEffect(() => {
@@ -57,10 +344,15 @@ export default function Inventory() {
     (w: any) => String(w.id) === selectedWarehouseId
   );
 
+  // لا نحمل فلتر تصنيف مخزن سابق إلى مخزن جديد؛ التصنيفات الظاهرة تُشتق من محتوى المخزن الحالي.
+  useEffect(() => {
+    setSelectedCatalogNodeId("all");
+  }, [selectedWarehouseId]);
+
   // أصناف المخزن المختار فقط. المخزن الرئيسي يشمل أيضًا الأصناف القديمة التي لم تُربط
   // بعد بأي مخزن (warehouseId فارغ) — تفاديًا لظهور الصفحة فارغة لصنوف لم تُنقَل بعد
   // لنظام المخازن المتعددة؛ أي مخزن فرعي يعرض فقط ما نُقل إليه فعليًا (تطابق تام).
-  const warehouseItems = (items as any[] || []).filter((item: any) => {
+  const warehouseItems = inventoryItemsWithTaxonomy.filter((item: any) => {
     if (!selectedWarehouseId) return true;
     if (String(item.warehouseId) === selectedWarehouseId) return true;
     if (selectedWarehouse?.type === "main" && !item.warehouseId) return true;
@@ -77,7 +369,16 @@ export default function Inventory() {
     ? warehouseItems.filter((item: any) => (Number(item.quantity) || 0) > 0)
     : warehouseItems;
 
-  const totalWarehouseQuantity = visibleWarehouseItems.reduce(
+  // 2B-9 — اختيار أي عقدة من شجرة Catalog الكاملة يفلتر أصناف المخزن حسب
+  // وجود تلك العقدة داخل مسار الصنف؛ وبذلك يشمل الاختيار كل descendants تلقائياً.
+  const categoryFilteredWarehouseItems = selectedCatalogNodeId === "all"
+    ? visibleWarehouseItems
+    : visibleWarehouseItems.filter((item: any) =>
+        (Array.isArray(item.catalogCategoryPath) ? item.catalogCategoryPath : [])
+          .some((node: any) => String(node?.id) === selectedCatalogNodeId),
+      );
+
+  const totalWarehouseQuantity = categoryFilteredWarehouseItems.reduce(
     (sum: number, item: any) => sum + (Number(item.quantity) || 0), 0
   );
 
@@ -92,6 +393,40 @@ export default function Inventory() {
   });
 
   const { data: allUsers = [] } = trpc.users.list.useQuery();
+  const resolveLotSearchMut = trpc.inventory.resolveLotSearch.useMutation({
+    onSuccess: (data: any) => {
+      const matchedIds = (data.matches || []).map((row: any) => Number(row.inventoryId));
+      setQrSearchInventoryIds(matchedIds);
+      setSearchQuery(data.trackingToken || data.lotCode || "");
+
+      const selectedId = selectedWarehouseId ? Number(selectedWarehouseId) : null;
+      const inCurrentWarehouse = (data.matches || []).filter((row: any) => {
+        if (selectedId == null) return true;
+        if (Number(row.warehouseId) === selectedId) return true;
+        return selectedWarehouse?.type === "main" && row.warehouseId == null;
+      });
+
+      if (inCurrentWarehouse.length === 0) {
+        toast.warning(`تم التعرف على الدفعة ${data.lotCode} لكنها لا تملك رصيدًا في المستودع المختار`);
+      } else {
+        toast.success(`تم التعرف على الدفعة ${data.lotCode}`);
+      }
+    },
+    onError: (err: any) => {
+      setQrSearchInventoryIds([]);
+      toast.error(err.message);
+    },
+  });
+  const resolveDeliveryLotMut = trpc.inventory.resolveDeliveryLot.useMutation({
+    onSuccess: (data: any) => {
+      setDeliverLotInfo(data);
+      toast.success(`تم التعرف على الدفعة ${data.lotCode}`);
+    },
+    onError: (err: any) => {
+      setDeliverLotInfo(null);
+      toast.error(err.message);
+    },
+  });
   const deliverMut = trpc.purchaseOrders.deliverInventoryItem.useMutation({
     onSuccess: (data: any) => {
       toast.success(`تم التسليم بنجاح — سند ${data.deliveryNumber}`);
@@ -100,6 +435,7 @@ export default function Inventory() {
       setDeliverQty("");
       setDeliverToId("");
       setDeliverNotes("");
+      setDeliverLotInfo(null);
     },
     onError: (err: any) => toast.error(err.message),
   });
@@ -118,12 +454,19 @@ export default function Inventory() {
 
   const isWarehouse = user?.role === "warehouse" || user?.role === "admin" || user?.role === "owner";
 
+  if (printLotQr) {
+    return <LotLabelsPrintScreen items={[printLotQr]} onDone={() => setPrintLotQr(null)} />;
+  }
+
   // ── بحث تزايدي: يطابق أي حقل ظاهر في صف الصنف ──
-  const filteredItems = visibleWarehouseItems
+  const filteredItems = categoryFilteredWarehouseItems
     .filter((item: any) => {
       if (!searchQuery.trim()) return true;
       const q = searchQuery.trim().toLowerCase();
-      if (searchMode === "code" || searchMode === "qr") {
+      if (searchMode === "qr") {
+        return qrSearchInventoryIds.includes(Number(item.id));
+      }
+      if (searchMode === "code") {
         return (
           String(item.internalCode ?? "").toLowerCase().includes(q) ||
           String(item.manufacturerBarcode ?? "").toLowerCase().includes(q)
@@ -169,17 +512,39 @@ export default function Inventory() {
         </div>
       </div>
 
-      {/* ══ أول ما يظهر: اختيار المخزن — كل ما أدناه خاص بالمخزن المختار فقط ══ */}
-      <div className="space-y-1.5 max-w-sm">
-        <Label className="text-xs">المخزن</Label>
-        <Select value={selectedWarehouseId} onValueChange={setSelectedWarehouseId}>
-          <SelectTrigger><SelectValue placeholder="اختر المخزن..." /></SelectTrigger>
-          <SelectContent>
-            {(warehousesList as any[] || []).map((w: any) => (
-              <SelectItem key={w.id} value={String(w.id)}>{w.nameAr}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+      {/* ══ اختيار المخزن + Taxonomy الكتالوج الفعلية داخل المخزن ══ */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-w-3xl">
+        <div className="space-y-1.5">
+          <Label className="text-xs">المخزن</Label>
+          <Select value={selectedWarehouseId} onValueChange={setSelectedWarehouseId}>
+            <SelectTrigger><SelectValue placeholder="اختر المخزن..." /></SelectTrigger>
+            <SelectContent>
+              {(warehousesList as any[] || []).map((w: any) => (
+                <SelectItem key={w.id} value={String(w.id)}>{w.nameAr}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="space-y-1.5">
+          <Label className="text-xs">التصنيف — من الكتالوج</Label>
+          <InventoryCatalogTreePicker
+            nodes={(inventoryCatalogNodes as InventoryCatalogNode[]) || []}
+            value={selectedCatalogNodeId}
+            onChange={setSelectedCatalogNodeId}
+            language={language}
+            primaryNodeId={Number(selectedWarehouse?.catalogNodeId || 0) || null}
+            disabled={!selectedWarehouseId}
+          />
+          <p className="text-[11px] text-muted-foreground">
+            اختر أي مستوى من نفس شجرة الكتالوج؛ النتائج تشمل المستوى المختار وكل فروعه داخل المخزن الحالي.
+          </p>
+          {selectedWarehouse?.type === "branch" && selectedWarehouse?.catalogNodeNameAr && (
+            <p className="text-[11px] text-muted-foreground">
+              التصنيف الرئيسي للمخزن: <span className="font-medium text-foreground">{selectedWarehouse.catalogNodeNameAr}</span> — لا يمنع وجود أصناف من تصنيفات أخرى.
+            </p>
+          )}
+        </div>
       </div>
 
       {/* يظهر فقط بعد اختيار مخزن — افتراضيًا مؤشَّر (الأصناف الصفرية مخفية)، وقابل للتغيير */}
@@ -200,14 +565,14 @@ export default function Inventory() {
         <Card className="border-blue-200 bg-blue-50/50">
           <CardContent className="p-3 text-center">
             <Package className="w-5 h-5 mx-auto text-blue-600 mb-1" />
-            <p className="text-2xl font-bold text-blue-800">{visibleWarehouseItems.length}</p>
-            <p className="text-[10px] text-blue-600">{t.inventory.currentStock}</p>
+            <p className="text-2xl font-bold text-blue-800">{categoryFilteredWarehouseItems.length}</p>
+            <p className="text-[10px] text-blue-600">{selectedCatalogNodeId === "all" ? t.inventory.currentStock : "أصناف التصنيف المحدد"}</p>
           </CardContent>
         </Card>
         <Card className="border-red-200 bg-red-50/50">
           <CardContent className="p-3 text-center">
             <AlertTriangle className="w-5 h-5 mx-auto text-red-600 mb-1" />
-            <p className="text-2xl font-bold text-red-800">{visibleWarehouseItems.filter((i: any) => (i.minQuantity || 0) > 0 && i.quantity <= (i.minQuantity || 0)).length}</p>
+            <p className="text-2xl font-bold text-red-800">{categoryFilteredWarehouseItems.filter((i: any) => (i.minQuantity || 0) > 0 && i.quantity <= (i.minQuantity || 0)).length}</p>
             <p className="text-[10px] text-red-600">{t.inventory.lowStock}</p>
           </CardContent>
         </Card>
@@ -226,17 +591,17 @@ export default function Inventory() {
         <div className="flex-1 space-y-1.5">
           {/* أزرار طريقة البحث */}
           <div className="flex gap-1.5">
-            <Button size="sm" variant={searchMode === "name" ? "default" : "outline"} onClick={() => { setSearchMode("name"); setSearchQuery(""); }} className="gap-1 h-7 text-xs">
+            <Button size="sm" variant={searchMode === "name" ? "default" : "outline"} onClick={() => { setSearchMode("name"); setSearchQuery(""); setQrSearchInventoryIds([]); }} className="gap-1 h-7 text-xs">
               <Search className="w-3 h-3" /> بالاسم
             </Button>
-            <Button size="sm" variant={searchMode === "code" ? "default" : "outline"} onClick={() => { setSearchMode("code"); setSearchQuery(""); }} className="gap-1 h-7 text-xs">
+            <Button size="sm" variant={searchMode === "code" ? "default" : "outline"} onClick={() => { setSearchMode("code"); setSearchQuery(""); setQrSearchInventoryIds([]); }} className="gap-1 h-7 text-xs">
               <QrCode className="w-3 h-3" /> بالرقم
             </Button>
-            <Button size="sm" variant={searchMode === "qr" ? "default" : "outline"} onClick={() => { setSearchMode("qr"); setSearchQuery(""); }} className="gap-1 h-7 text-xs">
+            <Button size="sm" variant={searchMode === "qr" ? "default" : "outline"} onClick={() => { setSearchMode("qr"); setSearchQuery(""); setQrSearchInventoryIds([]); }} className="gap-1 h-7 text-xs">
               <QrCode className="w-3 h-3" /> QR Code
             </Button>
             {searchQuery && (
-              <Button size="sm" variant="ghost" className="h-7 text-xs text-muted-foreground" onClick={() => { setSearchQuery(""); setSearchMode("name"); }}>
+              <Button size="sm" variant="ghost" className="h-7 text-xs text-muted-foreground" onClick={() => { setSearchQuery(""); setSearchMode("name"); setQrSearchInventoryIds([]); }}>
                 <X className="w-3 h-3" />
               </Button>
             )}
@@ -247,9 +612,10 @@ export default function Inventory() {
             <BarcodeScanner
               onScan={(code) => {
                 setSearchQuery(code);
-                setSearchMode("code");
+                setQrSearchInventoryIds([]);
+                resolveLotSearchMut.mutate({ code });
               }}
-              placeholder="امسح QR Code الصنف..."
+              placeholder="امسح QR الدفعة أو أدخل Lot Code..."
             />
           ) : (
             <div className="relative">
@@ -320,6 +686,12 @@ export default function Inventory() {
           <Package className="w-12 h-12 mx-auto text-muted-foreground/40 mb-4" />
           <h3 className="font-semibold text-lg mb-1">{t.common.noData}</h3>
         </CardContent></Card>
+      ) : !categoryFilteredWarehouseItems.length ? (
+        <Card><CardContent className="p-12 text-center">
+          <Package className="w-12 h-12 mx-auto text-muted-foreground/40 mb-4" />
+          <h3 className="font-semibold text-lg mb-1">لا توجد أصناف ضمن التصنيف المحدد في هذا المخزن</h3>
+          <p className="text-sm text-muted-foreground">لا يوجد في هذا المخزن صنف مرتبط بالعقدة المختارة أو أحد فروعها.</p>
+        </CardContent></Card>
       ) : !filteredItems.length ? (
         <Card><CardContent className="p-12 text-center">
           <Search className="w-12 h-12 mx-auto text-muted-foreground/40 mb-4" />
@@ -332,6 +704,7 @@ export default function Inventory() {
             <thead>
               <tr className="bg-muted/50 text-xs text-muted-foreground">
                 <th className="text-right font-medium px-3 py-2">الصنف</th>
+                <th className="text-right font-medium px-3 py-2">التصنيف</th>
                 <th className="text-right font-medium px-3 py-2">الكود</th>
                 <th className="text-right font-medium px-3 py-2">الرصيد</th>
                 <th className="text-right font-medium px-3 py-2">الوحدة</th>
@@ -351,9 +724,32 @@ export default function Inventory() {
                     onClick={() => setSelectedItemId(item.id)}
                   >
                     <td className="px-3 py-2.5">
-                      <div className="font-medium">{item.itemName}</div>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <div className="font-medium">{item.itemName}</div>
+                        {lotsEnabled && Number((lotSummaryByInventoryId.get(Number(item.id)) as any)?.lotCount || 0) > 0 && (
+                          <button
+                            type="button"
+                            className="inline-flex items-center gap-1 rounded-md border border-violet-200 bg-violet-50 px-1.5 py-0.5 text-[10px] font-medium text-violet-700 hover:bg-violet-100"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setLotDialogItem(item);
+                            }}
+                            title="عرض دفعات الصنف وإعادة طباعة QR"
+                          >
+                            <QrCode className="w-3.5 h-3.5" />
+                            <span>{Number((lotSummaryByInventoryId.get(Number(item.id)) as any)?.lotCount || 0)}</span>
+                          </button>
+                        )}
+                      </div>
                       {item.description && <div className="text-xs text-muted-foreground">{item.description}</div>}
                       {isLow && <Badge variant="destructive" className="text-[10px] gap-1 mt-1"><AlertTriangle className="w-3 h-3" /> {t.inventory.lowStock}</Badge>}
+                    </td>
+                    <td className="px-3 py-2.5 text-xs text-muted-foreground max-w-[260px]">
+                      {item.catalogCategoryPathAr ? (
+                        <span title={item.catalogCategoryPathAr}>{item.catalogCategoryPathAr}</span>
+                      ) : (
+                        <Badge variant="outline" className="text-[10px] font-normal">غير مرتبط بالكتالوج</Badge>
+                      )}
                     </td>
                     <td className="px-3 py-2.5 font-mono text-xs text-muted-foreground">{item.internalCode || item.manufacturerBarcode || "—"}</td>
                     <td className="px-3 py-2.5">
@@ -379,7 +775,7 @@ export default function Inventory() {
                         {isWarehouse && (
                           <>
                             {item.quantity > 0 && (
-                              <Button variant="ghost" size="icon" className="h-7 w-7 text-blue-600 hover:text-blue-700" onClick={() => { setDeliverItem(item); setDeliverQty(""); setDeliverToId(""); setDeliverNotes(""); }} title="تسليم للفني">
+                              <Button variant="ghost" size="icon" className="h-7 w-7 text-blue-600 hover:text-blue-700" onClick={() => { setDeliverItem(item); setDeliverQty(""); setDeliverToId(""); setDeliverNotes(""); setDeliverLotInfo(null); }} title="تسليم للفني">
                                 <Truck className="w-3.5 h-3.5" />
                               </Button>
                             )}
@@ -397,6 +793,97 @@ export default function Inventory() {
         </div>
       )}
 
+      {/* 2B-8 — دفعات الصنف الموجودة في المستودع الحالي + إعادة طباعة QR */}
+      <Dialog open={!!lotDialogItem} onOpenChange={(open) => { if (!open) setLotDialogItem(null); }}>
+        <DialogContent className="max-w-2xl" dir="rtl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <QrCode className="w-5 h-5 text-violet-600" />
+              دفعات الصنف — {lotDialogItem?.itemName}
+            </DialogTitle>
+            <DialogDescription>
+              الدفعات ذات الرصيد الموجب في {selectedWarehouse?.nameAr || "المستودع الحالي"}. كل QR يعرّف Lot واحدًا مستقلًا.
+            </DialogDescription>
+          </DialogHeader>
+
+          {lotsDialogLoading ? (
+            <div className="flex items-center justify-center py-10 text-muted-foreground gap-2">
+              <Loader2 className="w-5 h-5 animate-spin" /> جاري تحميل الدفعات...
+            </div>
+          ) : !(selectedInventoryLots as any[]).length ? (
+            <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
+              لا توجد دفعات برصيد موجب لهذا الصنف في المستودع الحالي.
+            </div>
+          ) : (
+            <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-1">
+              {(selectedInventoryLots as any[]).map((lot: any) => (
+                <div key={lot.lotId} className="rounded-lg border p-3 space-y-2 bg-muted/20">
+                  <div className="flex items-start justify-between gap-3 flex-wrap">
+                    <div>
+                      <div className="font-mono font-semibold text-sm" dir="ltr">{lot.lotCode}</div>
+                      <div className="text-xs text-muted-foreground mt-1">
+                        {lot.sourceType === "opening_balance" ? "رصيد افتتاحي" : "دفعة استلام"}
+                      </div>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="gap-1.5"
+                      onClick={() => setPrintLotQr({
+                        lotId: lot.lotId,
+                        lotCode: lot.lotCode,
+                        trackingToken: lot.trackingToken,
+                        itemName: lotDialogItem?.itemName || "",
+                        quantity: Number(lot.originalQuantity || 0),
+                        unit: lot.issueUnit || lot.purchaseUnit || lotDialogItem?.unit || undefined,
+                        sourceType: lot.sourceType,
+                        receiptNumber: lot.receiptNumber || undefined,
+                      })}
+                    >
+                      <Printer className="w-3.5 h-3.5" /> عرض / طباعة QR
+                    </Button>
+                  </div>
+
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-2 text-xs">
+                    <div className="rounded bg-background p-2">
+                      <div className="text-muted-foreground">الرصيد في هذا المستودع</div>
+                      <div className="font-semibold mt-0.5">{lot.balanceQuantity} {lot.issueUnit || lot.purchaseUnit || lotDialogItem?.unit || ""}</div>
+                    </div>
+                    <div className="rounded bg-background p-2">
+                      <div className="text-muted-foreground">الكمية الأصلية للدفعة</div>
+                      <div className="font-semibold mt-0.5">{lot.originalQuantity}</div>
+                    </div>
+                    <div className="rounded bg-background p-2">
+                      <div className="text-muted-foreground">المتبقي من الدفعة إجمالًا</div>
+                      <div className="font-semibold mt-0.5">{lot.remainingQuantity}</div>
+                    </div>
+                  </div>
+
+                  {lot.sourceType === "receipt" && (
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                      <div><span className="font-medium text-foreground">المورد:</span> {lot.supplierName || "—"}</div>
+                      <div><span className="font-medium text-foreground">الفاتورة:</span> {lot.invoiceNumber || "—"}</div>
+                      <div><span className="font-medium text-foreground">الاستلام:</span> {lot.receiptNumber || "—"}</div>
+                    </div>
+                  )}
+
+                  {(lot.batchNumber || lot.expiryDate) && (
+                    <div className="flex gap-4 flex-wrap text-xs text-muted-foreground">
+                      {lot.batchNumber && <div><span className="font-medium text-foreground">Batch:</span> {lot.batchNumber}</div>}
+                      {lot.expiryDate && <div><span className="font-medium text-foreground">الصلاحية:</span> {new Date(lot.expiryDate).toLocaleDateString("ar-SA")}</div>}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setLotDialogItem(null)}>إغلاق</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Edit Inventory Item Dialog */}
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
         <DialogContent>
@@ -405,9 +892,9 @@ export default function Inventory() {
             <div className="space-y-2"><Label>{t.inventory.itemName} *</Label><Input value={editForm.itemName} onChange={e => setEditForm(f => ({ ...f, itemName: e.target.value }))} /></div>
             <div className="space-y-2"><Label>{t.common.description}</Label><Input value={editForm.description} onChange={e => setEditForm(f => ({ ...f, description: e.target.value }))} /></div>
             <div className="grid grid-cols-3 gap-3">
-              <div className="space-y-2"><Label>{t.inventory.currentStock}</Label><Input type="number" value={editForm.quantity} onChange={e => setEditForm(f => ({ ...f, quantity: parseInt(e.target.value) || 0 }))} /></div>
+              <div className="space-y-2"><Label>{t.inventory.currentStock}</Label><Input type="number" min={0} step={0.001} value={editForm.quantity} onChange={e => setEditForm(f => ({ ...f, quantity: parseFloat(e.target.value) || 0 }))} /></div>
               <div className="space-y-2"><Label>{t.inventory.unit}</Label><Input value={editForm.unit} onChange={e => setEditForm(f => ({ ...f, unit: e.target.value }))} /></div>
-              <div className="space-y-2"><Label>{t.inventory.minStock}</Label><Input type="number" value={editForm.minQuantity} onChange={e => setEditForm(f => ({ ...f, minQuantity: parseInt(e.target.value) || 0 }))} /></div>
+              <div className="space-y-2"><Label>{t.inventory.minStock}</Label><Input type="number" min={0} step={0.001} value={editForm.minQuantity} onChange={e => setEditForm(f => ({ ...f, minQuantity: parseFloat(e.target.value) || 0 }))} /></div>
             </div>
             <div className="space-y-2"><Label>{t.inventory.location}</Label><Input value={editForm.location} onChange={e => setEditForm(f => ({ ...f, location: e.target.value }))} /></div>
           </div>
@@ -421,7 +908,7 @@ export default function Inventory() {
       </Dialog>
 
       {/* ── نافذة تسليم للفني ── */}
-      <Dialog open={!!deliverItem} onOpenChange={(open) => !open && setDeliverItem(null)}>
+      <Dialog open={!!deliverItem} onOpenChange={(open) => { if (!open) { setDeliverItem(null); setDeliverLotInfo(null); } }}>
         <DialogContent className="max-w-md" dir="rtl">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
@@ -437,6 +924,29 @@ export default function Inventory() {
                   الرصيد المتاح: <strong className="text-foreground">{deliverItem.quantity} {deliverItem.unit}</strong>
                 </p>
               </div>
+
+              {lotsEnabled && (
+                <div className="space-y-2 rounded-lg border border-blue-200 bg-blue-50/60 p-3">
+                  <Label className="text-xs flex items-center gap-1">
+                    <QrCode className="w-3.5 h-3.5" /> QR الدفعة *
+                  </Label>
+                  <BarcodeScanner
+                    onScan={(code) => {
+                      setDeliverLotInfo(null);
+                      resolveDeliveryLotMut.mutate({ inventoryId: deliverItem.id, trackingToken: code });
+                    }}
+                    placeholder="امسح QR الدفعة التي ستُصرف منها الكمية..."
+                  />
+                  {resolveDeliveryLotMut.isPending && (
+                    <p className="text-xs text-muted-foreground flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" /> جاري التحقق من الدفعة...</p>
+                  )}
+                  {deliverLotInfo && (
+                    <div className="text-xs text-emerald-800 bg-emerald-50 border border-emerald-200 rounded p-2">
+                      <strong>{deliverLotInfo.lotCode}</strong> — المتاح في هذا المستودع: {deliverLotInfo.availableQuantity} {deliverItem.unit || "وحدة"}
+                    </div>
+                  )}
+                </div>
+              )}
 
               <div className="space-y-1.5">
                 <Label className="text-xs">الكمية المُسلَّمة *</Label>
@@ -482,10 +992,10 @@ export default function Inventory() {
             </div>
           )}
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDeliverItem(null)}>إلغاء</Button>
+            <Button variant="outline" onClick={() => { setDeliverItem(null); setDeliverLotInfo(null); }}>إلغاء</Button>
             <Button
               className="gap-1.5"
-              disabled={deliverMut.isPending}
+              disabled={deliverMut.isPending || resolveDeliveryLotMut.isPending || (lotsEnabled && !deliverLotInfo)}
               onClick={() => {
                 const qty = parseFloat(deliverQty);
                 if (!deliverQty || isNaN(qty) || qty <= 0) {
@@ -496,11 +1006,20 @@ export default function Inventory() {
                   toast.error(`الكمية (${qty}) أكبر من الرصيد المتاح (${deliverItem.quantity})`);
                   return;
                 }
+                if (lotsEnabled && !deliverLotInfo) {
+                  toast.error("يجب مسح QR الدفعة قبل تأكيد الصرف");
+                  return;
+                }
+                if (lotsEnabled && qty > Number(deliverLotInfo?.availableQuantity || 0)) {
+                  toast.error(`الكمية (${qty}) أكبر من رصيد الدفعة الممسوحة (${deliverLotInfo?.availableQuantity || 0})`);
+                  return;
+                }
                 deliverMut.mutate({
                   inventoryId:   deliverItem.id,
                   deliveredToId: deliverToId ? parseInt(deliverToId) : undefined,
                   deliveryQty:   qty,
                   deliveryUnit:  deliverItem.unit || "قطعة",
+                  lotTrackingToken: lotsEnabled ? deliverLotInfo?.trackingToken : undefined,
                   notes:         deliverNotes || undefined,
                 });
               }}

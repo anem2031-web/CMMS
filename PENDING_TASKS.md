@@ -126,3 +126,100 @@
 كان يبني كائنًا محليًا بمفاتيح قديمة قبل تمريره لـ`getField`. تحقّقنا أن حالتين أخريين مشابهتين بالشكل
 (صفحتا استلام المخزون، وقائمة `PurchaseCycle.tsx`) غير متأثرتين فعليًا (الأولى تطابق عقد الـAPI الثابت،
 والثانية تُغذَّى من استعلام SQL خام لم يتأثر بإعادة التسمية). التفاصيل الكاملة في `docs/CHANGELOG_TECHNICAL.md`.
+
+---
+
+## 2026-08-18 — 2B-8 Inventory Lots — ✅ UAT مكتمل
+
+**الحالة:** ✅ COMPLETE / UAT PASSED في البيئة المحلية بتاريخ 2026-08-18.
+
+تم اجتياز UAT الفعلي لمسارات: Receipt Lots، QR search، الصرف من Purchase Cycle، الصرف من Inventory، التحويل، مرتجع المورد، الاستبعاد، والجرد الدوري/التسوية، ثم فحوص سلامة نهائية بدون أي `MISMATCH`.
+
+### 🚂 مهمة نشر معلَّقة — تفعيل Railway عند النشر
+
+**الحالة:** ⏳ معلَّقة حتى النشر السحابي الفعلي.
+
+- `.env` المحلي لا ينتقل إلى Railway عبر GitHub.
+- عند نشر النسخة التي تحتوي 2B-8 على Railway، أضف في **Railway → Service → Variables**:
+  `INVENTORY_LOTS_ENABLED=true`
+- أعد نشر/تشغيل الخدمة وتحقق من قراءة المتغير في بيئة Railway.
+- لا تستخدم `VITE_INVENTORY_LOTS_ENABLED`; المتغير Server-side.
+- لا ترفع `.env` أو أي أسرار إلى GitHub.
+
+### تطوير مؤجل خارج إغلاق 2B-8
+
+- طرق صرف بدون QR (اختيار Lot يدوي / FIFO / FEFO) مؤجلة لقرار Workflow مستقل، ولا تعتبر نقصًا في UAT الحالي.
+---
+
+## 2026-08-18 — 2B-9 Catalog Taxonomy ↔ Warehouse Taxonomy — ✅ UAT مكتمل
+
+**الحالة:** ✅ **COMPLETE / UAT PASSED** في البيئة المحلية بتاريخ 2026-08-19.
+
+**القرارات المثبتة نهائيًا:**
+- `catalog_nodes` هي Taxonomy الوحيدة؛ لا تصنيفات خاصة بالمخزن، ولا `inventory.categoryId`، ولا `warehouse_categories`.
+- المخزن الرئيسي عام بلا تصنيف رئيسي إلزامي.
+- `warehouses.catalogNodeId` في المخزن الفرعي يعبّر عن التخصص/التصنيف الطبيعي فقط، وليس قيدًا على المحتوى؛ يمكن للمخزن أن يحتوي ويجرد أصنافًا من أي Catalog category أخرى.
+- الصنف يحتفظ بتصنيفه من `Inventory.linkedItemId → Catalog Item.nodeId → catalog_nodes`; لا يعاد تصنيفه حسب المخزن.
+- الجرد الكامل يشمل كل Lots الموجودة فعليًا في المخزن.
+- الجرد المصنف يعمل على `Selected Warehouse + Selected Catalog Node + descendants` ويحفظ `inventory_count_operations.catalogNodeId`.
+- الجرد الجزئي اليدوي بالـQR يبقى مسارًا مستقلًا ويبدأ فارغًا.
+- QR/Lot خارج Catalog scope المحفوظ يُرفض Server-side بالرمز `COUNT_LOT_OUTSIDE_CATEGORY_SCOPE`.
+- الإدخال اليدوي في الجرد هو **Per-Lot** وليس Aggregate Inventory، والخادم يعيد التحقق من Warehouse/Lot/Catalog/scope قبل الحفظ.
+- لا إعادة لـMatching من 2B-1..2B-7، ولا إعادة بناء Lot/QR من 2B-8، ولا FIFO/FEFO، ولا تحويل `categoryMismatch` من Warning إلى Block.
+- Broad FKs/Governance تبقى للمرحلة **2B-10** ولم تبدأ تلقائيًا.
+
+**Schema الذي طُبق يدويًا خلال 2B-9:**
+- `inventory_count_operations.catalogNodeId INT NULL` — تم تطبيقه يدويًا بنجاح، ولا يعاد تشغيله على DB الحالية بلا فحص.
+
+### UAT النهائي المنفذ — 2026-08-19
+
+- Inventory Catalog taxonomy/filter + شجرة Catalog: ✅ Passed بالعربية.
+- اختيار أي مستوى من شجرة الجرد + `node + descendants`: ✅ Passed.
+- رفض QR خارج التصنيف من الـBackend برسالة عربية صحيحة: ✅ Passed.
+- جرد تصنيف مختلف عن التخصص الرئيسي للمخزن الفرعي: ✅ Passed.
+- شريط التمرير المخصص لشجرة الجرد: ✅ Passed.
+- الإدخال اليدوي الآمن لكل Lot: ✅ Passed.
+- **اختبار فرق فعلي وتسوية على بيانات جديدة نظيفة:** ✅ Passed.
+  - `CNT-2026-60023` — المخزن الرئيسي + `JOTUN`.
+  - Lot #9 `LOT-2026-DD6F05FB`.
+  - System = `2.000`, Counted = `3.000`, Diff = `+1.000`.
+  - Settlement `ADJ-2026-30005`.
+  - بعد التسوية: Main Inventory = `3`, Main Lot Balance = `3`, Paint Lot Balance = `2`, Lot Remaining = `5`.
+  - Adjustment transaction `450372`: `in`, qty `1`, `lotId = 9`.
+- **Regression الجرد الكامل:** ✅ Passed على `CNT-2026-60024`؛ ظهر 8 Lots في المخزن الرئيسي بدون تصفية Catalog.
+- **Regression الجرد الجزئي اليدوي بالـQR:** ✅ Passed على `CNT-2026-60025`؛ أضيف Lot #9 بالـQR وعدّ `3` مقابل System `3` والفرق `0`.
+- **بحث شجرة Catalog:** ✅ Passed بالبحث عن `JOTUN` ثم اختيار المسار `مواد الدهانات → دهانات أساسية → JOTUN`.
+- فحص سلامة نهائي: كل Lots #1..#9 حققت `remainingQuantity = SUM(lot balances)`. بيانات JOTUN الجديدة حققت أيضًا تطابق Aggregate Inventory مع Lot Balances.
+
+### ملاحظة بيانات قديمة/سحابية — لا إصلاح تلقائي
+
+فحص السلامة العام أظهر 7 صفوف Inventory قديمة/اختبارية فيها Aggregate mismatch مع Lot Balances. هذه ليست ناتجة عن مسار 2B-9 المحلي الجديد. تم إثبات حالتين (`inventoryId=210193` و`210194`) كصرف `delivery` من النسخة السحابية القديمة بدون `lotId` بواسطة المستخدم `9090247`; لذلك لا تُستخدم هذه الصفوف للحكم على UAT الحالي ولا يتم عمل UPDATE/backfill لها ضمن 2B-9.
+
+### ملاحظة Localization غير حاجبة للإغلاق
+
+رسالة `COUNT_LOT_OUTSIDE_CATEGORY_SCOPE` موجودة في العربية/English/Urdu، والمسار العربي تم اختباره Runtime فعليًا. لم يُسجل تبديل Runtime مستقل إلى الإنجليزية والأردية في جلسة الإغلاق النهائية؛ اعتُبر هذا Spot-check ترجمة غير حاجب لإغلاق 2B-9 بعد اعتماد الإغلاق النهائي، ويمكن إعادة اختباره لاحقًا ضمن QA localization إذا لزم.
+
+### التالي
+
+- **2B-10 — Governance / Integrity / Security:** بدأ بعد الموافقة الصريحة.
+- **2B-10-1 — Catalog governance:** تنفيذ سياسة صلاحيات الكتالوج تم في الكود، وUAT التشغيلي **PENDING**.
+- لا يوجد Schema/SQL في هذا الجزء، ولا تنظيف/تعديل بيانات.
+
+
+
+## 2026-08-19 — 2B-10-1 Catalog permissions — ⏳ UAT pending
+
+**السياسة المعتمدة والمنفذة:**
+- `/catalog` فقط للمالك/الأدمن/مدير الإنشاءات والمشتريات.
+- مدير الإنشاءات: الأصناف/التصنيفات = عرض + إضافة + تعديل فقط؛ الوحدات = إضافة + تعديل فقط؛ الموردون + الأصناف الجديدة = كامل الصلاحية؛ بدون Settings/Import/Export/Delete للأصناف/التصنيفات/الوحدات.
+- المالك/الأدمن = كامل الصلاحية.
+- بقية الأدوار لا تصل لوحدة Catalog، مع إبقاء القراءة المرجعية الداخلية اللازمة لدورة الشراء/الاستلام/المخزون حتى لا يتغير الـWorkflow.
+- Backend enforcement مطبق، وواجهات الحذف/Import/Export/Settings مخفية حسب الدور.
+- **لا DB change ولا Migration.**
+
+**UAT المطلوب قبل الإغلاق:**
+1. تسجيل الدخول كمدير الإنشاءات: يرى Catalog، يستطيع إضافة/تعديل تصنيف وصنف ووحدة، ولا يرى حذفها ولا Import/Export/Settings.
+2. تبويب الموردين: CRUD/التفعيل حسب السلوك الحالي يعمل.
+3. تبويب الأصناف الجديدة: كل قرارات Candidate الحالية تعمل.
+4. تسجيل الدخول بدور آخر مثل warehouse/purchase_manager: لا يظهر Catalog في القائمة، والدخول المباشر `/catalog` يُعاد توجيهه، بينما PO/Receipt/Inventory التي تقرأ Catalog مرجعيًا تبقى تعمل.
+5. المالك/الأدمن: كل صلاحيات Catalog بما فيها الحذف وImport/Export/Settings تبقى تعمل.

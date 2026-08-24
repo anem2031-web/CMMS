@@ -30,6 +30,7 @@ import { stockRouter } from "./inventory/stock.router";
 import { warehouseRouter } from "./inventory/warehouse.router";
 import { transfersRouter } from "./inventory/transfers.router";
 import { disposalRouter } from "./inventory/disposal.router";
+import { reconciliationRouter } from "./inventory/reconciliation.router";
 
 import { assetsRouter } from "./assets/assets.router";
 import { assetMaintenanceRouter } from "./assets/asset-maintenance.router";
@@ -101,6 +102,7 @@ purchaseOrders: router({
   warehouse: warehouseRouter,
   transfers: transfersRouter,
   disposal: disposalRouter,
+  inventoryReconciliation: reconciliationRouter,
 
   assets: assetsRouter,
   assetMaintenance: assetMaintenanceRouter,

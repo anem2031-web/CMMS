@@ -43,6 +43,7 @@ import {
   inventoryCountNumberCounter,
   inventorySettlementNumberCounter,
   externalMaintenanceJobs,
+  catalogItems,
 } from "../../../drizzle/schema";
 import { ENV } from '../env';
 
@@ -407,6 +408,40 @@ export async function updatePurchaseOrder(id: number, data: any, tx?: any) {
   const db = tx || await getDb();
   if (!db) return;
   await db.update(purchaseOrders).set(data).where(eq(purchaseOrders.id, id));
+}
+
+// 2B-1: إرجاع هويات أصناف الكتالوج الموجودة للتحقق من الروابط قبل حفظ
+// بنود طلب الشراء. لا نفرض حالة isActive هنا حتى لا يصبح تعطيل صنف لاحقًا
+// سببًا لكسر تعديل مسودة تاريخية مرتبطة به؛ اختيار أصناف جديدة من الواجهة
+// ما زال محصورًا بالأصناف النشطة أصلًا.
+export async function getExistingCatalogItemIds(ids: number[]): Promise<number[]> {
+  const db = await getDb();
+  if (!db || ids.length === 0) return [];
+  const uniqueIds = [...new Set(ids.filter(id => Number.isInteger(id) && id > 0))];
+  if (uniqueIds.length === 0) return [];
+  const rows = await db
+    .select({ id: catalogItems.id })
+    .from(catalogItems)
+    .where(inArray(catalogItems.id, uniqueIds));
+  return rows.map(row => Number(row.id));
+}
+
+// 2B-10-2B: الهوية الجديدة في Purchase workflow يجب أن تشير إلى Master Item نشط.
+// تبقى الدالة السابقة أعلاه لفحص "الوجود" فقط حتى نستطيع السماح للرابط التاريخي
+// نفسه داخل مسودة قديمة إذا تعطّل الصنف لاحقاً، بدون السماح بإنشاء رابط جديد إليه.
+export async function getActiveCatalogItemIds(ids: number[]): Promise<number[]> {
+  const db = await getDb();
+  if (!db || ids.length === 0) return [];
+  const uniqueIds = [...new Set(ids.filter(id => Number.isInteger(id) && id > 0))];
+  if (uniqueIds.length === 0) return [];
+  const rows = await db
+    .select({ id: catalogItems.id })
+    .from(catalogItems)
+    .where(and(
+      inArray(catalogItems.id, uniqueIds),
+      eq(catalogItems.isActive, 1),
+    ));
+  return rows.map(row => Number(row.id));
 }
 
 // ============================================================

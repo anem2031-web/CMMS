@@ -145,18 +145,22 @@ export const catalogReadProcedure = roleMiddleware([
   APP_ROLE.ADMIN,
 ]);
 
-/** Catalog management is excluded from the general-maintenance derived role. */
+/**
+ * Standalone Catalog management policy (2B-10):
+ * - owner/admin: always allowed by roleMiddleware
+ * - construction/procurement manager: day-to-day Catalog management
+ * - all other roles: no Catalog management mutations
+ *
+ * Broad catalogReadProcedure remains intentionally unchanged because purchase,
+ * receipt, warehouse and inventory workflows consume Catalog as shared reference
+ * data. That operational read access is not access to the standalone Catalog UI.
+ */
 export const catalogProcedure = roleMiddleware([
-  APP_ROLE.MAINTENANCE_MANAGER,
   APP_ROLE.CONSTRUCTION_PROCUREMENT_MANAGER,
-  APP_ROLE.PURCHASE_MANAGER,
-  APP_ROLE.PURCHASE_REQUESTER,
-  APP_ROLE.WAREHOUSE,
-  APP_ROLE.FOOD_WAREHOUSE_MANAGER,
-  APP_ROLE.FOOD_WAREHOUSE_ASSISTANT,
-  APP_ROLE.OWNER,
-  APP_ROLE.ADMIN,
 ]);
+
+/** Owner/admin-only Catalog actions: delete/deactivate, settings, import/export. */
+export const catalogAdminProcedure = roleMiddleware([]);
 
 /** Construction keeps existing project-member behavior, but denies the general role. */
 export const constructionProcedure = denyRolesMiddleware([

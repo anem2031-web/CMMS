@@ -1,0 +1,15 @@
+server/services/reports/inventoryMovementReport.ts
+client/src/pages/inventory/InventoryMovementReport.tsx
+server/tests/inventoryMovementReportPhase6Step2_2.test.ts
+server/routers/reports/inventory-reports.router.ts
+server/_core/index.ts
+client/src/App.tsx
+client/src/pages/inventory/InventoryReportsCenter.tsx
+client/src/i18n/ar.ts
+client/src/i18n/en.ts
+client/src/i18n/ur.ts
+docs/CMMS_MAIN_PHASE6_STEP6_2_2_STOCK_CARD_UNIFIED_MOVEMENT_IMPLEMENTATION_2026-08-23.md
+docs/PENDING_TASKS.md
+docs/CHANGELOG_TECHNICAL.md
+docs/INDEX.md
+docs/inventory/INVENTORY_DEVELOPMENT_PLAN_AND_CHANGE_CONTROL.md

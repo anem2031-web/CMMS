@@ -6,6 +6,7 @@ import { notifyOwner } from "../../_core/notification";
 import { detectLanguage } from "../../services/translation/translation";
 import { queueTranslation } from "../../services/translation/translationEngine";
 import { notifyItemRejection } from "../_shared/router-helpers";
+import { findKnownInactiveCatalogUnitNames } from "../../_core/catalog-unit-governance";
 import { assertCanViewPurchaseOrder, filterVisiblePurchaseOrders, assertCanPerformPOAction, assertCanPerformItemPOAction, assertPOItemAssignedToDelegate, isItemAssignedToPODelegate, assertCanPerformItemStatusPOAction, assertCanResolveReturnedPOItem, assertCanRequestDelegateChange, assertCanResolveDelegateChange } from "../../_core/authz/guard";
 import { OWN_REQUESTS_ONLY_ROLES } from "../../_core/authz/policy";
 import { computeActionablePOs } from "./actionable";
@@ -57,6 +58,75 @@ async function assertTicketAllowsNewPurchaseOrder(
   options: { currentPurchaseOrderId?: number; submittingExistingDraft?: boolean; ticketItemId?: number } = {},
 ): Promise<any | null> {
   return assertCanCreateTicketLinkedPurchaseOrder(user, ticketId, options);
+}
+
+async function assertValidCatalogItemLinks(
+  items: Array<{ id?: number; catalogItemId?: number | null }>,
+  existingItems: Array<{ id: number; catalogItemId?: number | null }> = [],
+): Promise<void> {
+  const requestedIds = [...new Set(
+    items
+      .map(item => item.catalogItemId)
+      .filter((id): id is number => typeof id === "number")
+  )];
+  if (requestedIds.length === 0) return;
+
+  // أولاً: لا نسمح أبداً بهوية تشير إلى Master Item مفقود.
+  const existingCatalogIds = new Set(await db.getExistingCatalogItemIds(requestedIds));
+  const missingIds = requestedIds.filter(id => !existingCatalogIds.has(id));
+  if (missingIds.length > 0) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: `أحد أصناف الكتالوج المحددة غير موجود: ${missingIds.join(", ")}`,
+    });
+  }
+
+  // 2B-10-2B: الرابط الجديد فقط يجب أن يكون إلى Catalog Item نشط.
+  // إذا كانت مسودة قديمة تحمل نفس catalogItemId ثم تم تعطيل الصنف لاحقاً،
+  // نسمح بحفظ بقية تعديلات المسودة دون إجبار المستخدم على كسر الهوية التاريخية.
+  const previousCatalogByPoItemId = new Map(
+    existingItems.map(item => [Number(item.id), item.catalogItemId == null ? null : Number(item.catalogItemId)]),
+  );
+  const newRelationshipIds = [...new Set(items.flatMap(item => {
+    const submittedCatalogItemId = item.catalogItemId == null ? null : Number(item.catalogItemId);
+    if (!submittedCatalogItemId) return [];
+    const previousCatalogItemId = item.id ? previousCatalogByPoItemId.get(Number(item.id)) : null;
+    return previousCatalogItemId === submittedCatalogItemId ? [] : [submittedCatalogItemId];
+  }))];
+
+  if (newRelationshipIds.length === 0) return;
+  const activeCatalogIds = new Set(await db.getActiveCatalogItemIds(newRelationshipIds));
+  const inactiveIds = newRelationshipIds.filter(id => !activeCatalogIds.has(id));
+  if (inactiveIds.length > 0) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: `لا يمكن إنشاء رابط جديد إلى صنف كتالوج غير نشط: ${inactiveIds.join(", ")}`,
+    });
+  }
+}
+
+async function assertNoInactiveCatalogUnitUsage(
+  items: Array<{ id?: number; unit?: string | null }>,
+  existingItems: Array<{ id: number; unit?: string | null }> = [],
+): Promise<void> {
+  const previousUnitByPoItemId = new Map(
+    existingItems.map(item => [Number(item.id), (item.unit || "").trim()]),
+  );
+
+  const newlyUsedUnits = items.flatMap(item => {
+    const submittedUnit = (item.unit || "").trim();
+    if (!submittedUnit) return [];
+    const previousUnit = item.id ? previousUnitByPoItemId.get(Number(item.id)) || "" : "";
+    return previousUnit === submittedUnit ? [] : [submittedUnit];
+  });
+
+  const inactiveUnits = await findKnownInactiveCatalogUnitNames(newlyUsedUnits);
+  if (inactiveUnits.length > 0) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: `لا يمكن استخدام وحدة قياس معطّلة في طلب جديد: ${inactiveUnits.join(", ")}`,
+    });
+  }
 }
 
 async function getPurchaseOrderTicketContext(purchaseOrderId: number) {
@@ -340,6 +410,7 @@ export const purchaseOrdersRouter = router({
     deliveredToId: z.number(),
     deliveryQty:   z.number().positive("الكمية يجب أن تكون أكبر من صفر"),
     deliveryUnit:  z.string().min(1, "الوحدة مطلوبة"),
+    lotTrackingToken: z.string().trim().min(1).optional(),
     notes:         z.string().optional(),
   })).mutation(async ({ input, ctx }) => {
     const item = await db.getPOItemById(input.itemId);
@@ -392,6 +463,7 @@ export const purchaseOrdersRouter = router({
       notes: input.notes || "تسليم للفني — طلب شراء",
       warehousePhotoUrl: (item as any).warehousePhotoUrl || undefined,
       markPurchaseOrderItemDelivered: true,
+      lotTrackingToken: input.lotTrackingToken,
     });
 
     let ticketStatus: string | null = null;
@@ -421,6 +493,8 @@ export const purchaseOrdersRouter = router({
         assignedTechnicianId: ticket?.assignedToId ?? null,
         deliveryQty: input.deliveryQty,
         ticketId: ticket?.id ?? null,
+        lotId: deliveryResult.lotId ?? null,
+        inventoryTransactionId: deliveryResult.inventoryTransactionId ?? null,
       },
     });
 
@@ -693,6 +767,7 @@ export const purchaseOrdersRouter = router({
     ticketItemId: z.number().optional(), // الخطوة 4 (2026-08-08) — بند محدد ضمن بلاغ متعدد الجهات
     notes: z.string().optional(),
     items: z.array(z.object({
+      catalogItemId: z.number().int().positive().nullable().optional(),
       itemName: z.string().min(1),
       description: z.string().optional(),
       quantity: z.number().min(1),
@@ -704,6 +779,8 @@ export const purchaseOrdersRouter = router({
   })).mutation(async ({ input, ctx }) => {
     if (input.items.length === 0) throw new TRPCError({ code: "BAD_REQUEST", message: "يجب إضافة صنف واحد على الأقل" });
     if (input.items.length > 20) throw new TRPCError({ code: "BAD_REQUEST", message: `الحد الأقصى 20 صنف لكل طلب شراء` });
+    await assertValidCatalogItemLinks(input.items);
+    await assertNoInactiveCatalogUnitUsage(input.items);
     await assertTicketAllowsNewPurchaseOrder(ctx.user, input.ticketId, { ticketItemId: input.ticketItemId });
 
     // ⚠️ 2026-08-13: كان يستدعي getNextPONumber() هنا — أي أن مسودة واحدة تُنشأ
@@ -797,6 +874,7 @@ export const purchaseOrdersRouter = router({
     notes: z.string().optional(),
     items: z.array(z.object({
       id: z.number().optional(), // موجود = تحديث، غير موجود = إضافة جديد
+      catalogItemId: z.number().int().positive().nullable().optional(),
       itemName: z.string().min(1),
       description: z.string().optional(),
       quantity: z.number().min(1),
@@ -813,12 +891,15 @@ export const purchaseOrdersRouter = router({
     await assertTicketAllowsNewPurchaseOrder(ctx.user, po.ticketId ?? undefined, { currentPurchaseOrderId: po.id, submittingExistingDraft: true, ticketItemId: po.ticketItemId ?? undefined });
     if (input.items.length > 20) throw new TRPCError({ code: "BAD_REQUEST", message: "الحد الأقصى 20 صنف" });
 
-    // تحديث ملاحظات الطلب
-    await db.updatePurchaseOrder(input.id, { notes: input.notes || null });
-
-    // جلب الأصناف الحالية
+    // جلب الأصناف الحالية قبل أي كتابة حتى نميّز بين رابط Catalog تاريخي محفوظ
+    // وبين رابط جديد يجب أن يشير إلى Master Item نشط (2B-10-2B).
     const existingItems = await db.getPOItems(input.id);
+    await assertValidCatalogItemLinks(input.items, existingItems);
+    await assertNoInactiveCatalogUnitUsage(input.items, existingItems);
     const existingIds = new Set(existingItems.map((i: any) => i.id));
+
+    // تحديث ملاحظات الطلب بعد نجاح فحص العلاقات بالكامل.
+    await db.updatePurchaseOrder(input.id, { notes: input.notes || null });
 
     // الأصناف التي أُرسلت من الواجهة
     const submittedIds = new Set(input.items.filter(i => i.id).map(i => i.id!));
@@ -841,6 +922,7 @@ export const purchaseOrdersRouter = router({
         }
         // تحديث صنف موجود
         await db.updatePOItem(item.id, {
+          ...(item.catalogItemId !== undefined ? { catalogItemId: item.catalogItemId } : {}),
           itemName: item.itemName,
           description: item.description || null,
           quantity: item.quantity,
@@ -853,6 +935,7 @@ export const purchaseOrdersRouter = router({
         // إضافة صنف جديد
         await db.createPOItems([{
           purchaseOrderId: input.id,
+          catalogItemId: item.catalogItemId ?? null,
           itemName: item.itemName,
           description: item.description || null,
           quantity: item.quantity,
@@ -880,6 +963,7 @@ export const purchaseOrdersRouter = router({
     ticketItemId: z.number().optional(), // الخطوة 4 (2026-08-08) — بند محدد ضمن بلاغ متعدد الجهات
     notes: z.string().optional(),
     items: z.array(z.object({
+      catalogItemId: z.number().int().positive().nullable().optional(),
       itemName: z.string().min(1),
       description: z.string().optional(),
       quantity: z.number().min(1),
@@ -897,6 +981,8 @@ export const purchaseOrdersRouter = router({
     if (input.items.length > 20) {
       throw new TRPCError({ code: "BAD_REQUEST", message: `الحد الأقصى 20 صنف لكل طلب شراء. لديك ${input.items.length} صنف` });
     }
+    await assertValidCatalogItemLinks(input.items);
+    await assertNoInactiveCatalogUnitUsage(input.items);
     await assertTicketAllowsNewPurchaseOrder(ctx.user, input.ticketId, { ticketItemId: input.ticketItemId });
     const poNumber = await db.getNextPONumber();
     // ✅ إصلاح حرج #5: إنشاء رأس الطلب وبنوده معاً ضمن معاملة ذرية واحدة —
@@ -1825,6 +1911,7 @@ list: protectedProcedure.input(z.object({
     deliveredToId: z.number(),
     deliveryQty:   z.number().positive(),
     deliveryUnit:  z.string().min(1, "الوحدة مطلوبة"),
+    lotTrackingToken: z.string().trim().min(1).optional(),
     notes:         z.string().optional(),
   })).mutation(async ({ input, ctx }) => {
     const invItem = await db.getInventoryItemById(input.inventoryId);
@@ -1870,6 +1957,7 @@ list: protectedProcedure.input(z.object({
       assignedTechnicianName: linkToTicket ? context?.assignedTechnicianName ?? undefined : undefined,
       notes: input.notes || (linkToTicket ? "تسليم مادة مرتبطة ببلاغ" : "تسليم من المخزون العام"),
       markPurchaseOrderItemDelivered: linkToTicket,
+      lotTrackingToken: input.lotTrackingToken,
     });
 
     let ticketStatus: string | null = null;
@@ -1899,6 +1987,8 @@ list: protectedProcedure.input(z.object({
         ticketId: linkToTicket ? context?.ticketId ?? null : null,
         deliveryQty: input.deliveryQty,
         remainingQuantity: Math.max(0, Number(invItem.quantity) - input.deliveryQty),
+        lotId: deliveryResult.lotId ?? null,
+        inventoryTransactionId: deliveryResult.inventoryTransactionId ?? null,
       },
     });
 

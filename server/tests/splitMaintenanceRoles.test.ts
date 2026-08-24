@@ -4,7 +4,7 @@ const dbMocks = vi.hoisted(() => ({
   hasPurchaseOrderForTicket: vi.fn(),
 }));
 vi.mock("../_core/db", () => dbMocks);
-import { canRoleAccessPath } from "../../shared/roles";
+import { canRoleAccessCatalogModule, canRoleAccessPath, isCatalogAdminRole } from "../../shared/roles";
 import {
   canPerformAction,
   canPerformItemAction,
@@ -65,6 +65,33 @@ describe("split maintenance roles — purchase permissions copied from maintenan
       })).toBe(false);
     });
   }
+});
+
+describe("2B-10 — standalone Catalog module roles", () => {
+  it("allows only owner/admin/construction manager into the Catalog module", () => {
+    expect(canRoleAccessCatalogModule("owner")).toBe(true);
+    expect(canRoleAccessCatalogModule("admin")).toBe(true);
+    expect(canRoleAccessCatalogModule("construction_procurement_manager")).toBe(true);
+
+    for (const role of [
+      "maintenance_manager",
+      "general_maintenance_manager",
+      "purchase_manager",
+      "purchase_requester",
+      "warehouse",
+      "food_warehouse_manager",
+      "food_warehouse_assistant",
+    ]) {
+      expect(canRoleAccessCatalogModule(role)).toBe(false);
+      expect(canRoleAccessPath(role, "/catalog")).toBe(false);
+    }
+  });
+
+  it("keeps delete/import/export/settings as owner/admin-only capabilities", () => {
+    expect(isCatalogAdminRole("owner")).toBe(true);
+    expect(isCatalogAdminRole("admin")).toBe(true);
+    expect(isCatalogAdminRole("construction_procurement_manager")).toBe(false);
+  });
 });
 
 describe("split maintenance roles — module exclusions", () => {

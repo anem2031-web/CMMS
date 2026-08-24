@@ -1,0 +1,17 @@
+Main Phase 6.3.1 — Inventory Valuation Report
+
+Files changed/new:
+- server/services/reports/inventoryValuationReport.ts
+- server/routers/reports/inventory-reports.router.ts
+- server/_core/index.ts
+- client/src/pages/inventory/InventoryValuationReport.tsx
+- client/src/pages/inventory/InventoryReportsCenter.tsx
+- client/src/App.tsx
+- client/src/i18n/ar.ts
+- client/src/i18n/en.ts
+- client/src/i18n/ur.ts
+- server/tests/inventoryValuationReportPhase6Step3_1.test.ts
+- docs/CMMS_MAIN_PHASE6_STEP6_3_1_INVENTORY_VALUATION_REPORT_IMPLEMENTATION_2026-08-23.md
+
+No .env, SQL migration, schema change, or Live DB change is included.
+6.3.2 is NOT STARTED.

@@ -6,7 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { ArrowRight, Search, Package, RotateCcw, Loader2, CheckCircle2, Info } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { ArrowRight, Search, Package, RotateCcw, Loader2, CheckCircle2, Info, QrCode } from "lucide-react";
 import { toast } from "sonner";
 import BarcodeScanner from "@/components/common/BarcodeScanner";
 import { useTranslation } from "@/contexts/LanguageContext";
@@ -29,6 +30,14 @@ export default function WarehouseReturn() {
   // المورد المُختار (المرحلة الأولى من الاختيار عند تعدد الموردين)
   const [selectedVendorKey, setSelectedVendorKey] = useState<string | null>(null);
   const [step, setStep] = useState<"search" | "confirm">("search");
+  const [returnLotInfo, setReturnLotInfo] = useState<any>(null);
+  const [returnWarehouseId, setReturnWarehouseId] = useState("");
+  const [returnMode, setReturnMode] = useState<"supplier" | "recipient">("supplier");
+  const [recipientDeliveryNumber, setRecipientDeliveryNumber] = useState("");
+  const [recipientSourceInfo, setRecipientSourceInfo] = useState<any>(null);
+  const { data: warehousesList } = trpc.warehouse.list.useQuery();
+  const { data: lotTrackingStatus } = trpc.inventoryCount.lotTrackingStatus.useQuery();
+  const lotsEnabled = !!lotTrackingStatus?.enabled;
 
   // Search inventory
   const searchQuery_debounced = searchQuery.trim();
@@ -48,7 +57,7 @@ export default function WarehouseReturn() {
   // مصادر الإرجاع المحتملة (سندات الاستلام السابقة) لهذا الصنف — تُجلب
   // تلقائياً بعد اختيار الصنف، بدون أي إدخال يدوي من المستخدم
   const { data: returnSources, isLoading: loadingSources } = trpc.warehouseReturns.getReturnSources.useQuery(
-    { inventoryId: selectedItem?.id }, { enabled: !!selectedItem?.id }
+    { inventoryId: selectedItem?.id }, { enabled: !!selectedItem?.id && !lotsEnabled && returnMode === "supplier" }
   );
 
   // ── تجميع مصادر الإرجاع بمرحلتين: مورد ← فاتورة ──────────────────────
@@ -72,17 +81,64 @@ export default function WarehouseReturn() {
 
   // مصدر واحد فقط بالمجمل → يُختار تلقائياً بلا أي تدخل من المستخدم
   useEffect(() => {
-    if (returnSources && returnSources.length === 1 && !selectedSource) {
+    if (returnMode === "supplier" && !lotsEnabled && returnSources && returnSources.length === 1 && !selectedSource) {
       setSelectedSource(returnSources[0]);
     }
   }, [returnSources]);
 
   // مورد واحد فقط بالفواتير المتبقية بعد اختيار المورد → يُختار تلقائياً
   useEffect(() => {
-    if (hasMultipleVendors && selectedVendorKey && invoicesForSelectedVendor.length === 1 && !selectedSource) {
+    if (returnMode === "supplier" && !lotsEnabled && hasMultipleVendors && selectedVendorKey && invoicesForSelectedVendor.length === 1 && !selectedSource) {
       setSelectedSource(invoicesForSelectedVendor[0]);
     }
   }, [selectedVendorKey, returnSources]);
+
+  const resolveReturnLotMut = trpc.warehouseReturns.resolveReturnLot.useMutation({
+    onSuccess: (data: any) => {
+      setReturnLotInfo(data);
+      setSelectedItem(data.item);
+      setReturnedQuantity(1);
+      setSelectedSource(null);
+      setSelectedVendorKey(null);
+      setStep("confirm");
+      toast.success(`تم التعرف على الدفعة ${data.lotCode}`);
+    },
+    onError: (err: any) => {
+      setReturnLotInfo(null);
+      setSelectedItem(null);
+      toast.error(err.message);
+    },
+  });
+
+  const resolveRecipientReturnSourceMut = trpc.warehouseReturns.resolveRecipientReturnSource.useMutation({
+    onSuccess: (data: any) => {
+      setRecipientSourceInfo(data);
+      setSelectedItem({
+        id: data.inventoryId,
+        itemName: data.itemName,
+        internalCode: data.internalCode,
+        quantity: data.currentInventoryQuantity,
+        unit: data.unit,
+      });
+      setReturnedQuantity(1);
+      setReason("");
+      setStep("confirm");
+      toast.success(`تم التحقق من سند الصرف ${data.deliveryNumber}`);
+    },
+    onError: (err: any) => {
+      setRecipientSourceInfo(null);
+      setSelectedItem(null);
+      toast.error(err.message);
+    },
+  });
+
+  const recipientReturnMut = trpc.warehouseReturns.createRecipientReturn.useMutation({
+    onSuccess: (data: any) => {
+      toast.success(`${t.common.savedSuccessfully} — ${data.returnNumber}`);
+      navigate("/warehouse/returns");
+    },
+    onError: (err: any) => toast.error(err.message),
+  });
 
   // Create return
   const returnMut = trpc.warehouseReturns.create.useMutation({
@@ -95,6 +151,7 @@ export default function WarehouseReturn() {
 
   const selectItem = (item: any) => {
     setSelectedItem(item);
+    setReturnLotInfo(null);
     setReturnedQuantity(1);
     setSelectedSource(null);
     setSelectedVendorKey(null);
@@ -108,6 +165,47 @@ export default function WarehouseReturn() {
       toast.error(t.inventory.returnReasonRequired);
       return;
     }
+
+    if (returnMode === "recipient") {
+      if (!recipientSourceInfo?.sourceDeliveryDocumentId) {
+        toast.error("يجب التحقق من سند الصرف الأصلي أولًا");
+        return;
+      }
+      if (returnedQuantity > Number(recipientSourceInfo.returnableQuantity || 0)) {
+        toast.error(`الكمية (${returnedQuantity}) أكبر من المتبقي القابل للإرجاع (${recipientSourceInfo.returnableQuantity || 0})`);
+        return;
+      }
+      recipientReturnMut.mutate({
+        sourceDeliveryDocumentId: Number(recipientSourceInfo.sourceDeliveryDocumentId),
+        returnedQuantity,
+        reason,
+      });
+      return;
+    }
+
+    if (lotsEnabled) {
+      if (!returnWarehouseId) {
+        toast.error("يجب اختيار المستودع قبل تأكيد مرتجع المورد");
+        return;
+      }
+      if (!returnLotInfo?.trackingToken) {
+        toast.error("يجب مسح QR الدفعة قبل تأكيد مرتجع المورد");
+        return;
+      }
+      if (returnedQuantity > Number(returnLotInfo.availableQuantity || 0)) {
+        toast.error(`الكمية (${returnedQuantity}) أكبر من رصيد الدفعة المتاح (${returnLotInfo.availableQuantity || 0})`);
+        return;
+      }
+      returnMut.mutate({
+        lotTrackingToken: returnLotInfo.trackingToken,
+        warehouseId: Number(returnWarehouseId),
+        returnedQuantity,
+        reason,
+        recipientName: recipientName.trim() || undefined,
+      });
+      return;
+    }
+
     returnMut.mutate({
       receiptId:            selectedSource?.receiptId,
       purchaseOrderId:      selectedSource?.purchaseOrderId ?? undefined,
@@ -127,70 +225,203 @@ export default function WarehouseReturn() {
           <ArrowRight className="w-5 h-5" />
         </Button>
         <div className="flex-1">
-          <h1 className="text-xl font-bold">مرتجع للمندوب</h1>
-          <p className="text-sm text-muted-foreground">إرجاع صنف من المخزون</p>
+          <h1 className="text-xl font-bold">مرتجعات المخزون</h1>
+          <p className="text-sm text-muted-foreground">{returnMode === "recipient" ? "إرجاع من الجهة المستلمة إلى نفس الـLot الأصلي" : (lotsEnabled ? "إرجاع للمورد من الدفعة الأصلية عبر QR" : "إرجاع صنف من المخزون إلى المورد")}</p>
         </div>
         <Button variant="outline" size="sm" onClick={() => navigate("/warehouse/returns")}>
           سجل المرتجعات
         </Button>
       </div>
 
-      {step === "search" && (
-        <div className="space-y-4">
-          {/* Barcode Scanner */}
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-base">{t.common.search}</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <BarcodeScanner
-                onScan={(code) => scanMut.mutate({ code })}
-                placeholder={t.inventory.scanOrEnterBarcode}
-              />
-            </CardContent>
-          </Card>
+      <Card>
+        <CardContent className="pt-4">
+          <div className="grid grid-cols-2 gap-2">
+            <Button
+              variant={returnMode === "supplier" ? "default" : "outline"}
+              onClick={() => {
+                setReturnMode("supplier");
+                setStep("search");
+                setSelectedItem(null);
+                setRecipientSourceInfo(null);
+                setRecipientDeliveryNumber("");
+                setReturnLotInfo(null);
+                setReason("");
+                setRecipientName("");
+              }}
+            >
+              مرتجع إلى المورد
+            </Button>
+            <Button
+              variant={returnMode === "recipient" ? "default" : "outline"}
+              onClick={() => {
+                setReturnMode("recipient");
+                setStep("search");
+                setSelectedItem(null);
+                setReturnLotInfo(null);
+                setSelectedSource(null);
+                setSelectedVendorKey(null);
+                setReason("");
+                setRecipientName("");
+              }}
+            >
+              مرتجع من الجهة إلى المخزن
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
 
-          {/* Text Search */}
-          <Card>
+      {step === "search" && (
+        returnMode === "recipient" ? (
+          <Card className="border-blue-200">
             <CardHeader className="pb-2">
-              <CardTitle className="text-base">{t.common.search}</CardTitle>
+              <CardTitle className="text-base flex items-center gap-2">
+                <RotateCcw className="w-4 h-4 text-blue-600" />
+                سند الصرف الأصلي
+              </CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                أدخل رقم سند الصرف الأصلي. سيعيد النظام الكمية إلى نفس الـLot والمخزن الأصليين، ويستخدم تكلفة حركة الصرف الأصلية.
+              </p>
               <div className="flex gap-2">
                 <Input
-                  value={searchQuery}
-                  onChange={e => setSearchQuery(e.target.value)}
-                  placeholder={t.inventory.searchItemPlaceholder}
+                  value={recipientDeliveryNumber}
+                  onChange={(e) => {
+                    setRecipientDeliveryNumber(e.target.value);
+                    setRecipientSourceInfo(null);
+                  }}
+                  placeholder="مثال: DLV-2026-300204"
+                  dir="ltr"
+                  className="font-mono"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && recipientDeliveryNumber.trim() && !resolveRecipientReturnSourceMut.isPending) {
+                      resolveRecipientReturnSourceMut.mutate({ deliveryNumber: recipientDeliveryNumber.trim() });
+                    }
+                  }}
                 />
-                {searching && <Loader2 className="w-5 h-5 animate-spin self-center text-muted-foreground" />}
+                <Button
+                  onClick={() => resolveRecipientReturnSourceMut.mutate({ deliveryNumber: recipientDeliveryNumber.trim() })}
+                  disabled={!recipientDeliveryNumber.trim() || resolveRecipientReturnSourceMut.isPending}
+                >
+                  {resolveRecipientReturnSourceMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "تحقق"}
+                </Button>
               </div>
-
-              {searchResults && searchResults.length > 0 && (
-                <div className="border border-border rounded-lg divide-y">
-                  {searchResults.map((item: any) => (
-                    <button
-                      key={item.id}
-                      onClick={() => handleSelectItem(item)}
-                      className="w-full text-right p-3 hover:bg-accent flex items-center justify-between"
-                    >
-                      <div>
-                        <p className="font-medium">{item.itemName}</p>
-                        <p className="text-xs text-muted-foreground font-mono">{item.internalCode}</p>
-                      </div>
-                      <Badge variant={item.quantity > 0 ? "default" : "destructive"}>
-                        {item.quantity} {item.unit}
-                      </Badge>
-                    </button>
-                  ))}
-                </div>
-              )}
-
-              {searchResults && searchResults.length === 0 && searchQuery.length >= 2 && (
-                <p className="text-sm text-muted-foreground text-center py-2">{t.common.noData}</p>
-              )}
+              <p className="text-xs text-muted-foreground">
+                السندات القديمة التي لا تحمل ربطًا صريحًا بالـInventory/Lot/Movement لن تُصلح أو تُربط تاريخيًا تلقائيًا.
+              </p>
             </CardContent>
           </Card>
-        </div>
+        ) : lotsEnabled ? (
+          <Card className="border-blue-200">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base flex items-center gap-2">
+                <QrCode className="w-4 h-4 text-blue-600" />
+                مسح QR الدفعة المراد إرجاعها
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                اختر المستودع أولًا، ثم امسح QR. سيحدد النظام الصنف والمورد والفاتورة وسند الاستلام من الدفعة داخل هذا المستودع فقط.
+              </p>
+              <div className="space-y-1.5">
+                <Label>المستودع *</Label>
+                <Select
+                  value={returnWarehouseId}
+                  onValueChange={(value) => {
+                    setReturnWarehouseId(value);
+                    setReturnLotInfo(null);
+                    setSelectedItem(null);
+                  }}
+                >
+                  <SelectTrigger><SelectValue placeholder="اختر المستودع قبل المسح..." /></SelectTrigger>
+                  <SelectContent>
+                    {((warehousesList as any[]) || []).filter((w: any) => !!w.isActive).map((w: any) => (
+                      <SelectItem key={w.id} value={String(w.id)}>{w.nameAr || w.nameEn || `#${w.id}`}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              {returnWarehouseId ? (
+                <BarcodeScanner
+                  onScan={(code) => {
+                    setReturnLotInfo(null);
+                    setSelectedItem(null);
+                    resolveReturnLotMut.mutate({ warehouseId: Number(returnWarehouseId), trackingToken: code });
+                  }}
+                  placeholder="امسح QR الخاص بالدفعة..."
+                />
+              ) : (
+                <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
+                  يجب اختيار المستودع قبل مسح QR.
+                </p>
+              )}
+              {resolveReturnLotMut.isPending && (
+                <p className="text-sm text-muted-foreground flex items-center gap-2">
+                  <Loader2 className="w-4 h-4 animate-spin" /> جاري التحقق من الدفعة ومصدرها...
+                </p>
+              )}
+              <p className="text-xs text-muted-foreground">
+                الرصيد الافتتاحي لا يمكن إرجاعه من مسار مرتجع المورد لأنه لا يملك موردًا أو فاتورة مثبتة.
+              </p>
+            </CardContent>
+          </Card>
+        ) : (
+          <div className="space-y-4">
+            {/* Barcode Scanner */}
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base">{t.common.search}</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <BarcodeScanner
+                  onScan={(code) => scanMut.mutate({ code })}
+                  placeholder={t.inventory.scanOrEnterBarcode}
+                />
+              </CardContent>
+            </Card>
+
+            {/* Text Search */}
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base">{t.common.search}</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="flex gap-2">
+                  <Input
+                    value={searchQuery}
+                    onChange={e => setSearchQuery(e.target.value)}
+                    placeholder={t.inventory.searchItemPlaceholder}
+                  />
+                  {searching && <Loader2 className="w-5 h-5 animate-spin self-center text-muted-foreground" />}
+                </div>
+
+                {searchResults && searchResults.length > 0 && (
+                  <div className="border border-border rounded-lg divide-y">
+                    {searchResults.map((item: any) => (
+                      <button
+                        key={item.id}
+                        onClick={() => handleSelectItem(item)}
+                        className="w-full text-right p-3 hover:bg-accent flex items-center justify-between"
+                      >
+                        <div>
+                          <p className="font-medium">{item.itemName}</p>
+                          <p className="text-xs text-muted-foreground font-mono">{item.internalCode}</p>
+                        </div>
+                        <Badge variant={item.quantity > 0 ? "default" : "destructive"}>
+                          {item.quantity} {item.unit}
+                        </Badge>
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {searchResults && searchResults.length === 0 && searchQuery.length >= 2 && (
+                  <p className="text-sm text-muted-foreground text-center py-2">{t.common.noData}</p>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        )
       )}
 
       {step === "confirm" && selectedItem && (
@@ -211,6 +442,96 @@ export default function WarehouseReturn() {
             </CardContent>
           </Card>
 
+          {returnMode === "recipient" && recipientSourceInfo ? (
+            <Card className="border-emerald-200 bg-emerald-50/40">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                  المصدر: سند الصرف الأصلي
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2 text-sm">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-muted-foreground">سند الصرف</span>
+                  <strong className="font-mono">{recipientSourceInfo.deliveryNumber}</strong>
+                </div>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-muted-foreground">المستلم الأصلي</span>
+                  <strong>{recipientSourceInfo.deliveredToName || "—"}</strong>
+                </div>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-muted-foreground">المخزن الأصلي</span>
+                  <strong>{recipientSourceInfo.warehouseName || "—"}</strong>
+                </div>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-muted-foreground">الـLot الأصلي</span>
+                  <strong className="font-mono">{recipientSourceInfo.lotCode || `#${recipientSourceInfo.lotId}`}</strong>
+                </div>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-muted-foreground">الكمية المصروفة أصلًا</span>
+                  <strong>{recipientSourceInfo.deliveryQuantity} {selectedItem.unit || "وحدة"}</strong>
+                </div>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-muted-foreground">أُعيد سابقًا</span>
+                  <strong>{recipientSourceInfo.previouslyReturnedQuantity} {selectedItem.unit || "وحدة"}</strong>
+                </div>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-muted-foreground">تكلفة الصرف الأصلية</span>
+                  <strong>{Number(recipientSourceInfo.originalIssueUnitCost || 0).toFixed(4)} ر.س</strong>
+                </div>
+                <div className="border-t pt-2 mt-2 flex items-center justify-between gap-2">
+                  <span className="text-muted-foreground">المتبقي القابل للإرجاع</span>
+                  <strong className="text-emerald-700">{recipientSourceInfo.returnableQuantity} {selectedItem.unit || "وحدة"}</strong>
+                </div>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-muted-foreground">قيمة المرتجع الحالية</span>
+                  <strong>{(Number(returnedQuantity || 0) * Number(recipientSourceInfo.originalIssueUnitCost || 0)).toFixed(2)} ر.س</strong>
+                </div>
+              </CardContent>
+            </Card>
+          ) : lotsEnabled && returnLotInfo ? (
+            <Card className="border-emerald-200 bg-emerald-50/40">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                  مصدر المرتجع محدد من QR
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2 text-sm">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-muted-foreground">الدفعة</span>
+                  <strong className="font-mono">{returnLotInfo.lotCode}</strong>
+                </div>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-muted-foreground">المستودع</span>
+                  <strong>{returnLotInfo.warehouseName || "—"}</strong>
+                </div>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-muted-foreground">المورد</span>
+                  <strong>{returnLotInfo.source?.vendorName || "—"}</strong>
+                </div>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-muted-foreground">الفاتورة</span>
+                  <strong>{returnLotInfo.source?.invoiceNumber || "—"}</strong>
+                </div>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-muted-foreground">سند الاستلام</span>
+                  <strong>{returnLotInfo.source?.receiptNumber || `#${returnLotInfo.source?.receiptId}`}</strong>
+                </div>
+                {returnLotInfo.source?.poNumber && (
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-muted-foreground">أمر الشراء</span>
+                    <strong>{returnLotInfo.source.poNumber}</strong>
+                  </div>
+                )}
+                <div className="border-t pt-2 mt-2 flex items-center justify-between gap-2">
+                  <span className="text-muted-foreground">المتاح من هذه الدفعة</span>
+                  <strong className="text-emerald-700">{returnLotInfo.availableQuantity} {selectedItem.unit || "وحدة"}</strong>
+                </div>
+              </CardContent>
+            </Card>
+          ) : !lotsEnabled && returnMode === "supplier" ? (
+            <>
           {/* مصدر الإرجاع — يُحدَّد تلقائياً من سجل استلام الصنف، بلا أي إدخال يدوي.
               عند تعدد الموردين: نعرض المورد أولاً، وبعد اختياره فواتيره فقط. */}
           <Card>
@@ -341,6 +662,8 @@ export default function WarehouseReturn() {
               )}
             </CardContent>
           </Card>
+            </>
+          ) : null}
 
           {/* Return Details */}
           <Card>
@@ -353,7 +676,7 @@ export default function WarehouseReturn() {
                 <Input
                   type="number"
                   min={1}
-                  max={selectedItem.quantity}
+                  max={returnMode === "recipient" ? recipientSourceInfo?.returnableQuantity : (lotsEnabled ? returnLotInfo?.availableQuantity : selectedItem.quantity)}
                   value={returnedQuantity}
                   onChange={e => setReturnedQuantity(parseInt(e.target.value) || 1)}
                 />
@@ -368,33 +691,40 @@ export default function WarehouseReturn() {
                 />
               </div>
 
-              <div className="space-y-1">
-                <Label>اسم المستلم (من استلم الصنف المرتجَع)</Label>
-                <Input
-                  value={recipientName}
-                  onChange={e => setRecipientName(e.target.value)}
-                  placeholder="مثال: اسم المندوب أو مسؤول المورد"
-                />
-                <p className="text-xs text-muted-foreground">يظهر كتوقيع ثانٍ بوثيقة المرتجع — اختياري</p>
-              </div>
+              {returnMode === "supplier" && (
+                <div className="space-y-1">
+                  <Label>اسم المستلم (من استلم الصنف المرتجَع)</Label>
+                  <Input
+                    value={recipientName}
+                    onChange={e => setRecipientName(e.target.value)}
+                    placeholder="مثال: اسم المندوب أو مسؤول المورد"
+                  />
+                  <p className="text-xs text-muted-foreground">يظهر كتوقيع ثانٍ بوثيقة المرتجع — اختياري</p>
+                </div>
+              )}
+              {returnMode === "recipient" && recipientSourceInfo && (
+                <p className="text-xs text-muted-foreground bg-blue-50 border border-blue-200 rounded-md px-3 py-2">
+                  سيُربط المرتجع بسند الصرف {recipientSourceInfo.deliveryNumber}، ويعود إلى نفس الـLot الأصلي بتكلفة الصرف الأصلية.
+                </p>
+              )}
             </CardContent>
           </Card>
 
           {/* Actions */}
           <div className="flex gap-3">
-            <Button variant="outline" onClick={() => setStep("search")} className="flex-1">
+            <Button variant="outline" onClick={() => { setStep("search"); setSelectedItem(null); setReturnLotInfo(null); setRecipientSourceInfo(null); setSelectedSource(null); setSelectedVendorKey(null); }} className="flex-1">
               {t.common.back}
             </Button>
             <Button
               onClick={handleSubmit}
-              disabled={returnMut.isPending || !reason.trim() || returnedQuantity < 1}
+              disabled={returnMut.isPending || recipientReturnMut.isPending || resolveReturnLotMut.isPending || resolveRecipientReturnSourceMut.isPending || !reason.trim() || returnedQuantity < 1 || (returnMode === "recipient" ? !recipientSourceInfo : (lotsEnabled && (!returnWarehouseId || !returnLotInfo)))}
               className="flex-1 gap-2"
             >
-              {returnMut.isPending
+              {(returnMut.isPending || recipientReturnMut.isPending)
                 ? <Loader2 className="w-4 h-4 animate-spin" />
                 : <RotateCcw className="w-4 h-4" />
               }
-              تأكيد الإرجاع
+              {returnMode === "recipient" ? "تأكيد الإرجاع إلى المخزن" : "تأكيد الإرجاع"}
             </Button>
           </div>
         </div>

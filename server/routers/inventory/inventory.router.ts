@@ -3,18 +3,107 @@ import { z } from "zod";
 import { router, inventoryReadProcedure, warehouseProcedure } from "../_shared/procedures";
 import * as db from "../../_core/db";
 import { syncPathBTicketFromPurchaseOrder } from "../purchase/ticket-purchase-workflow";
+import { isInventoryLotsEnabled, resolveInventoryLotForIssue } from "../../_core/inventory-lots";
+import { catalogSuppliers, inventory, inventoryLotBalances, inventoryLots, warehouseReceipts } from "../../../drizzle/schema";
+import { and, desc, eq, gt, or, sql } from "drizzle-orm";
 
 export const inventoryRouter = router({
   list: inventoryReadProcedure.query(async () => {
     return db.getInventoryItems();
   }),
 
+  // 2B-9 — قراءة مشتقة فقط: Inventory → Catalog Item → catalog_nodes path.
+  // منفصلة عن list حتى لا نغيّر عقدها أو تكلفة مستهلكيها التاريخيين (AI/export وغيرها).
+  taxonomy: inventoryReadProcedure.query(async () => {
+    return db.getInventoryCatalogTaxonomy();
+  }),
+
+  // 2B-8 — ملخص الدفعات ذات الرصيد الموجب لكل سجل Inventory.
+  // يُستخدم فقط لإظهار أيقونة QR وعدد الدفعات في صفحة المخزون بدون N+1 queries.
+  lotSummaries: inventoryReadProcedure.query(async () => {
+    if (!isInventoryLotsEnabled()) return [];
+    const database = await db.getDb();
+    if (!database) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر الاتصال بقاعدة البيانات" });
+
+    const rows = await database
+      .select({
+        inventoryId: inventoryLotBalances.inventoryId,
+        lotCount: sql<number>`COUNT(*)`,
+        totalQuantity: sql<string>`COALESCE(SUM(${inventoryLotBalances.quantity}), 0)`,
+      })
+      .from(inventoryLotBalances)
+      .where(gt(inventoryLotBalances.quantity, "0"))
+      .groupBy(inventoryLotBalances.inventoryId);
+
+    return rows.map((row: any) => ({
+      inventoryId: Number(row.inventoryId),
+      lotCount: Number(row.lotCount || 0),
+      totalQuantity: Number(row.totalQuantity || 0),
+    }));
+  }),
+
+  // 2B-8 — الدفعات الموجودة فعليًا داخل سجل Inventory/المستودع المحدد.
+  // يعيد فقط الـBalances الموجبة؛ QR هو هوية الـLot نفسها وليس هوية Inventory.
+  listLots: inventoryReadProcedure
+    .input(z.object({ inventoryId: z.number() }))
+    .query(async ({ input }) => {
+      if (!isInventoryLotsEnabled()) return [];
+      const database = await db.getDb();
+      if (!database) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر الاتصال بقاعدة البيانات" });
+
+      const item = await db.getInventoryItemById(input.inventoryId);
+      if (!item) throw new TRPCError({ code: "NOT_FOUND", message: "الصنف غير موجود في المخزون" });
+
+      const rows = await database
+        .select({
+          lotId: inventoryLots.id,
+          lotCode: inventoryLots.lotCode,
+          trackingToken: inventoryLots.trackingToken,
+          sourceType: inventoryLots.sourceType,
+          catalogItemId: inventoryLots.catalogItemId,
+          originalQuantity: inventoryLots.originalQuantity,
+          remainingQuantity: inventoryLots.remainingQuantity,
+          balanceQuantity: inventoryLotBalances.quantity,
+          purchaseUnit: inventoryLots.purchaseUnit,
+          issueUnit: inventoryLots.issueUnit,
+          batchNumber: inventoryLots.batchNumber,
+          expiryDate: inventoryLots.expiryDate,
+          receiptId: inventoryLots.receiptId,
+          receiptNumber: warehouseReceipts.receiptNumber,
+          invoiceNumber: warehouseReceipts.invoiceNumber,
+          invoiceDate: warehouseReceipts.invoiceDate,
+          receiptVendorName: warehouseReceipts.vendorName,
+          supplierNameAr: catalogSuppliers.nameAr,
+          supplierNameEn: catalogSuppliers.nameEn,
+          createdAt: inventoryLots.createdAt,
+        })
+        .from(inventoryLotBalances)
+        .innerJoin(inventoryLots, eq(inventoryLots.id, inventoryLotBalances.lotId))
+        .leftJoin(warehouseReceipts, eq(warehouseReceipts.id, inventoryLots.receiptId))
+        .leftJoin(catalogSuppliers, eq(catalogSuppliers.id, inventoryLots.catalogSupplierId))
+        .where(and(
+          eq(inventoryLotBalances.inventoryId, input.inventoryId),
+          gt(inventoryLotBalances.quantity, "0"),
+        ))
+        .orderBy(desc(inventoryLots.createdAt), desc(inventoryLots.id));
+
+      return rows.map((row: any) => ({
+        ...row,
+        lotId: Number(row.lotId),
+        catalogItemId: row.catalogItemId == null ? null : Number(row.catalogItemId),
+        originalQuantity: Number(row.originalQuantity || 0),
+        remainingQuantity: Number(row.remainingQuantity || 0),
+        balanceQuantity: Number(row.balanceQuantity || 0),
+        supplierName: row.supplierNameAr || row.receiptVendorName || row.supplierNameEn || null,
+      }));
+    }),
+
   create: warehouseProcedure.input(z.object({
     itemName: z.string().min(1),
     description: z.string().optional(),
-    quantity: z.number().default(0),
+    quantity: z.number().min(0).default(0),
     unit: z.string().optional(),
-    minQuantity: z.number().optional(),
+    minQuantity: z.number().min(0).optional(),
     location: z.string().optional(),
     siteId: z.number().optional(),
   })).mutation(async ({ input, ctx }) => {
@@ -28,7 +117,7 @@ export const inventoryRouter = router({
     itemName: z.string().optional(),
     description: z.string().optional(),
     unit: z.string().optional(),
-    minQuantity: z.number().optional(),
+    minQuantity: z.number().min(0).optional(),
     location: z.string().optional(),
     siteId: z.number().optional(),
   })).mutation(async ({ input, ctx }) => {
@@ -52,7 +141,7 @@ export const inventoryRouter = router({
   addTransaction: inventoryReadProcedure.input(z.object({
     inventoryId: z.number(),
     type: z.enum(["in", "out"]),
-    quantity: z.number().min(1),
+    quantity: z.number().min(0.001, "الكمية يجب أن تكون أكبر من صفر"),
     reason: z.string().optional(),
     ticketId: z.number().optional(),
   })).mutation(async ({ input, ctx }) => {
@@ -100,6 +189,105 @@ export const inventoryRouter = router({
       return db.getInventoryLedger(input.id);
     }),
 
+  // 2B-8 — بحث فعلي بQR/رمز الـLot.
+  // لا نحاول مقارنة trackingToken باسم الصنف أو باركود Inventory التاريخي؛
+  // نحل الرمز من inventory_lots ثم نرجع أرصدة الـInventory التي تحمل نفس Lot.
+  resolveLotSearch: inventoryReadProcedure
+    .input(z.object({ code: z.string().trim().min(1, "QR/رمز الدفعة مطلوب") }))
+    .mutation(async ({ input }) => {
+      if (!isInventoryLotsEnabled()) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "تتبع الدفعات غير مفعّل تشغيليًا بعد" });
+      }
+      const database = await db.getDb();
+      if (!database) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر الاتصال بقاعدة البيانات" });
+
+      const code = input.code.trim();
+      const lotRows = await database
+        .select({
+          lotId: inventoryLots.id,
+          lotCode: inventoryLots.lotCode,
+          trackingToken: inventoryLots.trackingToken,
+          sourceType: inventoryLots.sourceType,
+          catalogItemId: inventoryLots.catalogItemId,
+        })
+        .from(inventoryLots)
+        .where(or(eq(inventoryLots.trackingToken, code), eq(inventoryLots.lotCode, code)))
+        .limit(1);
+
+      const lot = (lotRows as any[])[0];
+      if (!lot) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "QR/رمز الدفعة غير معروف في نظام المخزون" });
+      }
+
+      const balances = await database
+        .select({
+          inventoryId: inventoryLotBalances.inventoryId,
+          warehouseId: inventory.warehouseId,
+          balanceQuantity: inventoryLotBalances.quantity,
+        })
+        .from(inventoryLotBalances)
+        .innerJoin(inventory, eq(inventory.id, inventoryLotBalances.inventoryId))
+        .where(and(
+          eq(inventoryLotBalances.lotId, Number(lot.lotId)),
+          gt(inventoryLotBalances.quantity, "0"),
+        ));
+
+      if ((balances as any[]).length === 0) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: `الدفعة ${lot.lotCode} معروفة لكن لا يوجد لها رصيد متاح حاليًا` });
+      }
+
+      return {
+        lotId: Number(lot.lotId),
+        lotCode: String(lot.lotCode),
+        trackingToken: String(lot.trackingToken),
+        sourceType: lot.sourceType,
+        catalogItemId: lot.catalogItemId == null ? null : Number(lot.catalogItemId),
+        matches: (balances as any[]).map((row: any) => ({
+          inventoryId: Number(row.inventoryId),
+          warehouseId: row.warehouseId == null ? null : Number(row.warehouseId),
+          balanceQuantity: Number(row.balanceQuantity || 0),
+        })),
+      };
+    }),
+
+  // 2B-8 — تحقق فوري من QR الدفعة داخل الصنف/المستودع المختار قبل الصرف.
+  // التحقق النهائي والخصم يعادان داخل issueDelivery transaction عند التأكيد.
+  resolveDeliveryLot: warehouseProcedure
+    .input(z.object({
+      inventoryId: z.number(),
+      trackingToken: z.string().trim().min(1, "QR الدفعة مطلوب"),
+    }))
+    .mutation(async ({ input }) => {
+      if (!isInventoryLotsEnabled()) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "تتبع الدفعات غير مفعّل تشغيليًا بعد" });
+      }
+      const database = await db.getDb();
+      if (!database) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر الاتصال بقاعدة البيانات" });
+      const item = await db.getInventoryItemById(input.inventoryId);
+      if (!item) throw new TRPCError({ code: "NOT_FOUND", message: "الصنف غير موجود في المخزون" });
+
+      try {
+        const lot = await resolveInventoryLotForIssue({
+          tx: database,
+          trackingToken: input.trackingToken,
+          inventoryId: input.inventoryId,
+          inventoryCatalogItemId: (item as any).linkedItemId ?? null,
+        });
+        return {
+          lotId: lot.lotId,
+          lotCode: lot.lotCode,
+          trackingToken: lot.trackingToken,
+          sourceType: lot.sourceType,
+          catalogItemId: lot.catalogItemId,
+          receiptId: lot.receiptId,
+          availableQuantity: lot.balanceQuantity,
+          remainingQuantity: lot.remainingQuantity,
+        };
+      } catch (error: any) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: error?.message || "QR الدفعة غير صالح للصرف" });
+      }
+    }),
+
   // مسار توافق قديم للتسليم من المخزون. أُحكم بنفس قواعد المسار المركزي:
   // لا يثق بمعرّفات الربط المرسلة، ويُلزم فنيًا مستلمًا فعليًا، ويجعل التحديث
   // داخل خدمة issueDelivery الذرية حتى لا يمكن تجاوز دورة البلاغ.
@@ -110,6 +298,7 @@ export const inventoryRouter = router({
       purchaseOrderId: z.number(),
       deliveredToId: z.number(),
       deliveredQuantity: z.number().positive(),
+      lotTrackingToken: z.string().trim().min(1).optional(),
       notes: z.string().optional(),
     }))
     .mutation(async ({ input, ctx }) => {
@@ -161,6 +350,7 @@ export const inventoryRouter = router({
         assignedTechnicianName: ticket?.maintenancePath === "B" ? (assignedTechnician as any)?.name ?? undefined : undefined,
         notes: input.notes || "تسليم مادة مرتبطة ببلاغ من المخزون",
         markPurchaseOrderItemDelivered: true,
+        lotTrackingToken: input.lotTrackingToken,
       });
 
       await syncPathBTicketFromPurchaseOrder(
@@ -188,6 +378,8 @@ export const inventoryRouter = router({
           assignedTechnicianId: ticket?.assignedToId ?? null,
           purchaseOrderItemId: input.purchaseOrderItemId,
           ticketId: ticket?.id ?? null,
+          lotId: deliveryResult.lotId ?? null,
+          inventoryTransactionId: deliveryResult.inventoryTransactionId ?? null,
         },
       });
 

@@ -405,6 +405,7 @@ export default function PurchaseCycle() {
   const [deliveryQty, setDeliveryQty]       = useState<string>("");
   const [deliveryUnit, setDeliveryUnit]     = useState<string>("");
   const [deliveryNotes, setDeliveryNotes]   = useState<string>("");
+  const [deliveryLotInfo, setDeliveryLotInfo] = useState<any>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const currentUploadTarget = useRef<string>("");
@@ -462,6 +463,8 @@ export default function PurchaseCycle() {
   const { data: pendingDelivery = [], refetch: refetchDelivery } = trpc.purchaseOrders.pendingDeliveryItems.useQuery(undefined, { enabled: isWarehouse || isAdminOrOwner });
   // أصناف المخزون الجاهزة للتسليم (من OCR الفعلي)
   const { data: inventoryItems = [], refetch: refetchInventory } = trpc.purchaseOrders.inventoryReadyForDelivery.useQuery(undefined, { enabled: isWarehouse || isAdminOrOwner });
+  const { data: lotTrackingStatus } = trpc.inventoryCount.lotTrackingStatus.useQuery(undefined, { enabled: isWarehouse || isAdminOrOwner });
+  const lotsEnabled = !!lotTrackingStatus?.enabled;
   // إدخال المخزون — أصناف وصلت للمستودع وبانتظار إدخال المخزون
   const pendingInventoryEntry = (pendingDelivery as any[]).filter((i: any) => !i.inventoryEntered);
   const newestPendingDelivery = sortPurchaseCycleItemsNewestFirst(pendingDelivery as any[]);
@@ -484,6 +487,17 @@ export default function PurchaseCycle() {
   const confirmPurchaseMut = trpc.purchaseOrders.confirmItemPurchase.useMutation({ onSuccess: () => { toast.success(t.purchaseOrders.purchased); refetchAll(); }, onError: (e: any) => toast.error(e.message) });
   const cancelPurchaseMut = trpc.purchaseOrders.cancelItemPurchase.useMutation({ onSuccess: () => { toast.success(t.purchaseOrders.cancelPurchaseSuccess); refetchAll(); setCancelDialog(null); setCancelNote(""); }, onError: (e: any) => toast.error(e.message) });
   const confirmWarehouseMut = trpc.purchaseOrders.confirmDeliveryToWarehouse.useMutation({ onSuccess: () => { toast.success(t.purchaseOrders.deliveredToWarehouse); refetchAll(); }, onError: (e: any) => toast.error(e.message) });
+  const resolveDeliveryLotMut = trpc.inventory.resolveDeliveryLot.useMutation({
+    onSuccess: (data: any) => {
+      setDeliveryLotInfo(data);
+      toast.success(`تم التعرف على الدفعة ${data.lotCode}`);
+    },
+    onError: (e: any) => {
+      setDeliveryLotInfo(null);
+      toast.error(e.message);
+    },
+  });
+
   const deliverInventoryMut = trpc.purchaseOrders.deliverInventoryItem.useMutation({
     onSuccess: (data) => {
       toast.success(t.purchaseOrders.deliveredToRequester);
@@ -492,7 +506,7 @@ export default function PurchaseCycle() {
       deliveryDocsQuery.refetch();
       setDeliveryPrintData((prev: any) => {
         if (prev) {
-          const fullData = { ...prev, deliveryNumber: data?.deliveryNumber };
+          const fullData = { ...prev, deliveryNumber: data?.deliveryNumber, lotCode: data?.lotCode || undefined };
           printDeliveryReceipt(fullData);
           // ملاحظة: لا نستدعي generateDocMut هنا — السيرفر ينشئ وثيقة التسليم
           // تلقائيًا ضمن db.issueDelivery() لعناصر المخزون المباشرة، فأي استدعاء
@@ -500,6 +514,7 @@ export default function PurchaseCycle() {
         }
         return null;
       });
+      setDeliveryLotInfo(null);
     },
     onError: (e: any) => toast.error(e.message),
   });
@@ -512,10 +527,11 @@ export default function PurchaseCycle() {
       deliveryDocsQuery.refetch();
       setDeliveryPrintData((prev: any) => {
         if (prev) {
-          printDeliveryReceipt({ ...prev, deliveryNumber: data?.deliveryNumber });
+          printDeliveryReceipt({ ...prev, deliveryNumber: data?.deliveryNumber, lotCode: data?.lotCode || undefined });
         }
         return null;
       });
+      setDeliveryLotInfo(null);
     },
     onError: (e: any) => { toast.error(e.message); setDeliveryPrintData(null); },
   });
@@ -529,6 +545,7 @@ export default function PurchaseCycle() {
   const [searchWarehouse,  setSearchWarehouse]  = useState("");
   const [searchDelivery,   setSearchDelivery]   = useState("");
   const [deliverySearchMode, setDeliverySearchMode] = useState<"name" | "code" | "qr">("name");
+  const [deliveryQrInventoryIds, setDeliveryQrInventoryIds] = useState<number[]>([]);
   const [searchDocs,       setSearchDocs]       = useState("");
 
   const [dateFrom, setDateFrom] = useState("");
@@ -543,6 +560,22 @@ export default function PurchaseCycle() {
   const [pageWarehouse, setPageWarehouse] = useState(1);
   const [pageDelivery,  setPageDelivery]  = useState(1);
   const [pageDocs,      setPageDocs]      = useState(1);
+
+  // 2B-8 — بحث QR الحقيقي: trackingToken/lotCode → Lot Balance → Inventory.
+  const resolveLotSearchMut = trpc.inventory.resolveLotSearch.useMutation({
+    onSuccess: (data: any) => {
+      const matchedIds = (data.matches || []).map((row: any) => Number(row.inventoryId));
+      setDeliveryQrInventoryIds(matchedIds);
+      setSearchDelivery(data.trackingToken || data.lotCode || "");
+      setDeliverySearchMode("qr");
+      setPageDelivery(1);
+      toast.success(`تم التعرف على الدفعة ${data.lotCode}`);
+    },
+    onError: (e: any) => {
+      setDeliveryQrInventoryIds([]);
+      toast.error(e.message);
+    },
+  });
 
   // ── دالة الفلترة الشاملة ────────────────────────────────────
   const filterItems = (items: any[], search: string, from?: string, to?: string) => {
@@ -568,8 +601,11 @@ export default function PurchaseCycle() {
     const q = search.trim().toLowerCase();
     if (!q) return items;
     return items.filter(item => {
-      if (deliverySearchMode === "code" || deliverySearchMode === "qr") {
-        // بالرقم أو QR: يبحث في الكود الداخلي وباركود المصنع فقط
+      if (deliverySearchMode === "qr") {
+        return deliveryQrInventoryIds.includes(Number(item.id));
+      }
+      if (deliverySearchMode === "code") {
+        // البحث التاريخي بالرقم يبقى على كود Inventory/باركود المصنع فقط.
         return (
           String(item.internalCode ?? "").toLowerCase().includes(q) ||
           String(item.manufacturerBarcode ?? "").toLowerCase().includes(q)
@@ -932,17 +968,17 @@ export default function PurchaseCycle() {
           {/* ── خانة البحث الذكية ── */}
           <div className="space-y-2 p-3 border rounded-lg bg-muted/20">
             <div className="flex gap-2">
-              <Button size="sm" variant={deliverySearchMode === "name" ? "default" : "outline"} onClick={() => setDeliverySearchMode("name")} className="gap-1">
+              <Button size="sm" variant={deliverySearchMode === "name" ? "default" : "outline"} onClick={() => { setDeliverySearchMode("name"); setSearchDelivery(""); setDeliveryQrInventoryIds([]); }} className="gap-1">
                 <Search className="w-3.5 h-3.5" /> بالاسم
               </Button>
-              <Button size="sm" variant={deliverySearchMode === "code" ? "default" : "outline"} onClick={() => setDeliverySearchMode("code")} className="gap-1">
+              <Button size="sm" variant={deliverySearchMode === "code" ? "default" : "outline"} onClick={() => { setDeliverySearchMode("code"); setSearchDelivery(""); setDeliveryQrInventoryIds([]); }} className="gap-1">
                 <Package className="w-3.5 h-3.5" /> بالرقم
               </Button>
-              <Button size="sm" variant={deliverySearchMode === "qr" ? "default" : "outline"} onClick={() => setDeliverySearchMode("qr")} className="gap-1">
+              <Button size="sm" variant={deliverySearchMode === "qr" ? "default" : "outline"} onClick={() => { setDeliverySearchMode("qr"); setSearchDelivery(""); setDeliveryQrInventoryIds([]); }} className="gap-1">
                 <QrCode className="w-3.5 h-3.5" /> QR Code
               </Button>
               {searchDelivery && (
-                <Button size="sm" variant="ghost" className="text-muted-foreground mr-auto" onClick={() => { setSearchDelivery(""); setDeliverySearchMode("name"); }}>
+                <Button size="sm" variant="ghost" className="text-muted-foreground mr-auto" onClick={() => { setSearchDelivery(""); setDeliverySearchMode("name"); setDeliveryQrInventoryIds([]); }}>
                   <X className="w-3.5 h-3.5" />
                 </Button>
               )}
@@ -952,9 +988,11 @@ export default function PurchaseCycle() {
               <BarcodeScanner
                 onScan={(code) => {
                   setSearchDelivery(code);
-                  setDeliverySearchMode("name");
+                  setDeliveryQrInventoryIds([]);
+                  setPageDelivery(1);
+                  resolveLotSearchMut.mutate({ code });
                 }}
-                placeholder="امسح QR Code الصنف..."
+                placeholder="امسح QR الدفعة أو أدخل Lot Code..."
               />
             ) : (
               <div className="relative">
@@ -1018,6 +1056,7 @@ export default function PurchaseCycle() {
                           setDeliveryQty("");
                           setDeliveryUnit(item.unit || "قطعة");
                           setDeliveryNotes("");
+                          setDeliveryLotInfo(null);
                           // نمرر بيانات الصنف من المخزون للـ dialog
                           setDeliveryDialog({
                             ...item,
@@ -1288,6 +1327,7 @@ export default function PurchaseCycle() {
             setDeliveryDialog(null);
             setDeliveryUserId("");
             setDeliveryNotes("");
+            setDeliveryLotInfo(null);
           }
         }}
       >
@@ -1332,6 +1372,29 @@ export default function PurchaseCycle() {
                   </div>
                 )}
               </div>
+
+              {lotsEnabled && (
+                <div className="space-y-2 rounded-lg border border-blue-200 bg-blue-50/60 p-3">
+                  <Label className="text-xs flex items-center gap-1">
+                    <QrCode className="w-3.5 h-3.5" /> QR الدفعة *
+                  </Label>
+                  <BarcodeScanner
+                    onScan={(code) => {
+                      setDeliveryLotInfo(null);
+                      resolveDeliveryLotMut.mutate({ inventoryId: deliveryDialog.id, trackingToken: code });
+                    }}
+                    placeholder="امسح QR الدفعة التي ستُصرف منها الكمية..."
+                  />
+                  {resolveDeliveryLotMut.isPending && (
+                    <p className="text-xs text-muted-foreground flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" /> جاري التحقق من الدفعة...</p>
+                  )}
+                  {deliveryLotInfo && (
+                    <div className="text-xs text-emerald-800 bg-emerald-50 border border-emerald-200 rounded p-2">
+                      <strong>{deliveryLotInfo.lotCode}</strong> — المتاح في هذا المستودع: {deliveryLotInfo.availableQuantity} {deliveryDialog.unit || "وحدة"}
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* الكمية والوحدة */}
               <div className="grid grid-cols-2 gap-3">
@@ -1421,7 +1484,7 @@ export default function PurchaseCycle() {
           )}
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => { setDeliveryDialog(null); setDeliveryNotes(""); setDeliveryUserId(""); }}>{t.common.cancel}</Button>
+            <Button variant="outline" onClick={() => { setDeliveryDialog(null); setDeliveryNotes(""); setDeliveryUserId(""); setDeliveryLotInfo(null); }}>{t.common.cancel}</Button>
             <Button
               className="gap-1.5"
               disabled={
@@ -1430,7 +1493,9 @@ export default function PurchaseCycle() {
                 !deliveryUserId ||
                 !deliveryQty ||
                 Number.isNaN(parseFloat(deliveryQty)) ||
-                parseFloat(deliveryQty) <= 0
+                parseFloat(deliveryQty) <= 0 ||
+                resolveDeliveryLotMut.isPending ||
+                (lotsEnabled && !deliveryLotInfo)
               }
               onClick={() => {
                 // التحقق من الكمية أولاً
@@ -1445,6 +1510,14 @@ export default function PurchaseCycle() {
                 }
                 if (!deliveryUserId) {
                   toast.error("يجب اختيار الفني المستلم فعليًا");
+                  return;
+                }
+                if (lotsEnabled && !deliveryLotInfo) {
+                  toast.error("يجب مسح QR الدفعة قبل تأكيد الصرف");
+                  return;
+                }
+                if (lotsEnabled && qty > Number(deliveryLotInfo?.availableQuantity || 0)) {
+                  toast.error(`الكمية المطلوبة (${qty}) أكبر من رصيد الدفعة الممسوحة (${deliveryLotInfo?.availableQuantity || 0})`);
                   return;
                 }
                 // حفظ بيانات الطباعة مع الفصل بين الفني المسند والمستلم الفعلي.
@@ -1472,6 +1545,7 @@ export default function PurchaseCycle() {
                     deliveredToId: parseInt(deliveryUserId),
                     deliveryQty:   qty,
                     deliveryUnit:  deliveryUnit || deliveryDialog.unit || "قطعة",
+                    lotTrackingToken: lotsEnabled ? deliveryLotInfo?.trackingToken : undefined,
                     notes:         deliveryNotes || undefined,
                   });
                 } else {
@@ -1480,12 +1554,14 @@ export default function PurchaseCycle() {
                     deliveredToId: parseInt(deliveryUserId),
                     deliveryQty:   qty,
                     deliveryUnit:  deliveryUnit || deliveryDialog.unit || "قطعة",
+                    lotTrackingToken: lotsEnabled ? deliveryLotInfo?.trackingToken : undefined,
                     notes:         deliveryNotes || undefined,
                   });
                 }
                 setDeliveryDialog(null);
                 setDeliveryNotes("");
                 setDeliveryUserId("");
+                setDeliveryLotInfo(null);
               }}
             >
               {(confirmDeliveryMut.isPending || deliverInventoryMut.isPending) ? <Loader2 className="w-4 h-4 animate-spin" /> : <Truck className="w-4 h-4" />}

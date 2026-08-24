@@ -3,7 +3,7 @@
 // البند 7 من العصف الذهني (2026-08-05). راجع docs/CHANGELOG_TECHNICAL.md
 // و CLAUDE.md قبل أي تعديل على هذا الملف — يمس مباشرة أرصدة المخزون.
 // ============================================================
-import { and, desc, eq, or, isNull, inArray } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNull, or, sql } from "drizzle-orm";
 import {
   warehouses,
   warehouseTransfers,
@@ -13,10 +13,13 @@ import {
   catalogNodes,
   catalogItems,
   inventory,
+  inventoryTransactions,
+  inventoryLots,
 } from "../../../drizzle/schema";
 import { getDb, withTransaction } from "./client";
 import { addInventoryTransactionV2, createInventoryItemV2, updateInventoryItemV2 } from "./warehouse-returns";
-import { calculateMovingWeightedAverage } from "../inventory-costing";
+import { calculateMovementTotal, calculateMovingWeightedAverage, normalizeInventoryQuantity } from "../inventory-costing";
+import { isInventoryLotsEnabled, moveInventoryLotBalanceForTransfer } from "../inventory-lots";
 
 // ─────────────────────────────────────────────────────────────
 // المخازن — قراءة
@@ -170,13 +173,23 @@ export async function createWarehouseTransfer(params: {
   notes?: string;
   createdById: number;
   batchId?: number;
+  lotTrackingToken?: string;
 }) {
+  const lotsEnabled = isInventoryLotsEnabled();
+  const lotTrackingToken = String(params.lotTrackingToken || "").trim();
+  if (lotsEnabled && !lotTrackingToken) {
+    throw new Error("يجب مسح QR الدفعة قبل التحويل");
+  }
+
   if (params.fromWarehouseId === params.toWarehouseId) {
     throw new Error("لا يمكن التحويل لنفس المخزن");
   }
   if (params.quantity <= 0) {
     throw new Error("الكمية يجب أن تكون أكبر من صفر");
   }
+  const movementQuantity = lotsEnabled
+    ? normalizeInventoryQuantity(params.quantity)
+    : params.quantity;
 
   return withTransaction(async (tx) => {
     const fromWh = (
@@ -190,6 +203,10 @@ export async function createWarehouseTransfer(params: {
     if (!fromWh.isActive) throw new Error("المخزن المصدر غير مُفعَّل");
     if (!toWh.isActive) throw new Error("المخزن الهدف غير مُفعَّل");
 
+    // Phase 5.3: lock source Aggregate Inventory for both Lot and legacy paths
+    // before reading quantity/cost so transfer posting cannot use stale state.
+    await tx.execute(sql`SELECT id FROM inventory WHERE id = ${params.fromInventoryId} FOR UPDATE`);
+
     // ── تحقق ملكية الصنف للمخزن المصدر (نفس مبدأ الحماية من ثغرة IDOR
     //     الموثقة في CLAUDE.md — لا نثق بأي id قادم من الواجهة دون تحقق) ──
     const source = (
@@ -199,7 +216,7 @@ export async function createWarehouseTransfer(params: {
     if (source.warehouseId !== params.fromWarehouseId) {
       throw new Error("هذا الصنف لا ينتمي للمخزن المصدر المحدد");
     }
-    if ((source.quantity || 0) < params.quantity) {
+    if (Number(source.quantity || 0) < movementQuantity) {
       throw new Error("الكمية المطلوب تحويلها أكبر من الرصيد المتاح بالمخزن المصدر");
     }
 
@@ -227,14 +244,14 @@ export async function createWarehouseTransfer(params: {
         .where(and(eq(inventory.warehouseId, params.toWarehouseId), eq(inventory.linkedItemId, source.linkedItemId)))
         .limit(1);
     }
-    if (destRows.length === 0 && source.internalCode) {
+    if (destRows.length === 0 && (!lotsEnabled || !source.linkedItemId) && source.internalCode) {
       destRows = await tx
         .select()
         .from(inventory)
         .where(and(eq(inventory.warehouseId, params.toWarehouseId), eq(inventory.internalCode, source.internalCode)))
         .limit(1);
     }
-    if (destRows.length === 0) {
+    if (destRows.length === 0 && (!lotsEnabled || !source.linkedItemId)) {
       destRows = await tx
         .select()
         .from(inventory)
@@ -244,18 +261,24 @@ export async function createWarehouseTransfer(params: {
 
     let toInventoryId: number;
     if (destRows.length > 0) {
-      const dest = destRows[0];
+      let dest = destRows[0];
+      // Lock destination Aggregate Inventory for both paths before weighted-average
+      // valuation or quantity increment.
+      await tx.execute(sql`SELECT id FROM inventory WHERE id = ${dest.id} FOR UPDATE`);
+      const lockedRows = await tx.select().from(inventory).where(eq(inventory.id, dest.id)).limit(1);
+      if (!lockedRows[0]) throw new Error("سجل المخزون في المخزن الهدف لم يعد موجودًا");
+      dest = lockedRows[0];
+      destRows = [dest];
       toInventoryId = dest.id;
       // دمج التكلفة بالمتوسط المرجَّح — نفس الصيغة المستخدمة عند الاستلام
       // (server/routers/inventory/receipts.v2.router.ts::processReceiptItem)
       const oldQty = dest.quantity || 0;
       const oldAvgCost = parseFloat(dest.averageCost || "0");
       const sourceAvgCost = parseFloat(source.averageCost || "0");
-      const newQty = oldQty + params.quantity;
       const newAvgCost = calculateMovingWeightedAverage({
         currentQuantity: oldQty,
         currentAverageCost: oldAvgCost,
-        incomingQuantity: params.quantity,
+        incomingQuantity: movementQuantity,
         incomingUnitCost: sourceAvgCost,
       });
       await updateInventoryItemV2(
@@ -288,33 +311,108 @@ export async function createWarehouseTransfer(params: {
       ) as number;
     }
 
-    // ── تنفيذ حركتي الخصم والإضافة (كل منهما يحدّث الرصيد فعلياً) ─────
-    await addInventoryTransactionV2(
-      {
-        inventoryId: params.fromInventoryId,
-        type: "out",
-        quantity: params.quantity,
-        unitCost: source.averageCost || "0",
-        reason: params.notes || `تحويل إلى مخزن ${toWh.nameAr}`,
-        performedById: params.createdById,
-        transactionType: "transfer",
-      },
-      tx
-    );
-    await addInventoryTransactionV2(
-      {
-        inventoryId: toInventoryId,
-        type: "in",
-        quantity: params.quantity,
-        unitCost: source.averageCost || "0",
-        reason: params.notes || `تحويل من مخزن ${fromWh.nameAr}`,
-        performedById: params.createdById,
-        transactionType: "transfer",
-      },
-      tx
-    );
-
+    // Reserve the transfer number inside the same transaction and use it on both
+    // inventory movements for traceability. AUTO_INCREMENT gaps on rollback are accepted.
     const transferNumber = await generateTransferNumber(tx);
+
+    // ── 2B-8: عند تفعيل Lots، التحويل ينقل نفس Lot/QR بين المخازن.
+    // لا ننقص inventory_lots.remainingQuantity لأن الكمية ما زالت داخل الشركة.
+    // نحدّث Lot Balance + Aggregate Inventory داخل نفس Transaction، ثم نسجل
+    // حركتي OUT/IN بنفس lotId. عند إغلاق الـGate يبقى المسار التاريخي كما هو.
+    const movedLot = lotsEnabled
+      ? await moveInventoryLotBalanceForTransfer({
+          tx,
+          trackingToken: lotTrackingToken,
+          fromWarehouseId: params.fromWarehouseId,
+          fromInventoryId: params.fromInventoryId,
+          toInventoryId,
+          toInventoryCatalogItemId: destRows[0]?.linkedItemId ?? source.linkedItemId ?? null,
+          quantity: movementQuantity,
+        })
+      : null;
+
+    if (lotsEnabled) {
+      const sourceStockResult: any = await tx
+        .update(inventory)
+        .set({
+          quantity: sql`${inventory.quantity} - ${movementQuantity}`,
+          totalCostValue: sql`ROUND((${inventory.quantity} - ${movementQuantity}) * ${inventory.averageCost}, 2)`,
+        } as any)
+        .where(and(
+          eq(inventory.id, params.fromInventoryId),
+          gte(inventory.quantity, movementQuantity),
+        ));
+      if (Number(sourceStockResult?.[0]?.affectedRows ?? 0) !== 1) {
+        throw new Error("رصيد المخزون المصدر تغيّر أثناء التحويل؛ حدّث الصفحة وأعد المحاولة");
+      }
+
+      const destinationStockResult: any = await tx
+        .update(inventory)
+        .set({
+          quantity: sql`${inventory.quantity} + ${movementQuantity}`,
+          totalCostValue: sql`ROUND((${inventory.quantity} + ${movementQuantity}) * ${inventory.averageCost}, 2)`,
+        } as any)
+        .where(eq(inventory.id, toInventoryId));
+      if (Number(destinationStockResult?.[0]?.affectedRows ?? 0) !== 1) {
+        throw new Error("تعذر تحديث رصيد المخزن الهدف أثناء التحويل");
+      }
+
+      const transferUnitCost = Number(source.averageCost || 0);
+      await tx.insert(inventoryTransactions).values([
+        {
+          inventoryId: params.fromInventoryId,
+          lotId: movedLot!.lotId,
+          type: "out",
+          quantity: movementQuantity,
+          unitCost: transferUnitCost.toFixed(4),
+          totalCost: calculateMovementTotal(movementQuantity, transferUnitCost).toFixed(2),
+          reason: params.notes || `تحويل إلى مخزن ${toWh.nameAr}`,
+          performedById: params.createdById,
+          transactionType: "transfer",
+          documentUrl: transferNumber,
+        },
+        {
+          inventoryId: toInventoryId,
+          lotId: movedLot!.lotId,
+          type: "in",
+          quantity: movementQuantity,
+          unitCost: transferUnitCost.toFixed(4),
+          totalCost: calculateMovementTotal(movementQuantity, transferUnitCost).toFixed(2),
+          reason: params.notes || `تحويل من مخزن ${fromWh.nameAr}`,
+          performedById: params.createdById,
+          transactionType: "transfer",
+          documentUrl: transferNumber,
+        },
+      ] as any);
+    } else {
+      await addInventoryTransactionV2(
+        {
+          inventoryId: params.fromInventoryId,
+          type: "out",
+          quantity: params.quantity,
+          unitCost: source.averageCost || "0",
+          reason: params.notes || `تحويل إلى مخزن ${toWh.nameAr}`,
+          performedById: params.createdById,
+          transactionType: "transfer",
+          documentUrl: transferNumber,
+        },
+        tx
+      );
+      await addInventoryTransactionV2(
+        {
+          inventoryId: toInventoryId,
+          type: "in",
+          quantity: params.quantity,
+          unitCost: source.averageCost || "0",
+          reason: params.notes || `تحويل من مخزن ${fromWh.nameAr}`,
+          performedById: params.createdById,
+          transactionType: "transfer",
+          documentUrl: transferNumber,
+        },
+        tx
+      );
+    }
+
     await tx.insert(warehouseTransfers).values({
       transferNumber,
       batchId: params.batchId,
@@ -322,13 +420,20 @@ export async function createWarehouseTransfer(params: {
       toWarehouseId: params.toWarehouseId,
       fromInventoryId: params.fromInventoryId,
       toInventoryId,
-      quantity: String(params.quantity),
+      lotId: movedLot?.lotId ?? null,
+      quantity: String(lotsEnabled ? movementQuantity : params.quantity),
       categoryMismatch: categoryMismatch ? 1 : 0,
       notes: params.notes,
       createdById: params.createdById,
     } as any);
 
-    return { transferNumber, categoryMismatch, toInventoryId };
+    return {
+      transferNumber,
+      categoryMismatch,
+      toInventoryId,
+      lotId: movedLot?.lotId ?? null,
+      lotCode: movedLot?.lotCode ?? null,
+    };
   });
 }
 
@@ -344,6 +449,7 @@ export async function getWarehouseTransfers(filters?: { warehouseId?: number }) 
       toWarehouseId: warehouseTransfers.toWarehouseId,
       fromInventoryId: warehouseTransfers.fromInventoryId,
       toInventoryId: warehouseTransfers.toInventoryId,
+      lotId: warehouseTransfers.lotId,
       quantity: warehouseTransfers.quantity,
       categoryMismatch: warehouseTransfers.categoryMismatch,
       notes: warehouseTransfers.notes,
@@ -383,7 +489,7 @@ export async function createWarehouseTransferBatch(params: {
   toWarehouseId: number;
   notes?: string;
   createdById: number;
-  items: Array<{ fromInventoryId: number; quantity: number; notes?: string }>;
+  items: Array<{ fromInventoryId: number; quantity: number; notes?: string; lotTrackingToken?: string }>;
 }) {
   if (params.items.length === 0) throw new Error("أضف صنفاً واحداً على الأقل");
   if (params.items.length > 20) throw new Error("الحد الأقصى 20 صنفاً بالعملية الواحدة");
@@ -407,6 +513,8 @@ export async function createWarehouseTransferBatch(params: {
     success: boolean;
     transferNumber?: string;
     categoryMismatch?: boolean;
+    lotId?: number | null;
+    lotCode?: string | null;
     message: string;
   }> = [];
 
@@ -420,12 +528,15 @@ export async function createWarehouseTransferBatch(params: {
         notes: item.notes || params.notes,
         createdById: params.createdById,
         batchId,
+        lotTrackingToken: item.lotTrackingToken,
       });
       results.push({
         fromInventoryId: item.fromInventoryId,
         success: true,
         transferNumber: r.transferNumber,
         categoryMismatch: r.categoryMismatch,
+        lotId: r.lotId,
+        lotCode: r.lotCode,
         message: r.categoryMismatch ? "تم — تنبيه: تصنيف غير مطابق" : "تم بنجاح",
       });
     } catch (err: any) {
@@ -491,6 +602,14 @@ export async function getWarehouseTransferBatchCards(filters?: { warehouseId?: n
     ? await db.select().from(inventory).where(inArray(inventory.id, allInventoryIds))
     : [];
   const inventoryById = new Map(inventoryRows.map((i: any) => [i.id, i]));
+  const allLotIds = Array.from(new Set([
+    ...itemsForBatches.map((t: any) => t.lotId),
+    ...legacyRows.map((t: any) => t.lotId),
+  ].filter((id: any) => id !== null && id !== undefined))) as number[];
+  const lotRows = allLotIds.length
+    ? await db.select({ id: inventoryLots.id, lotCode: inventoryLots.lotCode, trackingToken: inventoryLots.trackingToken }).from(inventoryLots).where(inArray(inventoryLots.id, allLotIds))
+    : [];
+  const lotById = new Map(lotRows.map((lot: any) => [lot.id, lot]));
 
   const batchCards = headerRows.map((b: any) => {
     const items = itemsForBatches.filter((t: any) => t.batchId === b.id);
@@ -511,6 +630,8 @@ export async function getWarehouseTransferBatchCards(filters?: { warehouseId?: n
           itemName: inv?.itemName || `صنف #${t.fromInventoryId}`,
           internalCode: inv?.internalCode || null,
           manufacturerBarcode: inv?.manufacturerBarcode || null,
+          lotCode: t.lotId ? (lotById.get(t.lotId) as any)?.lotCode || null : null,
+          lotTrackingToken: t.lotId ? (lotById.get(t.lotId) as any)?.trackingToken || null : null,
         };
       }),
     };
@@ -533,6 +654,8 @@ export async function getWarehouseTransferBatchCards(filters?: { warehouseId?: n
         itemName: inv?.itemName || `صنف #${t.fromInventoryId}`,
         internalCode: inv?.internalCode || null,
         manufacturerBarcode: inv?.manufacturerBarcode || null,
+        lotCode: t.lotId ? (lotById.get(t.lotId) as any)?.lotCode || null : null,
+        lotTrackingToken: t.lotId ? (lotById.get(t.lotId) as any)?.trackingToken || null : null,
       }],
     };
   });
@@ -589,11 +712,16 @@ export async function getWarehouseTransferBatchDetail(key: string) {
 async function attachItemName(db: any, t: any) {
   const invRows = await db.select().from(inventory).where(eq(inventory.id, t.fromInventoryId)).limit(1);
   const inv = invRows[0];
+  const lotRows = t.lotId
+    ? await db.select({ lotCode: inventoryLots.lotCode }).from(inventoryLots).where(eq(inventoryLots.id, t.lotId)).limit(1)
+    : [];
   return {
     transferNumber: t.transferNumber,
     itemName: inv?.itemName || `صنف #${t.fromInventoryId}`,
     internalCode: inv?.internalCode || null,
     unit: inv?.unit || "",
+    lotId: t.lotId ?? null,
+    lotCode: lotRows[0]?.lotCode || null,
     quantity: t.quantity,
     categoryMismatch: !!t.categoryMismatch,
     notes: t.notes,

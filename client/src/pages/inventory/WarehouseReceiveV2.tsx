@@ -8,10 +8,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   ArrowRight, Package, CheckCircle2, Loader2, AlertTriangle,
   Camera, Upload, ScanLine, Link2, X, ChevronDown, ChevronUp,
-  Sparkles, FileText, RefreshCw, Eye, Copy
+  Sparkles, FileText, RefreshCw, Eye, Copy, Building2, Search
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -42,6 +43,13 @@ interface ReceiveItem {
   expiryDate?:          string;
   inventoryId?:         number;
   internalCode?:        string;
+  // 2B-3: هوية Catalog Item المركزية منفصلة عن اسم/SKU المورد.
+  linkedItemId?:        number;
+  supplierItemCode?:    string;
+  // 2B-4: قرار صريح بأن الصنف غير موجود في Catalog Master الحالي.
+  isNewCatalogItem?:    boolean;
+  catalogMatches?:      CatalogItemMatch[];
+  catalogLinkSource?:   "po" | "supplier_memory" | "user";
   ocrExtracted:         boolean;
   manuallyEdited:       boolean;
   // UI state
@@ -49,6 +57,21 @@ interface ReceiveItem {
   hasDiff:              boolean;
   similarItems?:        any[];
   showSimilar:          boolean;
+}
+
+interface CatalogItemMatch {
+  catalogItemId: number;
+  code?: string | null;
+  nameAr: string;
+  nameEn?: string | null;
+  unit?: string | null;
+  score: number;
+  reason: "supplier_code_exact" | "supplier_alias_exact" | "supplier_alias_similar" | "catalog_name_exact" | "catalog_semantic" | "catalog_local_strong" | "ai_semantic";
+  measurementStatus: "compatible" | "conflict" | "unknown";
+  measurementNote?: string | null;
+  matchedAlias?: string | null;
+  autoSelect: boolean;
+  aiUsed?: boolean;
 }
 
 interface InvoiceData {
@@ -60,6 +83,17 @@ interface InvoiceData {
   subtotal?:        number;
   taxAmount?:       number;
   grandTotal?:      number;
+}
+
+interface SupplierMatch {
+  id: number;
+  nameAr: string;
+  nameEn?: string | null;
+  taxNumber?: string | null;
+  commercialRegistration?: string | null;
+  score: number;
+  reason: "tax_exact" | "alias_exact" | "name_exact" | "name_contains" | "name_tokens" | "weak";
+  matchedText?: string | null;
 }
 
 type Step = "upload" | "review" | "items" | "confirm";
@@ -78,9 +112,41 @@ const ITEM_TYPE_COLORS: Record<ItemType, string> = {
   food:        "bg-green-50 text-green-700 border-green-200",
 };
 
+const supplierMatchReasonLabel = (reason: SupplierMatch["reason"]) => ({
+  tax_exact: "تطابق الرقم الضريبي",
+  alias_exact: "اسم سابق معروف لهذا المورد",
+  name_exact: "تطابق الاسم",
+  name_contains: "تشابه قوي في الاسم",
+  name_tokens: "تشابه كلمات الاسم",
+  weak: "اقتراح تقريبي",
+}[reason]);
+
+const catalogMatchReasonLabel = (reason: CatalogItemMatch["reason"]) => ({
+  supplier_code_exact: "SKU معروف لهذا المورد",
+  supplier_alias_exact: "اسم معروف لهذا المورد",
+  supplier_alias_similar: "اسم قريب من ذاكرة المورد",
+  catalog_name_exact: "تطابق اسم الكتالوج",
+  catalog_semantic: "تطابق دلالي",
+  catalog_local_strong: "اقتراح بحث ذكي",
+  ai_semantic: "ترتيب دلالي بمساعدة AI",
+}[reason]);
+
+// 2B-3 UAT: لا نعرض اقتراحات عامة ضعيفة لمجرد أنها أعلى النتائج.
+// ذاكرة المورد والتطابق الحرفي موثوقان، أما التطابق الدلالي/AI فيحتاج
+// درجة أعلى حتى يظهر ضمن «الاقتراحات الذكية». البحث اليدوي يبقى متاحاً دائماً.
+const isReviewableCatalogMatch = (match: CatalogItemMatch) => {
+  if (match.reason === "supplier_code_exact" || match.reason === "supplier_alias_exact") return true;
+  if (match.reason === "supplier_alias_similar") return match.score >= 82;
+  if (match.reason === "catalog_name_exact") return true;
+  return match.score >= 75;
+};
+
 const createManualItemsFromPoCandidates = (candidates: any[]): ReceiveItem[] =>
   candidates.map((i: any) => ({
     purchaseOrderItemId:  i.id,
+    linkedItemId:         i.catalogItemId || undefined,
+    catalogLinkSource:    i.catalogItemId ? "po" : undefined,
+    isNewCatalogItem:     false,
     itemName:             i.itemName,
     itemType:             "consumable" as ItemType,
     requestedQuantity:    i.quantity,
@@ -126,10 +192,39 @@ export default function WarehouseReceiveV2() {
   const [manualEntrySelected, setManualEntrySelected] = useState(false);
   const [manualItemsInitialized, setManualItemsInitialized] = useState(false);
   const [ocrConfidence, setOcrConfidence] = useState<number | null>(null);
+  // 2B-2: قرار هوية المورد يتم في شاشة مراجعة الفاتورة. اسم الفاتورة يبقى
+  // Snapshot كما هو، بينما selectedSupplier هو رابط Supplier Master.
+  const [selectedSupplier, setSelectedSupplier] = useState<SupplierMatch | null>(null);
+  const [isNewSupplier, setIsNewSupplier] = useState(false);
+  // 2B-3 fix: SKU المورد قد يُكتب بعد فتح شاشة الأصناف. نعيد فحص ذاكرة
+  // المورد بعد توقف الكتابة بقليل، بدون استدعاء AI لكل ضغطة مفتاح.
+  const skuMatchTimersRef = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
+  const skuMatchVersionRef = useRef<Map<number, number>>(new Map());
+  // 2B-3 UAT: Single-flight/cache داخل جلسة مراجعة الفاتورة. إذا عاد المستخدم
+  // من شاشة الأصناف وضغط «التالي» لنفس المورد ونفس بيانات الأصناف، نعيد نفس
+  // النتيجة بدل تشغيل DeepSeek مرة أخرى. تغير الاسم/SKU/الوحدة/المورد ينتج key جديداً.
+  const itemMatchRequestCacheRef = useRef<Map<string, Promise<any[]>>>(new Map());
+  const [skuMatchingIndex, setSkuMatchingIndex] = useState<number | null>(null);
+  // 2B-4 UAT: بعد أول محاولة انتقال من مراجعة الأصناف، نظهر أخطاء
+  // قرار الكتالوج داخل البطاقات نفسها حتى يعرف المستخدم السطر المقصود
+  // عند وجود فاتورة متعددة الأصناف.
+  const [showCatalogDecisionErrors, setShowCatalogDecisionErrors] = useState(false);
 
   // ── Queries ────────────────────────────────────────────────
   const { data: po, isLoading: isPoLoading } = trpc.purchaseOrders.getById.useQuery(
     { id: poId! }, { enabled: !!poId }
+  );
+
+  const supplierSearchName = (invoiceData.vendorName || invoiceData.vendorNameEn || "").trim();
+  const { data: supplierMatches = [], isFetching: isMatchingSuppliers } = trpc.catalog.suppliers.match.useQuery(
+    {
+      query: supplierSearchName || undefined,
+      taxNumber: invoiceData.vendorTaxNumber?.trim() || undefined,
+      limit: 5,
+    },
+    {
+      enabled: step === "review" && !isNewSupplier && (supplierSearchName.length >= 2 || !!invoiceData.vendorTaxNumber?.trim()),
+    },
   );
 
   // تحميل بنود الطلب المرشّحة للربط (بحالة "توريد للمستودع" ونفس رقم الفاتورة)
@@ -162,6 +257,11 @@ export default function WarehouseReceiveV2() {
     setManualItemsInitialized(true);
   }, [manualEntrySelected, manualItemsInitialized, poCandidates, items.length]);
 
+  useEffect(() => () => {
+    skuMatchTimersRef.current.forEach(timer => clearTimeout(timer));
+    skuMatchTimersRef.current.clear();
+  }, []);
+
   // مطابقة تقريبية بالاسم لاقتراح ربط تلقائي بين صنف الفاتورة وبند الطلب —
   // اقتراح فقط قابل للتغيير يدوياً، وليس اعتماداً نهائياً
   const suggestPoMatch = (ocrItemName: string, used: Set<number>) => {
@@ -189,6 +289,8 @@ export default function WarehouseReceiveV2() {
 
       // ملء بيانات الفاتورة
       const inv = data.invoiceData;
+      setSelectedSupplier(null);
+      setIsNewSupplier(false);
       setInvoiceData({
         vendorName:      inv.vendorName,
         vendorNameEn:    inv.vendorNameEn,
@@ -238,6 +340,11 @@ export default function WarehouseReceiveV2() {
               itemType:            "consumable" as const,
               // الربط ببند الطلب (0 = غير مربوط بعد، يجب اختياره يدوياً قبل الحفظ)
               purchaseOrderItemId: suggested?.id || 0,
+              // 2B-1 + 2B-3: إذا كان بند الطلب من الكتالوج فهويته أقوى من أي مطابقة نصية.
+              linkedItemId:        suggested?.catalogItemId || undefined,
+              catalogLinkSource:   suggested?.catalogItemId ? "po" : undefined,
+              supplierItemCode:    ocrItem.supplierItemCode || undefined,
+              isNewCatalogItem:     false,
               requestedQuantity:   suggested?.quantity ?? receivedQty,
               receivedQuantity:    receivedQty,
               purchaseUnit:        ocrItem.unit || suggested?.unit || "قطعة",
@@ -298,14 +405,20 @@ export default function WarehouseReceiveV2() {
     }
   };
 
+  const itemMatchMut = trpc.catalog.itemSuppliers.matchInvoiceItems.useMutation();
+  const skuMatchMut = trpc.catalog.itemSuppliers.matchInvoiceItems.useMutation();
+
   const receiveMut = trpc.warehouseReceiptsV2.receiveFromPurchaseV2.useMutation({
     onSuccess: (data: any) => {
       toast.success(`تم الاستلام — فاتورة ${data.receiptNumber}`, {
         description: data.hasDiscrepancy ? "⚠️ تم تسجيل الفروقات" : "تم تحديث المخزون",
       });
       setSavedReceiptId(data.receiptId ?? null);
-      // عرض شاشة طباعة الباركود
-      if (data.inventoryItems && data.inventoryItems.length > 0) {
+      // 2B-8: عند تفعيل Lots نطبع QR الدفعة لكل عملية استلام؛ وإلا نبقي باركود Inventory التاريخي.
+      if (data.lotLabels && data.lotLabels.length > 0) {
+        setPrintItems(data.lotLabels);
+        setShowPrint(true);
+      } else if (data.inventoryItems && data.inventoryItems.length > 0) {
         setPrintItems(data.inventoryItems);
         setShowPrint(true);
       } else if (data.receiptId) {
@@ -329,6 +442,16 @@ export default function WarehouseReceiveV2() {
 
   // ── Helpers ────────────────────────────────────────────────
   const updateItem = (index: number, patch: Partial<ReceiveItem>) => {
+    // إذا حُسم السطر كـ"صنف جديد"، ألغِ أي مطابقة SKU معلقة حتى لا تعيد
+    // ربط Catalog Item بعد قرار المستخدم بسبب استجابة async متأخرة.
+    if (patch.isNewCatalogItem === true) {
+      const timer = skuMatchTimersRef.current.get(index);
+      if (timer) clearTimeout(timer);
+      skuMatchTimersRef.current.delete(index);
+      skuMatchVersionRef.current.set(index, (skuMatchVersionRef.current.get(index) || 0) + 1);
+      setSkuMatchingIndex(current => current === index ? null : current);
+    }
+
     setItems(prev => prev.map((item, idx) => {
       if (idx !== index) return item;
       const updated = { ...item, ...patch, manuallyEdited: true };
@@ -340,6 +463,122 @@ export default function WarehouseReceiveV2() {
       updated.lineTotal = (cost * qty + tax).toFixed(2);
       return updated;
     }));
+  };
+
+
+  const rematchSupplierSku = async (index: number, itemSnapshot: ReceiveItem, supplierItemCode: string, version: number) => {
+    const code = supplierItemCode.trim();
+    if (!selectedSupplier || !code) return;
+    if (itemSnapshot.catalogLinkSource === "po" || itemSnapshot.catalogLinkSource === "user") return;
+
+    setSkuMatchingIndex(index);
+    try {
+      const result = await skuMatchMut.mutateAsync({
+        supplierId: selectedSupplier.id,
+        items: [{
+          itemName: itemSnapshot.itemName,
+          itemNameEn: itemSnapshot.itemName_en,
+          supplierItemCode: code,
+          unit: itemSnapshot.purchaseUnit,
+        }],
+        limitPerItem: 5,
+        // إعادة مطابقة SKU أثناء الكتابة هدفها ذاكرة المورد فقط؛ AI يبقى
+        // للمرور الرئيسي عند الانتقال من مراجعة الفاتورة إلى الأصناف.
+        useAiFallback: false,
+      });
+
+      if (skuMatchVersionRef.current.get(index) !== version) return;
+
+      const row = result?.[0] as any;
+      const matches = (row?.matches || []) as CatalogItemMatch[];
+      const supplierMemoryMatch = matches.some(match =>
+        match.reason === "supplier_code_exact" ||
+        match.reason === "supplier_alias_exact" ||
+        match.reason === "supplier_alias_similar"
+      );
+
+      // إذا لم يعرف المورد هذا SKU/الاسم، نبقي اقتراحات الشاشة الحالية كما هي
+      // بدل استبدال ترتيب AI السابق بنتائج أضعف لمجرد تغيير الحقل.
+      if (!supplierMemoryMatch) return;
+
+      const autoId = row?.autoSelectedCatalogItemId || undefined;
+      setItems(prev => prev.map((current, idx) => {
+        if (idx !== index) return current;
+        if ((current.supplierItemCode || "").trim() !== code) return current;
+        if (current.isNewCatalogItem) return current;
+        if (current.catalogLinkSource === "po" || current.catalogLinkSource === "user") return current;
+
+        return {
+          ...current,
+          catalogMatches: matches,
+          linkedItemId: autoId || undefined,
+          catalogLinkSource: autoId ? "supplier_memory" : undefined,
+        };
+      }));
+
+      const exactSku = matches.find(match => match.reason === "supplier_code_exact");
+      if (autoId && exactSku) {
+        toast.success("تم التعرف على الصنف من SKU المورد", {
+          description: `${exactSku.nameAr} — Catalog #${autoId}`,
+        });
+      } else if (exactSku?.measurementStatus === "conflict") {
+        toast.warning("تم العثور على SKU معروف لكن توجد مواصفة/مقاس مختلف", {
+          description: "راجع التحذير قبل ربط الصنف يدوياً.",
+        });
+      }
+    } catch (err: any) {
+      toast.error("تعذرت إعادة مطابقة SKU المورد", {
+        description: err?.message || "يمكنك متابعة الربط اليدوي.",
+      });
+    } finally {
+      if (skuMatchVersionRef.current.get(index) === version) {
+        setSkuMatchingIndex(current => current === index ? null : current);
+      }
+    }
+  };
+
+  const handleSupplierItemCodeChange = (index: number, value: string) => {
+    const current = items[index];
+    if (!current) return;
+
+    const existingTimer = skuMatchTimersRef.current.get(index);
+    if (existingTimer) clearTimeout(existingTimer);
+    const version = (skuMatchVersionRef.current.get(index) || 0) + 1;
+    skuMatchVersionRef.current.set(index, version);
+
+    const clearSupplierMemoryLink = current.catalogLinkSource === "supplier_memory";
+    updateItem(index, {
+      supplierItemCode: value,
+      ...(clearSupplierMemoryLink
+        ? { linkedItemId: undefined, catalogLinkSource: undefined, catalogMatches: undefined }
+        : {}),
+    });
+
+    const code = value.trim();
+    if (current.isNewCatalogItem) {
+      skuMatchTimersRef.current.delete(index);
+      return;
+    }
+    if (!selectedSupplier || !code) {
+      skuMatchTimersRef.current.delete(index);
+      return;
+    }
+    // هوية PO أو اختيار المستخدم أقوى من SKU؛ لا نكتب فوق قرار مؤكد.
+    if (current.catalogLinkSource === "po" || current.catalogLinkSource === "user") return;
+
+    const snapshot: ReceiveItem = {
+      ...current,
+      supplierItemCode: value,
+      ...(clearSupplierMemoryLink
+        ? { linkedItemId: undefined, catalogLinkSource: undefined, catalogMatches: undefined }
+        : {}),
+    };
+
+    const timer = setTimeout(() => {
+      skuMatchTimersRef.current.delete(index);
+      void rematchSupplierSku(index, snapshot, value, version);
+    }, 450);
+    skuMatchTimersRef.current.set(index, timer);
   };
 
   const linkToInventory = (itemIndex: number, inventoryItem: any) => {
@@ -355,6 +594,39 @@ export default function WarehouseReceiveV2() {
   };
 
   const hasDiscrepancy = items.some(i => i.hasDiff);
+  const undecidedCatalogIndexes = items.reduce<number[]>((indexes, item, index) => {
+    if (!item.linkedItemId && !item.isNewCatalogItem) indexes.push(index);
+    return indexes;
+  }, []);
+  const undecidedCatalogIndexSet = new Set(undecidedCatalogIndexes);
+
+  const handleItemsNext = () => {
+    if (undecidedCatalogIndexes.length > 0) {
+      setShowCatalogDecisionErrors(true);
+      const firstIndex = undecidedCatalogIndexes[0];
+
+      // افتح أول بطاقة غير محسومة حتى تظهر خيارات الكتالوج والبيانات أمام المستخدم.
+      setItems(prev => prev.map((item, index) =>
+        index === firstIndex ? { ...item, expanded: true } : item
+      ));
+
+      toast.error(`يوجد ${undecidedCatalogIndexes.length} صنف يحتاج حسم مطابقة الكتالوج`, {
+        description: 'تم تمييز الأصناف غير المحسومة. اربط كل صنف بالكتالوج أو فعّل «صنف جديد».',
+      });
+
+      // انتقل بصرياً لأول سطر يحتاج قراراً؛ باقي الأسطر تبقى مميزة بوضوح.
+      window.setTimeout(() => {
+        document.getElementById(`receive-item-card-${firstIndex}`)?.scrollIntoView({
+          behavior: 'smooth',
+          block: 'center',
+        });
+      }, 0);
+      return;
+    }
+
+    setShowCatalogDecisionErrors(false);
+    setStep('confirm');
+  };
 
   const handleOcr = () => {
     if (!invoiceFile?.url) return;
@@ -366,6 +638,8 @@ export default function WarehouseReceiveV2() {
 
   const handleSkipOcr = () => {
     setManualEntrySelected(true);
+    setSelectedSupplier(null);
+    setIsNewSupplier(false);
     // بدون OCR، نعتمد بنود الطلب نفسها كأصناف مبدئية قابلة للتعديل يدوياً.
     // إن لم تكن وصلت بعد، useEffect أعلاه سيهيّئها فور وصول poCandidates.
     if (items.length === 0 && poCandidates.length > 0) {
@@ -377,12 +651,112 @@ export default function WarehouseReceiveV2() {
     setStep("review");
   };
 
+  const handleReviewNext = async () => {
+    if (isNewSupplier) {
+      if (!invoiceData.vendorName?.trim()) {
+        toast.error("اكتب اسم المورد قبل تحديد أنه مورد جديد");
+        return;
+      }
+    } else if (!selectedSupplier) {
+      toast.error("اختر المورد الصحيح من القائمة أو حدد «مورد جديد»");
+      return;
+    }
+
+    // 2B-3: بنود PO المرتبطة بالكتالوج معروفة مسبقاً ولا نعيد تخمينها.
+    // فقط البنود غير المرتبطة تمر عبر ذاكرة المورد ثم الكتالوج ثم AI fallback.
+    const unresolved = items
+      .map((item, index) => ({ item, index }))
+      .filter(({ item }) => !item.linkedItemId);
+
+    if (unresolved.length > 0) {
+      try {
+        const matchPayload = {
+          supplierId: selectedSupplier?.id,
+          items: unresolved.map(({ item }) => ({
+            itemName: item.itemName,
+            itemNameEn: item.itemName_en,
+            supplierItemCode: item.supplierItemCode,
+            unit: item.purchaseUnit,
+          })),
+          limitPerItem: 5,
+          useAiFallback: true,
+        };
+        const matchCacheKey = JSON.stringify(matchPayload);
+        let matchPromise = itemMatchRequestCacheRef.current.get(matchCacheKey);
+        if (!matchPromise) {
+          matchPromise = itemMatchMut.mutateAsync(matchPayload) as Promise<any[]>;
+          itemMatchRequestCacheRef.current.set(matchCacheKey, matchPromise);
+          matchPromise.catch(() => {
+            if (itemMatchRequestCacheRef.current.get(matchCacheKey) === matchPromise) {
+              itemMatchRequestCacheRef.current.delete(matchCacheKey);
+            }
+          });
+        } else {
+          console.info("[CatalogItemMatch] Reused review-session match cache");
+        }
+        const result = await matchPromise;
+
+        let autoSelected = 0;
+        let conflicts = 0;
+        setItems(prev => {
+          const next = [...prev];
+          result.forEach((row: any, resultIndex: number) => {
+            const targetIndex = unresolved[resultIndex]?.index;
+            if (targetIndex == null || !next[targetIndex]) return;
+            const matches = (row.matches || []) as CatalogItemMatch[];
+            const autoId = row.autoSelectedCatalogItemId || undefined;
+            if (autoId) autoSelected++;
+            if (matches.some(m => m.measurementStatus === "conflict")) conflicts++;
+            next[targetIndex] = {
+              ...next[targetIndex],
+              catalogMatches: matches,
+              linkedItemId: autoId || next[targetIndex].linkedItemId,
+              catalogLinkSource: autoId ? "supplier_memory" : next[targetIndex].catalogLinkSource,
+            };
+          });
+          return next;
+        });
+
+        if (autoSelected > 0) {
+          toast.success(`تم التعرف تلقائياً على ${autoSelected} صنف من ذاكرة المورد`);
+        }
+        if (conflicts > 0) {
+          toast.warning(`يوجد ${conflicts} صنف به اختلاف مواصفة/مقاس — يحتاج تأكيداً يدوياً`);
+        }
+      } catch (err: any) {
+        toast.error("تعذرت مطابقة أصناف الكتالوج", {
+          description: err?.message || "يمكنك متابعة الاستلام والربط يدوياً لاحقاً",
+        });
+      }
+    }
+
+    setStep("items");
+  };
+
   const handleSubmit = () => {
-    const invalid = items.find(i => !i.unitCost || i.receivedQuantity < 1);
+    const invalid = items.find(i => !i.unitCost || i.receivedQuantity < 0.001);
     if (invalid) {
       toast.error(`أكمل بيانات: ${invalid.itemName}`);
       return;
     }
+
+    // 2B-4: كل سطر يجب أن يحسم قرار Catalog Master قبل تأكيد الاستلام:
+    // إما Catalog Item موجود، أو "صنف جديد". علامة الصنف الجديد نفسها لا
+    // تمنع الاستلام؛ هي فقط تحفظ قرار الـMaster Data للخطوة 2B-5.
+    const undecidedCatalogItem = items.find(i => !i.linkedItemId && !i.isNewCatalogItem);
+    if (undecidedCatalogItem) {
+      toast.error(`احسم مطابقة الكتالوج للصنف: ${undecidedCatalogItem.itemName}`, {
+        description: 'اختر صنفاً موجوداً من الاقتراحات/البحث، أو فعّل «صنف جديد».',
+      });
+      return;
+    }
+
+    const contradictoryCatalogItem = items.find(i => i.linkedItemId && i.isNewCatalogItem);
+    if (contradictoryCatalogItem) {
+      toast.error(`قرار كتالوج متعارض للصنف: ${contradictoryCatalogItem.itemName}`);
+      return;
+    }
+
     // الربط ببند طلب الشراء اختياري (قد يكون الصنف زائداً عن الطلب الأصلي)،
     // لكن لو رُبط أكثر من صنف بنفس البند بالخطأ فهذا تعارض منطقي نمنعه
     const idCounts = new Map<number, number>();
@@ -400,6 +774,8 @@ export default function WarehouseReceiveV2() {
       vendorName:       invoiceData.vendorName,
       vendorNameEn:     invoiceData.vendorNameEn,
       vendorTaxNumber:  invoiceData.vendorTaxNumber,
+      catalogSupplierId: selectedSupplier?.id,
+      isNewSupplier,
       invoiceNumber:    invoiceData.invoiceNumber,
       invoiceDate:      invoiceData.invoiceDate,
       subtotal:         invoiceData.subtotal,
@@ -414,6 +790,9 @@ export default function WarehouseReceiveV2() {
       items: items.map(i => ({
         purchaseOrderItemId: i.purchaseOrderItemId || undefined,
         inventoryId:         i.inventoryId,
+        linkedItemId:        i.linkedItemId,
+        supplierItemCode:    i.supplierItemCode,
+        isNewCatalogItem:    !!i.isNewCatalogItem,
         itemName:            i.itemName,
         itemName_ar:         i.itemName_ar,
         itemName_en:         i.itemName_en,
@@ -430,7 +809,6 @@ export default function WarehouseReceiveV2() {
         lineTotal:           i.lineTotal,
         manufacturerBarcode: i.manufacturerBarcode,
         expiryDate:          i.expiryDate,
-        warehouseId:         1,
         ocrExtracted:        i.ocrExtracted,
         manuallyEdited:      i.manuallyEdited,
       })),
@@ -640,11 +1018,108 @@ export default function WarehouseReceiveV2() {
 
               <div className="grid grid-cols-2 gap-3">
                 <Field label="اسم المورد">
-                  <Input value={invoiceData.vendorName || ""} onChange={e => setInvoiceData(p => ({ ...p, vendorName: e.target.value }))} placeholder="اسم المورد" />
+                  <Input
+                    value={invoiceData.vendorName || ""}
+                    onChange={e => {
+                      setInvoiceData(p => ({ ...p, vendorName: e.target.value }));
+                      setSelectedSupplier(null);
+                      setIsNewSupplier(false);
+                    }}
+                    placeholder="اسم المورد"
+                  />
                 </Field>
                 <Field label="الرقم الضريبي">
-                  <Input value={invoiceData.vendorTaxNumber || ""} onChange={e => setInvoiceData(p => ({ ...p, vendorTaxNumber: e.target.value }))} placeholder="3xxxxxxxxxxxxxx" dir="ltr" className="font-mono" />
+                  <Input
+                    value={invoiceData.vendorTaxNumber || ""}
+                    onChange={e => {
+                      setInvoiceData(p => ({ ...p, vendorTaxNumber: e.target.value }));
+                      setSelectedSupplier(null);
+                    }}
+                    placeholder="3xxxxxxxxxxxxxx" dir="ltr" className="font-mono"
+                  />
                 </Field>
+
+                {/* 2B-2 — Supplier Master resolution. AI/OCR يقرأ الاسم، والخوارزمية
+                    ترتب الموردين الأقرب، والمستخدم يؤكد أو يحدد «مورد جديد». */}
+                <div className="col-span-2 rounded-lg border bg-muted/20 p-3 space-y-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <div>
+                      <p className="text-sm font-medium flex items-center gap-1.5">
+                        <Building2 className="w-4 h-4" /> تحديد المورد المركزي
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        نحتفظ باسم الفاتورة كما هو، ونربطه بالمورد المعتمد في الكتالوج.
+                      </p>
+                    </div>
+                    {isMatchingSuppliers && <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />}
+                  </div>
+
+                  {selectedSupplier && !isNewSupplier && (
+                    <div className="flex items-center justify-between gap-2 rounded-md border border-green-200 bg-green-50 p-2.5">
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-green-800 truncate">{selectedSupplier.nameAr}</p>
+                        <p className="text-xs text-green-700">تم تأكيد المورد المركزي · تطابق {selectedSupplier.score}%</p>
+                      </div>
+                      <Button size="sm" variant="outline" onClick={() => setSelectedSupplier(null)}>تغيير</Button>
+                    </div>
+                  )}
+
+                  {!selectedSupplier && !isNewSupplier && supplierSearchName.length >= 2 && (
+                    <div className="space-y-1.5">
+                      <p className="text-xs text-muted-foreground flex items-center gap-1">
+                        <Search className="w-3.5 h-3.5" /> الموردون الأقرب
+                      </p>
+                      {supplierMatches.length > 0 ? (
+                        <div className="space-y-1.5">
+                          {(supplierMatches as SupplierMatch[]).map(match => (
+                            <button
+                              key={match.id}
+                              type="button"
+                              onClick={() => { setSelectedSupplier(match); setIsNewSupplier(false); }}
+                              className="w-full text-right rounded-md border bg-background hover:bg-muted/60 p-2.5 transition-colors"
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="min-w-0">
+                                  <p className="text-sm font-medium truncate">{match.nameAr}</p>
+                                  {match.nameEn && <p className="text-xs text-muted-foreground truncate" dir="ltr">{match.nameEn}</p>}
+                                </div>
+                                <Badge variant="outline" className="shrink-0">{match.score}%</Badge>
+                              </div>
+                              <p className="text-[11px] text-muted-foreground mt-1">
+                                {supplierMatchReasonLabel(match.reason)}
+                                {match.taxNumber ? ` · ضريبي: ${match.taxNumber}` : ""}
+                              </p>
+                            </button>
+                          ))}
+                        </div>
+                      ) : !isMatchingSuppliers ? (
+                        <p className="text-xs text-muted-foreground">لم نجد مورداً قريباً. إذا كان جديداً فعّل الخيار أدناه.</p>
+                      ) : null}
+                    </div>
+                  )}
+
+                  <label className="flex items-center gap-2 cursor-pointer rounded-md border p-2.5 bg-background">
+                    <Checkbox
+                      checked={isNewSupplier}
+                      onCheckedChange={(checked) => {
+                        const next = checked === true;
+                        setIsNewSupplier(next);
+                        if (next) setSelectedSupplier(null);
+                      }}
+                    />
+                    <div>
+                      <p className="text-sm font-medium">مورد جديد</p>
+                      <p className="text-xs text-muted-foreground">يستمر الاستلام طبيعيًا ويرسل المورد للمراجعة في الكتالوج.</p>
+                    </div>
+                  </label>
+
+                  {isNewSupplier && (
+                    <div className="text-xs rounded-md border border-amber-200 bg-amber-50 text-amber-800 p-2.5">
+                      سيتم إنشاء Supplier Candidate بعد تأكيد الاستلام، ولن يتوقف المخزون بانتظار اعتماده.
+                    </div>
+                  )}
+                </div>
+
                 <Field label="رقم الفاتورة">
                   <Input value={invoiceData.invoiceNumber || ""} onChange={e => setInvoiceData(p => ({ ...p, invoiceNumber: e.target.value }))} placeholder="INV-001" dir="ltr" />
                 </Field>
@@ -703,10 +1178,12 @@ export default function WarehouseReceiveV2() {
             </Button>
             <Button
               className="flex-1"
-              disabled={manualEntrySelected && (isPoLoading || !initialized || !manualItemsInitialized)}
-              onClick={() => setStep("items")}
+              disabled={itemMatchMut.isPending || (manualEntrySelected && (isPoLoading || !initialized || !manualItemsInitialized))}
+              onClick={handleReviewNext}
             >
-              {manualEntrySelected && (isPoLoading || !initialized || !manualItemsInitialized) ? (
+              {itemMatchMut.isPending ? (
+                <><Loader2 className="w-4 h-4 ml-1 animate-spin" /> مطابقة أصناف الكتالوج...</>
+              ) : manualEntrySelected && (isPoLoading || !initialized || !manualItemsInitialized) ? (
                 <><Loader2 className="w-4 h-4 ml-1 animate-spin" /> جاري تحميل الأصناف...</>
               ) : (
                 "التالي: مراجعة الأصناف"
@@ -730,6 +1207,7 @@ export default function WarehouseReceiveV2() {
               onClick={() => setItems(prev => [...prev, {
                 purchaseOrderItemId: 0, // غير مربوط بعد — يجب اختيار بند الطلب قبل الحفظ
                 itemName:            "صنف جديد",
+                isNewCatalogItem:     false,
                 itemType:            "consumable" as const,
                 requestedQuantity:   1,
                 receivedQuantity:    1,
@@ -757,6 +1235,23 @@ export default function WarehouseReceiveV2() {
             </div>
           )}
 
+          {showCatalogDecisionErrors && undecidedCatalogIndexes.length > 0 && (
+            <div
+              role="alert"
+              className="flex items-start gap-2 rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive"
+            >
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+              <div>
+                <p className="font-medium">
+                  يوجد {undecidedCatalogIndexes.length} صنف يحتاج حسم مطابقة الكتالوج قبل المتابعة.
+                </p>
+                <p className="mt-0.5 text-xs">
+                  تم تمييز كل صنف غير محسوم أدناه. اختر صنفاً موجوداً في الكتالوج أو فعّل «صنف جديد».
+                </p>
+              </div>
+            </div>
+          )}
+
           {items.map((item, index) => (
             <ReceiveItemCard
               key={index}
@@ -765,6 +1260,9 @@ export default function WarehouseReceiveV2() {
               poCandidates={poCandidates}
               linkedElsewhereIds={new Set(items.filter((_, i) => i !== index).map(i => i.purchaseOrderItemId).filter(Boolean))}
               onUpdate={(patch) => updateItem(index, patch)}
+              onSupplierItemCodeChange={(value) => handleSupplierItemCodeChange(index, value)}
+              isSkuMatching={skuMatchingIndex === index}
+              catalogDecisionError={showCatalogDecisionErrors && undecidedCatalogIndexSet.has(index)}
               onLink={(inv) => linkToInventory(index, inv)}
               onDelete={() => setItems(prev => prev.filter((_, i) => i !== index))}
             />
@@ -774,7 +1272,7 @@ export default function WarehouseReceiveV2() {
             <Button variant="outline" className="flex-1" onClick={() => setStep("review")}>
               <ArrowRight className="w-4 h-4 ml-1" /> رجوع
             </Button>
-            <Button className="flex-1" onClick={() => setStep("confirm")}>
+            <Button className="flex-1" onClick={handleItemsNext}>
               التالي: تأكيد الاستلام
             </Button>
           </div>
@@ -792,8 +1290,12 @@ export default function WarehouseReceiveV2() {
 
               <div className="space-y-2">
                 {invoiceData.vendorName && (
-                  <SummaryRow label="المورد" value={invoiceData.vendorName} />
+                  <SummaryRow label="اسم المورد في الفاتورة" value={invoiceData.vendorName} />
                 )}
+                <SummaryRow
+                  label="هوية المورد"
+                  value={isNewSupplier ? "مورد جديد — بانتظار مراجعة الكتالوج" : (selectedSupplier?.nameAr || "غير محدد")}
+                />
                 {invoiceData.invoiceNumber && (
                   <SummaryRow label="رقم الفاتورة" value={invoiceData.invoiceNumber} mono />
                 )}
@@ -881,22 +1383,51 @@ function StepIndicator({ current }: { current: Step }) {
   );
 }
 
-function ReceiveItemCard({ item, index, poCandidates, linkedElsewhereIds, onUpdate, onLink, onDelete }: {
+function ReceiveItemCard({ item, index, poCandidates, linkedElsewhereIds, onUpdate, onSupplierItemCodeChange, isSkuMatching, catalogDecisionError, onLink, onDelete }: {
   item:     ReceiveItem;
   index:    number;
   poCandidates: any[];
   linkedElsewhereIds: Set<number>;
   onUpdate: (patch: Partial<ReceiveItem>) => void;
+  onSupplierItemCodeChange: (value: string) => void;
+  isSkuMatching: boolean;
+  catalogDecisionError: boolean;
   onLink:   (inv: any) => void;
   onDelete?: () => void;
 }) {
+  const [catalogMatchMode, setCatalogMatchMode] = useState<"smart" | "manual">("smart");
+  const [catalogSearch, setCatalogSearch] = useState("");
+
   const similarQuery = trpc.warehouseReceiptsV2.findSimilarItems.useQuery(
     { itemName: item.itemName },
     { enabled: item.showSimilar && !item.inventoryId }
   );
 
+  const manualCatalogQuery = trpc.catalog.items.list.useQuery(
+    {
+      search: catalogSearch.trim() || undefined,
+      isActive: true,
+      limit: 20,
+      offset: 0,
+    },
+    {
+      enabled: catalogMatchMode === "manual" && catalogSearch.trim().length >= 2,
+    },
+  );
+
+  const smartMatches = (item.catalogMatches || [])
+    .filter(isReviewableCatalogMatch)
+    .slice(0, 3);
+
   return (
-    <Card className={cn("transition-colors", item.hasDiff && "border-amber-300")}>
+    <Card
+      id={`receive-item-card-${index}`}
+      className={cn(
+        "transition-colors scroll-mt-4",
+        item.hasDiff && "border-amber-300",
+        catalogDecisionError && "border-destructive ring-1 ring-destructive/20",
+      )}
+    >
       <CardContent className="pt-4 space-y-3">
 
         {/* ربط الصنف ببند طلب الشراء — اختياري: قد يكون الصنف زائداً عن
@@ -914,6 +1445,11 @@ function ReceiveItemCard({ item, index, poCandidates, linkedElsewhereIds, onUpda
                 requestedQuantity:   cand?.quantity ?? item.requestedQuantity,
                 expectedUnitCost:    cand?.estimatedUnitCost || undefined,
                 purchaseUnit:        item.purchaseUnit || cand?.unit || "قطعة",
+                ...(cand?.catalogItemId
+                  ? { linkedItemId: cand.catalogItemId, catalogLinkSource: "po" as const }
+                  : item.catalogLinkSource === "po"
+                    ? { linkedItemId: undefined, catalogLinkSource: undefined }
+                    : {}),
               });
             }}
           >
@@ -943,7 +1479,12 @@ function ReceiveItemCard({ item, index, poCandidates, linkedElsewhereIds, onUpda
               <input
                 className="font-medium text-sm flex-1 bg-transparent border-b border-transparent hover:border-border focus:border-primary focus:outline-none truncate"
                 value={item.itemName}
-                onChange={e => onUpdate({ itemName: e.target.value })}
+                onChange={e => onUpdate({
+                  itemName: e.target.value,
+                  ...(item.catalogLinkSource !== "po"
+                    ? { linkedItemId: undefined, catalogLinkSource: undefined, catalogMatches: undefined }
+                    : {}),
+                })}
                 placeholder="اسم الصنف"
               />
               {item.ocrExtracted && (
@@ -997,6 +1538,247 @@ function ReceiveItemCard({ item, index, poCandidates, linkedElsewhereIds, onUpda
           ))}
         </div>
 
+        {catalogDecisionError && (
+          <div
+            role="alert"
+            className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/5 p-2.5 text-destructive"
+          >
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            <div>
+              <p className="text-sm font-medium">يجب حسم مطابقة الكتالوج لهذا الصنف قبل المتابعة.</p>
+              <p className="mt-0.5 text-xs">
+                اختر صنفاً موجوداً من «الاقتراحات الذكية» أو «بحث في الكتالوج»، أو فعّل «صنف جديد».
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* 2B-4: قرار "صنف جديد" يتم هنا أثناء مراجعة الفاتورة، وليس بعد الاستلام. */}
+        <div className={cn(
+          "rounded-lg border p-2.5",
+          item.isNewCatalogItem ? "border-amber-300 bg-amber-50/60" : "bg-background"
+        )}>
+          <div className="flex items-start gap-2">
+            <Checkbox
+              id={`new-catalog-item-${index}`}
+              checked={!!item.isNewCatalogItem}
+              disabled={item.catalogLinkSource === "po"}
+              onCheckedChange={(checked) => {
+                const next = checked === true;
+                if (next && item.catalogLinkSource === "po") return;
+
+                if (next && item.linkedItemId) {
+                  const confirmed = window.confirm(
+                    "هذا السطر مرتبط حالياً بصنف في الكتالوج. تفعيل «صنف جديد» سيلغي هذا الربط لهذا السطر فقط. هل تريد المتابعة؟"
+                  );
+                  if (!confirmed) return;
+                }
+
+                onUpdate({
+                  isNewCatalogItem: next,
+                  ...(next
+                    ? { linkedItemId: undefined, catalogLinkSource: undefined }
+                    : {}),
+                });
+              }}
+            />
+            <div className="min-w-0">
+              <Label htmlFor={`new-catalog-item-${index}`} className={cn(
+                "text-sm font-medium",
+                item.catalogLinkSource === "po" && "text-muted-foreground"
+              )}>
+                صنف جديد — غير موجود في الكتالوج
+              </Label>
+              {item.catalogLinkSource === "po" ? (
+                <p className="text-[11px] text-muted-foreground mt-0.5">
+                  بند طلب الشراء مرتبط مسبقاً بصنف Catalog، لذلك لا يمكن اعتباره صنفاً جديداً من هذه الشاشة.
+                </p>
+              ) : item.isNewCatalogItem ? (
+                <p className="text-[11px] text-amber-800 mt-0.5">
+                  تم تعليم هذا السطر كصنف جديد. بعد تأكيد الاستلام سيُنشأ له مرشح «Pending Catalog Review» تلقائياً بدون إيقاف الاستلام أو المخزون.
+                </p>
+              ) : (
+                <p className="text-[11px] text-muted-foreground mt-0.5">
+                  فعّله فقط إذا لم تجد الصنف الصحيح في الاقتراحات الذكية أو البحث في الكتالوج.
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* 2B-3: مطابقة Catalog Item المركزية — منفصلة عن ربط سجل المخزون */}
+        {!item.isNewCatalogItem && (
+        <div className="space-y-2 rounded-lg border p-2.5 bg-muted/20">
+          <div className="flex items-center justify-between gap-2">
+            <Label className="text-xs font-medium">مطابقة صنف الكتالوج</Label>
+            {item.linkedItemId ? (
+              <Badge className="text-xs bg-green-50 text-green-700 border-green-200">
+                مرتبط #{item.linkedItemId}
+              </Badge>
+            ) : (
+              <Badge variant="outline" className="text-xs text-muted-foreground">غير مرتبط</Badge>
+            )}
+          </div>
+
+          {item.catalogLinkSource === "po" && item.linkedItemId && (
+            <p className="text-xs text-green-700">هوية الكتالوج مأخوذة من بند طلب الشراء المرتبط مسبقاً.</p>
+          )}
+
+          {item.catalogLinkSource !== "po" && (
+            <div className="grid grid-cols-2 gap-1 rounded-md bg-muted/60 p-1">
+              <Button
+                type="button"
+                size="sm"
+                variant={catalogMatchMode === "smart" ? "secondary" : "ghost"}
+                className="h-8 gap-1.5 text-xs"
+                onClick={() => setCatalogMatchMode("smart")}
+              >
+                <Sparkles className="w-3.5 h-3.5" /> اقتراحات ذكية
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant={catalogMatchMode === "manual" ? "secondary" : "ghost"}
+                className="h-8 gap-1.5 text-xs"
+                onClick={() => setCatalogMatchMode("manual")}
+              >
+                <Search className="w-3.5 h-3.5" /> بحث في الكتالوج
+              </Button>
+            </div>
+          )}
+
+          {item.catalogLinkSource !== "po" && catalogMatchMode === "smart" && (
+            <div className="space-y-1.5">
+              {isSkuMatching && (
+                <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" /> يتم فحص ذاكرة المورد...
+                </div>
+              )}
+
+              {smartMatches.length > 0 ? smartMatches.map(match => {
+                const selected = item.linkedItemId === match.catalogItemId;
+                return (
+                  <button
+                    key={match.catalogItemId}
+                    type="button"
+                    className={cn(
+                      "w-full text-right rounded border p-2 transition-colors",
+                      selected ? "border-green-300 bg-green-50" : "hover:bg-muted/60",
+                      match.measurementStatus === "conflict" && "border-amber-300 bg-amber-50/50",
+                    )}
+                    onClick={() => {
+                      if (match.measurementStatus === "conflict") {
+                        const ok = window.confirm(
+                          `${match.measurementNote || "يوجد اختلاف في المقاس/المواصفة"}\n\nهل تريد تأكيد أن هذا هو نفس الصنف رغم الاختلاف؟`
+                        );
+                        if (!ok) return;
+                      }
+                      onUpdate({ linkedItemId: match.catalogItemId, catalogLinkSource: "user" });
+                    }}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium">{match.nameAr}</p>
+                        {match.nameEn && <p className="text-xs text-muted-foreground" dir="ltr">{match.nameEn}</p>}
+                        <div className="flex gap-1 flex-wrap mt-1">
+                          <Badge variant="outline" className="text-[10px]">{catalogMatchReasonLabel(match.reason)}</Badge>
+                          <Badge variant="outline" className="text-[10px]">{match.score}%</Badge>
+                          {match.measurementStatus === "compatible" && (
+                            <Badge className="text-[10px] bg-green-50 text-green-700 border-green-200">المقاس متوافق</Badge>
+                          )}
+                          {match.measurementStatus === "conflict" && (
+                            <Badge className="text-[10px] bg-amber-50 text-amber-800 border-amber-300">اختلاف مقاس</Badge>
+                          )}
+                        </div>
+                        {match.measurementNote && (
+                          <p className="text-[11px] text-amber-700 mt-1">{match.measurementNote}</p>
+                        )}
+                      </div>
+                      {selected && <CheckCircle2 className="w-4 h-4 text-green-600 shrink-0 mt-0.5" />}
+                    </div>
+                  </button>
+                );
+              }) : (
+                <div className="rounded-md border border-dashed p-2.5 text-xs text-muted-foreground">
+                  لم يتم العثور على تطابق موثوق. استخدم «بحث في الكتالوج» لاختيار الصنف يدوياً.
+                </div>
+              )}
+
+              {(item.catalogMatches?.length || 0) > smartMatches.length && smartMatches.length > 0 && (
+                <p className="text-[11px] text-muted-foreground">
+                  تم إخفاء الاقتراحات الضعيفة لتقليل الربط الخاطئ.
+                </p>
+              )}
+            </div>
+          )}
+
+          {item.catalogLinkSource !== "po" && catalogMatchMode === "manual" && (
+            <div className="space-y-2">
+              <div className="relative">
+                <Search className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <Input
+                  value={catalogSearch}
+                  onChange={e => setCatalogSearch(e.target.value)}
+                  placeholder="ابحث باسم الصنف أو الاسم الإنجليزي أو كود الكتالوج"
+                  className="pr-8"
+                />
+              </div>
+
+              {catalogSearch.trim().length < 2 ? (
+                <p className="text-xs text-muted-foreground">اكتب حرفين على الأقل للبحث في أصناف الكتالوج النشطة.</p>
+              ) : manualCatalogQuery.isFetching ? (
+                <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" /> جاري البحث في الكتالوج...
+                </div>
+              ) : (manualCatalogQuery.data || []).length > 0 ? (
+                <div className="space-y-1.5 max-h-64 overflow-y-auto pr-0.5">
+                  {(manualCatalogQuery.data || []).map((catalogItem: any) => {
+                    const selected = item.linkedItemId === catalogItem.id;
+                    return (
+                      <button
+                        key={catalogItem.id}
+                        type="button"
+                        className={cn(
+                          "w-full rounded border p-2 text-right transition-colors",
+                          selected ? "border-green-300 bg-green-50" : "hover:bg-muted/60",
+                        )}
+                        onClick={() => {
+                          onUpdate({ linkedItemId: catalogItem.id, catalogLinkSource: "user" });
+                          toast.success("تم اختيار صنف الكتالوج", {
+                            description: `${catalogItem.nameAr} — Catalog #${catalogItem.id}`,
+                          });
+                        }}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium">{catalogItem.nameAr}</p>
+                            {catalogItem.nameEn && (
+                              <p className="text-xs text-muted-foreground" dir="ltr">{catalogItem.nameEn}</p>
+                            )}
+                            <div className="flex gap-1 flex-wrap mt-1">
+                              {catalogItem.code && <Badge variant="outline" className="text-[10px]">{catalogItem.code}</Badge>}
+                              {catalogItem.unit && <Badge variant="outline" className="text-[10px]">{catalogItem.unit}</Badge>}
+                              {catalogItem.manufacturer && <Badge variant="outline" className="text-[10px]">{catalogItem.manufacturer}</Badge>}
+                            </div>
+                          </div>
+                          {selected && <CheckCircle2 className="w-4 h-4 text-green-600 shrink-0 mt-0.5" />}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground">لا توجد نتائج بهذا البحث. جرّب جزءاً أقصر من الاسم أو كود الكتالوج.</p>
+              )}
+
+              <p className="text-[11px] text-muted-foreground">
+                عند تأكيد الاستلام، سيُحفظ اسم الصنف الحالي كاسم معروف لهذا المورد للصنف الذي اخترته، حتى بدون SKU.
+              </p>
+            </div>
+          )}
+        </div>
+        )}
+
         {/* الحقول */}
         {item.expanded && (
           <div className="space-y-3">
@@ -1043,6 +1825,24 @@ function ReceiveItemCard({ item, index, poCandidates, linkedElsewhereIds, onUpda
                 <Input value={parseFloat(item.lineTotal || "0").toFixed(2)} readOnly dir="ltr" className="font-mono bg-muted/30" />
               </Field>
             </div>
+
+            <Field label="كود / SKU الصنف لدى المورد (اختياري)">
+              <div className="relative">
+                <Input
+                  value={item.supplierItemCode || ""}
+                  onChange={e => onSupplierItemCodeChange(e.target.value)}
+                  placeholder="كما هو مكتوب في فاتورة المورد"
+                  dir="ltr"
+                  className={cn("font-mono", isSkuMatching && "pe-9")}
+                />
+                {isSkuMatching && (
+                  <Loader2 className="absolute end-2 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-muted-foreground" />
+                )}
+              </div>
+              {isSkuMatching && (
+                <p className="text-[11px] text-muted-foreground mt-1">جارٍ فحص SKU في ذاكرة المورد…</p>
+              )}
+            </Field>
 
             {/* باركود المصنع */}
             <Field label="باركود المصنع (اختياري)">
@@ -1167,7 +1967,7 @@ function BarcodesPrintScreen({ items, onDone, onPrintReceipt }: { items: any[]; 
     <div className="min-h-screen bg-gray-100 p-4" dir="rtl">
       {/* شريط العنوان */}
       <div className="print-hidden max-w-2xl mx-auto mb-4 flex items-center justify-between flex-wrap gap-2">
-        <h1 className="text-lg font-bold">طباعة باركودات الأصناف</h1>
+        <h1 className="text-lg font-bold">{items.some((i: any) => i.trackingToken) ? "طباعة QR دفعات الاستلام" : "طباعة باركودات الأصناف"}</h1>
         <div className="flex gap-2 flex-wrap">
           {onPrintReceipt && (
             <button
@@ -1182,7 +1982,7 @@ function BarcodesPrintScreen({ items, onDone, onPrintReceipt }: { items: any[]; 
               onClick={handlePrint}
               className="bg-primary text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-primary/90"
             >
-              🖨️ طباعة الباركودات
+              {items.some((i: any) => i.trackingToken) ? "🖨️ طباعة QR الدفعات" : "🖨️ طباعة الباركودات"}
             </button>
           )}
           <button
@@ -1216,16 +2016,21 @@ function BarcodesPrintScreen({ items, onDone, onPrintReceipt }: { items: any[]; 
           >
             {/* QR Code على اليسار */}
             <div style={{ flexShrink: 0 }}>
-              <QRCodeCanvas value={item.manufacturerBarcode || item.internalCode || String(idx)} size={110} />
+              <QRCodeCanvas value={item.trackingToken || item.manufacturerBarcode || item.internalCode || String(idx)} size={110} />
             </div>
             {/* الرقم + اسم الصنف على اليمين */}
             <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "flex-end", justifyContent: "center", overflow: "hidden", paddingRight: "2px", gap: "3px" }}>
               <span style={{ fontFamily: "monospace", fontWeight: "bold", fontSize: "13px", color: "#000", textAlign: "right", direction: "ltr" }}>
-                {item.manufacturerBarcode || item.internalCode}
+                {item.lotCode || item.manufacturerBarcode || item.internalCode}
               </span>
               <span style={{ fontSize: "10px", color: "#222", textAlign: "right", direction: "rtl", lineHeight: "1.3", wordBreak: "break-word", maxWidth: "100%" }}>
                 {item.itemName}
               </span>
+              {item.trackingToken && (
+                <span style={{ fontSize: "8px", color: "#555", textAlign: "right", direction: "rtl" }}>
+                  دفعة استلام — {item.quantity} {item.unit || ""}
+                </span>
+              )}
             </div>
           </div>
         ))}

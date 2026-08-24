@@ -42,16 +42,46 @@ import {
   inventorySettlementItems,
   inventoryCountNumberCounter,
   inventorySettlementNumberCounter,
+  catalogItems,
+  catalogNodes,
 } from "../../../drizzle/schema";
 import { ENV } from '../env';
 
 
 import { getDb } from "./client";
-import { calculateInventoryValue, calculateMovementTotal } from "../inventory-costing";
+import { calculateInventoryValue, calculateMovementTotal, normalizeInventoryQuantity } from "../inventory-costing";
 
 // ============================================================
 // INVENTORY
 // ============================================================
+
+/**
+ * Future-facing Inventory identity guard for receipt flows.
+ * Catalog Item is the master identity; Inventory is the stock state inside a warehouse.
+ * We intentionally return at most two rows: one means safe automatic reuse, two means
+ * legacy ambiguity that must not be resolved by creating a third Inventory row.
+ */
+export async function getInventoryMatchesByCatalogItemAndWarehouse(
+  catalogItemId: number,
+  warehouseId: number,
+  tx?: any,
+) {
+  const db = tx || await getDb();
+  if (!db) return [];
+
+  return db.select({
+    id: inventory.id,
+    warehouseId: inventory.warehouseId,
+    linkedItemId: inventory.linkedItemId,
+  })
+    .from(inventory)
+    .where(and(
+      eq(inventory.linkedItemId, catalogItemId),
+      eq(inventory.warehouseId, warehouseId),
+    ))
+    .limit(2);
+}
+
 export async function getInventoryItems() {
   const db = await getDb();
   if (!db) return [];
@@ -158,17 +188,122 @@ export async function getInventoryItems() {
   }));
 }
 
+// 2B-9 — طبقة قراءة إضافية لتصنيف Inventory من Master Catalog فقط.
+// لا تغيّر عقد getInventoryItems() التاريخية ولا تضيف أي تصنيف مخزَّن على inventory.
+// الواجهة تدمج هذه النتيجة مع القائمة حسب inventoryId.
+export async function getInventoryCatalogTaxonomy() {
+  const db = await getDb();
+  if (!db) return [];
+
+  const links = await db
+    .select({
+      inventoryId: inventory.id,
+      catalogItemId: inventory.linkedItemId,
+    })
+    .from(inventory)
+    .where(isNotNull(inventory.linkedItemId));
+
+  if (links.length === 0) return [];
+
+  const catalogItemIds = Array.from(new Set(
+    links
+      .map((row: any) => Number(row.catalogItemId || 0))
+      .filter((id: number) => id > 0),
+  ));
+  if (catalogItemIds.length === 0) return [];
+
+  const linkedCatalogItems = await db.select({
+    id: catalogItems.id,
+    code: catalogItems.code,
+    nameAr: catalogItems.nameAr,
+    nameEn: catalogItems.nameEn,
+    nodeId: catalogItems.nodeId,
+  }).from(catalogItems).where(inArray(catalogItems.id, catalogItemIds));
+
+  const catalogItemById = new Map<number, any>(
+    (linkedCatalogItems as any[]).map((item: any) => [Number(item.id), item]),
+  );
+
+  // نحتاج سلسلة الآباء كاملة لدعم فلترة أي Subtree؛ قراءة الشجرة مرة واحدة
+  // تمنع N+1 ولا تنشئ أي mapping أو Taxonomy موازية.
+  const taxonomyNodes = await db.select({
+    id: catalogNodes.id,
+    parentId: catalogNodes.parentId,
+    level: catalogNodes.level,
+    code: catalogNodes.code,
+    nameAr: catalogNodes.nameAr,
+    nameEn: catalogNodes.nameEn,
+    isActive: catalogNodes.isActive,
+  }).from(catalogNodes);
+
+  const catalogNodeById = new Map<number, any>(
+    (taxonomyNodes as any[]).map((node: any) => [Number(node.id), node]),
+  );
+  const pathCache = new Map<number, any[]>();
+
+  const buildPath = (nodeId: number | null | undefined): any[] => {
+    const numericNodeId = Number(nodeId || 0);
+    if (!numericNodeId) return [];
+    const cached = pathCache.get(numericNodeId);
+    if (cached) return cached;
+
+    const path: any[] = [];
+    const visited = new Set<number>();
+    let currentId: number | null = numericNodeId;
+    for (let depth = 0; currentId && depth < 50; depth += 1) {
+      if (visited.has(currentId)) break;
+      visited.add(currentId);
+      const node = catalogNodeById.get(currentId);
+      if (!node) break;
+      path.unshift(node);
+      currentId = node.parentId == null ? null : Number(node.parentId);
+    }
+    pathCache.set(numericNodeId, path);
+    return path;
+  };
+
+  return links.map((row: any) => {
+    const catalogItem = catalogItemById.get(Number(row.catalogItemId));
+    const categoryPath = catalogItem?.nodeId ? buildPath(Number(catalogItem.nodeId)) : [];
+    const categoryNode = categoryPath.length > 0 ? categoryPath[categoryPath.length - 1] : null;
+    return {
+      inventoryId: Number(row.inventoryId),
+      catalogItemId: Number(row.catalogItemId),
+      catalogItemCode: catalogItem?.code ?? null,
+      catalogItemNameAr: catalogItem?.nameAr ?? null,
+      catalogItemNameEn: catalogItem?.nameEn ?? null,
+      catalogNodeId: categoryNode?.id ?? null,
+      catalogNodeCode: categoryNode?.code ?? null,
+      catalogNodeNameAr: categoryNode?.nameAr ?? null,
+      catalogNodeNameEn: categoryNode?.nameEn ?? null,
+      catalogCategoryPath: categoryPath,
+      catalogCategoryPathAr: categoryPath.map((node: any) => node.nameAr).filter(Boolean).join(" › ") || null,
+      catalogCategoryPathEn: categoryPath.map((node: any) => node.nameEn).filter(Boolean).join(" > ") || null,
+    };
+  });
+}
+
 export async function createInventoryItem(data: any) {
   const db = await getDb();
   if (!db) return null;
-  const result = await db.insert(inventory).values(data);
+  const normalizedData = {
+    ...data,
+    ...(data.quantity != null ? { quantity: normalizeInventoryQuantity(Number(data.quantity)) } : {}),
+    ...(data.minQuantity != null ? { minQuantity: normalizeInventoryQuantity(Number(data.minQuantity)) } : {}),
+  };
+  const result = await db.insert(inventory).values(normalizedData);
   return result[0].insertId;
 }
 
 export async function updateInventoryItem(id: number, data: any) {
   const db = await getDb();
   if (!db) return;
-  await db.update(inventory).set(data).where(eq(inventory.id, id));
+  const normalizedData = {
+    ...data,
+    ...(data.quantity != null ? { quantity: normalizeInventoryQuantity(Number(data.quantity)) } : {}),
+    ...(data.minQuantity != null ? { minQuantity: normalizeInventoryQuantity(Number(data.minQuantity)) } : {}),
+  };
+  await db.update(inventory).set(normalizedData).where(eq(inventory.id, id));
 }
 
 export async function addInventoryTransaction(data: any) {
@@ -178,23 +313,25 @@ export async function addInventoryTransaction(data: any) {
   const item = await db.select().from(inventory).where(eq(inventory.id, data.inventoryId)).limit(1);
   if (!item[0]) return;
 
-  const currentQty = Number(item[0].quantity || 0);
+  const currentQty = normalizeInventoryQuantity(Number(item[0].quantity || 0));
   const averageCost = parseFloat((item[0] as any).averageCost || "0");
+  const movementQuantity = normalizeInventoryQuantity(Number(data.quantity));
   const rawNewQty = data.type === "in"
-    ? currentQty + data.quantity
-    : currentQty - data.quantity;
+    ? currentQty + movementQuantity
+    : currentQty - movementQuantity;
   // نحافظ على السلوك القديم في هذه المرحلة (عدم النزول تحت صفر)،
   // ونوحد فقط القيمة المحاسبية للحركة والرصيد.
-  const newQty = Math.max(0, rawNewQty);
+  const newQty = normalizeInventoryQuantity(Math.max(0, rawNewQty));
   const movementUnitCost = data.unitCost != null
     ? parseFloat(String(data.unitCost))
     : averageCost;
   const movementTotalCost = data.totalCost != null
     ? parseFloat(String(data.totalCost))
-    : calculateMovementTotal(data.quantity, movementUnitCost);
+    : calculateMovementTotal(movementQuantity, movementUnitCost);
 
   await db.insert(inventoryTransactions).values({
     ...data,
+    quantity: movementQuantity,
     unitCost: movementUnitCost.toFixed(4),
     totalCost: movementTotalCost.toFixed(2),
   });

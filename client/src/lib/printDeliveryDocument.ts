@@ -20,6 +20,7 @@ export const buildDeliveryReceiptHtml = (data: {
     notes?: string;
     poNumber?: string;
     deliveryNumber?: string;
+    lotCode?: string;
     deliveredAt: string;
     itemId: number;
     initialPrintCount?: number;
@@ -101,6 +102,7 @@ export const buildDeliveryReceiptHtml = (data: {
       ${data.deliveryNumber ? "<div><span class=\"badge\">" + data.deliveryNumber + "</span></div>" : ""}
       ${data.poNumber ? "<div>أمر شراء: <strong>" + data.poNumber + "</strong></div>" : ""}
       ${data.ticketNumber ? "<div>البلاغ: <strong>" + data.ticketNumber + "</strong></div>" : ""}
+      ${data.lotCode ? "<div>دفعة المخزون: <strong>" + data.lotCode + "</strong></div>" : ""}
     </div>
   </div>
 

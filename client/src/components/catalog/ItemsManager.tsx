@@ -3,6 +3,8 @@ import CatalogImportButton from "@/components/catalog/CatalogImportButton";
 import React, { useState, useMemo, useEffect } from "react";
 import { useTranslation } from "@/contexts/LanguageContext";
 import { trpc } from "@/lib/trpc";
+import { useAuth } from "@/_core/hooks/useAuth";
+import { isCatalogAdminRole } from "@shared/roles";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
@@ -23,6 +25,7 @@ import {
   Hash,
   Eye,
   Pencil,
+  RotateCcw,
   Search,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -149,6 +152,8 @@ function NodeSelector({
 
 // ── Main Component ─────────────────────────────────────────────────────────
 export default function ItemsManager() {
+  const { user } = useAuth();
+  const isCatalogAdmin = isCatalogAdminRole(user?.role);
   const { t } = useTranslation();
 
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -237,6 +242,7 @@ export default function ItemsManager() {
       limit: PAGE_SIZE,
       offset: page * PAGE_SIZE,
       isActive: true,
+      includeInactive: isCatalogAdmin || undefined,
       search: debouncedSearch || undefined,
     });
 
@@ -276,7 +282,15 @@ export default function ItemsManager() {
   const deleteMut = trpc.catalog.items.delete.useMutation({
     onSuccess: () => {
       reloadFromStart();
-      toast.success("تم حذف الصنف");
+      toast.success("تم تعطيل الصنف");
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const reactivateMut = trpc.catalog.items.reactivate.useMutation({
+    onSuccess: () => {
+      reloadFromStart();
+      toast.success("تمت إعادة تفعيل الصنف");
     },
     onError: (e) => toast.error(e.message),
   });
@@ -352,6 +366,7 @@ export default function ItemsManager() {
       nameUr: formData.nameUr || undefined,
       code: customCode || undefined,
       nodeId: selectedNode.id,
+      unit: formData.unit || undefined,
     });
 
     if (selectedImage) {
@@ -396,9 +411,9 @@ export default function ItemsManager() {
 
 <div className="flex items-center gap-2 shrink-0">
 
-  <CatalogExportButton />
+  {isCatalogAdmin && <CatalogExportButton />}
 
-  <CatalogImportButton />
+  {isCatalogAdmin && <CatalogImportButton />}
 
 
   <Button
@@ -457,9 +472,16 @@ export default function ItemsManager() {
                 setCodeEdited(true);
                 setIsDialogOpen(true);
               }}
+              canDelete={isCatalogAdmin}
+              canReactivate={isCatalogAdmin}
               onDelete={id => {
                 if (confirm(t.catalog.confirm.deleteItem)) {
                   deleteMut.mutate(id);
+                }
+              }}
+              onReactivate={id => {
+                if (confirm("هل تريد إعادة تفعيل هذا الصنف؟")) {
+                  reactivateMut.mutate(id);
                 }
               }}
             />
@@ -671,6 +693,11 @@ export default function ItemsManager() {
                     <option key={u.id} value={u.nameAr}>{u.nameAr} / {u.nameEn}</option>
                   ))}
                 </select>
+                {editingItem?.unit && !(units || []).some((u: any) => u.nameAr === editingItem.unit || u.nameEn === editingItem.unit) && (
+                  <p className="text-xs text-amber-700">
+                    الوحدة الحالية «{editingItem.unit}» غير نشطة/تاريخية. ستبقى محفوظة ما لم تختر وحدة نشطة جديدة.
+                  </p>
+                )}
               </div>
               <div className="space-y-1">
                 <label className="text-sm font-medium">{t.catalog.fields.manufacturer}</label>
@@ -711,18 +738,24 @@ export default function ItemsManager() {
 // ── Item Card ──────────────────────────────────────────────────────────────
 function ItemCard({
   item,
+  canDelete,
+  canReactivate,
   onDelete,
+  onReactivate,
   onView,
   onEdit,
 }: {
   item: any;
+  canDelete: boolean;
+  canReactivate: boolean;
   onDelete: (id: number) => void;
+  onReactivate: (id: number) => void;
   onView: (item: any) => void;
   onEdit: (item: any) => void;
 }) {
   const { t } = useTranslation();
   return (
-    <Card className="hover:shadow-md transition-shadow">
+    <Card className={cn("hover:shadow-md transition-shadow", Number(item.isActive) !== 1 && "opacity-80 border-dashed")}>
       <CardContent className="p-4">
         <div className="mb-3 w-full h-28 bg-muted rounded-lg flex items-center justify-center">
           {item.primaryImageUrl
@@ -730,7 +763,14 @@ function ItemCard({
             : <ImageIcon className="w-8 h-8 text-muted-foreground/30" />}
         </div>
         <div className="space-y-2">
-          <p className="font-semibold text-sm">{item.nameAr}</p>
+          <div className="flex items-center gap-2">
+            <p className="font-semibold text-sm">{item.nameAr}</p>
+            {Number(item.isActive) !== 1 && (
+              <span className="text-[11px] font-medium rounded-full border px-2 py-0.5 text-muted-foreground">
+                معطّل
+              </span>
+            )}
+          </div>
           <p className="text-xs text-muted-foreground">{item.nameEn}</p>
           <div className="flex items-center justify-between">
             {item.code && (
@@ -752,10 +792,23 @@ function ItemCard({
             <Pencil className="w-3.5 h-3.5" />
             تعديل
           </Button>
-          <Button variant="outline" size="sm" className="flex-1 gap-1.5" onClick={() => onDelete(item.id)}>
-            <Trash2 className="w-3.5 h-3.5" />
-            حذف
-          </Button>
+          {canDelete && Number(item.isActive) === 1 && (
+            <Button variant="outline" size="sm" className="flex-1 gap-1.5" onClick={() => onDelete(item.id)}>
+              <Trash2 className="w-3.5 h-3.5" />
+              تعطيل
+            </Button>
+          )}
+          {canReactivate && Number(item.isActive) !== 1 && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="flex-1 gap-1.5"
+              onClick={() => onReactivate(item.id)}
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              إعادة تفعيل
+            </Button>
+          )}
         </div>
 
       </CardContent>

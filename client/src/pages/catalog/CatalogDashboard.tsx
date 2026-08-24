@@ -2,6 +2,8 @@ import SuppliersManager from "@/components/catalog/SuppliersManager";
 import React, { useState, useCallback } from "react";
 import { useTranslation } from "@/contexts/LanguageContext";
 import { trpc } from "@/lib/trpc";
+import { useAuth } from "@/_core/hooks/useAuth";
+import { isCatalogAdminRole } from "@shared/roles";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -15,15 +17,19 @@ import {
   AlertCircle,
   Ruler,
   Truck,
+  Inbox,
 } from "lucide-react";
 import TaxonomyManager from "@/components/catalog/TaxonomyManager";
 import ItemsManager from "@/components/catalog/ItemsManager";
 import CatalogSettings from "@/components/catalog/CatalogSettings";
+import CatalogItemCandidatesManager from "@/components/catalog/CatalogItemCandidatesManager";
 import UnitsManager from "@/components/catalog/UnitsManager";
 import SmartSearch from "@/components/catalog/SmartSearch";
 
 export default function CatalogDashboard() {
   const { t } = useTranslation();
+  const { user } = useAuth();
+  const isCatalogAdmin = isCatalogAdminRole(user?.role);
   const [activeTab, setActiveTab] = useState("overview");
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -100,7 +106,13 @@ export default function CatalogDashboard() {
             <Truck className="w-3.5 h-3.5" />
             الموردون
           </TabsTrigger>
-          <TabsTrigger value="settings" className="flex-1">{t.catalog.tabs.settings}</TabsTrigger>
+          <TabsTrigger value="new-items" className="flex-1 gap-1">
+            <Inbox className="w-3.5 h-3.5" />
+            الأصناف الجديدة
+          </TabsTrigger>
+          {isCatalogAdmin && (
+            <TabsTrigger value="settings" className="flex-1">{t.catalog.tabs.settings}</TabsTrigger>
+          )}
         </TabsList>
 
         {/* Overview Tab */}
@@ -149,10 +161,17 @@ export default function CatalogDashboard() {
           <SuppliersManager />
         </TabsContent>
 
-        {/* Settings Tab */}
-        <TabsContent value="settings">
-          <CatalogSettings />
+        {/* 2B-6 — New Catalog Item Candidates */}
+        <TabsContent value="new-items">
+          <CatalogItemCandidatesManager />
         </TabsContent>
+
+        {/* Settings Tab — owner/admin only */}
+        {isCatalogAdmin && (
+          <TabsContent value="settings">
+            <CatalogSettings />
+          </TabsContent>
+        )}
       </Tabs>
     </div>
   );

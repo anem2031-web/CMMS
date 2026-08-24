@@ -1,7 +1,8 @@
 # خطة تطوير وحدة المخازن وضوابط عدم تغيير النظام الحالي
 
 **تاريخ التوثيق:** 15 أغسطس 2026  
-**الحالة:** مرجع معتمد للعمل قبل بدء تطوير وحدة المخازن
+**آخر تحديث للـRoadmap:** 24 أغسطس 2026 — Main Phase 6 in progress; Main Phase 6.3 officially closed; Main Phase 6.4 officially closed after targeted test 8/8 PASS + owner Runtime UAT acceptance; 6.5 not started  
+**الحالة:** مرجع معتمد للعمل؛ Main Phase 4 وMain Phase 5 **OFFICIALLY CLOSED**. Main Phase 6 — Inventory / Accounting Reports = **IN PROGRESS**; 6.1 **OFFICIALLY CLOSED**; 6.2 **OFFICIALLY CLOSED**; **6.3 OFFICIALLY CLOSED**; **current 6.3.1 Inventory Valuation & Value Distribution = OFFICIALLY CLOSED**; **current 6.3.2 Inventory Variance, Accounting Review & Runtime Closure = OFFICIALLY CLOSED**; **6.4 OFFICIALLY CLOSED**; 6.5 **NOT STARTED**
 
 ## 1. الهدف
 
@@ -70,7 +71,453 @@
 - ضمان اتساق الكمية والتكلفة والقيمة عند وجود تحويل وحدات.
 - مراجعة جميع المواضع التي تستخدم التقريب أو `Math.round()` على كميات المخزون.
 
-### 2B — إدارة إعدادات الوحدات والتحويلات
+### 2B — الكتالوج كمحور مركزي للأصناف وربط المشتريات والاستلام والمخزون
+
+#### القرار المعماري
+
+يتم اعتماد **الكتالوج كمصدر البيانات الرئيسي للأصناف (Master Item Data)** على مستوى النظام.
+
+المبدأ المعتمد:
+
+> **الكتالوج يعرّف ما هو الصنف، بينما المخزون يعرّف أين يوجد الصنف وكم كميته وما قيمته.**
+
+ويترتب على ذلك أن بيانات مثل الاسم، التصنيف، الوحدة، الشركة المصنعة، والمواصفات الأساسية يكون مصدرها الكتالوج، بينما يحتفظ المخزون ببيانات الرصيد والتكلفة والمخزن والموقع التشغيلي.
+
+#### 2B.1 — تصنيفات المخزون
+
+- تصنيفات **المخزن الرئيسي** تعتمد على شجرة تصنيفات الكتالوج الحالية.
+- لا يتم إنشاء نظام تصنيفات مستقل للمخزون يكرر تصنيفات الكتالوج.
+- عند الحاجة لتصنيف صنف مخزني، يتم اختيار **التصنيف المناسب من شجرة الكتالوج**.
+- لا يُطلب من موظف المستودع اختيار نوع عام منفصل مثل استهلاكي/غذائي/كهربائي إذا كان التصنيف الحقيقي متاحًا في الكتالوج.
+- الهدف أن تكون Taxonomy الكتالوج هي المرجع الموحد للمشتريات والمخازن.
+
+#### 2B.2 — إنشاء طلب الشراء
+
+الأصل في إنشاء بند طلب الشراء هو:
+
+1. البحث عن الصنف في الكتالوج.
+2. اختيار صنف الكتالوج إذا كان موجودًا.
+3. حفظ هوية صنف الكتالوج مع بند طلب الشراء، إضافة إلى Snapshot تاريخي لبيانات البند اللازمة لحفظ تاريخ المستند.
+
+المسار المفضل:
+
+`Catalog Item -> Purchase Order Item`
+
+أما إذا لم يكن الصنف موجودًا في الكتالوج:
+
+- يسمح بإدخاله يدويًا كاستثناء.
+- يستمر طلب الشراء في Workflow الحالي ولا يتم إيقاف العملية لمجرد أن الصنف غير مفهرس.
+- يتم تمييز البند بأنه **غير مرتبط بالكتالوج / Uncatalogued** إلى أن تتم مطابقته أو اعتماده لاحقًا.
+
+#### 2B.3 — إدخال فاتورة المورد
+
+عند وصول فاتورة المورد، سواء تم:
+
+- تحليلها بالذكاء الاصطناعي / OCR.
+- أو إدخالها يدويًا.
+
+يتم بناء سلسلة ربط واضحة لكل بند:
+
+`Invoice Line -> Purchase Order Item -> Catalog Item`
+
+إذا كان بند طلب الشراء قد أُنشئ أصلًا من الكتالوج، يتم توريث الربط تلقائيًا ولا يطلب من موظف المستودع إعادة تعريف الصنف.
+
+#### 2B.4 — تحديد الصنف الجديد أثناء إدخال فاتورة المورد
+
+يتم اتخاذ قرار **هل الصنف جديد أم لا** أثناء مرحلة إدخال/تحليل فاتورة المورد، وليس عند مرحلة الاستلام المخزني.
+
+سواء تم إدخال الفاتورة بواسطة:
+
+- AI / OCR.
+- أو الإدخال اليدوي.
+
+يظهر أمام كل سطر صنف في الفاتورة خيار واضح:
+
+**☐ صنف جديد**
+
+ويعمل كالتالي:
+
+##### الحالة A — الصنف مرتبط أصلًا بالكتالوج
+
+إذا كان بند طلب الشراء قد أُنشئ من الكتالوج ويحمل `catalogItemId`، يظهر الربط تلقائيًا ولا يحتاج المستخدم إلى تحديده كصنف جديد.
+
+##### الحالة B — الصنف غير مرتبط بالكتالوج لكنه موجود فعليًا
+
+إذا لم يكن بند طلب الشراء مرتبطًا بالكتالوج، يمكن للمستخدم البحث عن الصنف الموجود وربطه أثناء إدخال الفاتورة.
+
+##### الحالة C — صنف جديد
+
+إذا كان الصنف جديدًا فعلًا، يقوم مدخل الفاتورة بتفعيل Checkbox:
+
+**«صنف جديد»**
+
+ويتم حفظ هذا القرار مع سطر الفاتورة.
+
+المبدأ المعتمد:
+
+> **تحديد الصنف الجديد يتم أثناء إدخال الفاتورة، ولا يتم تأجيل قرار التعريف إلى مرحلة الاستلام بالمستودع.**
+
+#### 2B.5 — عدم تعطيل المخزون بانتظار اعتماد الكتالوج
+
+إذا تم تحديد السطر كـ **«صنف جديد»**:
+
+- لا يتم إيقاف الفاتورة.
+- لا يتم إيقاف الاستلام.
+- لا يتم تعليق إدخال الكمية للمخزون.
+- لا يتم إجبار المستودع على انتظار مسؤول الكتالوج.
+- تستمر دورة الشراء والاستلام والمخزون الحالية طبيعيًا.
+- يمكن إنشاء Receipt Lot والـQR/Barcode التشغيلي للدفعة وفق قواعد التتبع المعتمدة.
+- يتم الاحتفاظ بحالة أن الصنف **بانتظار الفهرسة/الربط النهائي بالكتالوج**.
+
+أي أن هناك مسارين متوازيين:
+
+**المسار التشغيلي**
+`Invoice -> Receipt -> Inventory`
+
+ويستمر دون توقف.
+
+**مسار جودة البيانات**
+`New Item Flag -> Catalog Review Queue -> Catalog Linking/Approval`
+
+ويتم لاحقًا دون تعطيل التشغيل.
+
+#### 2B.6 — شاشة «إدخال الأصناف الجديدة إلى الكتالوج»
+
+يتم إنشاء شاشة مستقلة داخل وحدة الكتالوج باسم:
+
+**«إدخال الأصناف الجديدة إلى الكتالوج»**
+
+وتظهر فيها الأصناف التي تم تحديدها كـ **«صنف جديد»** أثناء إدخال الفواتير.
+
+يتم إنشاء سجل مرشح للصنف الجديد مع البيانات المتاحة تلقائيًا، مثل:
+
+- اسم الصنف في طلب الشراء.
+- اسم/وصف الصنف في فاتورة المورد.
+- اسم المورد المركزي.
+- Supplier Alias إن وجد.
+- كود الصنف عند المورد إن وجد.
+- الكمية.
+- الوحدة.
+- السعر.
+- رقم طلب الشراء.
+- رقم الفاتورة.
+- رقم/مرجع سند الاستلام عند توفره.
+- صورة/مرجع الفاتورة.
+- أي صورة أو بيانات إضافية متاحة.
+
+ويكون هذا السجل في حالة مثل:
+
+`Pending Catalog Review`
+
+ولا يعتبر Catalog Item معتمدًا حتى يراجعه مسؤول الكتالوج.
+
+#### 2B.7 — إجراءات مسؤول الكتالوج على الأصناف الجديدة
+
+مسؤول الكتالوج يراجع الأصناف الموجودة في شاشة **«إدخال الأصناف الجديدة إلى الكتالوج»**، ويكون هدفه حماية جودة Master Data.
+
+يقوم بالمراجعة والتنظيف مثل:
+
+- البحث عن Duplicate.
+- تصحيح الاسم العربي.
+- إضافة/تصحيح الاسم الإنجليزي عند الحاجة.
+- اختيار التصنيف الصحيح من شجرة الكتالوج.
+- مراجعة الوحدة.
+- الشركة المصنعة.
+- الوصف.
+- الكود.
+- الصورة والمواصفات عند الحاجة.
+- مراجعة Supplier Item Alias / كود المورد.
+
+ويملك قرارين أساسيين:
+
+##### القرار 1 — الصنف موجود أصلًا في الكتالوج
+
+إذا اكتشف أن الصنف موجود:
+
+- لا يتم إنشاء Catalog Item جديد.
+- يتم اختيار الصنف الموجود.
+- يتم ربط السجلات التشغيلية السابقة به.
+- يمكن حفظ اسم/كود المورد الجديد كـSupplier Item Alias.
+
+##### القرار 2 — الصنف جديد فعلًا
+
+إذا تأكد أنه جديد:
+
+- ينظف بياناته.
+- يعتمد إنشاء Catalog Item جديد.
+- يتم إنشاء الهوية المركزية للصنف.
+- ثم يتم ربط السجلات التشغيلية التي سبقت الاعتماد بهذا الصنف.
+
+#### 2B.8 — الربط اللاحق دون تعديل التاريخ التشغيلي
+
+عند اعتماد الصنف الجديد أو ربطه بصنف كتالوج موجود لاحقًا، يتم تحديث **هوية الربط فقط** في السجلات ذات العلاقة حسب التصميم النهائي.
+
+يجب ألا يؤدي هذا الربط اللاحق إلى:
+
+- إعادة الاستلام.
+- تغيير الكمية المستلمة.
+- تغيير كمية المخزون.
+- إعادة احتساب تكلفة تاريخية.
+- تعديل فاتورة المورد الأصلية.
+- إعادة تنفيذ Workflow شراء تم إكماله.
+- تغيير Receipt Lot الذي تم إنشاؤه إلا في حقول الربط المرجعية المسموح بها.
+
+المبدأ:
+
+> **مسؤول الكتالوج ينظف ويعتمد Master Data لاحقًا، لكنه لا يعيد كتابة الحدث المخزني أو المالي الذي وقع بالفعل.**
+
+ويتم ربط ما أمكن من:
+
+- بند طلب الشراء.
+- سطر الفاتورة.
+- سند الاستلام.
+- Receipt Lot.
+- سجل المخزون.
+
+مع الحفاظ على الـSnapshot التاريخي للمستندات.
+
+#### 2B.9 — علاقة الكتالوج بالمخزون
+
+
+
+التصميم المستهدف:
+
+- `catalog_items` هو تعريف الصنف المركزي.
+- سجل المخزون يحتفظ برابط إلى صنف الكتالوج.
+- بيانات المخزون التشغيلية تشمل:
+  - المخزن.
+  - الكمية.
+  - متوسط التكلفة.
+  - قيمة المخزون.
+  - الموقع التخزيني عند إضافته مستقبلًا.
+- لا يتم تكرار تعريف الصنف وتصنيفه كـMaster مستقل داخل المخزون دون حاجة.
+
+#### 2B.10 — دور الذكاء الاصطناعي
+
+عند تحليل الفواتير أو محاولة المطابقة:
+
+- يمكن للذكاء الاصطناعي اقتراح أقرب صنف كتالوج.
+- يمكنه عرض درجة ثقة أو بدائل مطابقة.
+- **لا يقوم الذكاء الاصطناعي باعتماد أو إنشاء Master Catalog Item جديد تلقائيًا.**
+- اعتماد الصنف الجديد يبقى مسؤولية المستخدم المخوّل / مسؤول الكتالوج.
+
+#### 2B.11 — تحديد المورد المركزي عند تحليل أو إدخال الفاتورة
+
+قبل مطابقة أصناف الفاتورة، يجب تحديد **هوية المورد المركزية (Supplier Master)**.
+
+سواء تم استخراج اسم المورد بواسطة AI/OCR أو تم إدخاله يدويًا، لا يعتمد النظام الاسم كنص نهائي مباشرة، بل يبحث عن الموردين الأقرب ويعرضهم للمستخدم للاختيار.
+
+مثال:
+
+إذا ظهر في الفاتورة أو أدخل المستخدم:
+
+`الأمير`
+
+يمكن أن يعرض النظام خيارات مثل:
+
+- شركة الأمير للمستلزمات.
+- مؤسسة الأمير التجارية.
+- الأمير للصيانة.
+- AL AMEER SUPPLIES.
+
+ويتم الاستفادة عند توفرها من معرفات أقوى من الاسم، مثل:
+
+- الرقم الضريبي.
+- السجل التجاري.
+- الهاتف.
+- البريد الإلكتروني.
+- العنوان.
+- أي معرف رسمي آخر معتمد.
+
+المبدأ:
+
+> **اختلاف طريقة كتابة اسم المورد لا يعني تلقائيًا أنه مورد جديد.**
+
+إذا أكد المستخدم أن الاسم المدخل يعود إلى مورد موجود، يمكن حفظ الاسم الذي ظهر في الفاتورة كـ **Supplier Alias** للمورد نفسه لتحسين المطابقة مستقبلًا.
+
+إذا لم يوجد أي مورد صحيح، يتم التعامل معه كـ **Supplier Candidate** وفق آلية مراجعة واعتماد يتم تصميمها قبل التنفيذ، ولا يقوم AI/OCR بإنشاء Supplier Master جديد تلقائيًا.
+
+#### 2B.12 — أسماء وأكواد أصناف الموردين وربطها بصنف الكتالوج
+
+بعد تحديد المورد الصحيح، تتم مطابقة أصناف الفاتورة أولًا داخل **سجل الأصناف التي سبق لهذا المورد توريدها**.
+
+لكل صنف مركزي في الكتالوج يمكن أن توجد عدة هويات خارجية حسب الموردين، مثل:
+
+`Catalog Item #245 — شطرطون ورق أبيض 2 بوصة`
+
+ويرتبط به مثلًا:
+
+- المورد A:
+  - اسم المورد للصنف: `MASKING TAPE WHITE 2"`
+  - كود المورد: `MT-W2-500`
+- المورد B:
+  - اسم المورد للصنف: `Paper Tape 48MM White`
+  - كود المورد: `PT48-W`
+- المورد C:
+  - اسم المورد للصنف: `شطرطون ورق أبيض 48 مم`
+
+وجميعها تشير إلى **نفس `catalogItemId`**.
+
+ترتيب المطابقة المستهدف عند وصول فاتورة مورد معروف:
+
+1. كود الصنف عند المورد إذا كان معروفًا.
+2. Supplier Item Alias / وصف الصنف السابق لنفس المورد.
+3. Barcode / Manufacturer Part Number عند توفره.
+4. بند طلب الشراء المرتبط و`catalogItemId` المحفوظ عليه.
+5. المطابقة التقريبية والذكاء الاصطناعي كاقتراح عند عدم وجود تطابق مؤكد.
+6. البحث في الكتالوج الكامل إذا لم توجد مطابقة مناسبة ضمن أصناف المورد.
+
+عند تأكيد المستخدم لأول مرة أن وصفًا أو كودًا جديدًا للمورد يطابق صنف كتالوج موجود، يتم حفظ هذه العلاقة للاستفادة منها مستقبلًا.
+
+المبدأ:
+
+> **اسم الصنف في فاتورة المورد ليس اسم الصنف المركزي؛ هو Alias خارجي مرتبط بصنف الكتالوج المعتمد.**
+
+وهذا يسمح لاحقًا بمقارنة الأسعار وآخر أسعار الشراء بين الموردين لنفس الصنف الحقيقي.
+
+#### 2B.13 — دفعات الاستلام وهوية QR/Barcode للتتبع
+
+يتم الفصل بين **هوية الصنف** و**هوية الكمية التي دخلت المخزون**.
+
+##### أ. هوية الصنف المركزية
+
+صنف الكتالوج يملك هوية ثابتة مثل:
+
+`CAT-0245 — شطرطون ورق أبيض 2 بوصة`
+
+وهذه الهوية تمثل **ما هو الصنف** بغض النظر عن المورد أو عدد مرات شرائه.
+
+##### ب. هوية دفعة الاستلام
+
+كل استلام فعلي لكمية من مورد/فاتورة يولد **Receipt Lot / Stock Lot** مستقلًا له رقم فريد، مثل:
+
+`LOT-2026-001245`
+
+ويرتبط على الأقل بـ:
+
+- `catalogItemId`.
+- المورد المركزي.
+- Supplier Item Alias / كود المورد المستخدم عند الحاجة.
+- أمر الشراء وبنده.
+- فاتورة المورد وسطرها عند توفر الربط.
+- سند الاستلام وبنده.
+- كمية الاستلام الأصلية.
+- الكمية المتبقية من الدفعة.
+- تكلفة الاستلام اللازمة للتتبع.
+- تاريخ الاستلام.
+- المخزن.
+- بيانات Batch / Expiry مستقبلًا إذا أصبحت مطلوبة.
+
+مثال:
+
+`CAT-0245 — شطرطون ورق أبيض 2 بوصة`
+
+قد يكون له:
+
+- `LOT-001245`
+  - المورد: شركة الأمير.
+  - الفاتورة: INV-5001.
+  - الكمية: 50.
+  - تكلفة الشراء: 5.00.
+- `LOT-001380`
+  - المورد: مؤسسة النور.
+  - الفاتورة: INV-6100.
+  - الكمية: 30.
+  - تكلفة الشراء: 5.50.
+
+يبقى الصنف المركزي واحدًا، بينما تختلف **دفعات التوريد**.
+
+##### ج. QR / Barcode المخزني
+
+الـQR أو Barcode الذي يتم توليده عند الاستلام والمخصص للاستخدام التشغيلي في المخزن يجب أن يمثل **Receipt Lot** وليس اسم المورد كنص ولا هوية Catalog وحدها.
+
+عند مسح QR الدفعة يستطيع النظام معرفة:
+
+- ما هو الصنف المركزي.
+- من هو المورد.
+- من أي فاتورة جاء.
+- من أي أمر شراء.
+- من أي سند استلام.
+- ما الكمية الأصلية والمتبقية من هذه الدفعة.
+- ما المرجع المطلوب عند المرتجع أو التتبع.
+
+يمكن الاحتفاظ أيضًا بBarcode/QR مستقل لصنف الكتالوج لأغراض التعريف العام، لكن:
+
+> **QR المستخدم لتتبع المصدر عند الصرف والمرتجع = هوية دفعة الاستلام.**
+
+##### د. الصرف
+
+عند الصرف، يجب أن يرتبط مقدار الكمية المصروفة بدفعة أو دفعات الاستلام التي خرجت منها الكمية.
+
+مثال:
+
+`صرف 5 وحدات من LOT-001245`
+
+وبذلك يمكن لاحقًا معرفة المورد والفاتورة وسند الاستلام المرتبط بالكمية المصروفة.
+
+سياسة اختيار الدفعة، مثل FIFO أو FEFO أو الاختيار اليدوي، تعتبر **قرار Workflow مستقلًا** ولا يتم فرضها ضمن هذا التوثيق قبل عرضها والموافقة عليها.
+
+##### هـ. المرتجع إلى المورد
+
+عند إنشاء مرتجع مورد، يتيح تتبع Receipt Lot معرفة المصدر الحقيقي للكمية:
+
+- المورد الصحيح.
+- الفاتورة.
+- أمر الشراء.
+- سند الاستلام.
+- الدفعة التي خرجت منها المادة.
+
+وبالتالي لا يعتمد المرتجع على اسم الصنف فقط.
+
+##### و. المرتجع من الجهة إلى المخزن
+
+إذا أعادت جهة مستخدمة كمية سبق صرفها، يتم الاحتفاظ بمرجع الدفعة الأصلية متى كان ذلك متاحًا من سند الصرف، حتى لا تفقد سلسلة التتبع.
+
+**قرار معتمد 2026-08-22 ضمن Main Phase 5 / 5.2:** المرتجع السليم من الجهة يعود إلى **نفس الـLot الأصلي ونفس سجل Inventory/المخزن الذي خرج منه**، ويرتبط بسند الصرف الأصلي، ويُقيَّم باستخدام **تكلفة حركة الصرف الأصلية**. تُمنع الزيادة عن الكمية المصروفة بعد طرح المرتجعات السابقة، ويكون الترحيل ذريًا. لا يتم إنشاء Lot مرتجع مستقل أو Inspection/Quarantine Workflow ضمن هذا القرار؛ أي مسار من هذا النوع يحتاج موافقة مستقلة لاحقًا.
+
+##### ز. العلاقة مع المتوسط المرجح
+
+تتبع الدفعات لا يلغي **Moving Weighted Average Cost** المعتمد محاسبيًا.
+
+يتم الفصل بين:
+
+- **التقييم المحاسبي:** يستمر وفق سياسة المتوسط المرجح المعتمدة.
+- **تتبع المصدر:** يتم عبر Receipt Lots.
+
+المبدأ:
+
+> **المتوسط المرجح يجيب عن قيمة المخزون، وReceipt Lot يجيب عن مصدر الكمية.**
+
+##### ح. منع التلوث والتكرار
+
+إنشاء Receipt Lot لا يعني إنشاء Catalog Item جديد.
+
+كل عملية استلام تنشئ دفعة جديدة مرتبطة بصنف كتالوج موجود أو بصنف تم اعتماده عبر مسار Catalog Candidate، وبذلك يمكن شراء نفس الصنف من موردين مختلفين عدة مرات دون تكرار Master Item.
+
+#### 2B.14 — ضوابط جودة البيانات
+
+قبل اعتبار الكتالوج Master Data فعليًا، يجب أن يراعي التنفيذ:
+
+- حفظ `catalogItemId` فعليًا في نقاط الربط المطلوبة بدل نسخ النصوص فقط.
+- الإبقاء على Snapshot تاريخي في المستندات المالية/الشرائية عند الحاجة.
+- منع إنشاء Duplicate قدر الإمكان.
+- تقوية Unique Codes وعلاقات Foreign Keys عند اعتماد تصميم الـSchema.
+- فصل صلاحية **قراءة/اختيار الكتالوج** عن صلاحية **إدارة Master Catalog**.
+- عدم السماح لكل مستخدم شراء أو مخزن بتعديل Master Data مباشرة.
+- معالجة الربط الحالي `inventory.linkedItemId` ضمن التصميم المركزي وعدم إنشاء نظام تصنيف مكرر للمخزون.
+
+#### 2B.15 — قاعدة التنفيذ والموافقة
+
+هذه المرحلة تمثل **تغييرًا معماريًا وتشغيليًا** في طريقة ربط المشتريات والاستلام والمخزون بالكتالوج.
+
+لذلك:
+
+- هذا التوثيق يثبت الرؤية والهدف ونطاق المرحلة.
+- **لا يبدأ تعديل Workflow أو واجهات أو Schema لهذه المرحلة تلقائيًا بمجرد توثيقها.**
+- قبل التنفيذ يتم تحليل الوضع الحالي تفصيليًا، وعرض التصميم المقترح والـSchema والواجهات ومسارات الربط.
+- أي تغيير في Workflow الحالي يمر عبر بوابة الموافقة الصريحة المعتمدة في هذا المستند.
+
+### 2C — إدارة إعدادات الوحدات والتحويلات
 
 المبدأ المعتمد:
 
@@ -131,27 +578,150 @@
 
 ## المرحلة 3 — تطوير الجرد
 
-- تثبيت Snapshot صحيح عند فتح الجرد.
-- تسجيل الكميات الفعلية بدقة.
-- حساب فرق الكمية.
-- حساب قيمة الفرق.
-- ضمان أن عملية العد نفسها لا تغير الرصيد.
-- تحسين نتائج وتقارير الجرد.
+**الحالة — 2026-08-20:** ✅ **COMPLETE / RUNTIME UAT PASSED / CLOSED**.
+
+تم دمج نطاق التنفيذ المعتمد للمرحلة في **ثلاث خطوات رئيسية فقط**:
+
+### الخطوة 1 — تثبيت Snapshot الجرد عند الفتح
+
+- حفظ كمية النظام وقت فتح الجرد.
+- حفظ **متوسط التكلفة الفعلي وقت فتح الجرد** كـSnapshot ثابتة تاريخيًا.
+- تثبيت تاريخ/وقت فتح الجرد كمرجع للحالة الملتقطة.
+- لا تتغير Snapshot بسبب أي استلام أو صرف أو تغير في متوسط التكلفة يحدث بعد فتح الجرد.
+
+**القاعدة المالية المعتمدة:**
+
+> متوسط التكلفة المستخدم في تقييم نتائج الجرد هو المتوسط الفعلي وقت فتح الجرد، وليس المتوسط الحالي وقت عرض التقرير أو إدخال العد.
+
+### الخطوة 2 — استكمال منطق الجرد والنتائج والتقارير
+
+- تسجيل الكمية المعدودة بدقة مع استمرار الجرد الحالي على مستوى Lot/QR.
+- حساب `فرق الكمية = الكمية المعدودة - كمية النظام Snapshot`.
+- حساب `قيمة الفرق = فرق الكمية × متوسط التكلفة Snapshot`.
+- ضمان أن فتح الجرد وتسجيل العد ونتيجة العد لا تعدل الرصيد الفعلي.
+- يبقى تعديل الرصيد الفعلي عبر Settlement فقط؛ تطوير التسوية محاسبيًا يبقى ضمن المرحلة الرئيسية 4.
+- ضمان أن نتائج وتقارير الجرد تبقى تاريخيًا ثابتة حتى لو تغير المخزون أو متوسط التكلفة لاحقًا.
+
+### الخطوة 3 — Settlement Cut-off + UAT والإغلاق
+
+بموافقة صاحب المشروع تم إدخال اختبار Settlement الكمي قبل إغلاق المرحلة 3:
+
+- `completedAt` يثبت وقت Final Save، و`inventory_settlements.appliedAt` يثبت وقت Settlement؛ لا Schema جديد مطلوب.
+- Count Lot المستهدف يُجمّد للحركات التي تنقص/تنقل رصيده أثناء الجرد، ثم يبقى مجمداً بعد Final Save فقط عند وجود فرق غير مسوّى.
+- Receipt Lot جديد دخل بعد فتح الجرد يبقى Lot مستقلاً ويستمر Workflow عليه بشكل طبيعي.
+- Settlement لا يضبط المخزون إلى Counted Quantity قديمة، بل يطبق فرق الجرد المحفوظ فوق الرصيد الحالي:
+  `new balance = current balance + frozen count diff`.
+- Finalized Count لا يمكن تعديله من شاشة Settlement، ولا يمكن تطبيق نفس Count Settlement مرتين.
+- Runtime UAT يثبت التجميد، استقلال Lots الجديدة، Posting الصحيح، ثم يغلق المرحلة كـ`COMPLETE / UAT PASSED`.
+
+**حدود المرحلة:** لا إعادة بناء لقدرات Lot/QR أو Catalog category count أو Manual Lot Count، ولا تطوير محاسبي شامل للتسويات؛ Phase 3 تغطي Cut-off/Posting الكمي فقط، بينما التطوير المحاسبي التفصيلي يبقى ضمن المرحلة الرئيسية 4.
+
+مرجع النطاق المعتمد: `docs/CMMS_PHASE3_INVENTORY_COUNT_APPROVED_SCOPE_2026-08-20.md`.
+
+**Checkpoint Step 1 — 2026-08-20:** `inventory_count_snapshots` موجود في Live DB، وتم إثبات Runtime أن Snapshot الكمية والتكلفة تبقيان ثابتتين بعد الصرف والاستلام وتغير Moving Weighted Average. **Step 1 = COMPLETE / UAT PASSED.** المراجع: `docs/CMMS_PHASE3_STEP1_INVENTORY_COUNT_OPENING_SNAPSHOT_IMPLEMENTATION_2026-08-20.md` و`docs/CMMS_PHASE3_STEP1_INVENTORY_COUNT_OPENING_SNAPSHOT_UAT_CLOSURE_2026-08-20.md`.
+
+**Checkpoint Step 2 — 2026-08-20:** تم تحديث Backend/واجهة الجرد/وثيقة الطباعة لاستخدام `averageCostSnapshot` في التقييم المالي: `diffValue = diffQuantity × averageCostSnapshot`. Runtime UAT على `CNT-2026-60028` أثبت `+1 × 5.0000 = +5.00` رغم Current Average Cost=`10.0000`، وأن Final Save لا يغير Inventory. **Step 2 = COMPLETE / RUNTIME UAT PASSED.** المراجع: `docs/CMMS_PHASE3_STEP2_INVENTORY_COUNT_RESULTS_REPORTS_IMPLEMENTATION_2026-08-20.md` و`docs/CMMS_PHASE3_STEP2_INVENTORY_COUNT_RESULTS_REPORTS_UAT_CLOSURE_2026-08-20.md`.
+
+**Checkpoint Step 3 — 2026-08-20:** تم تنفيذ واختبار Settlement Cut-off المعتمد Runtime: منع الصرف من Count Lot `10` قبل التسوية، نجاح `ADJ-2026-30006` في تطبيق فرق `+1` فوق Current Balance (`2→3`) مع بقاء `inventory.quantity=SUM(lot balances)=4`، ثم فك التجميد ونجاح `DLV-2026-300182`، وبعده بقي التطابق `3=3`. **Step 3 = COMPLETE / RUNTIME UAT PASSED. Main Phase 3 = CLOSED.** المراجع: `docs/CMMS_PHASE3_STEP3_SETTLEMENT_CUTOFF_IMPLEMENTATION_2026-08-20.md` و`docs/CMMS_PHASE3_INVENTORY_COUNT_FINAL_CLOSURE_2026-08-20.md`.
 
 أي تغيير في خطوات إنشاء أو تنفيذ أو إغلاق الجرد الحالي يحتاج موافقة صريحة قبل تنفيذه.
 
 ## المرحلة 4 — تطوير التسويات
 
-- تحديث الكمية والقيمة معًا.
-- الحفاظ على متوسط التكلفة الصحيح.
-- إنشاء حركة تسوية واضحة.
-- ربط التسوية بعملية الجرد عند وجودها.
-- تنفيذ التغيير داخل Database Transaction واحدة.
-- تسجيل السبب والمرجع والتدقيق.
+**الحالة النهائية — 2026-08-22:** ✅ **COMPLETE / RUNTIME UAT PASSED / OFFICIALLY CLOSED**
 
-لا يتم إدخال Workflow موافقات جديد إلا بعد موافقة صريحة مستقلة.
+تم تنفيذ Main Phase 4 في **ثلاث خطوات فقط** وبنطاق Future-only مصغّر. المرجع:
+`docs/CMMS_PHASE4_SETTLEMENT_THREE_STEP_PLAN_AND_STATUS_2026-08-20.md`.
 
-## المرحلة 5 — تطوير الإتلاف / الاستبعاد
+### Step 1 — Database Foundation
+
+**الحالة:** ✅ **COMPLETE / LIVE DB VERIFIED**
+
+Live DB تحتوي وتم التحقق سابقًا من:
+
+- `inventory_settlement_items.unitCostUsed DECIMAL(12,4) NULL`
+- `inventory_settlement_items.adjustmentValue DECIMAL(14,2) NULL`
+- `inventory_settlements.reference VARCHAR(255) NULL`
+
+الحقول Nullable لحماية التاريخ؛ لم يتم Historical Backfill أو تعديل للتسويات القديمة. تمت مزامنة Code Schema لاحقًا في Step 2 مع هذه الحقول الموجودة أصلًا في Live DB دون إعادة ALTER.
+
+### Step 2 — Settlement Valuation & Posting Logic
+
+**الحالة:** ✅ **IMPLEMENTED / TARGETED CHECKS PASSED / RUNTIME VALIDATED**
+
+القواعد المنفذة:
+
+- Count Surplus/Shortage:
+  - `unitCostUsed = Opening averageCostSnapshot`
+  - `adjustmentValue = diffQuantity × averageCostSnapshot`
+- تحديث `quantity`, `totalCostValue`, والـ`averageCost` الناتج من الحالة الحالية بعد إضافة/طرح قيمة الفرق التاريخية.
+- Manual Settlement في المسار الذي يسمح به Workflow الحالي يستخدم Current Average Cost وقت Posting؛ لا Manual Unit Cost Entry.
+- حفظ `unitCostUsed`, `adjustmentValue`, `reference` ضمن الحد الأدنى المعتمد.
+- الحفاظ على frozen diff فوق Current balance، Lot freeze/unfreeze، immutable finalized count، duplicate guard، واستقلال Receipt Lots اللاحقة.
+- جميع مسارات Posting المدعومة تعمل داخل Database Transaction واحدة.
+- لا Manual Lot Settlement جديد عند Lots Enabled.
+
+مرجع التنفيذ:
+`docs/CMMS_PHASE4_STEP2_SETTLEMENT_VALUATION_POSTING_IMPLEMENTATION_2026-08-22.md`.
+
+### Step 3 — UI + Runtime UAT + Closure
+
+**الحالة:** ✅ **COMPLETE / RUNTIME UAT PASSED / CLOSED**
+
+الـUI الأدنى المنفذ:
+
+- عرض Snapshot cost وSettlement value في Count Settlement preview.
+- توضيح أن Count valuation تعتمد Opening Snapshot وليس Current Average Cost.
+- Snapshot cost غير قابلة للتعديل.
+- عرض `unitCostUsed` / `adjustmentValue` في تفاصيل/طباعة Settlement.
+- `reference` اختياري ضمن المسار المدعوم.
+- لا Approval Workflow جديد ولا UI redesign واسع.
+
+Runtime UAT الفعلي:
+
+- `CNT-2026-60030` / `ADJ-2026-30008`:
+  - Count Surplus `+1`.
+  - Snapshot بقي `10.0000` رغم تغير Current Average Cost إلى `16.0000`.
+  - `unitCostUsed=10.0000`, `adjustmentValue=+10.00`.
+  - بعد Settlement: Inventory `16.000`, Value `250.00`, Average `15.6250`, SUM Lots `16.000`.
+  - freeze قبل Settlement، unfreeze بعده، وduplicate retry rejection = PASS.
+- `CNT-2026-60031` / `ADJ-2026-30009`:
+  - Count Shortage `-1`.
+  - `unitCostUsed=8.5714`, `adjustmentValue=-8.57`.
+  - بعد Settlement: Inventory `6.000`, Value `51.43`, Average `8.5717`, SUM Lots `6.000`.
+  - freeze/unfreeze = PASS.
+- `CNT-2026-60032`:
+  - Failpoint اختباري مؤقت داخل Transaction أثبت full rollback: لا Settlement rows/items ولا Adjustment transaction جزئية، وInventory/Lot/Value بقيت دون تغيير.
+  - بعد إزالة الـFailpoint وإعادة تشغيل الخادم، نجح `ADJ-2026-30011` ووصل Inventory/Lot إلى `4.000` وValue `4.00`.
+- Manual Aggregate Settlement guard بقي فعالًا لأن Lots Enabled؛ الزر المستقل بقي Disabled، ولم يتم إنشاء Manual Lot Workflow.
+
+المراجع:
+
+- `docs/CMMS_PHASE4_STEP3_SETTLEMENT_UI_RUNTIME_UAT_2026-08-22.md`
+- `docs/CMMS_PHASE4_SETTLEMENT_FINAL_CLOSURE_2026-08-22.md`
+
+### حدود الإغلاق
+
+لم يتم ضمن Main Phase 4:
+
+- Historical Backfill أو Legacy Cleanup.
+- Revaluation system.
+- New Settlement Approval Workflow.
+- Manual Lot Settlement workflow جديد.
+- Broad FK / UNIQUE rollout.
+- تعديل Workflow خارج النطاق المعتمد.
+
+**Main Phase 4 مغلقة. لا تبدأ المرحلة 5 تلقائيًا إلا بموافقة صريحة من صاحب المشروع.**
+
+## المرحلة الرئيسية 5 — تطوير وضبط العمليات المخزنية والمطابقة
+
+**الحالة:** ✅ **COMPLETE / OFFICIALLY CLOSED** — أُغلقت الأجزاء 5.1–5.4 رسميًا بتاريخ 2026-08-23 بعد نجاح 5.4.4 Runtime UAT
+
+هذه المرحلة تجمع النطاقات التي كانت موثقة سابقًا كمراحل 5 و6 و7 و8 في مرحلة رئيسية واحدة، دون تغيير نطاقها الوظيفي المعتمد.
+
+### 5.1 — تطوير الإتلاف / الاستبعاد (Disposal / Write-off)
+
+**الحالة:** ✅ **COMPLETE / TARGETED CHECKS PASSED / RUNTIME UAT PASSED / OFFICIALLY CLOSED**
 
 - خصم الكمية بشكل صحيح.
 - تخفيض قيمة المخزون بالتكلفة الصحيحة.
@@ -162,7 +732,11 @@
 
 إضافة طلب اعتماد أو تغيير الشخص الذي ينفذ الإتلاف أو توقيت الخصم من الرصيد يعتبر **تغيير Workflow** ولا ينفذ قبل الموافقة الصريحة.
 
-## المرحلة 6 — تطوير المرتجعات
+**تنفيذ وإغلاق 2026-08-22:** تم الحفاظ على الـWorkflow الحالي، مع تقوية مسار Legacy non-Lot ليصبح رقم العملية + الرأس + البنود + خصم الكمية/القيمة + حركة Disposal داخل Transaction واحدة. كما أصبح يقرأ/يقفل الرصيد الحالي قبل الترحيل ويستخدم Current Average Cost على الخادم. مسار Lots الحالي بقي Transactional وLot-aware كما هو. Runtime UAT على المسار التشغيلي Lots Enabled نجح باستخدام `DO-2026-000003` و`DO-2026-000004` مع تطابق Lot/Inventory/Value/Transaction، ونجح منع over-quantity من الواجهة وتفاصيل/طباعة المستند. مسار Legacy non-Lot لم يُختبر Runtime منفصلًا لأن Lots Enabled هو المسار المنشور؛ targeted checks الخاصة به مقبولة كدليل غير حاجب. لا SQL/Migration/Backfill/Workflow change. المراجع: `docs/CMMS_PHASE5_STEP1_DISPOSAL_IMPLEMENTATION_2026-08-22.md` + `docs/CMMS_PHASE5_STEP1_DISPOSAL_RUNTIME_UAT_CLOSURE_2026-08-22.md`.
+
+### 5.2 — تطوير المرتجعات (Returns)
+
+**الحالة:** ✅ **COMPLETE / TARGETED CHECKS PASSED / RUNTIME UAT PASSED / OFFICIALLY CLOSED**
 
 - مرتجع إلى المورد.
 - مرتجع من الجهة المستلمة إلى المخزن.
@@ -171,75 +745,228 @@
 - تحديث الكمية والقيمة بصورة صحيحة.
 - تنفيذ كامل العملية داخل Transaction واحدة عند الحاجة.
 
+**تنفيذ 2026-08-22 — Supplier Return:** تم فحص المسار الحالي بدل إعادة بنائه. المسار التشغيلي Lots Enabled كان مسبقًا QR/Lot-aware ويربط المورد/الفاتورة/سند الاستلام/PO من Receipt Lot ويخصم Lot + Aggregate Inventory داخل Transaction. ضمن 5.2 تم تقويته بإعادة قراءة/قفل Aggregate Inventory قبل الترحيل المالي، واستخدام Current `inventory.averageCost` من الخادم لتسجيل قيمة حركة مرتجع المورد، ونقل توليد رقم `RTN-...` إلى نفس transaction writer. كما تم تقوية Legacy non-Lot path ليجمع Header + Inventory quantity/value + Return transaction + PO updates + Return document داخل Transaction واحدة دون تغيير واجهته أو Workflowه.
+
+**قرار وتنفيذ 2026-08-22 — Recipient → Warehouse Return:** وافق صاحب المشروع صراحة على السياسة: **Same Original Lot + Original Issue Cost + Original Issue Link + Partial/Over-return Guards + Atomic Posting**. بعد فحص Live DB أضيف يدويًا وبأوامر منفصلة future-only field `warehouse_returns.sourceDeliveryDocumentId INT NULL` ثم index `idx_warehouse_returns_source_delivery`; لا FK/UNIQUE/Backfill. الكود الآن يربط المرتجع بسند الصرف الأصلي، يرفض السندات القديمة غير المرتبطة بدل تخمينها، يمنع over-return تراكميًا، يعيد الكمية لنفس Lot/Inventory الأصليين، ويزيد قيمة المخزون باستخدام تكلفة حركة الصرف الأصلية ثم يعيد حساب Average Cost من القيمة الجديدة. كل core posting داخل Transaction واحدة. لم يُضف Approval/Quarantine workflow. **Fresh Runtime UAT اكتمل بنجاح وتم إغلاق 5.2 رسميًا**؛ راجع `docs/CMMS_PHASE5_STEP2_RETURNS_RUNTIME_UAT_CLOSURE_2026-08-22.md`.
+
+**إغلاق Runtime UAT 2026-08-22:** مرتجع المورد `RTN-2026-60003` = PASS مع تطابق Lot/Inventory/SUM Lots والقيمة وحركة `out/return`. مرتجع الجهة الكامل `RTN-2026-60004` المرتبط بـ`DLV-2026-300204` = PASS على Same Original Lot + Original Issue Cost + `in/return`، ومحاولة الإرجاع بعد اكتمال الكمية رُفضت. الاختبار الجزئي `DLV-2026-300205` رفض `3 > 2` ثم أنشأ `RTN-2026-60005` بكمية `1`، وأثبت Live DB/الواجهة أن `previouslyReturned=1` و`remainingReturnable=1` مع تطابق Lot/Inventory/value. حدود التحقق المقبولة: Legacy non-Lot Supplier Return لم يُختبر Runtime منفصلًا، وReturn list/print source traceability بقيت تحت targeted checks.
+
 أي تغيير في خطوات المرتجع الحالية أو حالاته أو الموافقات عليه يحتاج موافقة صريحة مسبقة.
 
-## المرحلة 7 — مراجعة الاستلام والصرف والتحويلات
+### 5.3 — مراجعة الاستلام والصرف والتحويلات
+
+**الحالة:** ✅ **COMPLETE / TARGETED CHECKS PASSED / RUNTIME UAT PASSED / OFFICIALLY CLOSED**
 
 - التأكد من استخدام قواعد تكلفة وقيمة موحدة.
 - معالجة مشاكل `warehouseId`.
 - إزالة أي Warehouse ID ثابت من منطق الأعمال.
-- توحيد أرقام المستندات وحمايتها من التكرار.
+- مراجعة أرقام المستندات وحمايتها من التكرار، مع **تأجيل التوحيد المركزي للترقيم** إلى بند مستقل لاحقًا.
 - مراجعة اتساق التحويلات بين المخازن.
+
+**تنفيذ 2026-08-23 — hardening بدون Workflow change:**
+
+- **Receipt:** أزيل الاعتماد الصريح على `warehouseId = 1` من مساري الاستلام الحاليين في الواجهة ومن backend receipt processing. عند عدم إرسال Warehouse صريح، يحل الخادم الـWarehouse من Inventory الموجود إن أمكن، وإلا يتطلب وجود **Main Warehouse واحد مفعّل** ويحلّه ديناميكيًا؛ لا يتم اختيار رقم Warehouse ثابت. كما أصبح Aggregate Inventory يُقفل `FOR UPDATE` قبل قراءة الكمية/متوسط التكلفة وإعادة حساب Moving Weighted Average. وتم تقوية مسار invoice-draft legacy بنفس مبدأ Main Warehouse الديناميكي وقفل Inventory.
+- **Issue / Delivery:** أصبح Aggregate Inventory يُقفل `FOR UPDATE` قبل إعادة قراءة الرصيد و`averageCost`، مع بقاء QR/Lot guards والخصم الشرطي وحركة `delivery` وسند `DLV` داخل Transaction الحالية. لا Workflow change.
+- **Warehouse Transfer:** أصبح قفل Inventory المصدر والهدف الموجود مطبقًا على Lot وlegacy paths معًا. يولد `TRF-...` داخل نفس Transaction قبل تسجيل الحركات، وتُسجل حركتا `out/in transfer` بنفس `documentUrl = transferNumber` لتحسين التتبع. بقي نقل نفس Lot/QR والـweighted-average للهدف كما هو.
+- **Batch transfer behavior:** السلوك الحالي الذي يسمح بنجاح/فشل كل بند بشكل مستقل داخل التحويل المجمّع **لم يُغيّر**؛ تحويله إلى all-or-nothing Workflow يحتاج موافقة منفصلة.
+- لا SQL/Migration/Backfill/Legacy Cleanup ضمن هذه التغييرات.
+
+**قرار الترقيم 2026-08-23:** فحص Live DB أظهر أعلى RCV للسنة الحالية `420148`، وعدم وجود مجموعات Receipt Numbers مكررة، وعدم وجود `receipt_number_counter`. الكود يحتوي أصلًا آلية `getNextReceiptNumber(tx?)`. بقرار صاحب المشروع **لن ننشئ Counter جديدًا خاصًا بـRCV داخل 5.3**، وستبقى آليات الترقيم الحالية كما هي مؤقتًا. تم تسجيل تصميم مؤجل مستقل لإنشاء **Centralized Document Numbering Service / Engine** على مستوى النظام لاحقًا، بدون Backfill أو إعادة ترقيم تاريخي أو فرض gapless numbering الآن. المرجع: `docs/CMMS_CENTRALIZED_DOCUMENT_NUMBERING_DEFERRED_2026-08-23.md`.
 
 إدخال حالة `In Transit` أو تغيير توقيت الخصم/الإضافة أو إضافة اعتماد من المخزن المستلم هو **تغيير Workflow** ويؤجل حتى الموافقة الصريحة.
 
-## المرحلة 8 — Inventory Reconciliation
+مرجع التنفيذ: `docs/CMMS_PHASE5_STEP3_RECEIPT_ISSUE_TRANSFER_IMPLEMENTATION_2026-08-23.md`.
 
-- مطابقة الرصيد الحالي مقابل مجموع الحركات.
-- مطابقة قيمة المخزون الحالية مقابل القيمة المحسوبة.
-- كشف الفروقات والاستثناءات.
-- إنشاء تقرير بالأصناف أو المخازن التي تحتاج مراجعة.
+**إغلاق Runtime UAT 2026-08-23:** `RCV-2026-420150` = PASS لصنفين جديدين في `WH-MAIN` مع Lot/QR وquantity/value و`in/purchase` verified؛ `DLV-2026-300213` = PASS مع Lot/Inventory/value decrement و`out/delivery`; `TRB-2026-030005` / `TRF-2026-030005` = PASS من `WH-MAIN` إلى `SUB-1` مع نفس Lot، source balance `3`, destination balance `1`, company-wide Lot quantity `4`, وحركتي transfer. محاولة تحويل `4` مع رصيد مصدر `3` رُفضت برسالة `الكمية أكبر من الرصيد المتاح (3 قطعة)`. حدود التحقق المقبولة: المسارات legacy/non-Lot وinvoice-draft لم تُختبر Runtime منفصلًا، وbatch mixed-success behavior بقي محفوظًا دون redesign. **5.3 مغلقة رسميًا**؛ المرجع: `docs/CMMS_PHASE5_STEP3_RECEIPT_ISSUE_TRANSFER_RUNTIME_UAT_CLOSURE_2026-08-23.md`.
 
-هذه المرحلة رقابية في الأساس ولا يفترض أن تغير Workflow الحالي.
+### 5.4 — Inventory Reconciliation
 
-## المرحلة 9 — التقارير المخزنية والمحاسبية
+**الحالة:** ✅ **COMPLETE / RUNTIME UAT PASSED / OFFICIALLY CLOSED — 5.4.1 / 5.4.2 / 5.4.3 / 5.4.4 CLOSED**
 
-- Stock Balance.
-- Stock Card.
-- Inventory Valuation.
-- Transactions by Date.
-- Transactions by Warehouse.
-- Receipts / Issues / Returns / Adjustments.
-- Inventory Variance.
-- Zero / Negative Stock.
-- Slow / Dead Moving Inventory.
-- Minimum Stock.
-- ABC Analysis.
-- Aging.
-- Inventory Turnover.
-- قيمة المخزون حسب المخزن والتصنيف.
+**النطاق المعتمد 2026-08-23:** Reconciliation مستقبلية وRead-only. البيانات القديمة/التجريبية تبقى كما هي ولا تُستخدم كهدف Cleanup أو Backfill. لا Baseline table ضمن 5.4، ولا Historical Transaction-Ledger Reconstruction؛ الـCutover/Opening Balance الحقيقي لاحقًا نطاق مستقل.
 
-هذه المرحلة تعتبر إضافة على النظام الحالي وليست تغييرًا لآلية تشغيله.
+التقسيم المعتمد:
 
-## المرحلة 10 — Inventory Posting Engine
+1. **5.4.1 — Inventory Integrity Rules** — ✅ **CLOSED**.
+2. **5.4.2 — Read-only Reconciliation Engine** — ✅ **COMPLETE / TARGETED CHECKS PASSED / LIVE DB RUNTIME VERIFICATION PASSED / OFFICIALLY CLOSED**.
+3. **5.4.3 — Reconciliation Exception Report** — ✅ **IMPLEMENTED / TARGETED CHECKS PASSED / RUNTIME UI VERIFICATION PASSED / OFFICIALLY CLOSED**.
+4. **5.4.4 — Runtime UAT & Closure** — ✅ **COMPLETE / RUNTIME UAT PASSED / OFFICIALLY CLOSED**.
 
-إنشاء محرك مركزي لحركات المخزون بحيث تمر من خلاله:
+قواعد 5.4.1 المعتمدة:
 
-- Receipt.
-- Issue.
-- Return.
-- Transfer.
-- Disposal.
-- Settlement.
+- `inventory.quantity = SUM(inventory_lot_balances.quantity)` للـInventory الذي يشارك فعليًا في Lots.
+- `inventory_lots.remainingQuantity = SUM(inventory_lot_balances.quantity)` لنفس Lot عبر المخازن.
+- منع القيم السالبة في Inventory quantity وLot Balance وLot remaining.
+- اتساق `totalCostValue` مع `ROUND(quantity × averageCost, 2)` ضمن Tolerance التقريب المعتمد؛ لا Revaluation تلقائي.
+- سلامة `Lot Balance → Inventory → Warehouse` وعدم orphan references أو تكرار نفس `lotId + warehouseId` على أكثر من Inventory identity.
 
-ويكون مسؤولًا عن:
+Live DB read-only discovery وقت إغلاق 5.4.1: Inventory-with-Lot mismatches=`0`; global Lot mismatches=`0`; negative stock/Lot rows=`0`; Lot reference/warehouse integrity exceptions=`0`. وُجد اختلاف قيمة في سجلين تجريبيين قديمين فقط وتم تركهما دون تعديل بقرار صاحب المشروع.
 
-- Quantity.
-- Average Cost.
-- Total Value.
-- Inventory Transaction.
-- Reference Document.
-- Negative Stock Protection.
-- Database Transaction.
-- Audit.
+هذا الجزء رقابي فقط: لا Auto-fix، لا Historical Backfill/Legacy Cleanup، لا Centralized Numbering، لا Batch Transfer redesign، ولا تغيير Workflow/Accounting behavior.
 
-يتم تنفيذ المحرك أولًا كإعادة هيكلة داخلية مع المحافظة على النتيجة والسلوك الحاليين للمستخدم.
+المراجع: `docs/CMMS_PHASE5_STEP4_INVENTORY_RECONCILIATION_APPROVED_SCOPE_2026-08-23.md` + `docs/CMMS_PHASE5_STEP4_1_INVENTORY_INTEGRITY_RULES_CLOSURE_2026-08-23.md`.
 
-إذا احتاج نقل العمليات إلى المحرك إلى تغيير ملحوظ في وظيفة حالية، يجب التوقف وطلب الموافقة الصريحة قبل ذلك الجزء.
+**5.4.2 Runtime closure 2026-08-23:** بعد فك الحزمة وإعادة تشغيل السيرفر، تم تشغيل `runInventoryReconciliation()` على Live DB فعليًا. النتيجة: `readOnly=true`, checks=`53`, passed=`53`, exceptions=`0`; tracked Inventory=`5`, Lots=`4`, Lot Balance rows=`5`. لا Historical Reconstruction ولا Auto-fix.
 
-## المرحلة 11 — تطوير الـWorkflow التشغيلي
+**5.4.3 Runtime UI closure 2026-08-23:** بعد تطبيق حزمة التقرير وإعادة تشغيل التطبيق، ظهرت شاشة **تقرير مطابقة المخزون** وربطت فعليًا مع محرك 5.4.2: إجمالي الفحوص `53`، فحوص ناجحة `53`، الاستثناءات `0`، Inventory ضمن Lot Tracking=`5`، إجمالي Inventory=`698`، خارج Lot-tracked scope=`693`، Lots=`4`، Lot Balances=`5`. ظهرت أدوات البحث/فلتر المخزن/فلتر نوع الاستثناء/تحديث الفحص، والحالة السليمة بدون Exceptions. أضيف دليل PDF عربي مختصر يشرح فائدة الشاشة بنفس مصطلحاتها، وصاحب المشروع أكد Runtime أن زر تحميل الدليل يعمل جيدًا. لا mutation أو Auto-fix أو تعديل بيانات. لم يتم افتعال Exception داخل Live DB لاختبار صفوف الاستثناءات؛ هذا حد مقبول ولا يبرر العبث بالبيانات.
 
-هذه المرحلة **لا تبدأ تلقائيًا** بعد المراحل السابقة.
+**5.4.4 Runtime closure 2026-08-23:** تم تنفيذ UAT النهائي بحركات جديدة فقط. Baseline=`53/53` و`0` Exceptions؛ بعد `RCV-2026-420151` أصبحت المطابقة `75/75` و`0` Exceptions؛ بعد `DLV-2026-300215` بقيت `75/75` و`0` Exceptions؛ وبعد `TRB-2026-030006` أصبحت `84/84` و`0` Exceptions مع زيادة Lot Balances من `7` إلى `8` وبقاء Lots=`6`. لم يتم افتعال mismatch أو تنفيذ Auto-fix/Backfill/Cleanup/Revaluation. المرجع: `docs/CMMS_PHASE5_STEP4_4_RUNTIME_UAT_CLOSURE_2026-08-23.md`.
+
+**Main Phase 5.4 = OFFICIALLY CLOSED. Main Phase 5 = COMPLETE / OFFICIALLY CLOSED. Current stop: before Main Phase 6 — Inventory / Accounting Reports. Do not start Main Phase 6 automatically.**
+
+### إغلاق المرحلة الرئيسية 5
+
+تم إغلاق الأجزاء 5.1 و5.2 و5.3 و5.4 وفق النطاق المعتمد وبعد Runtime UAT/التحقق المناسب لكل مسار.
+
+**Main Phase 5 = ✅ COMPLETE / OFFICIALLY CLOSED — 2026-08-23.**
+
+مرجع الإغلاق النهائي: `docs/CMMS_MAIN_PHASE5_FINAL_CLOSURE_2026-08-23.md`.
+
+**لا تبدأ Main Phase 6 تلقائيًا.**
+
+## المرحلة الرئيسية 6 — التقارير المخزنية والمحاسبية
+
+**الحالة:** ✅ **MAIN PHASE 6 COMPLETE / RUNTIME UAT PASSED / OFFICIALLY CLOSED — 6.1 / 6.2 / 6.3 / 6.4 / 6.5 CLOSED**
+
+> هذا هو نطاق **المرحلة 9 سابقًا** بعد إعادة الترقيم المعتمدة بتاريخ 2026-08-22.
+
+تم اعتماد مبدأ **مركز تقارير مخزنية موحد** بدل تشتيت التقارير على عدد كبير من الصفحات غير المترابطة. التقارير تجمع في أربع مجموعات منطقية:
+
+1. **الرصيد والحالة:** Stock Balance + Minimum Stock + Zero / Negative Stock.
+2. **الحركات والتتبع:** Stock Card + Transactions مع فلاتر مشتركة وحالات Receipt / Issue / Return / Transfer / Disposal / Adjustments بدل صفحات مستقلة غير ضرورية لكل نوع.
+3. **القيمة والمحاسبة:** Inventory Valuation + Value by Warehouse + Value by Category + Inventory Variance.
+4. **التحليل والتخطيط:** Slow Moving + Dead Moving + ABC + Aging + Inventory Turnover.
+
+قرار صاحب المشروع للترتيب التنفيذي كان أن **مجموعة التحليل والتخطيط تنفذ في الأخير داخل Main Phase 6 بعد إنجاز واعتماد التقارير الأساسية والمالية**. تم تنفيذ 6.4 لاحقًا بهذا الترتيب وإغلاقها رسميًا، بنفس التصميم المعتمد: صفحة واحدة **تحليل المخزون** مع Tabs صغيرة للحركة البطيئة / المخزون الراكد / ABC / الأعمار / معدل الدوران بدل خمس صفحات مشتتة.
+
+**معيار موحد معتمد لكل تقارير Main Phase 6 ضمن 6.1:** شريط أدوات منظم وثابت للتقارير يجمع `تحديث` + `إعادة تعيين الفلاتر` + `طباعة` + قائمة `تصدير` تحتوي Excel/PDF بدل أزرار مشتتة. يجب إظهار **تاريخ ووقت إنشاء التقرير**، وأن يحترم Print/Excel/PDF الفلاتر الحالية. Excel يكون `.xlsx` منظمًا ومنسقًا وقابلًا للتحليل بأرقام/تواريخ فعلية حيث أمكن، وPDF/Print يستخدمان قالبًا واضحًا يدعم العربية RTL والبيانات المختلطة عربي/إنجليزي بدون تشويه الأكواد أو البيانات الأصلية. المطلوب Foundation reusable في 6.1 وليس تكرار منطق التصدير داخل كل تقرير. المرجع التفصيلي: `docs/CMMS_MAIN_PHASE6_UNIFIED_REPORT_TOOLBAR_AND_EXPORT_STANDARD_APPROVED_2026-08-23.md`.
+
+التقسيم المعتمد:
+
+```text
+6.1 — Reports Foundation & Unified Reports Center
+6.2 — Stock Balance & Movement Reports
+6.3 — Inventory Valuation & Accounting Reports
+6.4 — Inventory Analytics & Planning Reports — EXECUTE LAST / LOW PRIORITY
+6.5 — Runtime UAT & Main Phase 6 Closure
+```
+
+هذه المرحلة تعتبر إضافة تقاريرية/قرائية على النظام الحالي وليست تغييرًا لآلية تشغيله. لا يعاد بناء 5.4 Reconciliation داخل Phase 6؛ يمكن الربط إلى **تقرير مطابقة المخزون** لاحقًا بدون تكرار المحرك أو إضافة Auto-fix.
+
+مرجع النطاق المعتمد: `docs/CMMS_MAIN_PHASE6_INVENTORY_ACCOUNTING_REPORTS_APPROVED_SCOPE_2026-08-23.md`.
+
+**الحالة اللاحقة المعتمدة بتاريخ 2026-08-24:** **Main Phase 6 كاملة مغلقة رسميًا، بما فيها 6.5.** ثم قرر صاحب المشروع تأجيل Main Phase 7 باتجاه Option B مستقبلًا، وتحويل Main Phase 8 إلى Optional Operational Enhancements. وبناءً على ذلك أُغلق **Inventory Module Development & Modernization = COMPLETE / CURRENT APPROVED SCOPE CLOSED**. لا تبدأ Phase 7 أو Phase 8 أو Final Hardening أو Cutover تلقائيًا. مرجع الإغلاق: `docs/CMMS_INVENTORY_MODULE_DEVELOPMENT_MODERNIZATION_CURRENT_SCOPE_OFFICIAL_CLOSURE_2026-08-24.md`.
+
+
+### 2026-08-23 — 6.1 Reports Foundation & Unified Reports Center — implementation checkpoint
+
+- بدأ صاحب المشروع Main Phase 6 / 6.1 صراحةً بعد إغلاق Main Phase 5.
+- تم فحص الموجود أولًا: `exceljs` مستخدم أصلًا، و`htmlToPdfService`/Chromium موجودان، لذلك لم تُضف مكتبة Excel/PDF جديدة.
+- أضيف **مركز التقارير المخزنية** على `/inventory/reports` كمركز واحد لأربع مجموعات؛ 6.4 التحليل والتخطيط ظاهرة كـ**مؤجلة / تنفذ أخيرًا**.
+- أضيف Foundation reusable: `ReportToolbar` + `ReportFiltersBar` + `ReportGeneratedAt` + client download helper + server Excel/PDF/Print export foundation.
+- Excel foundation يدعم `.xlsx` منظمًا، numeric/date typing، RTL، filter context، freeze/Auto Filter، وUnicode filenames. PDF/Print foundation يعيد استخدام Chromium الحالي ويدعم RTL/mixed Arabic-English مع `bdi/dir=auto`.
+- لم يبدأ أي Stock Balance/Stock Card/Transactions/Valuation/Analytics business report؛ 6.2/6.3/6.4 ما زالت NOT STARTED.
+- لا SQL/Schema/Migration/DB data change، ولا Workflow/Accounting/Numbering/Batch semantics change.
+- Targeted TS syntax/transpile + translation-key parity + source checks = PASS. Full project Vitest/tsc غير مدعى لعدم وجود `node_modules` في snapshot المرفوع.
+- **6.1 implementation checkpoint التاريخي = IMPLEMENTED / TARGETED CHECKS PASSED / DEPLOYED VERIFICATION PENDING.**
+- هذا الـcheckpoint تم تجاوزه لاحقًا بإغلاق 6.1 الرسمي؛ راجع closure checkpoint أدناه.
+- المرجع: `docs/CMMS_MAIN_PHASE6_STEP6_1_REPORTS_FOUNDATION_IMPLEMENTATION_2026-08-23.md`.
+
+
+### 2026-08-23 — 6.2 Stock Balance & Movement Reports — approved execution scope
+
+- اعتمد صاحب المشروع تنفيذ 6.2 كتقارير تشغيلية Read-only تجيب عن: **ماذا يوجد في المخزون الآن؟ وماذا حدث لهذا المخزون؟**
+- التنظيم داخل **مركز التقارير المخزنية** يبقى غير مشتت: **الرصيد والحالة** + **الحركات والتتبع**.
+- التقسيم التنفيذي المعتمد:
+  - `6.2.1 — Stock Balance & Status`
+  - `6.2.2 — Stock Card & Unified Movement Report`
+  - `6.2.3 — Unified Export & Review`
+  - `6.2.4 — Runtime UAT & Closure`
+- 6.2.1 يغطي Stock Balance + Minimum Stock + Zero/Negative status مع Lot drill-down عند الحاجة دون تكرار محرك 5.4.
+- 6.2.2 يستخدم Stock Card وتقرير حركات موحد بفلاتر Receipt / Issue / Return / Transfer / Disposal / Adjustment بدل صفحات مشتتة لكل نوع.
+- 6.2.3 يعيد استخدام Foundation المغلقة في 6.1 للطباعة وExcel `.xlsx` وPDF وReset/Refresh وتاريخ الإنشاء؛ لا يعيد بناء Foundation جديدة.
+- 6.2.4 يتحقق Runtime من التقارير والتصدير مقابل Live DB، ومع أي SQL تحقق يستخدم أمر Read-only واحدًا في كل مرة.
+- لا Auto-fix / Backfill / Legacy Cleanup / Accounting redesign / Posting Engine / Centralized Numbering / Production Cutover. البيانات القديمة التجريبية تبقى untouched.
+- **6.2 = SCOPE APPROVED / DOCUMENTED — IMPLEMENTATION NOT STARTED. Current stop: before 6.2.1.**
+- المرجع: `docs/CMMS_MAIN_PHASE6_STEP6_2_STOCK_BALANCE_MOVEMENT_REPORTS_APPROVED_SCOPE_2026-08-23.md`.
+
+
+### 2026-08-23 — 6.2.1 Stock Balance & Status — implementation checkpoint
+
+- بدأ صاحب المشروع 6.2.1 صراحةً بعد توثيق Scope 6.2.
+- أضيف تقرير **رصيد المخزون والحالة** على `/inventory/reports/stock-balance` داخل مركز التقارير الموحد، وليس كرابط تقارير مشتت جديد.
+- التقرير Read-only ويعرض الحالة الحالية المخزنة: الصنف/الكود/المخزن/الكمية/الوحدة/متوسط التكلفة/قيمة المخزون/الحد الأدنى/الحالة.
+- حالات العرض متعمدة وغير متداخلة: Negative ثم Zero ثم Low (رصيد موجب حتى الحد الأدنى) ثم Normal.
+- أضيف Lot drill-down اختياري لعرض Lot Code ورصيد الدفعة في المخزن والمتبقي الإجمالي وتاريخ الانتهاء وTracking Token دون تكرار محرك 5.4.
+- فلاتر 6.2.1: البحث باسم الصنف أو الكود الداخلي + المخزن + الحالة.
+- الطباعة وExcel/PDF تستخدم نفس Foundation المغلقة في 6.1 وتحترم نفس فلاتر التقرير.
+- لا SQL/Schema/Migration/DB mutation ولا Historical Backfill/Cleanup/Revaluation ولا Workflow/Accounting/Posting/Numbering change.
+- Targeted TypeScript/TSX syntax transpile للملفات المعدلة = PASS؛ الاختبار المستهدف Runtime/Project execution ما زال مطلوبًا بعد الاستخراج.
+- **6.2.1 = IMPLEMENTED / TARGETED SOURCE CHECKS PASSED / DEPLOYED RUNTIME VERIFICATION PENDING.**
+- **6.2.2 = NOT STARTED.**
+- المرجع: `docs/CMMS_MAIN_PHASE6_STEP6_2_1_STOCK_BALANCE_STATUS_IMPLEMENTATION_2026-08-23.md`.
+
+
+
+### 2026-08-23 — 6.2.2 Stock Card & Unified Movement Report — official Runtime closure
+
+- تم التحقق Runtime من صفحتي **جميع الحركات** و**بطاقة الصنف** بعد نشر التنفيذ.
+- الاختبار المستهدف `server/tests/inventoryMovementReportPhase6Step2_2.test.ts` = **4/4 PASS**.
+- أكد صاحب المشروع أن الفلاتر تعمل جيدًا وأن Excel/PDF export يعمل ويحترم النتيجة المفلترة.
+- Stock Card تبقى future-focused: current stored balance/value + recorded transactions فقط، دون اختراع Opening Balance أو Historical Reconstruction.
+- التقرير والخدمة Read-only؛ لا SQL/Schema/Migration/DB mutation ولا Backfill/Cleanup/Revaluation ولا Workflow/Accounting/Posting/Numbering change.
+- **6.2.2 = COMPLETE / TARGETED TESTS PASSED / RUNTIME UAT PASSED / OFFICIALLY CLOSED.**
+- **6.2.3 = NOT STARTED.**
+- **Current stop: after 6.2.2 official closure / before 6.2.3.**
+- المرجع: `docs/CMMS_MAIN_PHASE6_STEP6_2_2_STOCK_CARD_UNIFIED_MOVEMENT_RUNTIME_CLOSURE_2026-08-23.md`.
+
+## المرحلة الرئيسية 7 — Inventory Posting Engine / Future Shared Posting Core
+
+**الحالة:** ⏸️ **DEFERRED BY OWNER / NOT STARTED**
+
+> هذا هو نطاق **المرحلة 10 سابقًا** بعد إعادة الترقيم المعتمدة بتاريخ 2026-08-22.
+
+### قرار 2026-08-24 — Option B عند الاستئناف
+
+بعد إغلاق Main Phase 6 ومراجعة الحاجة الفعلية للمحرك المركزي، قرر صاحب المشروع **تأجيل Main Phase 7 الآن**. عند العودة إليها مستقبلًا، لا يتم تنفيذ Full Centralized Inventory Posting Engine بالنطاق الواسع السابق؛ الاتجاه المعتمد هو **Option B — Shared Posting Core صغير ومحافظ**.
+
+الهدف المستقبلي عند الاستئناف، وبعد موافقة صريحة جديدة، هو توحيد الـprimitives المشتركة فقط عندما يكون التوحيد ذا فائدة واضحة، مثل locking / negative-stock protection / safe quantity-value mutations / inventory transaction recording، مع إبقاء Business Rules وسياسات التكلفة الخاصة بكل Workflow داخل خدمات Receipt / Issue / Return / Transfer / Disposal / Settlement المتخصصة.
+
+حدود القرار:
+
+- لا Coding في Main Phase 7 الآن.
+- لا Full generic posting engine يختار أو يفرض سياسة تكلفة موحدة على جميع العمليات.
+- لا تغيير Workflow أو Accounting behavior بدون موافقة منفصلة.
+- Batch Transfer يبقى **per-item / partial success** ولا يتحول إلى all-or-nothing.
+- Centralized Document Numbering يبقى **DEFERRED** وخارج Main Phase 7؛ لا `receipt_number_counter` تلقائيًا.
+- لا Historical Cleanup / Backfill / Revaluation / Renumbering.
+- لا Cutover للبيانات التجريبية ضمن Main Phase 7.
+- Live DB تبقى مصدر الحقيقة؛ لا تعديل لها لمجرد مطابقة Project Schema.
+- عند الحاجة مستقبلًا إلى SQL: أمر واحد فقط في كل مرة وينفذه صاحب المشروع يدويًا.
+
+**Main Phase 8 لا تبدأ تلقائيًا بسبب تأجيل Main Phase 7، وتبقى NOT STARTED حتى قرار منفصل.**
+
+مرجع القرار: `docs/CMMS_MAIN_PHASE7_DEFERRAL_AND_OPTION_B_SHARED_POSTING_CORE_DECISION_2026-08-24.md`.
+
+## المرحلة الرئيسية 8 — Optional Operational Enhancements / تحسينات Workflow تشغيلية اختيارية
+
+**الحالة:** ⏸️ **DEFERRED / OPTIONAL / NOT STARTED — EXPLICIT APPROVAL REQUIRED PER ITEM**
+
+> هذا هو نطاق **المرحلة 11 سابقًا** بعد إعادة الترقيم المعتمدة بتاريخ 2026-08-22.
+
+### قرار صاحب المشروع — 2026-08-24
+
+بعد مراجعة الحاجة الفعلية إلى Main Phase 8، قرر صاحب المشروع أن **Main Phase 8 لا تُنفذ كحزمة تطوير كاملة أو Gate إلزامية**. يتحول نطاقها إلى **Optional Operational Enhancements**: قائمة تحسينات تشغيلية مرشحة يتم تقييم كل عنصر منها لاحقًا وفق الحاجة الفعلية، ويمكن اعتماد صفر أو بعض أو كل العناصر فقط بموافقة صريحة مستقلة.
+
+هذا القرار يعني:
+
+- لا يبدأ أي Coding في Main Phase 8 الآن.
+- لا يوجد التزام بتنفيذ جميع عناصر القائمة قبل Final Project Hardening / Closure.
+- بقاء عنصر في هذه القائمة لا يعني أنه Requirement معتمد أو نقصًا في النظام الحالي.
+- الـWorkflow الحالي المقبول يبقى كما هو ما لم يعتمد صاحب المشروع تغييرًا محددًا.
+- أي عنصر يُختار لاحقًا يعامل كتغيير مستقل: تحليل الوضع الحالي، عرض المقترح والأثر، ثم موافقة صريحة قبل التنفيذ.
+
+### قائمة التحسينات الاختيارية المرشحة
 
 تشمل أمثلة مثل:
 
@@ -251,24 +978,75 @@
 - اعتماد الاستلام في المخزن الوجهة.
 - الاستلام الجزئي المتكرر.
 - الصرف الجزئي المتكرر.
-- Lot / Batch / Expiry.
+- Lot / Batch / Expiry enhancements فوق الموجود فعليًا عند الحاجة؛ لا يفترض أن Lot Tracking غير موجود.
 - Rack / Bin / Location.
 - Min / Max.
 - Safety Stock.
 - Reorder Point.
 
-### شرط بدء المرحلة 11
+هذه القائمة **Candidates فقط** وليست Scope تنفيذ إلزاميًا.
+
+### شرط تنفيذ أي عنصر اختياري
 
 قبل تنفيذ أي عنصر منها يجب:
 
-1. تحليل الوضع الحالي.
-2. عرض الـWorkflow الحالي.
-3. عرض الـWorkflow المقترح.
-4. بيان الفارق والتأثير.
-5. سؤال مالك المشروع صراحة.
-6. الحصول على موافقة صريحة على العنصر المحدد.
+1. تحليل الوضع الحالي في أحدث المشروع وLive DB عند الحاجة.
+2. تحديد هل توجد حاجة تشغيلية فعلية (`Need / Don't Need`).
+3. عرض الـWorkflow الحالي.
+4. عرض الـWorkflow المقترح للعنصر فقط.
+5. بيان الفارق والتأثير على UI / Permissions / DB / Accounting / Posting / Audit عند وجوده.
+6. سؤال مالك المشروع صراحة عن العنصر المحدد.
+7. الحصول على موافقة صريحة منفصلة قبل أي Coding أو SQL أو تغيير Workflow.
 
-**لا تعتبر الموافقة على خطة تطوير المخازن موافقة تلقائية على أي تغيير Workflow في المرحلة 11.**
+**لا تعتبر الموافقة على Roadmap أو على هذا القرار موافقة تلقائية على أي عنصر من Main Phase 8.**
+
+### حدود ثابتة
+
+ما لم يعتمد صاحب المشروع تغييرًا منفصلًا وصريحًا:
+
+- لا Maker/Checker أو Approval states جديدة تلقائيًا.
+- لا `In Transit` أو Destination Receipt Workflow تلقائيًا.
+- لا تغيير Batch Transfer إلى all-or-nothing.
+- لا Centralized Document Numbering ولا `receipt_number_counter` ضمن هذا القرار.
+- لا Historical Cleanup / Backfill / Revaluation / Renumbering.
+- لا تغيير Accounting behavior أو توقيت تأثير المخزون تلقائيًا.
+- لا Cutover للبيانات التجريبية ضمن Main Phase 8.
+- Live DB تبقى مصدر الحقيقة؛ لا تعديل لها لمجرد مطابقة Project Schema.
+- إذا احتاج أي عنصر لاحقًا SQL، يُرسل **أمر SQL واحد فقط في كل مرة** لينفذه صاحب المشروع يدويًا.
+
+### أثر القرار على Roadmap
+
+**Main Phase 8 تبقى آخر Main Phase اسمًا في الـRoadmap الحالي، لكنها لم تعد مرحلة إلزامية يجب تنفيذها بالكامل.** البنود التي تثبت الحاجة إليها فقط هي التي يمكن تنفيذها لاحقًا، أما البنود غير المطلوبة فيمكن أن تبقى غير منفذة دون اعتبار ذلك نقصًا أو إعادة فتح للمراحل المغلقة.
+
+مرجع القرار: `docs/CMMS_MAIN_PHASE8_OPTIONAL_OPERATIONAL_ENHANCEMENTS_DECISION_2026-08-24.md`.
+
+## إغلاق بناء وتحديث وحدة المخزون ضمن النطاق الحالي المعتمد — 2026-08-24
+
+**الحالة:** ✅ **Inventory Module Development & Modernization = COMPLETE / CURRENT APPROVED SCOPE CLOSED**
+
+بعد إغلاق Main Phase 6 رسميًا، ثم اعتماد تأجيل Main Phase 7 باتجاه Option B مستقبلًا وتحويل Main Phase 8 إلى Optional Operational Enhancements، قرر صاحب المشروع إعلان اكتمال وإغلاق **بناء وتحديث وحدة المخزون ضمن النطاق الحالي المعتمد**.
+
+هذا الإغلاق لا يعني تنفيذ أو إغلاق Final Project Hardening / Closure، ولا يعني تنفيذ Production/Inventory Cutover. يبقى `2B-10-2C` مؤجلًا إلى Final Project Hardening / Closure، ويبقى Cutover البيانات التجريبية خطوة مستقلة لاحقة لا تبدأ تلقائيًا.
+
+لا يغير هذا القرار أي Workflow أو Accounting behavior أو Batch Transfer semantics أو Numbering policy، ولا ينفذ Historical Cleanup/Backfill/Revaluation/Renumbering أو SQL/Schema/DB mutation.
+
+**نقطة التوقف الحالية:** Inventory Module Development & Modernization current approved scope = CLOSED. Phase 7 = DEFERRED / NOT STARTED. Phase 8 = DEFERRED / OPTIONAL / NOT STARTED. Final Hardening وCutover منفصلان ولم يبدأا ضمن هذا القرار.
+
+مرجع الإغلاق: `docs/CMMS_INVENTORY_MODULE_DEVELOPMENT_MODERNIZATION_CURRENT_SCOPE_OFFICIAL_CLOSURE_2026-08-24.md`.
+
+### خريطة إعادة الترقيم المعتمدة — 2026-08-22
+
+| الترقيم السابق | الترقيم الحالي | النطاق |
+|---|---|---|
+| المرحلة 5 | Main Phase 5 / 5.1 | الإتلاف / الاستبعاد |
+| المرحلة 6 | Main Phase 5 / 5.2 | المرتجعات |
+| المرحلة 7 | Main Phase 5 / 5.3 | مراجعة الاستلام والصرف والتحويلات |
+| المرحلة 8 | Main Phase 5 / 5.4 | Inventory Reconciliation |
+| المرحلة 9 | Main Phase 6 | التقارير المخزنية والمحاسبية |
+| المرحلة 10 | Main Phase 7 | Inventory Posting Engine |
+| المرحلة 11 | Main Phase 8 | تطوير الـWorkflow التشغيلي |
+
+**هذه إعادة تجميع وترقيم للـRoadmap فقط. لا تعني بدء أي مرحلة، ولا اعتماد أي تغيير Workflow، ولا تنفيذ Backfill/Cleanup، ولا تغيير Live DB.**
 
 # 4. قاعدة العمل لكل تعديل
 
@@ -514,14 +1292,16 @@
 4. لم يتم إجراء أي تغيير على Workflow أو صلاحيات المستخدمين أو تصميم الشاشات في هذه الدفعة.
 
 
-### قرار موثق — إدارة الوحدات والتحويلات
+### قرار موثق — الكتالوج أولًا ثم إدارة الوحدات والتحويلات
 
-تم اعتماد أن تطوير إدارة وحدات الأصناف ومعاملات التحويل سيكون ضمن **المرحلة 2**، وليس ضمن المرحلة 1 أو مرحلة Workflow لاحقة.
+تم اعتماد أن **المرحلة 2B** ستكون مرحلة جعل الكتالوج محور تعريف الأصناف وربط المشتريات والاستلام والمخزون به، وأن تطوير إدارة وحدات الأصناف ومعاملات التحويل ينتقل إلى **المرحلة 2C** بعد تثبيت تصميم Master Catalog.
 
+- الكتالوج هو Master Item Data المستهدف للنظام.
+- إعدادات الوحدة ومعامل التحويل في 2C يجب أن تُصمم باعتبار الكتالوج مالك تعريف الصنف، وليس المخزون.
 - إعدادات الوحدة ومعامل التحويل: يديرها مستخدم مخوّل.
 - الحساب والتحقق: قواعد برمجية داخل النظام.
 - لا يتم Hard-code لمعاملات تحويل خاصة بالأصناف.
-- أي تغيير في واجهة تعريف الصنف أو صلاحيات تعديل الوحدات يعرض أولًا على مالك المشروع إذا كان سيغير السلوك الحالي الملحوظ.
+- أي تغيير في واجهة تعريف الصنف أو صلاحيات تعديل الوحدات أو Workflow الربط يعرض أولًا على مالك المشروع قبل التنفيذ.
 
 ### الخطوة التالية
 
@@ -535,3 +1315,2993 @@
 
 **هل يتطلب القادم موافقة على تغيير Workflow؟**  
 لا بالنسبة للتحسينات الداخلية المذكورة أعلاه. إذا ظهر أثناء التنفيذ أي تغيير يمس وظيفة قائمة أو طريقة استخدام حالية، يتم التوقف وطلب الموافقة الصريحة وفق القسم 2 والقسم 7.
+
+## الدفعة 2 — المرحلة 2A: أساس الوحدات والتحويل ودقة الكميات
+
+**تاريخ التنفيذ:** 15 أغسطس 2026  
+**الحالة:** تم تنفيذ الجزء البرمجي المعتمد للمرحلة 2A. تطبيق Migration قاعدة البيانات والتحقق التشغيلي ما زالا مطلوبين قبل اعتماد المرحلة 100%.
+
+### الموافقة المعتمدة لهذه الدفعة
+
+تمت الموافقة الصريحة على تغيير الأعمدة الأساسية التالية فقط إلى `DECIMAL(12,3)`:
+
+- `inventory.quantity`
+- `inventory.minQuantity`
+- `inventory_transactions.quantity`
+
+ولذلك لم يتم توسيع التغيير تلقائياً إلى أعمدة مستندات أو طلبات شراء أخرى ما زالت `INT`.
+
+### تم تنفيذ
+
+1. تحديث `drizzle/schema.ts` بحيث تصبح الكميات الأساسية الثلاث بدقة ثلاث منازل عشرية مع بقاء التعامل البرمجي معها كأرقام `number`.
+2. إضافة Migration:
+   - `drizzle/migrations/2026_08_15_inventory_quantity_decimal.sql`
+   - يحول الأعمدة الثلاثة المعتمدة من `INT` إلى `DECIMAL(12,3)`.
+3. إضافة معيار مركزي لدقة الكمية داخل:
+   - `server/_core/inventory-costing.ts`
+   - `INVENTORY_QUANTITY_SCALE = 3`.
+   - `normalizeInventoryQuantity()` لتوحيد الكميات قبل الحفظ والحساب.
+4. توحيد حسابات القيمة والتكلفة بحيث تستخدم نفس الكمية بعد تثبيتها إلى ثلاث منازل عشرية.
+5. إزالة التقريب إلى عدد صحيح من عمليات تسجيل حركات المخزون في المسارات التي كانت تستخدم `Math.round()`، ومنها:
+   - الاستلام القديم القائم داخلياً.
+   - إضافة صنف جديد أثناء الجرد.
+   - حركة التسوية.
+   - الإتلاف/الاستبعاد.
+6. جعل خدمات إنشاء وتحديث الرصيد والحركات تقوم بتطبيع `quantity` و`minQuantity` إلى ثلاث منازل عشرية قبل الحفظ.
+7. جعل الصرف من المخزون يستخدم كمية مطبّعة واحدة في التحقق والخصم وسجل الحركة والقيمة.
+8. تحديث تحقق API العام للمخزون بحيث يسمح بكمية حركة تبدأ من `0.001` بدلاً من إجبارها على عدد صحيح لا يقل عن 1.
+9. منع إدخال رصيد ابتدائي أو حد أدنى سالب عند إنشاء/تعديل بيانات المخزون.
+10. تحديث حقل الحد الأدنى في شاشة المخزون لقبول ثلاث منازل عشرية بدلاً من `parseInt`.
+11. إضافة اختبارات حسابية لدعم الكسور والتقريب إلى ثلاث منازل عشرية.
+
+### أمثلة بعد المرحلة 2A
+
+- `10.000` لتر - صرف `0.750` = `9.250` لتر.
+- حركة `0.125` وحدة بتكلفة `80` = قيمة حركة `10.00`.
+- كمية `1.2346` يتم تثبيتها إلى `1.235` قبل الحفظ والحساب.
+
+### لم يتم تنفيذ
+
+1. لم يتم تنفيذ المرحلة 2C الخاصة بشاشة وإدارة:
+   - وحدة المخزون الأساسية.
+   - وحدة الشراء.
+   - وحدة الصرف.
+   - معامل التحويل.
+2. لم يتم تغيير أي Workflow أو ترتيب خطوات المستخدم أو حالات العمليات.
+3. لم يتم تغيير الأعمدة التالية لأنها خارج قائمة Schema التي عُرضت وأُقرت قبل التنفيذ، وبعضها ما زال `INT`:
+   - `delivery_documents.quantity`
+   - `warehouse_returns.returnedQuantity`
+   - `return_documents.returnedQuantity`
+   - حقول الكميات في `purchase_order_items` مثل `quantity / receivedQuantity / deliveredQuantity / returnedQuantity`.
+4. لذلك لا يتم إعلان أن **كل مستندات النظام** تدعم الكسور حتى يتم تحليل هذه الأعمدة وعرض Migration مستقل للموافقة.
+5. لم يتم تغيير مرتجع المورد الحالي للسماح بأقل من وحدة واحدة؛ بقي سلوكه الحالي كما هو إلى أن يتم توحيد أعمدة مستنداته.
+6. لم يتم تطبيق Migration على قاعدة بيانات التشغيل من داخل هذه الدفعة؛ التنفيذ اليدوي يتم أمرًا واحدًا في كل مرة حسب بروتوكول العمل المعتمد.
+
+### المتبقي من 2A قبل الاعتماد 100%
+
+- تطبيق أوامر Migration الثلاثة على قاعدة البيانات الفعلية.
+- التحقق من نوع الأعمدة بعد التنفيذ عبر `INFORMATION_SCHEMA`.
+- اختبار عملي لكميات كسرية في الرصيد وسجل الحركات والحد الأدنى.
+- تشغيل Build/Vitest الكامل عند توفر Dependencies.
+- اتخاذ قرار منفصل حول أعمدة المستندات وطلبات الشراء التي ما زالت `INT` قبل تعميم الكسور عليها.
+
+### الاختبارات المنفذة
+
+- فحص Syntax لجميع ملفات TypeScript/TSX المعدلة: ناجح.
+- فحص TypeScript انتقائي لم يظهر أخطاء أسماء/أنواع جديدة في الملفات المعدلة؛ ظهرت فقط مشاكل قديمة مرتبطة بملفات المشروع/Dependencies خارج نطاق هذه الدفعة.
+- اختبارات مباشرة لوحدة الحساب:
+  - `0.5` تبقى `0.5`.
+  - `1.2344` تصبح `1.234`.
+  - `1.2346` تصبح `1.235`.
+  - `0.5 × 120 = 60`.
+  - `0.125 × 80 = 10`.
+  - تحويل `0.3334 × 3` يثبت كمية المخزون إلى `1.000`.
+- تمت مراجعة كل عمليات `insert(inventory_transactions)` النشطة والتأكد من عدم بقاء `Math.round()` على كمية المخزون في المسارات المعدلة.
+
+### اختبارات لم يتم تشغيلها
+
+- لم يتم تشغيل `vitest run` الكامل.
+- لم يتم تشغيل Build كامل للمشروع.
+- السبب: حزمة المشروع لا تحتوي `node_modules` في بيئة العمل الحالية.
+
+### الملاحظات / المخاطر
+
+1. تغيير `INT -> DECIMAL(12,3)` للأعمدة الثلاثة توسعة آمنة للبيانات الصحيحة الحالية، لكنه يظل DDL ويجب تطبيقه على قاعدة البيانات قبل تشغيل الكود الجديد في الإنتاج.
+2. يجب عدم تشغيل نسخة الكود الجديدة على Production مع بقاء الأعمدة الأساسية `INT` إذا كانت ستُستخدم كميات كسرية؛ وإلا ستعود مشكلة التقريب على مستوى قاعدة البيانات.
+3. وجود أعمدة مستندات أخرى ما زالت `INT` يعني أن دعم الكسور أصبح صحيحاً في **قلب المخزون المعتمد** لكنه ليس معمماً بعد على كل وثيقة مرتبطة بالمخزون.
+4. لم يتم تغيير العرض أو الـWorkflow الحالي في هذه الدفعة؛ التغيير وظيفته حفظ الكمية ودقتها خلفياً.
+
+### قرار موثق — عدم تعطيل الاستلام بسبب اعتماد الكتالوج
+
+تم اعتماد أن قرار **«صنف جديد»** يتم أثناء إدخال فاتورة المورد بواسطة Checkbox مستقل أمام كل سطر.
+
+إذا تم تحديد الصنف كجديد:
+
+- يستمر Workflow الفاتورة والاستلام والمخزون دون انتظار اعتماد الكتالوج.
+- يتم إدخال الكمية للمخزون طبيعيًا.
+- يمكن إنشاء Receipt Lot والـQR/Barcode التشغيلي للدفعة.
+- يرسل الصنف بالتوازي إلى شاشة **«إدخال الأصناف الجديدة إلى الكتالوج»**.
+- مسؤول الكتالوج يراجعه لاحقًا ويقرر إما ربطه بصنف موجود أو تنظيف بياناته واعتماد Catalog Item جديد.
+- الربط اللاحق لا يعيد احتساب أو تعديل الكميات أو التكاليف أو الاستلام التاريخي؛ يقتصر على ربط هوية Master Data والسجلات المرجعية المسموح بها.
+
+الهدف:
+
+> **عدم تعطيل التشغيل والمستودع، مع الحفاظ في الوقت نفسه على نظافة الكتالوج وجودة Master Data.**
+
+### قرار موثق — Supplier Aliases وReceipt Lot QR
+
+تم اعتماد المبادئ التصميمية التالية ضمن المرحلة 2B:
+
+- تحديد المورد المركزي يسبق مطابقة أصناف الفاتورة.
+- AI/OCR أو الإدخال اليدوي يعرض أقرب الموردين، والمستخدم يؤكد المورد الموجود أو يحدد أنه جديد.
+- اختلاف اسم المورد يحفظ كـSupplier Alias بدل إنشاء مورد مكرر.
+- بعد اختيار المورد، تتم مطابقة أصناف الفاتورة أولًا ضمن سجل أصناف هذا المورد.
+- لكل Catalog Item يمكن حفظ عدة أسماء وأكواد أصناف من موردين مختلفين.
+- هوية الصنف المركزية تبقى في الكتالوج.
+- كل استلام فعلي ينشئ Receipt Lot مستقلًا مرتبطًا بالمورد والفاتورة وأمر الشراء وسند الاستلام.
+- QR/Barcode التشغيلي المستخدم في المخزن للتتبع يمثل Receipt Lot.
+- الصرف والمرتجعات يحتفظان بمرجع الدفعة المستخدمة حتى يمكن معرفة مصدر الكمية.
+- المتوسط المرجح يبقى سياسة التقييم المحاسبي، بينما Receipt Lot مسؤول عن تتبع المصدر.
+- سياسة FIFO/FEFO أو اختيار الدفعة عند الصرف لم تعتمد بعد، وتحتاج قرارًا منفصلًا قبل تغيير Workflow.
+
+### قرار معماري موثق بعد تحليل الكتالوج
+
+تم اعتماد إعادة ترتيب بقية المرحلة 2 كما يلي:
+
+- **2B — الكتالوج كمحور مركزي للأصناف وربط المشتريات والاستلام والمخزون.**
+- **2C — إدارة وحدات الأصناف ومعاملات التحويل.**
+
+سبب الترتيب:
+
+إعدادات الوحدات والتحويلات يجب ألا تُبنى كـMaster Data داخل `inventory` ثم يتم نقلها لاحقًا. بما أن الكتالوج هو المصدر المركزي المستهدف لتعريف الصنف، يتم أولًا تثبيت هوية الصنف وربطه بالكتالوج، ثم تُبنى الوحدات والتحويلات في 2C على هذا الأساس.
+
+تم أيضًا اعتماد المبادئ التالية:
+
+- طلب الشراء يفضّل اختيار الصنف من الكتالوج.
+- الإدخال اليدوي يبقى استثناء عند عدم توفر الصنف.
+- بند طلب الشراء المختار من الكتالوج يجب أن يحتفظ مستقبلًا بهوية `catalogItemId` بالإضافة إلى Snapshot التاريخي.
+- عند الاستلام، الصنف غير المفهرس إما يُربط بصنف كتالوج موجود أو يتحول إلى Catalog Item Candidate.
+- الصنف الجديد المقترح لا يدخل Master Catalog مباشرة؛ يراجعه مسؤول الكتالوج وينظف بياناته ويعتمده.
+- تصنيفات المخزن الرئيسي مصدرها شجرة تصنيفات الكتالوج.
+- الذكاء الاصطناعي/OCR يقترح المطابقة ولا يعتمد Master Item جديدًا تلقائيًا.
+
+### الخطوة التالية
+
+1. تطبيق Migration المرحلة 2A يدوياً، **أمر واحد فقط في كل مرة**، وإرسال نتيجة كل أمر قبل الانتقال لما بعده.
+2. بعد نجاح Migration، تنفيذ استعلام تحقق من أنواع الأعمدة.
+3. بعد اعتماد 2A تشغيليًا، تكون الخطوة المعمارية التالية هي **2B — Master Catalog وربط المشتريات والاستلام والمخزون**؛ أما توسعة الكسور على مستندات إضافية فتُعرض كـSchema مستقل عند الحاجة ولا تُنفذ تلقائيًا.
+
+**هل يتطلب القادم موافقة على تغيير Workflow؟**  
+لا بالنسبة لتطبيق Migration المعتمد والتحقق منه. أي تغيير في أعمدة إضافية أو وظيفة قائمة سيُعرض أولاً وفق بوابة الموافقة.
+
+### قرار موثق — Checkbox «مورد جديد»
+
+تم اعتماد أن إدخال الفاتورة يحتوي، بجانب البحث عن الموردين الأقرب، على خيار **«مورد جديد»** يعمل بنفس فلسفة خيار **«صنف جديد»**:
+
+- المستخدم التشغيلي يحدد أن المورد جديد.
+- تستمر الفاتورة والاستلام والمخزون دون انتظار اعتماد المورد.
+- ينشأ Supplier Candidate بالتوازي.
+- يراجعه المسؤول المخوّل لاحقًا.
+- إذا كان المورد موجودًا أصلًا يتم الربط به بدل إنشاء Duplicate.
+- إذا كان جديدًا فعلًا يتم تنظيف بياناته واعتماده كمورد مركزي.
+- الربط اللاحق لا يعيد تنفيذ أو تعديل الأحداث التشغيلية التاريخية.
+
+## المرحلة 2B — خطة التنفيذ المجزأة
+
+تم تقسيم المرحلة 2B إلى حزم صغيرة مستقلة قدر الإمكان، بحيث يتم تنفيذ كل حزمة واختبارها وتوثيقها قبل الانتقال للحزمة التالية.
+
+### 2B-1 — تثبيت هوية الصنف المركزي وربط طلب الشراء بالكتالوج
+
+الهدف:
+جعل `catalogItemId` هو المرجع المركزي للصنف عندما يتم اختيار بند طلب الشراء من الكتالوج.
+
+تشمل:
+- إضافة/اعتماد رابط فعلي بين بند طلب الشراء وصنف الكتالوج.
+- الحفاظ على Snapshot للاسم والوصف والوحدة داخل طلب الشراء لحفظ التاريخ.
+- إبقاء الإدخال اليدوي متاحًا كاستثناء إذا لم يوجد الصنف في الكتالوج.
+- تمييز البند اليدوي بأنه غير مرتبط بالكتالوج.
+- عدم تغيير Workflow اعتماد طلب الشراء الحالي.
+
+معيار الإنهاء:
+- بند من الكتالوج يحتفظ بهوية Catalog فعلية.
+- بند يدوي يستمر طبيعيًا بدون Catalog ID.
+- لا يتغير مسار اعتماد طلب الشراء.
+
+---
+
+### 2B-2 — تحديد المورد المركزي وخيار «مورد جديد» عند إدخال الفاتورة
+
+الهدف:
+منع تكرار المورد بسبب اختلاف طريقة كتابة الاسم، مع السماح باستمرار الفاتورة والاستلام دون تعطيل إذا كان المورد جديدًا.
+
+تشمل:
+
+- البحث عن المورد بالاسم المدخل يدويًا أو المستخرج من AI/OCR.
+- البحث داخل Supplier Master المرتبط بالكتالوج.
+- عرض أقرب الموردين المحتملين للمستخدم.
+- استخدام الرقم الضريبي والسجل التجاري والهاتف والبريد عند توفرها لرفع دقة المطابقة.
+- دعم Supplier Aliases للأسماء البديلة.
+- عدم إنشاء Supplier Master جديد تلقائيًا بواسطة AI.
+
+أثناء إدخال الفاتورة يظهر خيار:
+
+**☐ مورد جديد**
+
+ويعمل كالتالي:
+
+#### الحالة A — المورد موجود
+
+- يعرض النظام أقرب الموردين.
+- يختار المستخدم المورد الصحيح.
+- يتم ربط الفاتورة بهوية Supplier المركزية.
+- إذا كان الاسم الوارد في الفاتورة مختلفًا، يمكن حفظه كـSupplier Alias للمورد نفسه.
+- لا يتم إنشاء مورد جديد.
+
+#### الحالة B — المورد جديد فعلًا
+
+إذا لم يكن المورد موجودًا في Supplier Master:
+
+- يفعّل المستخدم Checkbox **«مورد جديد»**.
+- يتم حفظ الفاتورة والاستمرار في Workflow الحالي.
+- لا يتم إيقاف الاستلام.
+- لا يتم تعطيل إدخال الأصناف للمخزون.
+- يتم إنشاء Supplier Candidate في مسار Master Data بالتوازي.
+- يرسل المورد إلى شاشة مراجعة مستقلة مثل:
+  **«إدخال الموردين الجدد»**.
+
+ويتم نقل البيانات المتاحة تلقائيًا، مثل:
+
+- الاسم كما ظهر في الفاتورة.
+- الاسم الذي أدخله المستخدم.
+- الرقم الضريبي إن وجد.
+- السجل التجاري إن وجد.
+- الهاتف.
+- البريد.
+- العنوان.
+- رقم الفاتورة.
+- صورة/مرجع الفاتورة.
+- أي بيانات OCR متاحة.
+
+#### مراجعة المورد الجديد
+
+المسؤول المخوّل يراجع Supplier Candidate ويقوم بـ:
+
+- البحث عن Duplicate.
+- مقارنة الاسم مع الموردين الموجودين.
+- مراجعة الرقم الضريبي والسجل التجاري.
+- تنظيف الاسم الرسمي.
+- استكمال البيانات الأساسية.
+- اختيار أحد القرارين:
+
+**1. ربط بمورد موجود**
+- إذا اكتشف أنه نفس مورد موجود، لا ينشئ Supplier جديدًا.
+- يتم ربط السجلات التشغيلية السابقة بالمورد الموجود.
+- يمكن حفظ الاسم الجديد كـSupplier Alias.
+
+**2. اعتماد مورد جديد**
+- إذا تأكد أنه مورد جديد فعلًا، يتم إنشاء Supplier Master معتمد.
+- يتم ربط الفاتورة والسجلات ذات العلاقة به لاحقًا.
+
+#### قاعدة عدم التعطيل
+
+> **تحديد «مورد جديد» لا يوقف الفاتورة أو الاستلام أو المخزون. مراجعة Master Supplier تتم بالتوازي مع التشغيل.**
+
+الربط اللاحق بالمورد المعتمد أو الموجود يجب ألا يعيد كتابة التاريخ التشغيلي للفواتير أو الاستلام أو المخزون، وإنما يحدّث هوية الربط المرجعية فقط حيث يكون ذلك آمنًا.
+
+معيار الإنهاء:
+
+- اسم مثل «الأمير» يقترح الموردين الأقرب.
+- المستخدم يستطيع اختيار المورد الموجود أو تفعيل «مورد جديد».
+- المورد الجديد يدخل Supplier Review Queue دون تعطيل التشغيل.
+- بعد المراجعة يصبح للمورد Supplier ID مركزي واحد.
+
+---
+
+### 2B-3 — مطابقة أصناف المورد مع أصناف الكتالوج
+
+الهدف:
+بناء ذاكرة دائمة لأسماء وأكواد الأصناف المختلفة عند الموردين وربطها بصنف مركزي واحد.
+
+تشمل:
+- حفظ Supplier Item Alias مع إمكانية وجود عدة أسماء لنفس Catalog Item عند المورد نفسه أو عدة موردين.
+- حفظ كود/SKU الصنف عند المورد.
+- البحث أولًا ضمن الأصناف التي سبق لهذا المورد توريدها.
+- الاستفادة من بند طلب الشراء المرتبط بالكتالوج باعتباره أقوى هوية مباشرة للصنف.
+- فصل معنى الاسم عن المواصفات الرقمية: الاسم قد يكون عربيًا/إنجليزيًا أو بصياغات مختلفة، بينما المقاس/الوزن/الحجم يستخرج ويقارن بشكل مستقل.
+- توحيد الوحدات حسابيًا قبل المقارنة، مثل `2 mm = 0.2 cm = 0.002 m`.
+- اعتبار `2 mm` مقابل `0.02 cm = 0.2 mm` تعارض مواصفة يحتاج تأكيدًا صريحًا، ولا يسمح للـAI بتجاوزه.
+- استخدام Hybrid Matching: قواعد وذاكرة المورد أولًا، ثم مطابقة دلالية، ثم AI كـFallback للحالات الملتبسة فقط.
+- AI لا ينفذ ربطًا تلقائيًا؛ المطابقة الدلالية العامة تبقى اقتراحًا يؤكده المستخدم.
+- السماح بالبحث في الكتالوج الكامل عند عدم وجود ذاكرة سابقة للمورد.
+
+معيار الإنهاء:
+- عدة أسماء/أكواد موردين يمكن أن تشير إلى Catalog Item واحد.
+- المورد المعروف يصبح أسرع في المطابقة في الفواتير اللاحقة.
+
+---
+
+### 2B-4 — Checkbox «صنف جديد» داخل إدخال الفاتورة
+
+الهدف:
+تحديد الأصناف غير المفهرسة أثناء إدخال/مراجعة الفاتورة نفسها، وجعل قرار Catalog Master صريحًا لكل سطر قبل تأكيد الاستلام.
+
+#### التنفيذ المعتمد — 16 أغسطس 2026
+
+تمت الموافقة الصريحة على بدء 2B-4، ونُفذ النطاق التالي:
+
+- إضافة Checkbox واضح لكل سطر: **«صنف جديد — غير موجود في الكتالوج»**.
+- القرار أصبح ثنائيًا وصريحًا قبل تأكيد الاستلام:
+  1. السطر مرتبط بـCatalog Item موجود.
+  2. أو السطر معلَّم `isNewCatalogItem = true`.
+- إذا كان بند PO يحمل `catalogItemId` مسبقًا:
+  - يبقى هوية الكتالوج الأقوى.
+  - Checkbox «صنف جديد» يكون معطلاً.
+  - Backend يعيد التحقق لمنع التحايل من الواجهة.
+- إذا كان السطر مرتبطًا يدويًا/بذاكرة المورد ثم فعّل المستخدم «صنف جديد»:
+  - تعرض الواجهة تأكيدًا قبل إلغاء الربط الحالي.
+  - يُلغى `linkedItemId` لهذا السطر فقط.
+  - لا تتغير بيانات الفاتورة أو الكمية أو التكلفة أو المخزون.
+- عند تفعيل «صنف جديد» تُخفى أدوات مطابقة الكتالوج لذلك السطر؛ إلغاء العلامة يعيد مسار المطابقة المتاح.
+- قبل التأكيد النهائي تمنع الواجهة السطر غير المحسوم: لا Catalog Item ولا «صنف جديد».
+- Backend يكرر نفس قواعد القرار ولا يعتمد على الواجهة وحدها.
+- القرار يُحفظ تاريخيًا مع `warehouse_receipt_items.isNewCatalogItem`.
+
+#### تغيير قاعدة البيانات
+
+Migration:
+`drizzle/migrations/2026_08_16_receipt_items_new_catalog_flag.sql`
+
+تضيف فقط:
+
+`warehouse_receipt_items.isNewCatalogItem TINYINT NOT NULL DEFAULT 0`
+
+لا يوجد Index جديد لأن الحقل في 2B-4 علامة قرار على السطر، وليس بعدُ Queue للاستعلام التشغيلي. أي Index/Queue لاحق يراجع في 2B-5/2B-6 حسب الاستخدام الفعلي.
+
+#### حدود 2B-4 المتعمدة
+
+2B-4 **لا تنشئ Catalog Item جديدًا**، ولا تنشئ Catalog Candidate/Review Queue. الغرض هو التقاط القرار وحفظه فقط.
+
+الموجود أصلًا في مسار الاستلام يسمح للسطر غير المرتبط بـCatalog بالدخول للمخزون؛ 2B-4 لا تغيّر حساب المخزون ولا التكلفة ولا Weighted Average. إنشاء وربط Candidate غير المعطل للتشغيل هو نطاق 2B-5.
+
+#### الحماية من الحالات المتناقضة
+
+أضيف تحقق مركزي في:
+`server/_core/catalog-item-decision.ts`
+
+ويرفض:
+- `linkedItemId` + `isNewCatalogItem=true` معًا.
+- تعليم سطر PO مرتبط أصلًا بـCatalog Item كصنف جديد.
+- إرسال سطر غير محسوم: لا رابط كتالوج ولا علامة صنف جديد.
+
+#### معيار الإنهاء / UAT المطلوب
+
+- PO linked item: Checkbox معطل ولا يتغير الربط.
+- Existing Catalog Item: المستخدم يختار اقتراحًا/بحثًا ويستمر بدون «صنف جديد».
+- Truly new item: المستخدم يفعّل «صنف جديد» ويستطيع متابعة التأكيد.
+- حالة متناقضة تُرفض في Frontend وBackend.
+- بعد الحفظ يظهر `isNewCatalogItem=1` في `warehouse_receipt_items` للسطر المختبر.
+- لا أثر على الكمية أو التكلفة أو Average Cost.
+
+**الحالة الحالية:** ✅ مكتملة ومختبرة عمليًا؛ تم التحقق من `isNewCatalogItem=1` مع بقاء `inventory.linkedItemId=NULL` للصنف الجديد.
+
+---
+
+### 2B-5 — مسار الأصناف الجديدة غير المعطل للتشغيل
+
+الهدف:
+استمرار الاستلام والمخزون حتى لو كان الصنف ينتظر مراجعة الكتالوج.
+
+تشمل:
+- عدم إيقاف الفاتورة.
+- عدم إيقاف الاستلام.
+- السماح بدخول الكمية للمخزون.
+- وضع حالة `Pending Catalog Review` على الصنف المرجعي.
+- فصل المسار التشغيلي عن مسار Master Data.
+
+المسار التشغيلي:
+`Invoice -> Receipt -> Inventory`
+
+مسار البيانات:
+`New Item -> catalog_item_candidates(status=pending) -> Catalog Review Queue`
+
+التصميم المعتمد في التنفيذ:
+- Candidate واحد لكل `inventoryId` غير مفهرس لمنع تكرار نفس المهمة مع كل فاتورة.
+- `sourceReceiptId/sourceReceiptItemId` يحتفظان بمصدر القرار الأول.
+- Candidate يحمل سياق PO/المورد/الفاتورة وSnapshots الاسمية فقط، ولا يكرر كمية أو تكلفة المخزون.
+- حالة `Pending Catalog Review` تمثلها `catalog_item_candidates.status='pending'`؛ لا نضيف Status محاسبيًا مكررًا داخل Inventory.
+
+معيار الإنهاء:
+- لا ينتظر المستودع اعتماد مسؤول الكتالوج.
+- لا يتم إنشاء Catalog Master غير نظيف تلقائيًا.
+- كل `isNewCatalogItem=1` ينتج Candidate pending أو يعيد استخدام Candidate موجود لنفس `inventoryId`.
+- Existing Catalog Item لا يدخل Queue.
+
+---
+
+### 2B-6 — شاشة «إدخال الأصناف الجديدة إلى الكتالوج»
+
+الهدف:
+إنشاء Queue واضحة لمسؤول الكتالوج لمراجعة الأصناف الجديدة.
+
+تشمل:
+- شاشة مستقلة داخل الكتالوج.
+- عرض بيانات الصنف المجمعة من PO والفاتورة والمورد والاستلام.
+- البحث عن Duplicate.
+- خيار «ربط بصنف موجود».
+- خيار «اعتماد كصنف جديد».
+- تنظيف الاسم والتصنيف والوحدة والمصنع والوصف والكود والصورة حسب الحاجة.
+- تسجيل المستخدم الذي قام بالمراجعة والاعتماد.
+
+معيار الإنهاء:
+- كل صنف جديد له حالة مراجعة واضحة.
+- مسؤول الكتالوج يستطيع حسمه إلى صنف موجود أو صنف جديد معتمد.
+
+ملاحظة:
+أي Workflow اعتماد/رفض/إرجاع داخل هذه الشاشة يتم عرضه واعتماده قبل التنفيذ النهائي إذا كان سيضيف حالات تشغيلية جديدة.
+
+---
+
+### 2B-7 — الربط اللاحق بالسجلات التاريخية دون تغيير المخزون
+
+**الحالة الحالية — 17 أغسطس 2026:** ✅ COMPLETE / UAT PASSED
+
+الهدف:
+بعد اعتماد أو ربط الصنف، توحيد هويته عبر النظام دون إعادة كتابة الحدث التشغيلي.
+
+النطاق المعتمد لهذه الخطوة:
+- نشر `resolvedCatalogItemId` من Catalog Candidate المحسوم إلى `inventory.linkedItemId`.
+- إضافة `warehouse_receipt_items.catalogItemId` كمرجع Catalog مباشر لسطر الاستلام/الفاتورة، ثم نشر الهوية إليه.
+- استكمال `purchase_order_items.catalogItemId` عندما يكون NULL ويوجد PO Item مرتبط بالـCandidate.
+- إذا كان أي مرجع من هذه المراجع يحمل Catalog Item مختلفاً مسبقاً، لا تتم الكتابة فوقه؛ يُلغى الحسم داخل نفس Transaction ويظهر Conflict للمستخدم.
+- السجلات التي تحمل نفس Catalog Item مسبقاً تعتبر Idempotent ولا تحتاج إعادة كتابة.
+- عند استلام سطر معروف الهوية من Catalog مسبقاً، يحفظ سطر الاستلام `catalogItemId` مباشرة.
+- Backend يمنع طلب الاستلام من استبدال Catalog identity موجودة مسبقاً على PO Item بهوية مختلفة.
+
+تغيير قاعدة البيانات المعتمد والمنفذ يدوياً خطوة بخطوة:
+- إضافة `warehouse_receipt_items.catalogItemId INT NULL`.
+- إضافة Index باسم `idx_receipt_items_catalogItemId`.
+- لا FK في 2B-7؛ Governance/FKs تبقى 2B-10.
+
+ما لا يتغير في 2B-7:
+- لا Quantity recalculation.
+- لا Cost / Weighted Average recalculation.
+- لا Re-receiving.
+- لا تعديل على invoice snapshots التاريخية مثل الاسم والوصف والسعر.
+- لا دمج سجلات Inventory أو حذفها في هذه الخطوة؛ النشر هو Identity/Reference only.
+- Receipt Lot لم يوجد بعد، لذلك ربطه الفعلي يبقى 2B-8 بعد إنشائه.
+
+معيار الإنهاء:
+- Candidate جديد يتم حسمه في `link_existing` أو `approve_new` فينشر نفس Catalog Item إلى Inventory وReceipt Item وPO Item المرتبط (إن وجد) داخل نفس Transaction.
+- Candidates المحسومة قبل نشر 2B-7 يتم Backfill لهويتها بعد فحص عدم وجود تعارضات.
+- يصبح Catalog Item هو المرجع المركزي لهذه السلسلة.
+- لا تتغير الكميات أو القيم التاريخية بسبب اعتماد الكتالوج.
+
+### إغلاق UAT لـ2B-7 — 17 أغسطس 2026
+
+**الحالة:** ✅ COMPLETE / UAT PASSED
+
+تم تنفيذ واختبار نشر هوية Catalog دون إعادة كتابة التاريخ التشغيلي:
+
+- تمت إضافة `warehouse_receipt_items.catalogItemId INT NULL` يدوياً في قاعدة البيانات، ثم Index باسم `idx_receipt_items_catalogItemId`.
+- تم فحص Candidates المحسومة قبل Backfill والتأكد من عدم وجود Catalog identity متعارضة على Inventory أو PO Items.
+- تم Backfill للحالات القديمة Candidates #1 إلى #4 على ثلاث مراجع فقط:
+  - `inventory.linkedItemId`
+  - `warehouse_receipt_items.catalogItemId`
+  - `purchase_order_items.catalogItemId`
+- تحقق SQL النهائي أكد تطابق `resolvedCatalogItemId` مع المراجع الثلاثة لكل Candidates #1–#4.
+- تم UAT لمسار جديد بعد تركيب الكود على Candidate #6 وربطه بصنف Catalog موجود.
+- تحقق SQL لـCandidate #6 أكد:
+  - `status = 'linked_existing'`
+  - `resolvedCatalogItemId = 1140006`
+  - `inventory.linkedItemId = 1140006`
+  - `warehouse_receipt_items.catalogItemId = 1140006`
+  - `purchase_order_items.catalogItemId = 1140006`
+- هذا أثبت أن النشر الجديد يحدث تلقائياً من الكود داخل عملية الحسم دون `UPDATE` يدوي لاحق.
+- لم يتم تعديل Quantity أو Average Cost أو Total Cost أو إعادة الاستلام أو invoice snapshots أثناء UAT/Backfill.
+- لم تتم إضافة FK؛ تبقى Governance/FKs ضمن 2B-10.
+
+**ملاحظة اختبار آلي:** محاولة تشغيل اختبار Vitest المستهدف بعد الإغلاق لم تكتمل ضمن المهلة في بيئة نسخة العمل، لذلك إثبات الإغلاق يعتمد على UAT الفعلي وSQL verification أعلاه.
+
+---
+
+### 2B-8 — Receipt Lot وهوية QR/Barcode للدفعة
+
+**الحالة الحالية — 18 أغسطس 2026:** ✅ COMPLETE / UAT PASSED — Inventory Lots + QR traceability + Lot-aware quantity movements verified end-to-end in local UAT. Production/Railway activation remains a deployment step via `INVENTORY_LOTS_ENABLED=true`.
+
+الهدف:
+معرفة مصدر كل كمية مخزنية من لحظة الدخول وحتى الصرف/المرتجع/التحويل، مع إبقاء Catalog Item هو هوية الصنف المركزية الواحدة.
+
+### القرارات المعتمدة
+
+1. **Catalog Item واحد مهما تعدد الموردون أو مرات الشراء.** اختلاف المورد أو الفاتورة لا ينشئ Master Item جديداً.
+2. **كل استلام فعلي ينشئ Lot مستقلًا**؛ PO واحد قد ينتج أكثر من Lot إذا تم الاستلام على دفعات.
+3. QR/Barcode التشغيلي يمثل **Lot** وليس Catalog Item أو Inventory. الـQR يحمل Tracking Token داخليًا فقط؛ تفاصيل المورد/الفاتورة/التكلفة تُقرأ من DB حسب الصلاحيات.
+4. Barcode المصنع/Supplier SKU يمكن أن يبقى بجانب CMMS Lot QR؛ لكل واحد وظيفة مختلفة.
+5. مصدر Lot يكون حاليًا:
+   - `receipt` لاستلام شراء/استلام فعلي.
+   - `opening_balance` للرصد الافتتاحي من الجرد، بدون مورد أو فاتورة وهمية.
+6. **الرصيد الافتتاحي:** من نافذة الجرد، اختيار Master Catalog Item إلزامي. لا يُنشأ صنف Inventory حر بالاسم في هذا المسار. عند تطبيق التسوية فقط تُعتمد الكمية ويُنشأ Opening Balance Lot + QR.
+7. **الصرف بعد تفعيل 2B-8 سيكون إجباريًا بالـQR/Lot.** لا FIFO/FEFO الآن؛ الـLot الذي تم مسحه هو المصدر الفيزيائي الفعلي. طرق صرف بديلة تُراجع لاحقًا بقرار Workflow منفصل.
+8. **التحويل بين المخازن لا ينشئ Lot جديدًا.** نفس Lot ونفس QR ينتقل رصيده المكاني بين Inventory records.
+9. فصل هوية الدفعة عن مكان رصيدها:
+   - `inventory_lots` = هوية الدفعة ومصدرها وكمية الأصل/المتبقي.
+   - `inventory_lot_balances` = أين توجد كمية نفس الدفعة الآن (`lotId + inventoryId + quantity`).
+10. Weighted Average يبقى سياسة التقييم المحاسبي الحالية؛ Lot مسؤول عن التتبع الفيزيائي/المصدري ولا يعيد تقييم التاريخ المحاسبي.
+11. **مرتجع المورد بعد التفعيل يبدأ من QR للـLot، لا من اختيار المورد/الفاتورة يدويًا.** الخادم يستخرج Inventory + Receipt + PO/PO Item + المورد/الفاتورة من Lot/Receipt ويرفض `opening_balance` في هذا المسار لأنه لا يملك مصدر شراء مثبتًا.
+
+### قاعدة سلامة الحركات — معتمدة
+
+بعد التفعيل يجب أن تتحقق دائمًا:
+
+`inventory.quantity = SUM(inventory_lot_balances.quantity لنفس inventoryId)`
+
+و:
+
+`inventory_lots.remainingQuantity = SUM(inventory_lot_balances.quantity لنفس lotId عبر كل المخازن)`
+
+أي استلام/صرف/مرتجع/تحويل/استبعاد/جرد/تسوية يجب أن يعدّل Aggregate Inventory والـLot/Balance المقابل داخل نفس Transaction. لا يجوز ترك مسار قديم يغيّر الكمية دون Lot.
+
+### Schema foundation المنفذ يدويًا
+
+تم إنشاء/إضافة ما يلي بأوامر SQL منفصلة وافق عليها المستخدم ونفذها يدويًا:
+
+- `inventory_lots`
+- `inventory_lot_balances`
+- `inventory_transactions.lotId` + Index
+- `delivery_documents.lotId` + Index
+- `delivery_documents.inventoryTransactionId` + Index
+- `warehouse_returns.lotId` + Index
+- `warehouse_transfers.lotId` + Index
+- `disposal_items.lotId` + Index
+- `inventory_count_items.lotId` + Index
+- `inventory_settlement_items.lotId` + Index
+- `inventory_count_operations.countType ENUM('periodic','opening_balance') DEFAULT 'periodic'`
+
+لا FKs جديدة في هذه الخطوة؛ Governance/FKs تبقى 2B-10.
+
+### كود الدفعة الحالية
+
+تم تجهيز الكود لـ:
+
+- Receipt Lot عند الاستلام من PO أو الاستلام المستقل، داخل نفس Transaction مع Receipt Item وحركة الشراء.
+- طباعة QR مستقل لكل Receipt Lot.
+- نشر Catalog identity لاحقًا إلى Lot إذا كان الاستلام لصنف جديد غير معتمد ثم تم حسم Candidate في 2B-6/2B-7.
+- Opening Balance Count يختار Catalog Item، ويؤجل أثر الكمية حتى التسوية.
+- تطبيق تسوية Opening Balance ينشئ Lot + Balance + adjustment transaction ويحدّث Inventory داخل Transaction واحدة ثم يعرض QR للطباعة.
+- **الصرف الإجباري بالـQR أصبح مجهزًا بالكود خلف Feature Gate:** الواجهة تمسح `trackingToken` للـLot وتتحقق فورًا أنه يخص نفس `inventoryId` وله رصيد في المستودع الحالي. عند التأكيد يعيد الخادم التحقق داخل `issueDelivery()` ولا يقبل `lotId` من العميل.
+- خصم الصرف عند التفعيل يتم ذريًا داخل Transaction واحدة من `inventory_lot_balances.quantity` و`inventory_lots.remainingQuantity` و`inventory.quantity`، مع شروط رصيد تمنع السباق/الـoverspend.
+- حركة `inventory_transactions` الجديدة للصرف تحفظ `lotId`، و`delivery_documents` يحفظ `lotId + inventoryTransactionId` لربط مستند الصرف بحركته صراحةً.
+- سند الصرف الفوري يعرض `lotCode` عند توفره.
+- **مرتجع المورد أصبح مجهزًا بالكود خلف Feature Gate:** شاشة `WarehouseReturn` تبدأ بمسح `trackingToken`، والخادم يحدد الصنف والمورد والفاتورة/S receipt/PO تلقائيًا، ويمنع Opening Balance Lot من هذا المسار.
+- تنفيذ المرتجع عند التفعيل ذري: خصم `inventory_lot_balances.quantity` + `inventory_lots.remainingQuantity` + `inventory.quantity`، ثم إنشاء `warehouse_returns.lotId` وحركة `inventory_transactions.lotId` ووثيقة المرتجع داخل نفس Transaction. لا يقبل الخادم هوية المصدر المرسلة من العميل كمصدر حقيقة.
+- في حالة Lot له أكثر من Balance موجب في أكثر من مستودع، الكود **يرفض الاختيار الصامت** حاليًا ويطلب لاحقًا سياق مستودع صريح قبل التفعيل النهائي؛ هذه الحماية تمنع خصم المرتجع من مخزن خاطئ بعد تفعيل التحويلات.
+- **التحويل بين المخازن أصبح Lot-aware خلف Feature Gate:** كل بند يمثل Lot واحدًا، ينقل نفس `lotId`/QR بين Lot Balances للمصدر والهدف ولا يغير `remainingQuantity`، مع `warehouse_transfers.lotId` وحركتي `inventory_transactions.lotId` في نفس Transaction.
+- **الاستبعاد/التالف أصبح Lot-aware خلف Feature Gate:** شاشة الاستبعاد تبدأ من QR الدفعة عند التفعيل، والخادم يحل الـLot/Inventory ولا يثق بـ`lotId` من العميل. الخصم يتم ذريًا من Lot Balance + `inventory_lots.remainingQuantity` + Aggregate Inventory، ويسجل `disposal_items.lotId` و`inventory_transactions.lotId`. تكلفة الاستبعاد تأتي من Average Cost الحالي على الخادم.
+- عند محاولة استبعاد Lot موزع على أكثر من Inventory/مستودع، التحقق المسبق يرفض الاختيار الصامت حاليًا حتى يتوفر Warehouse Context صريح؛ هذا بند يجب حسمه قبل فتح الـGate النهائي.
+- Schema/Drizzle migration مرجعي مطابق للأوامر المنفذة يدويًا.
+
+### Feature Gate — حالة ما بعد UAT
+
+يوجد `INVENTORY_LOTS_ENABLED`، وقيمته الافتراضية تعني **غير مفعّل**. في UAT المحلي تم تفعيله فعليًا بـ`true` بعد اكتمال مسارات الكمية، ونجحت اختبارات 2B-8 النهائية. يبقى تفعيله على Railway/الإنتاج خطوة نشر مستقلة: يجب إضافة المتغير في بيئة الخدمة نفسها، لأن `.env` المحلي لا ينتقل إلى Railway.
+
+### تذكير النشر على Railway / GitHub
+
+- ملف `.env` المحلي **لا ينتقل تلقائيًا** إلى Railway عند رفع المشروع إلى GitHub أو نشره.
+- أثناء UAT المحلي يمكن استخدام `INVENTORY_LOTS_ENABLED=true` في `.env` المحلي بعد إعادة تشغيل السيرفر.
+- في Railway يجب إبقاء `INVENTORY_LOTS_ENABLED` **غير موجود أو `false`** إلى أن ينجح UAT النهائي لـ2B-8 وتتم الموافقة الصريحة على التفعيل التشغيلي.
+- عند اعتماد التفعيل النهائي على Railway: أضف متغير خدمة باسم `INVENTORY_LOTS_ENABLED` وقيمته `true` من إعدادات **Variables** للخدمة، ثم أعد نشر/تشغيل الخدمة وتحقق أن البيئة قرأت القيمة.
+- لا تضف بادئة `VITE_` لهذا المتغير؛ هو Feature Gate على الخادم ويُقرأ من `process.env`.
+- لا ترفع ملف `.env` أو أي مفاتيح/أسرار إلى GitHub؛ تبقى الأسرار في متغيرات البيئة الخاصة بمنصة النشر.
+- هذا البند **تذكير Deployment إلزامي**: لا تعتبر 2B-8 مفعلة في الإنتاج لمجرد وجود السطر في `.env` المحلي.
+
+السبب الأصلي للـFeature Gate كان منع تفعيل Lots قبل أن تصبح جميع مسارات تغيير الكمية Lot-aware. هذا الشرط أصبح مستوفى في UAT المحلي بتاريخ 2026-08-18: الاستلام، الصرف، مرتجع المورد، التحويل، الاستبعاد، والجرد/التسوية اختُبرت مع الحفاظ على Aggregate Inventory وLot Balances داخل نفس المسارات الذرية.
+
+### المتبقي بعد إغلاق 2B-8
+
+- **لا يوجد UAT وظيفي أساسي متبقٍ لإغلاق 2B-8.**
+- عند النشر السحابي فقط: إضافة `INVENTORY_LOTS_ENABLED=true` إلى **Railway → Service → Variables** وإعادة نشر الخدمة والتحقق من قراءة المتغير.
+- الصرف بدون QR / اختيار Lot يدوي / FIFO / FEFO **ليس جزءًا من إغلاق 2B-8 الحالي**؛ تم تأجيل طرق الصرف البديلة لقرار Workflow مستقل لاحقًا.
+- تحسينات الحوكمة مثل FKs والقيود الصارمة تبقى 2B-10.
+
+### معيار الإنهاء النهائي لـ2B-8
+
+- كل كمية تأسيسية أو مستلمة بعد التفعيل لها Lot + QR.
+- مسح QR يحدد الصنف ومصدره Receipt/Opening Balance، ويتيح الوصول للمورد والفاتورة/PO عند وجودها.
+- لا توجد حركة كمية جديدة بعد التفعيل بلا Lot.
+- يمكن تتبع الصرف/المرتجع/التحويل إلى الدفعة نفسها.
+- معادلات Aggregate Inventory وLot Balances تبقى متطابقة بعد كل UAT.
+
+### إغلاق UAT لـ2B-8 — 18 أغسطس 2026
+
+**الحالة:** ✅ **2B-8 COMPLETE / UAT PASSED**
+
+تم تنفيذ UAT فعلي بعد تفعيل `INVENTORY_LOTS_ENABLED=true` محليًا، وكانت النتائج الأساسية كالتالي:
+
+1. **إنشاء Receipt Lots:**
+   - `PR-2026-0372` أثبت إنشاء Lots + Lot Balances + Purchase Transactions مرتبطة بـ`lotId`.
+   - `PR-2026-0373` أثبت إنشاء Lot مستقل لكل بند وظهور شاشة ملصقات QR تلقائيًا بعد «تأكيد الاستلام».
+2. **البحث بالـQR:** تم حل `trackingToken → Lot → Lot Balance → Inventory` بنجاح في Inventory وفي `Purchase Cycle → التسليم`.
+3. **الصرف/التسليم:** Lot #4 (`LOT-2026-CC321AD4`) صُرف منه مرتين، مرة من Purchase Cycle ومرة من Inventory، وكلتا الحركتين سجلتا `delivery_documents.lotId` و`inventory_transactions.lotId` وربط `inventoryTransactionId` بصورة صحيحة.
+4. **التحويل بين المستودعات:** Transfer #30001 نقل كمية `1.000` من نفس Lot #4 من المخزن الرئيسي إلى مخزن الدهانات؛ تم تسجيل OUT/IN بنفس `lotId=4` ولم ينخفض `remainingQuantity` بسبب تغير الموقع فقط.
+5. **مرتجع المورد:** `RTN-2026-30003` أعاد كمية `1` من Lot #4 من المخزن الرئيسي، مع `warehouse_returns.lotId=4` وحركة Return OUT بنفس الـLot.
+6. **الاستبعاد/التالف:** `DO-2026-000002` استبعد كمية `1.000` من Lot #4، وسُجلت حركة Disposal OUT بنفس `lotId=4`.
+7. **الجرد الدوري والتسوية:** `CNT-2026-60008` سجّل فرق `+3` على Lot #4 في المخزن الرئيسي، ثم `ADJ-2026-30004` طبّق التسوية على نفس Lot وسجّل Adjustment IN بنفس `lotId=4`.
+8. **فحص سلامة الكميات النهائي:** كل نتائج LOT_TOTAL وINVENTORY_TOTAL كانت `OK`؛ لم يظهر أي `MISMATCH`.
+9. **فحص سلامة الروابط النهائي:** Purchase / Delivery / Return / Transfer / Disposal / Adjustment المرتبطة بالـLots كلها ظهرت `OK`؛ لم يظهر أي `MISMATCH`.
+
+**النتيجة المعمارية المثبتة عمليًا:**
+
+`inventory.quantity = SUM(inventory_lot_balances.quantity لنفس inventoryId)`
+
+و:
+
+`inventory_lots.remainingQuantity = SUM(inventory_lot_balances.quantity لنفس lotId عبر المخازن)`
+
+بقيت صحيحة بعد تسلسل حقيقي شمل الاستلام، صرفين، تحويلًا، مرتجع مورد، استبعادًا، وجردًا/تسوية.
+
+**ما لم يتم تغييره:**
+- Weighted Average يبقى سياسة التقييم المحاسبي.
+- لا FIFO/FEFO ولا صرف Aggregate-only بدون Lot ضمن 2B-8.
+- FKs/Governance تبقى 2B-10.
+- تفعيل Railway يحتاج متغير البيئة في Railway نفسه عند النشر؛ `.env` المحلي لا يكفي.
+
+---
+
+### 2B-9 — توحيد تصنيفات المخزن مع الكتالوج
+
+**الحالة النهائية 2026-08-19:** ✅ **COMPLETE / UAT PASSED — تم تنفيذ 2B-9 وإغلاقها بعد UAT فعلي للتصنيف، شجرة Catalog، إنفاذ النطاق Server-side، الإدخال اليدوي Per-Lot، تسوية فرق فعلي، Regression للجرد الكامل/الجزئي، وفحص سلامة البيانات الجديدة.**
+
+> **قاعدة المرحلة:** `catalog_nodes` هي Taxonomy الوحيدة للتصنيفات في الكتالوج والمخزون. لا يتم إنشاء شجرة تصنيفات خاصة بالمخزن، ولا `inventory.categoryId`، ولا جدول تصنيفات مخازن موازٍ.
+
+#### ما هو موجود فعليًا قبل 2B-9 ولا يعاد تنفيذه
+
+- `catalog_items.nodeId` يحدد تصنيف Catalog Item المركزي.
+- `inventory.linkedItemId` ينشر هوية Catalog Item إلى Inventory ضمن 2B-7.
+- `warehouses.catalogNodeId` موجود أصلًا لربط المخزن الفرعي بتصنيف رئيسي من `catalog_nodes`.
+- التعرف على صنف الفاتورة وربطه بالكتالوج منجز في 2B-1..2B-7 (PO Catalog identity + Supplier/SKU/Alias/Hybrid matching + Candidates + publication). **2B-9 لا يعيد مطابقة أصناف الفاتورة ولا يضيف Matching جديدًا.**
+- Lot/QR والجرد/الحركات Lot-aware منجز في 2B-8. **2B-9 لا يعيد بناء Lots ولا يرجع الجرد إلى Aggregate Inventory.**
+- سلوك تحذير عدم تطابق تصنيف الصنف مع التصنيف الرئيسي للمخزن الفرعي موجود مسبقًا في التحويل؛ يبقى Warning وليس Block ما لم يعتمد صاحب المشروع تغييرًا مستقلًا لاحقًا.
+
+#### القرارات التشغيلية المعتمدة للمرحلة
+
+1. **مصدر التصنيف الوحيد هو Catalog.**
+   - الصنف يحتفظ بتصنيفه من `catalog_items.nodeId → catalog_nodes`.
+   - وجود الصنف في مخزن معين لا يغير تصنيفه ولا ينشئ له تصنيفًا مخزنيًا آخر.
+
+2. **المخزن الرئيسي مخزن عام.**
+   - لا يحتاج تصنيفًا رئيسيًا إلزاميًا.
+   - يمكن أن يحتوي أصنافًا من جميع فروع الكتالوج.
+   - العرض/الفلترة/الجرد يستخرج التصنيفات من Catalog Items الموجودة فعليًا داخل المخزن.
+
+3. **المخزن الفرعي له تصنيف رئيسي، وليس قيد محتوى.**
+   - `warehouses.catalogNodeId` يعبّر عن التخصص/التصنيف الطبيعي للمخزن (مثال: مخزن الدهان → الدهانات).
+   - يجوز أن توجد داخله أصناف من تصنيفات أخرى (مثال: أصناف كهرباء داخل مخزن الدهان).
+   - الصنف الخارجي يبقى تحت تصنيفه الأصلي في Catalog، ولا يعاد تصنيفه إلى تصنيف المخزن.
+   - الأصناف خارج التصنيف الرئيسي لا تُخفى من المخزون أو الجرد أو العمليات لمجرد عدم التطابق.
+
+4. **العرض داخل أي مخزن يعتمد على التصنيفات الموجودة فعليًا فيه.**
+   - إذا احتوى مخزن الدهان على أصناف من `الدهانات` و`الكهرباء`، تظهر الفئتان من نفس `catalog_nodes`.
+   - الفروع المعروضة تأتي من شجرة الكتالوج وعلاقات Catalog Items، وليست نسخة محلية للمخزن.
+
+5. **الجرد الكامل يشمل كل الموجود فعليًا في المخزن.**
+   - لا يستبعد صنفًا أو Lot لأنه خارج التصنيف الرئيسي للمخزن الفرعي.
+   - يبقى الجرد Lot/QR-based كما اعتمد في 2B-8.
+
+6. **الجرد الجزئي يمكن تقييده بأي تصنيف من Catalog داخل المخزن المحدد.**
+   - مثال معتمد: `مخزن الدهان + الكهرباء` = جرد أصناف/Lots الكهرباء الموجودة فعليًا داخل مخزن الدهان فقط.
+   - نطاق التصنيف يشمل العقدة المختارة **وجميع descendants** تحتها.
+   - التصنيف المختار لا يشترط أن يساوي `warehouse.catalogNodeId`.
+   - اختيار تصنيف لا يعني جرده في بقية المخازن؛ Warehouse Context يبقى جزءًا أساسيًا من نطاق العملية.
+
+7. **معادلة نطاق الجرد المقترحة للـ2B-9:**
+
+   `Selected Warehouse + Selected Catalog Node/Subtree → matching Catalog Items → Inventory/Lot Balances in that Warehouse`
+
+   وتبقى قيود سلامة 2B-8 نافذة: كل سطر جرد/تسوية دوري مرتبط بالـLot الفعلي، وليس بتجميع الصنف فقط.
+
+8. **الفاتورة والاستلام لا يطلبان إعادة اختيار التصنيف للصنف المعروف.**
+   - بعد حسم `catalogItemId` في المسارات الموجودة، التصنيف يُقرأ تلقائيًا من `catalog_items.nodeId`.
+   - لا يتم إدخال تصنيف ثانٍ على Receipt Item أو Inventory لمجرد الاستلام في مخزن معين.
+
+#### أهمية 2B-9 وأثرها
+
+- إغلاق الفجوة بين هوية Catalog Item التي أصبحت مركزية في 2B-1..2B-7 وبين طريقة عرض وتشغيل Inventory.
+- منع ظهور مصدرين للحقيقة للتصنيف (Catalog مقابل Warehouse/Inventory categories).
+- تمكين عرض وفلترة المخزون حسب Taxonomy الحقيقية للكتالوج داخل أي مخزن.
+- تمكين الجرد الكامل أو جرد فرع محدد من الكتالوج داخل مخزن محدد بدون كسر Lot traceability.
+- الحفاظ على مرونة المخازن الفرعية: التصنيف الرئيسي يعبّر عن التخصص الطبيعي لكنه لا يمنع التخزين التشغيلي الاستثنائي.
+- تجهيز أساس موحد لتقارير مستقبلية مثل `Warehouse + Catalog Category` بدون نسخ التصنيفات أو مزامنتها بين جداول متنافسة.
+
+#### ما لا يدخل 2B-9 بدون موافقة جديدة
+
+- إعادة Supplier/Catalog matching أو OCR/AI matching.
+- إعادة بناء Candidates أو نشر `catalogItemId`.
+- تغيير Lot/QR أو سياسة الصرف أو Weighted Average.
+- FIFO/FEFO أو صرف Aggregate-only بدون Lot.
+- تحويل `categoryMismatch` من Warning إلى Block.
+- Broad Foreign Keys / Governance؛ تبقى 2B-10.
+- إضافة `inventory.categoryId` أو `warehouse_categories` أو أي Taxonomy موازية.
+- حذف أو إعادة تعريف `itemType` التاريخي (`spare_part / consumable / tool / food`) قبل مراجعة استخداماته التشغيلية الحالية؛ لا يعتبر Catalog Taxonomy ضمن 2B-9.
+
+#### تنفيذ 2B-9 — Step 2 (2026-08-18) — Category-scoped Lot/QR inventory count
+
+**الحالة:** ✅ منفذ ومغلق ضمن 2B-9. عمود DB المطلوب تم تطبيقه يدويًا بنجاح، وUAT النهائي لنطاق التصنيف/الشجرة/الـRegression/التسوية الفعلية نجح بتاريخ 2026-08-19.
+
+**DB المنفذ يدويًا بأمر واحد ونتيجة Query OK:**
+- `inventory_count_operations.catalogNodeId INT NULL` بعد `countType`.
+- لا FK ولا broad constraints ضمن 2B-9؛ الحوكمة مؤجلة إلى 2B-10.
+- migration/source schema محدثان لتطابق الحالة الجديدة، مع تنبيه عدم إعادة تشغيل الأمر على DB الحالية بلا فحص.
+
+**السلوك المنفذ:**
+- الجرد الدوري بالـLot/QR أصبح يقدم ثلاثة نطاقات مستقلة: كل المخزن، تصنيف Catalog محدد مع جميع descendants، أو جرد جزئي يدوي بالـQR.
+- عند اختيار Catalog category يحفظ رأس عملية الجرد `catalogNodeId` ويُحفظ `scope=partial` لأنه subset من المخزن.
+- Category-scoped count لا يبدأ فارغًا: الخادم يأخذ Snapshot لكل `inventory_lot_balances.quantity > 0` في المخزن والتي `Inventory.linkedItemId` يعود إلى Catalog Item داخل التصنيف المختار أو أي descendant.
+- الجرد الجزئي اليدوي القديم بدون `catalogNodeId` يبقى كما هو: يبدأ فارغًا وتضاف Lots بالـQR.
+- أثناء `scanCountLot()` لا يثق الخادم بالفلتر الظاهر في العميل: يحل Lot داخل مخزن العملية ثم يتحقق Server-side من `Inventory.linkedItemId -> catalog_items.nodeId` مقابل Catalog subtree المحفوظ على العملية.
+- QR خارج النطاق يُرفض برمز ثابت `COUNT_LOT_OUTSIDE_CATEGORY_SCOPE`; الواجهة تحوله إلى رسالة حسب لغة المستخدم (Arabic / English / Urdu) بدل عرض نص Backend عربي ثابت.
+- اسم التصنيف المحفوظ يظهر في تفاصيل/قائمة عملية الجرد لتوضيح أن العملية مقيدة بذلك النطاق.
+
+**ما لم يتغير:**
+- Full warehouse count ما زال يجرد كل Lots ذات الرصيد في المخزن مهما كان تصنيفها.
+- Opening balance لا يقبل Category scope.
+- Lot/QR invariants والتسوية Lot-aware من 2B-8 لم تتغير.
+- لا Matching جديد للفواتير، لا تغيير `itemType`, لا FIFO/FEFO، ولا تغيير سياسة warning للتحويل.
+
+**UAT المنفذ فعليًا حتى الآن:**
+1. استلام Lot دهان جديد بعد إعادة تشغيل السيرفر مع `INVENTORY_LOTS_ENABLED=true` ثم التحقق أن `Inventory.quantity = Lot Balance = Lot.remainingQuantity` قبل التحويل. ✅
+2. تحويل كمية من نفس Lot إلى `مخزن الدهانات` مع بقاء نفس Lot/QR و`remainingQuantity` ثابتًا وتوزيع Lot Balances صحيحًا. ✅
+3. إنشاء جرد `مخزن الدهانات + مواد الدهانات`؛ تم تحميل Lot `VIRIDIAN 616` بكمية النظام `2.000` وعدّه `2.000`. ✅
+4. إدخال QR لصنف `مواد/أدوات تركيب` موجود فعليًا في مخزن الدهانات أثناء جرد `مواد الدهانات`؛ رفضه الـBackend وظهرت الرسالة العربية `هذا الصنف لا ينتمي إلى التصنيف المحدد لهذه الجردة أو إلى أي فرع تابع له.` ✅
+5. إنشاء جرد جديد في **نفس مخزن الدهانات** لكن بنطاق `مواد/أدوات تركيب`؛ ظهر نفس الصنف خارج التخصص الرئيسي للمخزن وقُبل وعدّه طبيعيًا. هذا يثبت أن `warehouse.catalogNodeId` ليس قيدًا على نطاق الجرد. ✅
+
+**UAT الإضافي المنفذ في 2026-08-19:**
+1. ظهرت شجرة Catalog المنبثقة فعليًا من شاشة `بدء جرد جديد → تصنيف محدد`، مع فتح الفروع واختيار عقدة عميقة بأي مستوى وعرض مسارها الكامل. ✅
+2. اختيار `مواد الدهانات → PRIMER/PUTTY` في المخزن الرئيسي أعاد رسالة `لا توجد دفعات ذات رصيد مطابق لنطاق الجرد المحدد` بدل إنشاء جرد فارغ؛ هذا يثبت أن اختيار عقدة صالحة بلا Lots مطابقة يُعالج بأمان. ✅
+3. اختيار مستويات أخرى من الشجرة وعمل الجرد أكد أن العقدة المختارة هي نطاق العملية، بينما معنى `node + descendants` بقي من Backend Step 2 كما تم إثباته سابقًا باختيار عقدة أب وتحميل Lot من فرع أعمق. ✅
+
+**UAT إغلاق Step 2 — منفذ فعليًا في 2026-08-19:**
+1. البحث داخل الشجرة بالاسم: البحث عن `JOTUN` أعاد العقدة الصحيحة، وتم اختيار المسار `مواد الدهانات → دهانات أساسية → JOTUN`. ✅
+2. جرد Category-scoped بفرق فعلي غير صفري: `CNT-2026-60023` على المخزن الرئيسي + `JOTUN`، Lot #9، System `2`, Counted `3`, Diff `+1`. ✅
+3. Settlement الفعلي `ADJ-2026-30005` حدّث نفس Lot #9: Main Inventory/Lot Balance `3`, Paint Lot Balance `2`, `remainingQuantity=5`, وحركة Adjustment `450372` من نوع `in` بكمية `1` و`lotId=9`. ✅
+4. Regression الجرد الكامل: `CNT-2026-60024` حمل 8 Lots بالمخزن الرئيسي بغض النظر عن Catalog category. ✅
+5. Regression الجرد الجزئي اليدوي بالـQR: `CNT-2026-60025` بدأ فارغًا، أضاف Lot #9 بالـQR، وسجل Counted `3` مقابل System `3` وDiff `0`. ✅
+6. Runtime العربي لرسالة out-of-scope: ✅ Passed. مفاتيح English/Urdu موجودة، لكن لم يُسجل تبديل Runtime مستقل لهما في جلسة الإغلاق النهائية؛ هذا Spot-check ترجمة غير حاجب بعد اعتماد إغلاق المرحلة.
+
+#### تنفيذ 2B-9 — Step 2.1 (2026-08-18) — Catalog tree picker لنطاق الجرد
+
+**الحالة:** ✅ منفذ / ✅ UAT أساسي للشجرة Passed بالعربية في 2026-08-19. لا Schema ولا SQL إضافي.
+
+**القرار المعتمد:**
+- عند اختيار `نطاق الجرد = تصنيف محدد` لا تظهر قائمة مسطحة.
+- تظهر شجرة منبثقة تستخدم بيانات `catalog.nodes.list` من **نفس `catalog_nodes`** المستخدمة في Catalog.
+- يمكن اختيار **أي عقدة بأي مستوى**، سواء كانت عقدة أب أو Leaf.
+- اختيار عقدة أب يعني أن نطاق الجرد هو تلك العقدة **وجميع descendants**، وهو نفس المعنى الذي يفرضه Backend في Step 2.
+- زر التوسعة/الطي مستقل عن اختيار العقدة، حتى يمكن للمستخدم فتح الفرع أو اختيار المستوى نفسه.
+- أضيف بحث بالاسم العربي/الإنجليزي أو الكود، ويعرض المسار الكامل للعقدة المختارة في زر الاختيار.
+- صلاحيات/تقييد قراءة Catalog nodes تبقى من `catalog.nodes.list`; لا يتم إنشاء مصدر Taxonomy جديد في شاشة الجرد.
+
+**ما لم يتغير:**
+- `inventory_count_operations.catalogNodeId` وطريقة حفظ النطاق لم تتغير.
+- Backend Snapshot/QR scope enforcement لم يتغير.
+- لا تعديل على Lots/QR/التسوية/التحويل/الاستلام.
+- لا SQL جديد.
+
+**التحقق المحلي:**
+- TypeScript `transpileModule` نجح لملف `InventoryOperations.tsx` بعد التعديل بدون أخطاء Syntax/Transform.
+
+**UAT الفعلي للشجرة — 2026-08-19:**
+- ظهرت الشجرة المنبثقة داخل شاشة بدء الجرد وربطت مباشرة بـCatalog taxonomy. ✅
+- تم فتح فروع واختيار عقدة عميقة بأي مستوى، وظهر المسار الكامل في حقل الاختيار. ✅
+- عقدة بلا Lots مطابقة (`مواد الدهانات → PRIMER/PUTTY` في المخزن الرئيسي) لم تُنشئ جردًا فارغًا، وأظهرت رسالة عدم وجود دفعات مطابقة. ✅
+- اختيار نطاق موجود فعليًا عمل كما هو متوقع. ✅
+- البحث داخل الشجرة بالاسم تم اختباره فعليًا في 2026-08-19 بالبحث عن `JOTUN` ثم اختيار العقدة وظهور المسار الكامل الصحيح. ✅
+
+
+#### تحسين 2B-9 — Step 2.2 (2026-08-19) — شريط تمرير جانبي دائم داخل شجرة نطاق الجرد
+
+**الحالة:** ✅ منفذ محليًا / ⏳ UAT واجهة مطلوب. لا Schema ولا SQL.
+
+- بناءً على موافقة المستخدم، قائمة شجرة `تصنيف محدد` في `InventoryOperations.tsx` أصبحت تستخدم `ScrollArea` الموجود أصلًا في المشروع بدل `overflow-y-auto` الأصلي.
+- الشريط الجانبي ظاهر دائمًا (`type="always"`) وقابل للسحب، مع بقاء عجلة الماوس واللمس للتنقل داخل الشجرة الطويلة.
+- لم يتغير مصدر البيانات (`catalog_nodes`) ولا اختيار أي مستوى ولا معنى `node + descendants` ولا Server-side scope enforcement.
+- TypeScript syntax/transpile check: PASS.
+
+#### تنفيذ 2B-9 — Step 1 (2026-08-18) — Inventory taxonomy read/display/filter
+
+**الحالة:** ✅ الكود منفذ / ✅ UAT شاشة Inventory taxonomy/filter Passed بالعربية في 2026-08-19.
+
+**النطاق المنفذ فقط:**
+- إضافة قراءة مستقلة `inventory.taxonomy` تعيد لكل `inventoryId` هوية Catalog Item المنشورة ومسار `catalog_nodes` من الجذر حتى تصنيف الصنف النهائي.
+- الإبقاء على `inventory.list` التاريخية بدون تغيير عقدها أو إضافة تكلفة Taxonomy إلى مستهلكيها الآخرين مثل AI/Export.
+- شاشة `Inventory.tsx` تدمج القراءة الجديدة محليًا حسب `inventoryId`.
+- بعد اختيار المخزن، قائمة التصنيفات تُشتق فقط من Catalog paths للأصناف الموجودة فعليًا في ذلك المخزن؛ لا توجد قائمة/شجرة مخزنية مستقلة.
+- اختيار أي عقدة أب يفلتر كل الأصناف الواقعة تحتها لأن الفلتر يطابق وجود العقدة داخل `catalogCategoryPath` للصنف.
+- عرض مسار التصنيف في جدول Inventory، وإظهار «غير مرتبط بالكتالوج» للسجل الذي لا يملك Catalog identity منشورة بدل اختراع تصنيف له.
+- في المخزن الفرعي يظهر `warehouse.catalogNodeId` كتوصيف «التصنيف الرئيسي للمخزن» فقط؛ لا يقيد المحتوى ولا يخفي التصنيفات الأخرى.
+
+**ما لم يُنفذ في Step 1:**
+- لا Schema ولا SQL ولا Migration.
+- لا تعديل على الجرد أو التسوية بعد؛ Lot/QR 2B-8 بقي كما هو بالكامل.
+- لا تعديل على الاستلام/Matching/Candidates/Publication.
+- لا تعديل على التحويل أو `categoryMismatch` Warning.
+- لا تعديل على `itemType`.
+- لا توسيع Category Scope إلى عمليات أخرى.
+
+**التحقق المحلي:**
+- TypeScript `transpileModule` نجح للملفات البرمجية الثلاثة المعدلة بدون أخطاء Syntax/Transform.
+- لا يوجد اتصال DB/UAT داخل نسخة العمل؛ يلزم اختبار فعلي على المشروع المحلي قبل اعتماد Step 1 تشغيليًا.
+
+#### نقاط الحسم/الإغلاق المتبقية
+
+1. ✅ **حُسم ونُفذ:** `catalogNodeId` المختار يُحفظ كنطاق تاريخي على `inventory_count_operations`، وتم تطبيق العمود يدويًا واختبار إنفاذه Server-side.
+2. ✅ **حُسم:** اختيار نطاق التصنيف في شاشة بدء الجرد يكون **شجرة Catalog منبثقة**، ويمكن اختيار أي مستوى، ويشمل النطاق جميع descendants. لا توجد شجرة مخزن مستقلة.
+3. التعامل في جرد التصنيف مع Inventory مؤقت لم يُنشر له Catalog identity بعد؛ لا يجوز اختراع تصنيف محلي له. الجرد الكامل يجب ألا يخفي مادة موجودة فعليًا.
+4. **لم يُعتمد توسيع Category Scope إلى عمليات أخرى غير Inventory والجرد.** لا يُضاف فلتر تصنيف للصرف/التحويل/المرتجع/الاستبعاد أو غيرها تلقائيًا؛ أي توسيع من هذا النوع يحتاج موافقة Workflow مستقلة.
+
+#### إغلاق 2B-9 النهائي — 2026-08-19
+
+**الحالة:** ✅ `2B-9 = COMPLETE / UAT PASSED`.
+
+تم إغلاق المرحلة بعد تحقق عملي من نقاط الإنهاء التالية:
+
+1. **Inventory taxonomy/filter:** شاشة Inventory تستهلك `catalog_nodes` كمرجع وحيد وتعرض/تفلتر حسب Catalog path، بما في ذلك شجرة منبثقة واختيار أي مستوى. ✅
+2. **Warehouse semantics:** المخزن الرئيسي عام، والمخزن الفرعي يحتفظ بـ`catalogNodeId` كتخصص رئيسي فقط؛ UAT أثبت جرد صنف من تصنيف مختلف داخل مخزن الدهانات عند اختيار تصنيفه الحقيقي. ✅
+3. **Server-side category scope:** QR خارج `selected node + descendants` رُفض من الـBackend برمز `COUNT_LOT_OUTSIDE_CATEGORY_SCOPE` والرسالة العربية الصحيحة. ✅
+4. **Manual Per-Lot count:** زر `إدخال يدوي` يعمل على Lot محدد، مع إعادة تحقق Server-side من Warehouse/Lot/Inventory/Catalog/scope، بدون تعديل رصيد وقت العد. ✅
+5. **Category settlement الحقيقي:** `CNT-2026-60023` على `JOTUN`, Lot #9 `LOT-2026-DD6F05FB`: System `2.000`, Counted `3.000`, Diff `+1.000`; ثم `ADJ-2026-30005`. بعد التسوية أصبح Main Inventory `3`, Main Lot Balance `3`, Paint Lot Balance `2`, `Lot.remainingQuantity=5`; Adjustment transaction `450372` كان `in`, qty `1`, `lotId=9`. ✅
+6. **Regression full count:** `CNT-2026-60024` حمل 8 Lots بالمخزن الرئيسي بدون فلترة Catalog. ✅
+7. **Regression manual partial QR:** `CNT-2026-60025` بدأ فارغًا، أضيف Lot #9 بالـQR، Counted/System كلاهما `3`, Diff `0`. ✅
+8. **Tree search:** البحث عن `JOTUN` داخل شجرة Catalog أعاد العقدة الصحيحة، وتم اختيار المسار `مواد الدهانات → دهانات أساسية → JOTUN`. ✅
+9. **Final integrity على البيانات الجديدة:** Lots #1..#9 كلها حققت `remainingQuantity = SUM(lot balances)`. سجلا JOTUN الجديدان في المخزن الرئيسي ومخزن الدهانات حققا أيضًا `inventory.quantity = lot balance`. ✅
+
+**ملاحظة بيانات قديمة لا تمنع الإغلاق:** الفحص العام أظهر 7 Inventory Aggregate mismatches تاريخية/اختبارية. تم إثبات `inventoryId=210193` و`210194` كصرف من النسخة السحابية القديمة بحركات `delivery` بلا `lotId`، وليست من مسار 2B-9 المحلي. لا UPDATE/backfill تلقائي ضمن 2B-9.
+
+**Localization:** Runtime العربي لمسار out-of-scope Passed. مفاتيح English/Urdu موجودة في الكود، لكن لم يُسجل تبديل Runtime مستقل لهما في جلسة الإغلاق؛ اعتُبر هذا QA ترجمة غير حاجب بعد اعتماد الإغلاق النهائي.
+
+**لا يبدأ 2B-10 تلقائيًا.** Broad FKs/Governance/Security تبقى للمرحلة التالية وتتطلب موافقة صريحة.
+
+#### معيار الإنهاء المقترح
+
+- `catalog_nodes` هي المرجع الوحيد للتصنيفات.
+- الصنف له تصنيف مركزي واحد من الكتالوج، وInventory يستهلكه ولا يعيد تعريفه.
+- المخزن الرئيسي يعرض/يفلتر محتواه حسب تصنيفات Catalog الموجودة فعليًا.
+- المخزن الفرعي يحتفظ بتصنيفه الرئيسي لكنه يعرض ويجرد أي تصنيفات أخرى موجودة فعليًا داخله.
+- الجرد الكامل يشمل كل Lots في المخزن، والجرد الجزئي يستطيع العمل على Catalog subtree محدد داخل المخزن مع الحفاظ على سلامة 2B-8.
+- لا تغيير Workflow/Schema إضافي خارج ما اعتمد صراحةً.
+
+---
+
+### 2B-10 — تقوية الحوكمة والصلاحيات وسلامة الروابط
+
+الهدف:
+تحويل الكتالوج فعليًا إلى Master Data موثوق.
+
+تشمل:
+- فصل صلاحية قراءة/اختيار الكتالوج عن صلاحية إدارة Master Catalog.
+- تقوية Unique Codes.
+- إضافة/تقوية Foreign Keys للعلاقات المركزية حيث يكون ذلك آمنًا.
+- منع الروابط اليتيمة.
+- Audit للربط والاعتماد والتغيير.
+- مراجعة صلاحيات Catalog Manager.
+
+معيار الإنهاء:
+- المستخدمون التشغيليون يستطيعون الاختيار والربط حسب صلاحياتهم.
+- تعديل Master Data محصور بالمستخدمين المخولين.
+- العلاقات المركزية محمية على مستوى قاعدة البيانات والتطبيق.
+
+
+#### 2B-10-1 — Catalog Governance / Permissions — ✅ COMPLETE / UAT PASSED — 2026-08-19
+
+تم إغلاق الجزء الأول من 2B-10 بعد اعتماد وتشغيل سياسة صلاحيات Catalog الجديدة.
+
+**السياسة النهائية:**
+- `owner/admin`: كامل Catalog.
+- `construction_procurement_manager`: الأصناف/التصنيفات عرض+إضافة+تعديل؛ الوحدات عرض+إضافة+تعديل فقط؛ الموردون وCatalog Candidates كامل الصلاحية؛ بدون Settings/Import/Export/Delete للأصناف/التصنيفات/الوحدات.
+- بقية الأدوار: لا إدارة لوحدة Catalog.
+- القراءة المرجعية التشغيلية للكتالوج داخل PO/Receipt/Inventory/Warehouse لم تُحجب حتى لا يتغير الـWorkflow.
+
+**UAT:** صاحب المشروع أكد أن الصلاحيات تعمل حسب الخطة. سلوك الموردين Soft Delete اعتمد كما هو.
+
+**Catalog data check:** تم تصحيح أكواد الأصناف النشطة المكررة يدويًا، والفحص النهائي للتكرار أعاد `empty set`.
+
+**DB:** لا SQL / Migration / Schema change ضمن 2B-10-1.
+
+**مؤجل خارج النطاق:** مشكلة `PR-2026-0378` المشتبه بها كـRace Condition بين اعتماد الحسابات والإدارة؛ موثقة في `docs/PENDING_TASKS.md`.
+
+**مرجع الإغلاق:** `docs/CMMS_2B10_1_CATALOG_PERMISSIONS_UAT_CLOSURE_2026-08-19.md`
+
+#### 2B-10-2A — Catalog Audit Trail — ✅ COMPLETE / UAT PASSED — 2026-08-19
+
+تم تنفيذ وإغلاق الجزء A من `2B-10-2 — Catalog Governance & Audit` بعد فحص Live DB واعتماد النطاق ونجاح UAT الوظيفي.
+
+**التنفيذ:**
+- Items / Nodes / Units / Suppliers: Create/Update/Soft Delete Audit داخل نفس Transaction.
+- Update يسجل `oldValues` و`newValues` بدل الاكتفاء بالقيم الجديدة.
+- Soft Delete يحافظ على `action=delete` للتوافق ويضيف `isActive` قبل/بعد.
+- Units أصبحت مغطاة بالـAudit.
+- Item/Supplier Candidates: عمليات الحسم الحالية أصبحت Audit إلزاميًا، وإنشاء Master جديد يسجل Create مستقلًا أيضًا.
+- `/audit-log` يعرض `catalog_audit_logs` مع السجل العام، ومشاهدة Catalog Audit مصممة لـ`owner/admin` فقط.
+
+**UAT Live DB:**
+- Item `1140011` / code `91002`: Create + Update + Deactivate = PASS.
+- Node `540001` / code `1061`: Create + Update + Deactivate = PASS.
+- Unit `150001`: Create + Update + Deactivate = PASS.
+- Supplier `30003`: Create + Update + Deactivate = PASS.
+- Item Candidate `#8` -> Item `1140012`: approve + Master create = PASS.
+- Supplier Candidate `#2` من `PR-2026-0381` -> Supplier `30004`: approve + Master create = PASS.
+- Supplier edit boolean normalization (`isManufacturer`) تم إصلاحه وإعادة اختبار Update بنجاح.
+
+**DB:** لا Schema / SQL / Migration / Backfill. السجلات التاريخية تبقى كما هي.
+
+**التحقق الفني:** Static TypeScript syntax/transpile وRuntime helper checks = PASS. Full dependency-based check لم يُنفذ في بيئة الفحص لعدم توفر `node_modules` كاملة.
+
+**Spot-check غير حاجب:** Runtime role-view check لشاشة `/audit-log` لم ينفذ مستقلاً في جلسة UAT؛ Backend/UI authorization موجود وموثق.
+
+**مرجع التنفيذ:** `docs/CMMS_2B10_2A_CATALOG_AUDIT_TRAIL_IMPLEMENTATION_2026-08-19.md`  
+**مرجع الإغلاق:** `docs/CMMS_2B10_2A_CATALOG_AUDIT_TRAIL_UAT_CLOSURE_2026-08-19.md`
+
+**Exact stop:** **BEFORE 2B-10-2B — Catalog Relationship & Inactive Data Protection.**
+
+---
+
+### ترتيب التنفيذ المعتمد للمرحلة 2B
+
+1. 2B-1 — ربط طلب الشراء بالكتالوج.
+2. 2B-2 — تحديد المورد المركزي.
+3. 2B-3 — Supplier Item Aliases وربط أصناف المورد بالكتالوج.
+4. 2B-4 — Checkbox «صنف جديد» في الفاتورة.
+5. 2B-5 — استمرار الاستلام دون انتظار الكتالوج.
+6. 2B-6 — شاشة إدخال الأصناف الجديدة إلى الكتالوج.
+7. 2B-7 — الربط اللاحق بالسجلات التاريخية.
+8. 2B-8 — Receipt Lot وQR/Barcode للدفعة.
+9. 2B-9 — توحيد تصنيفات المخزن مع الكتالوج.
+10. 2B-10 — الحوكمة والصلاحيات وسلامة الروابط.
+
+### قاعدة تنفيذ المرحلة 2B
+
+- لا يتم تنفيذ المرحلة دفعة واحدة.
+- كل خطوة لها حزمة ملفات واختبارات وتوثيق مستقل.
+- لا يبدأ الجزء التالي قبل التحقق من الجزء السابق.
+- إذا احتاجت أي خطوة تغيير Workflow أو واجهة أو صلاحية حالية، يتم التوقف وعرض التصميم والحصول على موافقة صريحة قبل تعديل ذلك الجزء.
+
+## سجل تنفيذ المرحلة 2B
+
+### 2B-1 — ربط بند طلب الشراء بالكتالوج
+
+**تاريخ التنفيذ البرمجي:** 15 أغسطس 2026  
+**الحالة:** تم تنفيذ الكود، وبانتظار تطبيق Migration قاعدة البيانات والتحقق التشغيلي قبل اعتماد الخطوة 100%.
+
+#### تم تنفيذ
+
+- إضافة `catalogItemId` nullable إلى نموذج `purchase_order_items` في Drizzle.
+- إضافة Index مخصص للبحث والربط عبر `catalogItemId`.
+- إنشاء Migration مستقل لإضافة العمود والفهرس دون تغيير أي بيانات تاريخية.
+- عند اختيار صنف من الكتالوج في إنشاء طلب الشراء يتم حفظ `catalogItemId` الحقيقي مع البند.
+- يستمر حفظ `itemName` و`description` و`unit` والصور كـSnapshot تاريخي كما كان سابقًا.
+- المسودات تستعيد حالة الصنف: مرتبط بالكتالوج أو يدوي.
+- إذا غيّر المستخدم مصدر الصنف من «الكتالوج» إلى «يدوي» يتم مسح الرابط `catalogItemId` لمنع الارتباط الخاطئ.
+- تم تحديث مسارات `saveDraft` و`updateDraft` و`create` لقبول وحفظ الرابط.
+- تم إضافة تحقق خادمي يمنع ربط بند طلب شراء بـCatalog ID غير موجود.
+- لم تتم إضافة Foreign Key في هذه الخطوة؛ تقوية القيود مؤجلة إلى 2B-10 كما هو مخطط.
+
+#### لم يتم تغيير
+
+- Workflow إنشاء واعتماد طلب الشراء.
+- طريقة العرض الحالية للمستخدم.
+- حالات طلب الشراء.
+- الصلاحيات الحالية.
+- الفاتورة أو الاستلام أو المخزون.
+- الإدخال اليدوي؛ ما زال مسموحًا ويكون `catalogItemId = NULL`.
+
+#### الاختبارات والتحقق
+
+- نجح فحص Syntax للملفات المعدلة عبر TypeScript parser.
+- تمت إضافة اختبار عقدي `purchaseCatalogLink.test.ts` للتحقق من حفظ الرابط واستمرارية Snapshot وفصل الرابط عند العودة للإدخال اليدوي.
+- لم يتم تشغيل Vitest الكامل أو Build الكامل لعدم وجود `node_modules` في نسخة العمل.
+
+#### المتبقي لاعتماد 2B-1
+
+1. تطبيق Migration قاعدة البيانات يدويًا.
+2. التحقق من وجود العمود والفهرس.
+3. اختبار تشغيلي بسيط:
+   - إنشاء طلب بصنف من الكتالوج والتأكد من حفظ `catalogItemId`.
+   - إنشاء طلب بصنف يدوي والتأكد أن `catalogItemId` يظل NULL.
+   - حفظ/تعديل مسودة مرتبطة بالكتالوج والتأكد أن الرابط لا يضيع.
+
+**الخطوة التالية بعد اعتماد 2B-1:** 2B-2 — تحديد المورد المركزي وخيار «مورد جديد» عند إدخال الفاتورة.
+
+## سجل تنفيذ المرحلة 2B-2 — تحديد المورد المركزي وخيار «مورد جديد»
+
+**تاريخ التنفيذ البرمجي:** 15 أغسطس 2026  
+**الحالة:** مكتملة ومختبرة عمليًا بنسبة 100% ضمن نطاق 2B-2.
+
+### تم تنفيذ
+
+1. إضافة طبقة **Supplier Master Resolution** داخل شاشة مراجعة فاتورة المورد الحالية، بدون استبدال تصميم AI/OCR الحالي.
+2. اعتماد نموذج Hybrid بالشكل التالي:
+   - AI/OCR الحالي يستخرج اسم المورد والرقم الضريبي وبيانات الفاتورة.
+   - خوارزمية deterministic تبحث في Supplier Master وSupplier Aliases.
+   - أولوية المطابقة: الرقم الضريبي، Alias معروف، الاسم المطابق، ثم تشابه الاسم.
+   - المستخدم يؤكد المورد النهائي أو يحدد «مورد جديد».
+3. إضافة عرض أقرب الموردين مع نسبة التطابق وسبب الاقتراح.
+4. الإبقاء على **اسم المورد كما ظهر في الفاتورة Snapshot** منفصلًا عن Supplier Master المختار.
+5. إضافة Checkbox **«مورد جديد»** أثناء إدخال/مراجعة الفاتورة.
+6. المورد الجديد لا يوقف الفاتورة أو الاستلام أو إدخال المخزون.
+7. عند تأكيد الاستلام لمورد جديد، ينشأ `Supplier Candidate` مرتبط بالفاتورة وطلب الشراء وسند الاستلام.
+8. إضافة Queue داخل تبويب الموردين في الكتالوج باسم **«إدخال الموردين الجدد»**.
+9. مسؤول الكتالوج يستطيع:
+   - ربط المرشح بمورد موجود.
+   - أو اعتماد المرشح كمورد Master جديد بعد تنظيف البيانات.
+10. عند ربط مورد موجود، يمكن حفظ الاسم الوارد في الفاتورة كـ `Supplier Alias` لتحسين المطابقة المستقبلية.
+11. إضافة الرقم الضريبي والسجل التجاري إلى بيانات Supplier Master لدعم المطابقة الأقوى.
+12. ربط `warehouse_receipts` بالمورد المركزي أو بمرشح المورد الجديد مع الحفاظ على `vendorName` التاريخي.
+13. إضافة Audit عند ربط أو اعتماد Supplier Candidate.
+14. لم يتم تغيير Workflow الاستلام أو تعطيله بانتظار Master Data.
+
+### معنى Hybrid المعتمد في هذه الدفعة
+
+لا يتم إجراء استدعاء AI إضافي مستقل لمجرد مطابقة اسم المورد. الـAI/OCR الحالي مسؤول عن استخراج بيانات الفاتورة، ثم تستخدم قواعد المطابقة بيانات Supplier Master والـAliases، ويؤكد المستخدم القرار. هذا يقلل التكلفة ويمنع AI من اتخاذ قرار Master Data بمفرده.
+
+### قاعدة البيانات المطلوبة
+
+تم إنشاء Migration:
+
+`drizzle/migrations/2026_08_15_catalog_supplier_resolution.sql`
+
+ويشمل:
+
+- `catalog_suppliers.taxNumber`
+- `catalog_suppliers.commercialRegistration`
+- جدول `catalog_supplier_aliases`
+- جدول `catalog_supplier_candidates`
+- `warehouse_receipts.catalogSupplierId`
+- `warehouse_receipts.supplierCandidateId`
+- Indexes مرتبطة بالمطابقة والربط
+
+### الاختبارات المنفذة
+
+- فحص Syntax لجميع ملفات TypeScript/TSX المعدلة: ناجح.
+- اختبارات مباشرة لخوارزمية المطابقة:
+  - تطابق الرقم الضريبي = 100%.
+  - Supplier Alias معروف يتقدم على التشابه الاسمي.
+  - اسم «الامير» يقترح الموردين ذوي العلاقة ولا يقترح موردًا غير مرتبط.
+  - تحويل الأرقام العربية في المعرفات الضريبية يعمل.
+- تمت إضافة اختبار Vitest رسمي:
+  - `server/tests/catalogSupplierMatching.test.ts`
+
+### لم يتم تنفيذ / خارج نطاق 2B-2
+
+- لم تبدأ 2B-3 الخاصة بأسماء وأكواد أصناف المورد وربطها بصنف الكتالوج.
+- لم يتم تغيير مطابقة أصناف الفاتورة في هذه الدفعة.
+- لم يتم إضافة Foreign Keys النهائية؛ تقوية القيود مؤجلة إلى 2B-10.
+- لم يتم تضييق صلاحيات Catalog Master النهائية؛ ذلك ضمن 2B-10.
+- لم يتم تشغيل Build/Vitest الكامل لعدم وجود Dependencies مثبتة في الحزمة الحالية.
+
+### اعتماد 2B-2
+
+تم تطبيق Migration يدويًا والتحقق من بنية الجداول والفهارس، ثم نجحت الاختبارات العملية الأربعة المعتمدة: مورد موجود، اسم بديل/Alias، مورد جديد غير معطّل، ومراجعة/اعتماد Supplier Candidate. لذلك تم إغلاق 2B-2 ضمن نطاقها.
+
+**الخطوة التالية بعد اعتماد 2B-2:** 2B-3 — Supplier Item Aliases وربط أسماء وأكواد أصناف الموردين بصنف الكتالوج المركزي.
+
+## سجل تنفيذ المرحلة 2B-3 — Supplier Item Aliases ومطابقة صنف المورد
+
+**تاريخ التنفيذ البرمجي:** 16 أغسطس 2026  
+**الحالة النهائية:** مكتملة وظيفيًا ضمن نطاق 2B-3 بتاريخ 16 أغسطس 2026. تم تطبيق Migration، ونجحت اختبارات UAT الأساسية: ذاكرة SKU، التعلم بالاسم بدون SKU، اختلاف العربية/الإنجليزية والصياغة، تكافؤ الوحدات، كشف تعارض المقاسات، البحث اليدوي، وتعدد الموردين لنفس Catalog Item. اختبار أداء فاتورة كبيرة متعددة الأصناف (مثل 20 صنفًا) مؤجل إلى Performance/UAT لاحق ولا يمنع إغلاق الوظائف الأساسية للمرحلة.
+
+### تم تنفيذ
+
+1. إضافة جدول مستقل `catalog_supplier_item_aliases` كذاكرة لأسماء/SKU المورد، بدون خلطه مع `catalog_supplier_prices` الخاص بالأسعار.
+2. السماح بعدة أسماء وأكواد لنفس Catalog Item عبر الموردين، مع بقاء Catalog Item هو الهوية المركزية الوحيدة.
+3. إضافة خوارزمية مركزية للمطابقة:
+   - Supplier SKU المعروف أولًا.
+   - Supplier Item Alias المعروف.
+   - الاسم المركزي العربي/الإنجليزي.
+   - مطابقة دلالية محافظة.
+   - AI Fallback فقط عند بقاء الحالة ملتبسة.
+4. إضافة استخراج مواصفات رقمية وتوحيد وحدات الطول/الوزن/الحجم حسابيًا قبل المقارنة.
+5. حالات مثل `2 mm` و`0.2 cm` تعتبر متوافقة، بينما `2 mm` و`0.02 cm` تعتبر تعارضًا ولا يتم ربطها تلقائيًا.
+6. AI لا يستطيع تجاوز تعارض المواصفة ولا يعتمد Catalog Item نهائيًا؛ القرار يبقى للمستخدم.
+7. إذا كان بند PO مرتبطًا مسبقًا بـCatalog Item، تستخدم هويته مباشرة بدون إعادة تخمين الاسم.
+8. إضافة عرض اقتراحات Catalog Item داخل مراجعة أصناف الفاتورة مع النسبة، سبب المطابقة، وحالة توافق المقاس.
+9. عند وجود تعارض مواصفة، يتطلب اختيار المرشح تأكيدًا صريحًا من المستخدم.
+10. إضافة حقل اختياري `supplierItemCode` لسطر الفاتورة، مع تحديث OCR لاستخراج SKU عندما يكون موجودًا فعليًا في الفاتورة.
+11. بعد تأكيد الاستلام لمورد Master موجود وCatalog Item محدد، يحفظ النظام اسم/SKU المورد كـAlias ويتعلمه للفواتير التالية.
+12. إذا تكرر نفس Alias المؤكد، يتم زيادة `confirmationCount` وتحديث آخر وقت تأكيد بدل إنشاء سجل مكرر لنفس الاسم/الصنف.
+13. ربط Catalog Item ينتقل إلى `inventory.linkedItemId` عبر المسار الموجود أصلًا، بدون تغيير الكميات أو Weighted Average أو قيمة الحركة.
+14. لم تتم إضافة `catalogItemId` إلى `warehouse_receipt_items` في هذه المرحلة؛ الربط التاريخي الشامل لسطر الفاتورة/الاستلام يبقى ضمن 2B-7 كما هو مخطط.
+15. المورد الجديد غير المعتمد يمكنه الاستمرار في المطابقة العامة مع الكتالوج، لكن Supplier Alias لا يحفظ قبل أن يصبح له Supplier Master ID مركزي.
+
+### قاعدة البيانات المطلوبة
+
+تم إنشاء Migration:
+
+`drizzle/migrations/2026_08_16_catalog_supplier_item_aliases.sql`
+
+ويضيف جدولًا واحدًا فقط:
+
+`catalog_supplier_item_aliases`
+
+ولا يغير أي جدول مخزون أو تكلفة أو سند استلام قائم.
+
+### الاختبارات البرمجية
+
+- فحص Syntax/Transpile للملفات TypeScript/TSX المعدلة: ناجح.
+- اختبارات مباشرة لخوارزمية المطابقة: ناجحة.
+- تم التحقق من:
+  - `0.2 cm = 2 mm`.
+  - `0.02 cm != 2 mm` ويظهر كتعارض.
+  - «شاش باندينج 2 ملي» يفضل «رباط شاش 2 مم» على مقاس مختلف.
+  - SKU معروف للمورد يؤدي إلى Auto-select فقط عندما لا يوجد تعارض مواصفة.
+- تمت إضافة اختبار Vitest رسمي:
+  - `server/tests/catalogSupplierItemMatching.test.ts`
+- لم يتم تشغيل Vitest/Build الكامل لعدم وجود `node_modules` داخل نسخة العمل الحالية.
+
+### لم يتم تنفيذ / خارج نطاق 2B-3
+
+- Checkbox «صنف جديد» تم تنفيذه في 2B-4؛ Queue الأصناف الجديدة ما زالت ضمن 2B-5/2B-6.
+- لم يتم إنشاء Queue الأصناف الجديدة؛ هذا ضمن 2B-5/2B-6.
+- لم يتم ربط سطر الاستلام تاريخيًا بـCatalog Item داخل `warehouse_receipt_items`؛ هذا ضمن 2B-7.
+- لم يتم تنفيذ Receipt Lot/QR؛ هذا ضمن 2B-8.
+- لم يتم تغيير سياسة FIFO/FEFO أو اختيار Lot عند الصرف.
+- لم يتم تغيير حساب التكلفة أو Weighted Average أو Workflow الاستلام.
+
+### إصلاح UAT — إعادة مطابقة SKU داخل شاشة الأصناف
+
+أثناء الاختبار العملي بتاريخ 16 أغسطس 2026 تم إثبات أن حفظ Supplier Item Alias يعمل: المورد `30002` + SKU `TEST-SKU-001` تم ربطهما بـ Catalog Item `180281`. ثم كشف الاختبار التالي أن إدخال SKU بعد فتح شاشة مراجعة الأصناف لا يعيد تشغيل المطابقة، لذلك بقيت اقتراحات AI العامة بدل استخدام ذاكرة المورد.
+
+تم تنفيذ إصلاح محدود داخل `WarehouseReceiveV2.tsx` فقط في منطق الواجهة:
+
+- عند كتابة/تغيير SKU لمورد مركزي مؤكد، ينتظر النظام 450ms بعد توقف الكتابة ثم يعيد فحص ذاكرة المورد.
+- إعادة الفحص أثناء الكتابة تستخدم القواعد الحتمية فقط (`useAiFallback: false`) حتى لا يُستدعى AI مع كل تعديل للحقل.
+- إذا وجد SKU معروفًا للمورد، تُحدّث اقتراحات Catalog وتُطبّق Auto-select فقط وفق قواعد 2B-3 الحالية وعدم وجود تعارض مواصفة.
+- إذا كان SKU معروفًا لكن المقاس متعارضًا، يظهر التحذير ويبقى الربط يدويًا.
+- إذا لم يوجد أي Supplier Memory Match، تبقى اقتراحات الشاشة السابقة كما هي ولا يتم استبدالها بنتائج أضعف.
+- هوية Catalog القادمة من PO أو اختيار المستخدم اليدوي لا يتم الكتابة فوقها بسبب تغيير SKU.
+- تمت إضافة حماية من نتائج الطلبات القديمة عند الكتابة السريعة حتى لا تطبق نتيجة SKU سابق بعد تغييره.
+- لا يوجد أي تغيير على قاعدة البيانات أو التكلفة أو الكميات أو Weighted Average أو حفظ سند الاستلام.
+
+**حالة الاختبار:** نجح UAT بعد الإصلاح: نفس المورد + `TEST-SKU-001` أعاد ربط Catalog Item `180281` تلقائيًا بنسبة 100% وظهر السبب «SKU معروف لهذا المورد».
+
+### UAT النهائي واعتماد 2B-3
+
+تم إكمال الاختبارات العملية الأساسية واعتماد 2B-3 وظيفيًا. الاختبارات التي نجحت:
+
+1. نفس المورد بدون SKU — التعلم بالاسم فقط، ثم التعرف على الاسم في عملية لاحقة.
+2. اختلاف صياغة الاسم/اللغة لنفس الصنف — عربي/إنجليزي وصياغة مختلفة، مع ظهور Catalog Item الصحيح ضمن الاقتراحات الذكية.
+3. وحدات مختلفة لكن نفس المقاس — مثل `2 mm` و`0.2 cm`، وتم اعتبارها متوافقة.
+4. مقاس مختلف فعليًا — مثل `2 mm` و`0.02 cm = 0.2 mm`، وتم منع الربط التلقائي وطلب تأكيد المستخدم.
+5. البحث اليدوي في الكتالوج — اختيار Catalog Item يدويًا ثم حفظ العلاقة كـSupplier Item Alias للمستقبل.
+6. نفس Catalog Item من مورد ثانٍ — إثبات أن هوية الصنف المركزية لا تتكرر وأن لكل مورد ذاكرته الخاصة من الاسم/SKU.
+7. سبق كذلك نجاح اختبار SKU المؤكد: نفس المورد + `TEST-SKU-001` أعاد Catalog Item `180281` بنسبة 100% وسبب «SKU معروف لهذا المورد».
+8. تم التحقق أن ربط Catalog Item لا يغير الكميات أو التكلفة أو Weighted Average أو Workflow الاستلام.
+
+**المؤجل فقط:** اختبار أداء فاتورة كبيرة متعددة الأصناف (مثل 20 صنفًا) وقياس الزمن/التوكنز، مع دراسة Batch Optimization إذا أثبت القياس الحاجة. هذا بند Performance وليس نقصًا وظيفيًا في 2B-3.
+
+**الخطوة التالية بعد اعتماد 2B-3:** 2B-4 — Checkbox «صنف جديد» داخل إدخال الفاتورة، وهي خطوة تغير الواجهة/Workflow ويجب أخذ موافقة صريحة قبل تنفيذها.
+
+### تحسين UAT معتمد — مساران لمطابقة الصنف عند غياب SKU
+
+**الموافقة:** موافقة صريحة من المستخدم بتاريخ 16 أغسطس 2026 بعد اختبار 2B-3 عمليًا.
+
+أثناء UAT نجح سيناريو ذاكرة SKU بالكامل: نفس المورد + `TEST-SKU-001` تعرّف تلقائيًا على Catalog Item `180281` بنسبة 100% وسبب «SKU معروف لهذا المورد». ثم ظهر احتياج عملي عندما لا يضع المورد SKU على الفاتورة؛ الاقتراحات العامة الضعيفة كانت كثيرة وغير مفيدة.
+
+تم تنفيذ تحسين محدود داخل شاشة مراجعة أصناف الفاتورة، بدون تغيير Workflow الاستلام أو حساب المخزون:
+
+1. إضافة مسارين واضحين داخل «مطابقة صنف الكتالوج» للأصناف غير المرتبطة مسبقًا من PO:
+   - **اقتراحات ذكية:** تعتمد ذاكرة المورد أولًا، ثم الاسم/المعنى العربي أو الإنجليزي والمواصفات.
+   - **بحث في الكتالوج:** بحث يدوي مباشر في Catalog Items النشطة بالاسم العربي/الإنجليزي أو كود الكتالوج.
+2. الاقتراحات الذكية لا تعرض النتائج العامة الضعيفة لمجرد أنها أعلى النتائج؛ تبقى ذاكرة المورد والتطابقات القوية ظاهرة، وتُخفى النتائج الدلالية منخفضة الثقة لتقليل الربط الخاطئ.
+3. عند عدم وجود تطابق موثوق يظهر نص واضح يوجّه المستخدم إلى «بحث في الكتالوج» بدل عرض قائمة عشوائية ضعيفة.
+4. البحث اليدوي لا ينشئ Catalog Item جديدًا؛ المستخدم يختار فقط من أصناف الكتالوج الحالية.
+5. عند اختيار Catalog Item يدويًا ثم تأكيد الاستلام، يستخدم مسار 2B-3 الموجود أصلًا لحفظ اسم الصنف الحالي كـSupplier Item Alias لنفس المورد؛ لذلك يستطيع النظام التعرف عليه لاحقًا حتى لو لم يوجد SKU.
+6. هوية Catalog Item القادمة من بند PO تبقى أقوى ولا تُستبدل بهذه الواجهة.
+7. لا توجد Migration أو تغييرات قاعدة بيانات جديدة لهذا التحسين.
+8. لا تغيير على الكمية، التكلفة، Weighted Average، سند الاستلام أو قواعد الاستلام.
+
+**اختبار UAT المطلوب بعد تطبيق التحسين:** استخدام مورد مركزي معروف وصنف بدون SKU وغير مرتبط بالكتالوج من PO؛ التأكد من وجود التبويبين، ثم البحث يدويًا عن Catalog Item وربطه، إكمال الاستلام، وبعدها إعادة فاتورة لنفس المورد/الاسم للتأكد أن «اسم معروف لهذا المورد» يظهر من الذاكرة.
+
+
+### ضبط مسار AI الدلالي على DeepSeek مباشرة — 16 أغسطس 2026
+
+**الموافقة:** موافقة صريحة من المستخدم على ضبط تحليل الأصناف الدلالي على DeepSeek في بيئة الإنتاج.
+
+تم فصل إعداد DeepSeek المستخدم بواسطة `server/_core/llm.ts` عن إعدادات `BUILT_IN_FORGE_*` العامة، لأن المتغيرات العامة مستخدمة كذلك في خدمات أخرى ولا يجب تغيير مزودها ضمن نطاق 2B-3.
+
+تم تنفيذ الآتي:
+
+1. إضافة `DEEPSEEK_API_URL` و`DEEPSEEK_API_KEY` إلى مخطط Environment في السيرفر.
+2. `llm.ts` أصبح يستخدم `ENV.deepSeekApiUrl` و`ENV.deepSeekApiKey` فقط في استدعاءات DeepSeek، بدل الاعتماد مباشرة على Forge URL/Key.
+3. العنوان الافتراضي والمثبت في PM2 هو `https://api.deepseek.com`.
+4. مسار Chat Completions أصبح مطابقًا للـAPI المباشر: `/chat/completions`، مع بقاء `/models` لاكتشاف النماذج المتاحة.
+5. اختيار النماذج يبقى مفضّلًا لـ`deepseek-v4-flash` ثم `deepseek-v4-pro`/النماذج المتاحة حسب استجابة DeepSeek.
+6. يوجد توافق انتقالي للمفتاح: إذا لم يوجد `DEEPSEEK_API_KEY` يستخدم السيرفر `BUILT_IN_FORGE_API_KEY` الموجود مسبقًا في `.env`. هذا يمنع الحاجة لنسخ السر داخل `ecosystem.config.cjs`.
+7. تمت إزالة القيمة الفارغة `BUILT_IN_FORGE_API_KEY: ''` من إعداد PM2 لأنها كانت تحجب قيمة `.env` الحقيقية.
+8. لم يتم تغيير Anthropic الخاص بتحليل صورة الفاتورة؛ هذا التعديل يخص فقط مسار LLM الدلالي المستخدم في مطابقة الأصناف.
+9. لا توجد Migration ولا تغيير على قاعدة البيانات أو Workflow الاستلام أو المخزون أو التكلفة.
+
+**اختبارات/تحقق:**
+- فحص Syntax لـ`ecosystem.config.cjs`.
+- فحص Transpile/Syntax لملفات TypeScript المعدلة.
+- تحقق ساكن أن `llm.ts` لا يستخدم `ENV.forgeApiUrl` أو `ENV.forgeApiKey` بعد التعديل.
+- لم يتم إجراء استدعاء حي إلى DeepSeek من بيئة التطوير لتجنب استهلاك مفتاح/رصيد الإنتاج.
+
+**تشغيل الإنتاج:** بعد استبدال الملفات وبناء المشروع، يلزم إعادة تشغيل PM2 مع تحديث Environment. لا يلزم أي SQL.
+
+### تحسين UAT معتمد — DeepSeek لا يكتفي بإعادة ترتيب المرشحين بل يكتشف مرشحين من الكتالوج — 16 أغسطس 2026
+
+**الموافقة:** موافقة صريحة من المستخدم بعد اختبار فعلي أظهر أن اتصال DeepSeek يعمل (`deepseek-v4-flash`) لكن شاشة «اقتراحات ذكية» لم تعرض أي صنف موثوق لأن AI كان يعيد ترتيب المرشحين الذين اختارتهم الخوارزمية المحلية فقط.
+
+#### المشكلة التي أثبتها UAT
+
+- مسار DeepSeek أصبح يعمل فعليًا بعد تصحيح المفتاح (`STATUS 200`) وظهر في الـlog اختيار `deepseek-v4-flash`.
+- رغم ذلك، إذا لم تدخل الخوارزمية المحلية Catalog Item الصحيح ضمن قائمتها الأولية بسبب اختلاف اللغة/الصياغة، لم يكن DeepSeek يراه أصلًا.
+- فلترة الواجهة تخفي المطابقات العامة الضعيفة، لذلك كانت النتيجة النهائية أحيانًا «لم يتم العثور على تطابق موثوق» رغم وجود صنف مناسب داخل الكتالوج.
+
+#### التعديل المنفذ
+
+1. إضافة `applyAiSemanticDiscovery` في `server/_core/catalog-item-matching.ts`.
+2. عند عدم وجود ذاكرة مورد قوية أو مطابقة حتمية بدرجة عالية، DeepSeek يستقبل مجموعة واسعة من **Catalog Items النشطة نفسها** بدل الاقتصار على المرشحين المحليين.
+3. الكتالوج يُرسل على دفعات حتى 180 صنفًا في الطلب الواحد، وبحد أمان أقصى 12 دفعة للحالة الواحدة؛ المرشحون الحتميون الحاليون يُثبتون في مقدمة المجموعة قبل بقية الكتالوج.
+4. DeepSeek لا يُسمح له بإنشاء رقم Catalog Item أو صنف جديد؛ الرد يقبل فقط IDs الموجودة داخل الدفعة المرسلة.
+5. DeepSeek يعيد حتى 5 مرشحين دلاليين لكل دفعة، ثم النظام يجمع أفضل الدرجات عبر الدفعات ويعيد ترتيبها مع الأدلة المحلية.
+6. المرشح الجديد الذي اكتشفه AI يمكن أن يظهر حتى لو لم يكن موجودًا أصلًا ضمن نتائج `rankCatalogItemMatches`.
+7. نتائج AI الأقل من `0.58` لا تدخل اقتراحات المطابقة، لمنع رفع نتائج ضعيفة لمجرد أن AI أعادها.
+8. بعد الاكتشاف الدلالي يعاد فحص الاسم/المقاس/الوحدة خوارزميًا؛ AI لا يغيّر نتيجة فحص المقاسات.
+9. تعارض المقاس يمكن أن يبقى ظاهرًا كاقتراح دلالي قوي للتحذير والمراجعة، لكنه **لا يربط تلقائيًا** ويحتاج تأكيد المستخدم في الواجهة الحالية.
+10. AI لا يقوم بأي Auto-select؛ ذاكرة Supplier SKU/Alias الحتمية فقط تحتفظ بقواعد الربط التلقائي الحالية.
+11. تعديل `matchInvoiceItems` بحيث يستدعي Semantic Discovery حتى عندما تكون القائمة الحتمية فارغة أو ضعيفة، وليس فقط عندما يوجد مرشحان أوليان.
+12. حد التكلفة الحالي بقي كما هو: AI يستخدم بحد أقصى لخمسة أسطر فاتورة في الاستدعاء الواحد لـ`matchInvoiceItems`؛ لم يتم توسيع هذا الحد.
+13. لا توجد Migration ولا تعديل Schema أو مخزون أو تكلفة أو Weighted Average أو Workflow الاستلام.
+14. لا يوجد تغيير جديد في الواجهة؛ تبويب «اقتراحات ذكية» الموجود أصلًا سيعرض النتائج المحسنة إذا تجاوزت مستوى الثقة الحالي.
+
+#### الاختبارات المنفذة
+
+- فحص Syntax/Transpile للملفات TypeScript المعدلة: ناجح.
+- اختبار مباشر أن AI يستطيع إدخال Catalog Item صحيح لم يكن موجودًا أصلًا في القائمة الحتمية: ناجح.
+- اختبار أن نتيجة AI الضعيفة لا تظهر: ناجح.
+- اختبار أن تعارض المقاس يبقى `measurementStatus=conflict` ولا يتحول إلى Auto-select حتى مع Semantic Score مرتفع: ناجح.
+- اختبار تكاملي محلي لـ`applyAiSemanticDiscovery` باستخدام LLM stub وإرجاع Catalog Item من القائمة الواسعة: ناجح.
+- لم يتم تشغيل Build/Vitest الكامل داخل بيئة العمل الحالية لعدم توفر `node_modules` للمشروع.
+
+#### المخاطر والضوابط
+
+- Semantic Discovery قد يستهلك Tokens أكثر من reranking القديم لأنه يقرأ Catalog Items أكثر؛ لذلك بقي حد AI لخمسة أسطر، ويوجد حد أمان لحجم الكتالوج المرسل.
+- إذا تجاوز الكتالوج 2160 صنفًا نشطًا في الحالة الحالية، يتم مسح أول 2160 بعد تثبيت المرشحين الحتميين في المقدمة لتجنب تكلفة غير محدودة. إذا تجاوز الحجم الفعلي هذا الحد مستقبلًا، يفضل تطوير Semantic Index/Embedding Search بدل زيادة سياق LLM بلا حدود.
+- قرار المستخدم يبقى نهائيًا؛ AI لا ينشئ Master Data ولا يربط تلقائيًا.
+
+#### UAT المطلوب الآن
+
+1. مورد مركزي معروف.
+2. بند Purchase Order يدوي غير مرتبط بالكتالوج.
+3. صنف جديد/صياغة مختلفة بدون Supplier SKU معروف.
+4. فتح «اقتراحات ذكية» والتأكد أن Catalog Item المناسب يظهر بسبب `ai_semantic` إذا لم تجده الخوارزمية المحلية.
+5. التأكد أن اختيار المستخدم فقط هو الذي يثبت الربط.
+6. اختبار مقاس مكافئ، ثم مقاس متعارض، للتأكد أن Semantic Discovery لا يتجاوز فحص الوحدات.
+
+**حالة 2B-3 بعد هذا التعديل:** التنفيذ البرمجي مكتمل، ويبقى UAT لهذه الطبقة الجديدة قبل اعتماد 2B-3 بنسبة 100%.
+
+### تحسين UAT معتمد — Hybrid Catalog Retrieval قبل DeepSeek بدل مسح الكتالوج على دفعات — 16 أغسطس 2026
+
+**الموافقة:** موافقة صريحة من المستخدم بعد UAT أظهر أن Semantic Discovery بالدفعات أصبح بطيئًا جدًا في شاشة «مطابقة أصناف الكتالوج».
+
+#### المشكلة التي أثبتها UAT
+
+- الإصدار السابق كان يرسل حتى 180 Catalog Item في الطلب الواحد وبحد أقصى 12 طلب DeepSeek متتاليًا للصنف الواحد.
+- هذا أثبت قدرة AI على رؤية أصناف خارج القائمة المحلية، لكنه غير مناسب تشغيليًا بسبب زمن الانتظار واستهلاك Tokens.
+- لذلك تعتبر آلية المسح بالدفعات السابقة **مستبدلة** بهذا التصميم، ولا يجب زيادة عدد الدفعات أو تشغيلها بالتوازي كحل دائم.
+
+#### التصميم المعتمد والمنفذ
+
+1. تبقى الأولوية بدون AI: Supplier SKU المؤكد ثم Supplier Item Alias ثم المطابقة الحتمية القوية.
+2. عند الحاجة إلى فهم دلالي، يبني السيرفر أولًا **Hybrid Shortlist محلية** بحد 40 Catalog Item فقط من قائمة الأصناف النشطة المحملة أصلًا في `matchInvoiceItems`.
+3. الاسترجاع المحلي يجمع عدة إشارات: الاسم العربي والإنجليزي، الكلمات/المرادفات المحافظة الموجودة في النظام، fuzzy token matching، character n-grams، manufacturer، الوحدة، وفحص المقاسات بعد توحيد الوحدات.
+4. المرشحون الحتميون الموجودون أصلًا يُثبتون داخل الـShortlist حتى لا يضيع دليل Supplier Memory أو التطابق المحلي عند إضافة AI.
+5. في الحالة العادية يرسل النظام **طلب DeepSeek واحد فقط** يحتوي صنف الفاتورة والـShortlist الصغيرة، ويطلب من DeepSeek ترتيب أفضل المرشحين دلاليًا.
+6. إذا كانت إشارة الاسترجاع المحلي ضعيفة جدًا (`top retrieval < 0.34`) فقط، يسمح النظام بطلب DeepSeek صغير أول لتوليد حتى 8 عبارات/مرادفات بحث عربية وإنجليزية، ثم يعيد بناء الـShortlist محليًا، وبعدها يرسل طلب الترتيب. لذلك الحالة الصعبة جدًا = بحد أقصى طلبين بدل حتى 12 طلبًا.
+7. لا يتم إرسال الكتالوج كاملًا أو مسحه على دفعات إلى DeepSeek بعد هذا التعديل.
+8. DeepSeek لا يصل مباشرة إلى قاعدة البيانات، ولا يملك SQL أو صلاحية تعديل؛ قاعدة البيانات تبقى المصدر الحقيقي، والـBackend هو محرك الاسترجاع.
+9. AI لا يقوم Auto-select. بعد الترتيب، فحص المقاسات والوحدات يبقى خوارزميًا، والمستخدم يؤكد القرار النهائي للحالات الدلالية.
+10. إذا تعطل DeepSeek، تبقى المطابقة الحتمية/المحلية متاحة ولا يتوقف Workflow الاستلام.
+11. لا توجد Migration أو Schema/Index جديد لهذه الدفعة؛ حجم الكتالوج الحالي يسمح بالاسترجاع المحلي داخل الذاكرة من القائمة التي يجلبها المسار أصلًا. إذا كبر الكتالوج لاحقًا لدرجة تستدعي Full-text/Vector Index في قاعدة البيانات، فهذا تغيير منفصل يحتاج موافقة صريحة قبل التنفيذ.
+12. لا تغيير على الكميات أو التكلفة أو Weighted Average أو سند الاستلام أو Workflow المستخدم.
+
+#### التحقق والـUAT المطلوب
+
+- التحقق في الـlog من سطر مثل: `Hybrid shortlist 40/<catalog>; localTop=...; expanded=no|yes` ثم اختيار نموذج DeepSeek مرة واحدة عادةً.
+- إعادة نفس الصنف الذي كان يسبب انتظارًا طويلًا والتأكد أن زمن المطابقة انخفض بوضوح وأن الاقتراح المناسب ما زال يظهر.
+- اختبار وصف بعيد دلاليًا للتأكد أن `expanded=yes` يعمل عند الحاجة فقط.
+- إعادة اختبارات Supplier SKU/Alias والمقاسات للتأكد أن تحسين السرعة لم يغيّر الأولويات أو الحماية.
+
+**حالة 2B-3:** هذا تحسين أداء ودقة داخل نفس النطاق المعتمد؛ يبقى UAT قبل اعتماد 2B-3 بنسبة 100%.
+
+### ضبط UAT معتمد — استعادة Recall مع الحفاظ على سرعة Hybrid Search — 16 أغسطس 2026
+
+**الموافقة:** موافقة صريحة من المستخدم بعد UAT فعلي أظهر Regression في الدقة: `Hybrid shortlist 40/1718; localTop=0.53; expanded=no` ثم لم يظهر أي اقتراح، بينما النسخة الأوسع السابقة كانت أدق لكنها بطيئة.
+
+#### سبب المشكلة
+
+- الحد السابق اعتبر `localTop >= 0.34` كافيًا لعدم تشغيل Semantic Expansion.
+- نتيجة `0.53` ليست دليلًا قويًا، لكنها منعت توليد المرادفات، فشاهد DeepSeek فقط 40 صنفًا من أصل 1718.
+- إذا لم يكن الصنف الصحيح ضمن هذه الأربعين، لا يستطيع DeepSeek اختياره مهما كانت قدرته الدلالية.
+
+#### الضبط المنفذ
+
+1. رفع حد تشغيل Semantic Expansion من `0.34` إلى `0.72`: أي نتيجة محلية أقل من 72% تعتبر غير كافية وحدها وتستحق توسيعًا دلاليًا عربي/إنجليزي.
+2. رفع الـShortlist الأساسية من 40 إلى 100 Catalog Item.
+3. بعد توليد المرادفات يعاد بناء Shortlist أوسع بحد 120 صنفًا قبل DeepSeek.
+4. بعد أول rerank، إذا لم توجد نتيجة موثوقة بدرجة 75% أو أعلى وبدون تعارض مقاس، لا يعلن النظام الفشل مباشرة.
+5. في هذه الحالة يعمل **Wide Fallback واحد فقط** بحد 180 Catalog Item ثم DeepSeek rerank إضافي، بدل الرجوع لمسح الكتالوج كاملًا على 12 دفعة.
+6. إذا كان `localTop` بدا قويًا ومنع Expansion في البداية لكن DeepSeek لم ينتج نتيجة موثوقة، يتم توليد المرادفات قبل الـWide Fallback حتى لا يمنع تشابه لفظي مضلل الوصول للمرشح الصحيح.
+7. Supplier SKU/Alias والتطابقات الحتمية القوية تبقى أعلى أولوية ولا تمر بهذا المسار.
+8. DeepSeek لا يقوم Auto-Link، وفحص المقاسات والوحدات يبقى حتميًا داخل النظام.
+9. لا توجد Migration أو Schema/Index جديد، ولا تغيير على الاستلام أو الكميات أو التكلفة أو Weighted Average.
+
+#### الـLogs المتوقعة
+
+في الحالة مثل UAT السابقة (`localTop=0.53`) يجب أن يصبح السجل تقريبًا:
+
+`Hybrid shortlist 120/1718; localTop=...; expanded=yes; fallback=no`
+
+وعند عدم وجود نتيجة موثوقة بعد ذلك فقط:
+
+`Hybrid fallback 180/1718; localTop=...; expanded=yes; fallback=yes`
+
+#### الاختبارات
+
+- إضافة اختبار صريح أن `0.53` و`0.71` يشغّلان Expansion، بينما `0.72` وما فوق لا يشغّله تلقائيًا.
+- تحديث حدود اختبارات الـShortlist إلى 100 أساسيًا و120 بعد Semantic Expansion.
+- تبقى اختبارات تطابق الوحدات، تعارض المقاسات، Supplier SKU، وAI بدون Auto-select ضمن نفس مجموعة 2B-3.
+
+**UAT المطلوب:** إعادة نفس الصنف الذي فشل في UAT السابق ومقارنة ثلاثة أشياء: ظهور `expanded=yes` بدل `expanded=no`، زمن الاستجابة، وعودة الاقتراح الصحيح/القريب بدقة مقبولة.
+
+
+### ضبط UAT معتمد — الحفاظ على المرشح المحلي القوي + منع تكرار DeepSeek — 16 أغسطس 2026
+
+**الموافقة:** موافقة صريحة من المستخدم بعد UAT فعلي ظهر فيه:
+`Hybrid shortlist 120/1718; localTop=0.92; expanded=yes; fallback=no` ثم `Hybrid fallback 180/1718` بدون ظهور اقتراح للمستخدم، وتكررت نفس دورة المطابقة ثلاث مرات لنفس الصنف.
+
+**المشكلة المثبتة:**
+1. محرك Hybrid المحلي وصل إلى مرشح قوي جدًا (`localTop=0.92`) لكن نتيجة DeepSeek لم تتجاوز حد العرض، فتم إسقاط المرشح المحلي القوي أيضًا.
+2. الرجوع إلى Wide Fallback كان يضيف طلب DeepSeek ثانٍ رغم وجود إشارة محلية قوية قابلة للعرض للمستخدم كاقتراح فقط.
+3. الرجوع بين شاشة مراجعة الفاتورة وشاشة الأصناف أو تكرار نفس الطلب كان يمكن أن يعيد نفس استدعاء DeepSeek لنفس المورد/الاسم/SKU داخل جلسة المراجعة.
+
+**التعديل المنفذ:**
+1. أضيف سبب مطابقة جديد `catalog_local_strong` ويظهر في الواجهة باسم **«اقتراح بحث ذكي»**.
+2. إذا كانت أفضل إشارة Hybrid محلية `>= 0.85`، وDeepSeek لم يُرجع نتيجة موثوقة، يحتفظ النظام بالمرشح المحلي ويعرضه للمستخدم بدل إسقاطه.
+3. المرشح المحلي القوي **لا يعمل Auto-Link** مطلقًا؛ قرار الربط يبقى للمستخدم، وتعارض المقاسات يبقى ظاهرًا ويحتاج تأكيدًا.
+4. إذا وجد DeepSeek نتيجة موثوقة أولًا، تبقى نتيجته هي المسار المعتاد ولا يُفرض المرشح المحلي فوقها.
+5. إذا كان المرشح المحلي القوي متاحًا بعد أول rerank وفشل DeepSeek في نتيجة موثوقة، لا يتم تشغيل Wide Fallback إضافي بلا حاجة؛ هذا يقلل الزمن والتوكنز.
+6. أضيفت Logs تشخيصية بدون بيانات حساسة:
+   - `Local top (shortlist|fallback): catalogItemId=... score=...`
+   - `DeepSeek returned (shortlist|fallback): catalogItemId=... score=...` أو `none`.
+7. أضيف Single-flight/cache في `WarehouseReceiveV2` داخل **جلسة مراجعة الفاتورة فقط**، ومفتاحه يعتمد على `supplierId + itemName + itemNameEn + supplierItemCode + unit`. تكرار نفس الطلب يعيد نفس Promise/النتيجة بدل استدعاء DeepSeek من جديد. أي تغيير في المورد أو الاسم أو SKU أو الوحدة ينشئ مفتاحًا جديدًا ويعيد المطابقة بشكل طبيعي.
+8. لا توجد Migration أو SQL، ولا تغيير في كميات المخزون أو التكلفة أو Weighted Average أو Workflow الاستلام.
+
+**التحقق البرمجي:**
+- أضيفت اختبارات pure logic للتأكد أن المرشح المحلي `>=0.85` يبقى اقتراحًا بدون Auto-select، وأن الإشارة الضعيفة لا تتحول إلى fallback موثوق.
+- يلزم UAT لنفس الحالة التي سجلت `localTop=0.92` للتأكد من ظهور **«اقتراح بحث ذكي»** ومن اختفاء الاستدعاءات المكررة لنفس الطلب.
+
+**الحالة وقت هذا التعديل:** كانت 2B-3 ما تزال تحت UAT في هذه النقطة التاريخية. الاختبارات المذكورة لاحقًا تم تنفيذها ونجحت؛ راجع «UAT النهائي واعتماد 2B-3» و«مرجع الإغلاق والصيانة النهائي» أدناه. اختبار الأداء لفاتورة متعددة الأصناف بقي مؤجلًا كما اتُّفق عليه.
+
+## مرجع الإغلاق والصيانة النهائي للمرحلة 2B-3 — لاستخدامه قبل أي تحسين مستقبلي
+
+**الغرض من هذا القسم:** هذا هو مرجع الحالة النهائية لـ2B-3 بعد سلسلة UAT والتحسينات بتاريخ 16 أغسطس 2026. يجب قراءة هذا القسم قبل تعديل مطابقة أصناف المورد مستقبلًا حتى لا تعاد حلول ثبت فشلها، وحتى لا يتم كسر الضوابط التي ثبتت عمليًا.
+
+### 1. النتيجة المعمارية النهائية
+
+2B-3 لا تجعل DeepSeek قاعدة بيانات ولا ذاكرة دائمة. توزيع المسؤوليات النهائي هو:
+
+1. **Catalog Item** هو Master Item Identity المركزي؛ لا يتم إنشاء نسخة من الصنف لكل مورد.
+2. **`catalog_supplier_item_aliases`** هو الذاكرة التشغيلية الدائمة لما يسميه المورد للصنف وما يستخدمه من SKU/Code.
+3. **قاعدة البيانات** تحفظ الأدلة والتأكيدات السابقة.
+4. **Backend** ينفذ التطبيع، Supplier Memory، البحث المحلي Hybrid، فحص المقاسات والوحدات، وإدارة DeepSeek fallback.
+5. **DeepSeek** يساعد في فهم المعنى/اللغة وترتيب الحالات غير المحسومة؛ لا يعدل Master Data ولا يملك وصول SQL مباشرًا ولا ينفذ Auto-Link دلاليًا.
+6. **Frontend** يعرض الاقتراحات وأسبابها ويسمح بالبحث اليدوي والتأكيد، ويعيد المطابقة عند الحاجة ويحمي من الطلبات المكررة داخل جلسة المراجعة.
+7. **المستخدم** هو صاحب القرار النهائي في المطابقات الدلالية أو الحالات المتعارضة.
+
+المسار المرجعي النهائي:
+
+`PO Catalog identity (إن وجدت) → Supplier SKU → Supplier Alias → deterministic/local match → Hybrid shortlist → DeepSeek عند الحاجة → فحص المقاسات → اقتراح للمستخدم → تأكيد → حفظ Supplier Item Alias`
+
+### 2. قاعدة البيانات والذاكرة التشغيلية
+
+Migration المعتمدة:
+
+`drizzle/migrations/2026_08_16_catalog_supplier_item_aliases.sql`
+
+الجدول:
+
+`catalog_supplier_item_aliases`
+
+أهم الحقول:
+
+- `supplierId`: هوية Supplier Master.
+- `catalogItemId`: هوية Catalog Item المركزية.
+- `supplierItemName` و`normalizedName`: اسم المورد الأصلي والنسخة المطَبَّعة.
+- `supplierItemCode` و`normalizedItemCode`: SKU/Code المورد إذا وجد.
+- `normalizedMeasurements`: المواصفات الرقمية المستخرجة بعد التطبيع.
+- `source`: مصدر التعلم (`invoice/manual/import`).
+- `confirmationCount`: عدد مرات إعادة تأكيد نفس العلاقة.
+- `lastConfirmedAt`: آخر وقت تأكيد.
+- `isActive`: تعطيل العلاقة بدون حذف تاريخها.
+
+الفهارس الحالية:
+
+- المورد.
+- Catalog Item.
+- `(supplierId, normalizedName)`.
+- `(supplierId, normalizedItemCode)`.
+
+**قرار مقصود:** لا توجد FK جديدة في هذه الدفعة؛ تشديد FK/Unique/Governance مؤجل إلى 2B-10 حتى لا ندخل تغيير سلامة بيانات أوسع بدون موافقة منفصلة.
+
+### 3. كيف يحدث «التعلم» فعليًا
+
+التعلم في 2B-3 **Operational Learning** وليس تدريب نموذج AI:
+
+1. يظهر اسم/SKU من فاتورة المورد.
+2. يختار المستخدم Catalog Item الصحيح أو يكون معروفًا من PO/Supplier Memory.
+3. عند تأكيد الاستلام، `rememberSupplierItemAlias` يتحقق أن Catalog Item نشط وصالح.
+4. يطبع الاسم والكود ويستخرج المقاسات.
+5. إذا كانت نفس العلاقة `supplierId + catalogItemId + normalizedName + normalizedItemCode` موجودة، لا ينشئ صفًا مكررًا؛ يزيد `confirmationCount` ويحدث `lastConfirmedAt` والمقاسات.
+6. إذا كان نفس الاسم لدى المورد له SKU مختلف تاريخيًا، لا يستبدل الكود القديم؛ يمكن وجود أكثر من علاقة لأن SKU قد يتغير.
+7. في الفاتورة التالية يبحث النظام في Supplier Memory قبل البحث العام/AI.
+
+**نتيجة هذا القرار:** كلما زادت الاستخدامات المؤكدة، تقل الحاجة إلى DeepSeek لنفس المورد/الاسم/SKU، وتصبح النتيجة أكثر ثباتًا وقابلية للتدقيق.
+
+### 4. ترتيب المطابقة الحالي والـAuto-Link
+
+الأولوية الحالية:
+
+1. **PO مرتبط بالكتالوج:** الهوية معروفة مسبقًا ولا يعاد تخمينها.
+2. **Supplier SKU Exact:** أقوى ذاكرة مورد، ويجوز Auto-select فقط إذا لم يوجد تعارض مواصفة.
+3. **Supplier Alias Exact:** قوي، ويجوز Auto-select فقط ضمن شروط سلامة المقاس الموجودة في الخوارزمية.
+4. **Supplier Alias Similar:** اقتراح قوي لكن يحتاج درجة مراجعة مناسبة.
+5. **Catalog name / Local Hybrid / AI semantic:** اقتراحات للمستخدم وليست Auto-Link.
+6. **البحث اليدوي في الكتالوج:** متاح دائمًا كمسار بديل، واختيار المستخدم يُتعلم بعد الحفظ.
+
+فلترة الواجهة الحالية للاقتراحات:
+
+- `supplier_code_exact`: يظهر دائمًا.
+- `supplier_alias_exact`: يظهر دائمًا.
+- `supplier_alias_similar`: يظهر عند `score >= 82`.
+- `catalog_name_exact`: يظهر دائمًا.
+- بقية `catalog_semantic / catalog_local_strong / ai_semantic`: تظهر عند `score >= 75`.
+- الواجهة تعرض أفضل 3 اقتراحات الموثوقة فقط بدل إظهار نتائج ضعيفة لمجرد ملء القائمة.
+
+### 5. المقاسات والوحدات — الضابط الذي لا يجوز تجاوزه بالـAI
+
+الوحدات الحالية التي يتم تطبيعها حسابيًا تشمل الطول/الوزن/الحجم، وتتحول إلى قواعد موحدة مثل `mm`, `g`, `ml`.
+
+أمثلة UAT المعتمدة:
+
+- `2 mm = 0.2 cm = 0.002 m` → متوافق.
+- `2 mm` مقابل `0.02 cm = 0.2 mm` → تعارض حقيقي.
+
+التسامح الحسابي الحالي صغير (`0.5%` نسبيًا مع tolerance مطلق صغير) لامتصاص تمثيل الكسور فقط، وليس لتحويل مقاسين مختلفين إلى متساويين.
+
+**قاعدة صيانة:** AI يمكنه فهم الاسم والمعنى، لكنه لا يملك صلاحية تجاوز `measurementStatus=conflict`. عند التعارض لا يحدث Auto-Link، ويحتاج المستخدم تأكيدًا صريحًا إن أراد الربط رغم الاختلاف.
+
+### 6. تصميم Hybrid Search النهائي والأرقام الحالية
+
+بعد UAT تم اعتماد القيم التالية داخل `server/_core/catalog-item-matching.ts`:
+
+- `AI_DISCOVERY_MIN_SCORE = 0.58`
+- `HYBRID_SHORTLIST_SIZE = 100`
+- `HYBRID_EXPANDED_SHORTLIST_SIZE = 120`
+- `HYBRID_WIDE_FALLBACK_SIZE = 180`
+- `HYBRID_EXPANSION_TRIGGER_SCORE = 0.72`
+- `HYBRID_RELIABLE_RESULT_SCORE = 75`
+- `HYBRID_LOCAL_STRONG_SCORE = 0.85`
+
+الاسترجاع المحلي Hybrid يجمع إشارات من:
+
+- الاسم العربي والإنجليزي.
+- normalization للحروف والأرقام العربية/الفارسية.
+- كلمات دلالية محافظة.
+- token similarity.
+- character n-grams / fuzzy similarity.
+- manufacturer عند توفره.
+- الوحدة.
+- المقاسات بعد توحيدها.
+- تثبيت deterministic/Supplier Memory candidates داخل القائمة حتى لا تضيع.
+
+التصرف النهائي:
+
+1. يبني Shortlist محلية 100.
+2. إذا `localTop < 0.72`، يطلب من DeepSeek توليد حتى 8 عبارات/مرادفات بحث عربية/إنجليزية، ثم يعيد البناء بحد 120.
+3. يرسل القائمة القصيرة إلى DeepSeek للـsemantic rerank.
+4. إذا ظهرت نتيجة موثوقة غير متعارضة، يعرضها.
+5. إذا لم تظهر نتيجة موثوقة لكن `localTop >= 0.85`، يحتفظ بالمرشح المحلي ويعرضه باسم **«اقتراح بحث ذكي»**؛ لا Auto-Link ولا Wide Fallback غير ضروري.
+6. إذا لا توجد نتيجة موثوقة ولا مرشح محلي قوي، يسمح بـWide Fallback واحد بحد 180 بدل مسح الكتالوج كاملًا.
+7. إذا فشل DeepSeek/الاتصال، تبقى النتائج الحتمية/المحلية متاحة ولا يتوقف Workflow.
+
+### 7. DeepSeek — الإعداد النهائي والدور المسموح
+
+تم فصل DeepSeek عن متغيرات Forge العامة لأن `BUILT_IN_FORGE_*` تستخدمها خدمات أخرى في المشروع.
+
+الإعداد المرجعي:
+
+- `DEEPSEEK_API_URL=https://api.deepseek.com`
+- `DEEPSEEK_API_KEY=<secret in environment>`
+
+الملفات ذات الصلة:
+
+- `server/_core/llm.ts`
+- `server/_core/config.ts`
+- `server/_core/env.ts`
+- `ecosystem.config.cjs`
+
+**حادثة تشغيلية موثقة:** ظهر `401 Unauthorized` رغم وجود مفتاح صحيح في `.env`. السبب لم يكن الكود ولا DeepSeek؛ كان هناك `DEEPSEEK_API_KEY` قديم محفوظ كـWindows User Environment Variable، و`dotenv` لا يستبدله افتراضيًا. تم إثبات ذلك بـ`BEFORE=3a2b / AFTER=34ca` عند `override:true`، ثم حذف متغير User القديم، وبعدها نجح اختبار `/models` بـ`STATUS=200` وظهر في التطبيق `[DeepSeek] Selected model: deepseek-v4-flash`.
+
+**قاعدة صيانة:** عند ظهور 401 مستقبلًا، افحص أولًا أولوية Environment Variables قبل تغيير كود LLM. لا تسجل أو تعرض API Key كاملًا في logs أو التوثيق.
+
+### 8. مسار SKU وإصلاح إعادة المطابقة
+
+UAT الأول أثبت حفظ:
+
+`Supplier 30002 + TEST-SKU-001 → Catalog Item 180281`
+
+لكن عند إدخال SKU في شاشة الأصناف لم تكن المطابقة تعاد تلقائيًا. الإصلاح المعتمد في `WarehouseReceiveV2.tsx`:
+
+- Debounce بمقدار `450ms` بعد تغيير SKU.
+- إعادة الفحص تستخدم `useAiFallback:false` حتى لا يتم استدعاء AI مع كل ضغطة مفتاح.
+- يوجد version guard لمنع تطبيق نتيجة طلب قديم بعد تغيير SKU بسرعة.
+- لا يتم الكتابة فوق هوية Catalog القادمة من PO أو اختيار المستخدم اليدوي.
+
+UAT بعد الإصلاح: نفس المورد + `TEST-SKU-001` أعطى Catalog Item `180281` بنسبة 100% وسبب **«SKU معروف لهذا المورد»**.
+
+### 9. مسارا الواجهة عند غياب SKU
+
+تم اعتماد مسارين واضحين بدل الاعتماد الإجباري على AI:
+
+1. **اقتراحات ذكية:** Supplier Memory + Hybrid + DeepSeek عند الحاجة، مع فلترة النتائج الضعيفة.
+2. **بحث في الكتالوج:** بحث يدوي مباشر بالاسم العربي/الإنجليزي أو كود الكتالوج.
+
+السبب: المورد قد لا يضع SKU أصلًا، وقد تكون صياغته جديدة. البحث اليدوي يضمن عدم تعطيل المستخدم، واختيار Catalog Item الصحيح يُحفظ بعد التأكيد كذاكرة Supplier Alias للمستقبل.
+
+### 10. المحاولات التي تم تجربتها ثم استبدالها — لا تكررها دون سبب جديد موثق
+
+#### أ. DeepSeek rerank على المرشحين المحليين فقط
+
+**النتيجة:** سريع نسبيًا لكن DeepSeek لا يستطيع اكتشاف Catalog Item لم يدخل القائمة المحلية أصلًا.
+
+**لماذا استُبدل:** في أسماء مختلفة جدًا عربي/إنجليزي يمكن أن يكون الصنف الصحيح خارج المرشحين الأوليين.
+
+#### ب. مسح الكتالوج عبر DeepSeek على دفعات `180 × 12`
+
+**النتيجة:** دقة عالية جدًا في UAT، لكنها بطيئة جدًا وتستهلك Tokens/طلبات كثيرة.
+
+**قرار:** هذه الآلية **Deprecated**. لا تعاد ولا تشغل بالتوازي كحل أداء؛ المشكلة الأصلية هي عدد طلبات LLM، لا التوازي.
+
+#### ج. Hybrid Shortlist صغيرة `40` وحد Expansion منخفض `0.34`
+
+**النتيجة:** حسنت السرعة لكنها سببت Regression في Recall. UAT سجل:
+
+`Hybrid shortlist 40/1718; localTop=0.53; expanded=no`
+
+ولم يظهر الصنف الصحيح رغم أن النسخة الواسعة السابقة كانت دقيقة.
+
+**سبب الفشل:** `0.53` ليست إشارة قوية، لكنها منعت Semantic Expansion، فأصبح DeepSeek يرى 40 صنفًا فقط.
+
+**الحل النهائي:** رفع trigger إلى `0.72` وتوسيع القوائم إلى 100/120 مع fallback 180 عند الحاجة.
+
+#### د. إسقاط المرشح المحلي القوي إذا كان DeepSeek متحفظًا
+
+UAT سجل:
+
+`localTop=0.92` ثم لم يظهر اقتراح لأن DeepSeek لم يرجع نتيجة فوق حد الثقة.
+
+**سبب الفشل:** نتيجة محلية قوية قابلة للعرض للمستخدم تم رميها بلا داعٍ.
+
+**الحل النهائي:** إذا `localTop >= 0.85` يحتفظ النظام به كـ`catalog_local_strong` ويعرض **«اقتراح بحث ذكي»** بدون Auto-Link.
+
+#### هـ. إعادة نفس DeepSeek request عدة مرات من lifecycle الواجهة
+
+UAT أظهر تكرار نفس `Hybrid shortlist/fallback` ثلاث مرات للصنف نفسه.
+
+**الحل:** Single-flight/session cache في `WarehouseReceiveV2`، ومفتاحه يعتمد على:
+
+`supplierId + itemName + itemNameEn + supplierItemCode + unit`
+
+نفس الطلب داخل جلسة المراجعة يعيد نفس Promise/النتيجة. تغيير أي عنصر من المفتاح يعيد المطابقة طبيعيًا.
+
+### 11. Logs التشخيصية المرجعية
+
+للمشكلات المستقبلية، ابحث عن هذه السطور قبل تعديل الخوارزمية:
+
+- `[DeepSeek] Selected model: ...`
+- `[CatalogItemMatch] Hybrid shortlist <n>/<catalog>; localTop=<score>; expanded=yes|no; fallback=no`
+- `[CatalogItemMatch] Local top (shortlist|fallback): catalogItemId=... score=...`
+- `[CatalogItemMatch] DeepSeek returned (shortlist|fallback): catalogItemId=... score=...` أو `none`
+- `[CatalogItemMatch] Hybrid fallback ... fallback=yes`
+- `[CatalogItemMatch] Reused review-session match cache`
+
+هذه السجلات تفرق بين 4 أنواع مشاكل: Retrieval محلي، DeepSeek rerank، Environment/API، أو تكرار طلبات Frontend.
+
+### 12. UAT النهائي الذي أغلق 2B-3
+
+الاختبارات التالية تمت عمليًا ونجحت:
+
+1. حفظ SKU لأول مرة ثم التعرف عليه لاحقًا بنسبة 100% لنفس المورد.
+2. نفس المورد بدون SKU — التعلم بالاسم فقط ثم استدعاء Supplier Alias مستقبلًا.
+3. اختلاف صياغة/لغة الاسم لنفس الصنف، بما في ذلك وصف عربي/إنجليزي مختلط؛ ظهرت اقتراحات ذكية عالية الدقة (وصل أحد اختبارات UAT إلى 96%، واختبار آخر إلى قرابة 99%).
+4. وحدات مختلفة متكافئة (`2 mm` مقابل `0.2 cm`).
+5. مقاس مختلف حقيقي (`2 mm` مقابل `0.02 cm`) مع منع Auto-Link والتنبيه.
+6. البحث اليدوي في الكتالوج وحفظ الاختيار كذاكرة للمورد.
+7. نفس Catalog Item مع مورد ثانٍ باسم/SKU مختلف دون تكرار Master Item.
+8. عدم تأثير هذه الروابط على المخزون/الكميات/Weighted Average/تكلفة الحركة.
+
+### 13. ما لم يكتمل أو ما يزال مؤجلًا
+
+1. **Performance UAT لفاتورة كبيرة (مثل 20 صنفًا)** مؤجل بطلب المستخدم.
+2. `matchInvoiceItems` يقبل حتى 100 سطر، لكن **ميزانية AI الحالية = 5 أسطر ملتبسة فقط لكل استدعاء**؛ بقية الأسطر تعتمد على deterministic/local/manual paths. هذا قرار تكلفة/أداء حالي ويجب قياسه قبل تغييره.
+3. Batch Optimization لعدة أصناف غامضة في طلب DeepSeek واحد **لم ينفذ**؛ يدرس فقط إذا أثبت اختبار 20 صنفًا الحاجة.
+4. Vector/Embedding Index أو Full-text Index متقدم **لم ينفذ**؛ حجم الكتالوج الحالي عولج بالـHybrid in-process. إضافة بنية DB جديدة تحتاج موافقة Schema منفصلة.
+5. Checkbox «صنف جديد» نُفذ في 2B-4 ويحتاج Migration/UAT قبل الإغلاق النهائي.
+6. Queue الأصناف الجديدة = 2B-5/2B-6.
+7. الربط التاريخي الشامل لسطر الفاتورة/الاستلام = 2B-7.
+8. Receipt Lot/QR = 2B-8.
+9. FK/Unique/Governance الشاملة = 2B-10.
+
+### 14. قواعد إلزامية لأي تحسين مستقبلي على 2B-3
+
+قبل تعديل هذه المرحلة مستقبلًا:
+
+1. لا تغير Workflow/واجهة المستخدم بدون موافقة صريحة.
+2. ابدأ بقياس UAT/Logs ولا تفترض أن المشكلة من DeepSeek.
+3. لا تعيد أسلوب مسح الكتالوج 12 دفعة كحل افتراضي.
+4. لا تخفض/ترفع thresholds عشوائيًا؛ سجل سيناريو UAT قبل وبعد التغيير.
+5. لا تجعل DeepSeek مصدر الحقيقة أو ذاكرة دائمة أو صاحب Auto-Link.
+6. لا تسمح للـAI بتجاوز تعارض المقاسات.
+7. حافظ على Supplier Memory كأعلى أولوية بعد PO identity.
+8. حافظ على Manual Catalog Search كمسار آمن دائمًا.
+9. لا تسقط مرشحًا محليًا قويًا فقط لأن AI متحفظ؛ راجع `catalog_local_strong` أولًا.
+10. راقب تكرار requests والتكلفة قبل توسيع Context/Shortlist.
+11. أي DB Index/Embedding/Vector Schema جديد = تغيير منفصل يحتاج موافقة صريحة.
+12. أي تحسين يجب أن يضيف/يحدث اختبارات ويحدّث هذا السجل بالسبب والنتيجة، وليس فقط وصف الكود.
+
+### 15. الملفات المرجعية الرئيسية لـ2B-3
+
+- `drizzle/schema.ts`
+- `drizzle/migrations/2026_08_16_catalog_supplier_item_aliases.sql`
+- `server/_core/catalog-item-matching.ts`
+- `server/routers/catalog/catalog.router.ts`
+- `server/routers/inventory/receipts.v2.router.ts`
+- `server/services/ocr/invoiceOcr.service.ts`
+- `client/src/pages/inventory/WarehouseReceiveV2.tsx`
+- `server/tests/catalogSupplierItemMatching.test.ts`
+- `server/_core/llm.ts`
+- `server/_core/config.ts`
+- `server/_core/env.ts`
+- `ecosystem.config.cjs`
+
+### 16. حالة الإغلاق
+
+**2B-3 = مكتملة وظيفيًا ومعتمدة بعد UAT الأساسي.**
+
+البند الوحيد المؤجل داخل نفس الموضوع هو **Performance UAT لفاتورة متعددة الأصناف**؛ لا يعاد فتح التصميم الوظيفي لـ2B-3 بسببه إلا إذا أظهر القياس مشكلة محددة قابلة لإعادة الإنتاج.
+
+تم بدء **2B-4 — Checkbox «صنف جديد» أثناء إدخال/تحليل الفاتورة** بعد الموافقة الصريحة. بعد إغلاق UAT لهذه الخطوة تكون التالية **2B-5 — المسار غير المعطل للأصناف الجديدة + Catalog Candidate**.
+
+
+
+---
+
+## سجل تنفيذ 2B-4 — قرار «صنف جديد» داخل الفاتورة
+
+**التاريخ:** 16 أغسطس 2026  
+**الحالة:** ✅ Completed / UAT Passed
+
+### الملفات المعدلة
+
+- `client/src/pages/inventory/WarehouseReceiveV2.tsx`
+- `server/routers/inventory/receipts.v2.router.ts`
+- `server/_core/db/warehouse-returns.ts`
+- `server/_core/catalog-item-decision.ts`
+- `drizzle/schema.ts`
+- `drizzle/migrations/2026_08_16_receipt_items_new_catalog_flag.sql`
+- `server/tests/catalogItemDecision.test.ts`
+- `docs/inventory/INVENTORY_DEVELOPMENT_PLAN_AND_CHANGE_CONTROL.md`
+
+### ما تم
+
+1. Checkbox «صنف جديد» لكل سطر غير محسوم من PO Catalog.
+2. تعطيل القرار عندما PO يثبت Catalog Item مسبقًا.
+3. جعل السطر يحتاج قرارًا واضحًا: Existing Catalog أو New Catalog Item.
+4. منع `linkedItemId + isNewCatalogItem` معًا.
+5. حفظ القرار على سطر `warehouse_receipt_items`.
+6. إبقاء Supplier Item Alias متوقفًا تلقائيًا للصنف الجديد لأن `linkedItemId` غير موجود.
+7. لم يتم إنشاء Catalog Item تلقائيًا.
+8. لم يتم إنشاء Candidate/Queue بعد.
+9. لم تتغير حسابات المخزون/التكلفة/Weighted Average.
+
+### لماذا صُمم بهذه الطريقة
+
+- القرار يجب أن يحدث عند الفاتورة، كما تم اعتماده، وليس بعد دخول المخزون.
+- لا يجوز إنشاء Master Item غير نظيف تلقائيًا من OCR/AI.
+- يجب الاحتفاظ بدليل تاريخي أن السطر اعتبر «جديدًا» في لحظة الاستلام.
+- فصل 2B-4 عن 2B-5 يمنع خلط قرار المستخدم مع آلية Queue/Approval قبل اختبار القرار نفسه.
+
+### حالة قاعدة البيانات وUAT الحالية لـ2B-4
+
+- تم التحقق أن العمود `warehouse_receipt_items.isNewCatalogItem` موجود فعليًا بالتعريف:
+  `TINYINT NOT NULL DEFAULT 0`.
+- لا يوجد SQL إضافي مطلوب حاليًا لـ2B-4.
+- UAT بدأ فعليًا.
+- حماية التناقض عند محاولة تحويل سطر مرتبط بالكتالوج إلى «صنف جديد»: النظام طلب تأكيدًا صريحًا قبل إزالة الربط — **ناجح**.
+- سطر جديد حقيقي بدون Catalog Link: تم تفعيل «صنف جديد» واستمر الحفظ/الاستلام — **ناجح وظيفيًا**.
+- سطر غير محسوم: الوصول إلى شاشة الملخص كان مسموحًا في النسخة الأولى، لكن الحفظ النهائي رفض العملية برسالة تطلب ربط Catalog Item أو تفعيل «صنف جديد» — **حماية الحفظ النهائي ناجحة**.
+- بناءً على UAT، تمت الموافقة على تحسين UX بحيث يحصل نفس التحقق أيضًا عند الضغط على «التالي: تأكيد الاستلام» داخل شاشة مراجعة الأصناف، مع إبقاء تحقق الحفظ النهائي كطبقة حماية ثانية.
+
+### تحسين UAT معتمد — إظهار السطر غير المحسوم داخل شاشة مراجعة الأصناف
+
+**المشكلة التي ظهرت عمليًا:** عندما تكون الفاتورة متعددة الأصناف، رسالة واحدة عند الحفظ النهائي لا تكفي لمعرفة أي سطر يحتاج قرار Catalog، ويضطر المستخدم للرجوع والبحث يدويًا بين البطاقات.
+
+**السلوك المعتمد والمنفذ:**
+
+1. عند الضغط على **«التالي: تأكيد الاستلام»** في شاشة مراجعة الأصناف، يفحص النظام كل الأسطر قبل الانتقال إلى الملخص.
+2. إذا كان هناك سطر أو أكثر بدون `linkedItemId` وبدون `isNewCatalogItem=1`، لا ينتقل النظام إلى الملخص.
+3. يظهر تنبيه أعلى شاشة الأصناف بعدد الأسطر غير المحسومة.
+4. كل بطاقة غير محسومة يتم تمييزها بإطار خطأ ورسالة داخل البطاقة نفسها:
+   **«يجب حسم مطابقة الكتالوج لهذا الصنف قبل المتابعة»**.
+5. الرسالة داخل البطاقة توجه المستخدم صراحة إلى أحد القرارين:
+   - اختيار صنف من الاقتراحات الذكية أو البحث في الكتالوج.
+   - أو تفعيل «صنف جديد».
+6. الشاشة تنتقل تلقائيًا إلى أول بطاقة غير محسومة، مع فتحها لضمان ظهور الخيارات والبيانات أمام المستخدم.
+7. إذا كانت الفاتورة تحتوي 10 أو 20 صنفًا، تبقى جميع الأسطر غير المحسومة مميزة، فلا يعتمد المستخدم على اسم صنف واحد في Toast عام.
+8. تحقق `handleSubmit` النهائي **لم يُحذف**؛ يبقى كطبقة أمان إضافية لمنع أي تجاوز للواجهة.
+
+**الأثر:** تحسين وضوح Workflow فقط؛ لا تغيير في قاعدة البيانات، أو حساب المخزون، أو التكلفة، أو Weighted Average، أو قرار Master Data نفسه.
+
+### إغلاق UAT لـ2B-4
+
+تم إغلاق 2B-4 بعد نجاح الاختبارات العملية التالية:
+
+1. Existing Catalog Item: الربط بالكتالوج يعمل، ومحاولة تحويله إلى «صنف جديد» تطلب تأكيد إزالة الربط أولاً — **ناجح**.
+2. Truly New Item: تم تفعيل «صنف جديد» واستمر الاستلام والمخزون — **ناجح**.
+3. Undecided Item: تم منع المتابعة من شاشة مراجعة الأصناف بعد تحسين UX، مع إبقاء رفض الحفظ النهائي كحماية ثانية — **ناجح**.
+4. Multi-item UX: السطور غير المحسومة تُحدد داخل نفس الشاشة ويُوجّه المستخدم لأول سطر يحتاج قراراً — **ناجح**.
+5. SQL Verify: تم التحقق عملياً من وجود سطور بـ`isNewCatalogItem=1` وأن `inventory.linkedItemId IS NULL` للصنف الجديد — **ناجح**.
+6. لا تغيير على الكمية أو التكلفة أو Weighted Average بسبب قرار «صنف جديد» — **مؤكد ضمن النطاق**.
+
+**النتيجة:** 2B-4 مكتملة وظيفياً، وأصبحت نقطة الدخول المعتمدة لـ2B-5.
+
+
+---
+
+## سجل تنفيذ 2B-5 — Catalog Item Candidate غير معطل للتشغيل
+
+**التاريخ:** 16 أغسطس 2026  
+**الحالة:** Completed / UAT Passed
+
+### نتيجة الإغلاق العملي
+
+- تم إنشاء `catalog_item_candidates` والتحقق من بنيته في قاعدة البيانات.
+- `PR-2026-0354` أنشأ مرشحين مستقلين بحالة `pending` لصنفين جديدين مع استمرار الاستلام والمخزون.
+- تحقق عملياً أن `resolvedCatalogItemId` بقي `NULL` قبل مراجعة الكتالوج.
+- اختبار منع التكرار نجح عند إعادة استخدام نفس `inventoryId`: `PR-2026-0356` استخدم Candidate الموجود لنفس سجل المخزون ولم ينشئ Candidate إضافياً.
+- تم توثيق القيد الحالي: تشابه الاسم وحده لا يمنع Candidate آخر إذا تم إنشاء `inventoryId` مختلف؛ كشف هذا التكرار هو مسؤولية 2B-6 قبل اعتماد Catalog Item جديد.
+
+### الهدف التنفيذي
+
+تحويل قرار `isNewCatalogItem=1` من مجرد علامة تاريخية إلى **مهمة Master Data فعلية** بدون انتظار اعتماد مسؤول الكتالوج:
+
+`Invoice -> Receipt -> Inventory` يستمر فوراً  
+وبالتوازي:
+`New Item -> catalog_item_candidates(status=pending)`
+
+لا يتم إنشاء Catalog Item Master تلقائياً في هذه المرحلة.
+
+### التصميم النهائي للـCandidate
+
+تم اعتماد `catalog_item_candidates` كـQueue بيانات خلفية لـ2B-5، بينما شاشة المراجعة نفسها تبقى لـ2B-6.
+
+أهم الحقول:
+- `inventoryId`: هوية التشغيل التي تنتظر Master Catalog، وفريدة داخل Queue.
+- `sourceReceiptId` + `sourceReceiptItemId`: مصدر القرار الأول الذي أنشأ المرشح.
+- `purchaseOrderId` + `purchaseOrderItemId`: سياق الشراء عند وجوده.
+- `catalogSupplierId` أو `supplierCandidateId`: سياق المورد حسب نتيجة 2B-2.
+- `invoiceNumber`: مرجع الفاتورة.
+- Snapshots للاسم العربي/الإنجليزي، اسم المورد للصنف، SKU، الوحدة والباركود.
+- `status`: `pending | linked_existing | approved_new | rejected`.
+- `resolvedCatalogItemId` وحقول من قام بالحسم/وقت الحسم، مجهزة مسبقاً لـ2B-6/2B-7 بدون تغيير Workflow الآن.
+
+### لماذا Candidate واحد لكل `inventoryId`
+
+لا نريد أن تتحول كل فاتورة لاحقة لنفس الصنف غير المفهرس إلى مهمة Catalog جديدة. لذلك:
+
+- يوجد `UNIQUE(inventoryId)`.
+- أول استلام ينشئ المرشح.
+- أي استلام لاحق لنفس `inventoryId` يعيد استخدام المرشح الموجود ولا يكرر Queue row.
+- في 2B-6 يمكن إظهار كل التاريخ التشغيلي للصنف من `inventoryId` بدل تكرار مهام المراجعة.
+
+### موضع الإنشاء في Workflow
+
+بعد أن:
+1. يمر السطر من حماية 2B-4 (`Existing Catalog` أو `New Item`).
+2. تدخل الكمية إلى Inventory عبر `processReceiptItem`.
+3. يتم إنشاء `warehouse_receipt_items` كسجل تاريخي.
+
+إذا كان `isNewCatalogItem=1`:
+- يتحقق Backend أن `inventory.linkedItemId` ما زال `NULL`.
+- ينشئ أو يعيد استخدام `Catalog Item Candidate`.
+- العملية كلها داخل نفس DB transaction الخاصة بالاستلام، لذلك لا يحدث سند استلام ناجح يضيع منه واجب مراجعة Master Data بصمت.
+
+**Non-blocking هنا تعني عدم انتظار موافقة الكتالوج، وليس تجاهل فشل قاعدة البيانات.**
+
+### حماية النزاهة
+
+- لا Candidate لسطر مرتبط فعلياً بـCatalog Item.
+- لا Catalog Master يتم إنشاؤه تلقائياً من OCR/AI.
+- Unique على `inventoryId` يمنع التكرار.
+- حماية سباق Concurrent Receipts: إذا سبق Request آخر وأنشأ نفس المرشح، يعاد استخدامه بعد Unique conflict بدلاً من إنشاء نسخة ثانية.
+- الكمية والتكلفة وWeighted Average تبقى مصدرها Inventory/Transactions؛ Candidate لا يكرر القيم المحاسبية.
+
+### الملفات المعدلة في 2B-5
+
+- `drizzle/schema.ts`
+- `drizzle/migrations/2026_08_16_catalog_item_candidates.sql`
+- `server/_core/catalog-item-candidate.ts`
+- `server/routers/inventory/receipts.v2.router.ts`
+- `client/src/pages/inventory/WarehouseReceiveV2.tsx` — نص توضيحي فقط لحالة «صنف جديد».
+- `server/tests/catalogItemCandidate.test.ts`
+- `docs/inventory/INVENTORY_DEVELOPMENT_PLAN_AND_CHANGE_CONTROL.md`
+
+### ما لم يتم في 2B-5 عمداً
+
+- لا شاشة Queue للمستخدم — هذه 2B-6.
+- لا زر «ربط بصنف موجود» داخل Queue — 2B-6.
+- لا إنشاء Catalog Item جديد واعتماده — 2B-6.
+- لا تحديث `inventory.linkedItemId` بعد الحسم — 2B-7.
+- لا إعادة كتابة PO/Invoice/Receipt التاريخية — 2B-7.
+- لا Receipt Lot/QR — 2B-8.
+- لا تنفيذ قرار إزالة «ربط بسجل مخزون موجود»؛ يبقى مؤجلاً لما بعد اكتمال المرحلة B كما هو موثق.
+
+### Migration المطلوبة
+
+إنشاء جدول واحد فقط: `catalog_item_candidates`. لا تعديل على جداول الكميات أو التكلفة.
+
+### UAT المطلوب لإغلاق 2B-5
+
+1. استلام صنف جديد بـ`isNewCatalogItem=1` ينجح تشغيلياً.
+2. نفس السطر يظهر في `warehouse_receipt_items` كالسابق.
+3. يتم إنشاء `catalog_item_candidates.status='pending'` مرتبطاً بنفس `inventoryId` و`sourceReceiptItemId`.
+4. `inventory.linkedItemId` يبقى `NULL`.
+5. كمية Inventory ومعاملة الاستلام موجودتان ولا تنتظر مراجعة Catalog.
+6. إعادة استلام نفس `inventoryId` كصنف غير مفهرس لا تنشئ Candidate ثانياً.
+7. Existing Catalog Item لا ينشئ Candidate.
+
+**معيار الإغلاق:** تحقق البنود أعلاه عملياً، مع بقاء 2B-6 غير منفذة.
+
+
+---
+
+## سجل تنفيذ 2B-6 — شاشة «إدخال الأصناف الجديدة إلى الكتالوج»
+
+**التاريخ:** 16 أغسطس 2026  
+**الحالة:** Code Complete — Pending UAT
+
+### الهدف
+
+تحويل Queue الخلفية التي أنشأتها 2B-5 إلى شاشة Master Data فعلية داخل الكتالوج، بحيث يستطيع مسؤول الكتالوج حسم كل Candidate بأحد مسارين فقط:
+
+1. **ربط بموجود:** المرشح يمثل Catalog Item موجوداً مسبقاً.
+2. **اعتماد جديد:** بعد مراجعة التكرار وتنظيف بيانات Master، يتم إنشاء Catalog Item جديد.
+
+لا يتم إعادة الاستلام ولا إعادة احتساب الكميات أو التكلفة في أي من المسارين.
+
+### مكان الشاشة
+
+تمت إضافة تبويب جديد داخل:
+
+`الكتالوج -> الأصناف الجديدة`
+
+ويظهر داخله العنوان المعتمد:
+
+**«إدخال الأصناف الجديدة إلى الكتالوج»**
+
+### البيانات المعروضة لكل Candidate
+
+- الاسم العربي/الخام والاسم الإنجليزي عند وجوده.
+- `inventoryId` كمرجع تشغيلي مؤقت.
+- سند الاستلام وسطر الاستلام المصدر.
+- رقم طلب الشراء عند وجوده.
+- رقم الفاتورة.
+- المورد المركزي عند وجوده.
+- SKU المورد والوحدة عند توفرهما.
+- رقم Candidate وحالة الانتظار.
+
+### فحص التكرار
+
+أضيف زر **«فحص التكرار»** لكل Candidate.
+
+الفحص يعيد استخدام محرك المطابقة المعتمد في 2B-3:
+
+`Supplier SKU/Alias -> deterministic matching -> Hybrid Search -> DeepSeek عند الحاجة -> measurement safety`
+
+#### تعديل UAT — كشف التكرار بين Candidates أنفسهم
+
+أظهر الاختبار العملي حالة فعلية كان فيها:
+- `Candidate #1 = سمك شاورما`
+- `Candidate #3 = سمك شاورما`
+- لكل منهما `inventoryId` مختلف، لذلك 2B-5 أنشأ Candidate مستقلاً لكل سجل مخزون كما هو متوقع من تصميمه الحالي.
+
+الإصدار الأول من 2B-6 كان يبحث عند **«فحص التكرار»** داخل `catalog_items` فقط، ولذلك ظهر اقتراح Catalog ضعيف وغير مفيد مثل «رز سمك 2 سم — 54%»، بينما لم يظهر Candidate الآخر المطابق. تم اعتبار ذلك Gap في UAT وتم تصحيحه قبل إغلاق 2B-6.
+
+أصبح الفحص الآن يعرض مجموعتين منفصلتين بوضوح:
+
+1. **مرشحون جدد مشابهون (Pending Candidates):** يبحث بين `catalog_item_candidates` ذات الحالة `pending` مع استبعاد Candidate الحالي، ويستخدم نفس منطق الاسم/SKU/Hybrid/AI والمقاسات عند الحاجة.
+2. **أصناف موجودة في الكتالوج:** نتائج `catalog_items` المعتمدة فقط. النتائج الضعيفة تحت حد العرض لا تظهر لمجرد ملء القائمة.
+
+النتائج تعرض:
+- رقم Candidate المشابه أو Catalog Item المقترح.
+- نسبة المطابقة.
+- سبب المطابقة.
+- `inventoryId` للمرشح المشابه لتوضيح سبب وجود سجلين منفصلين.
+- تحذير واضح عند تعارض المقاسات/الوحدات.
+
+عند وجود Pending Candidate قوي، تظهر رسالة واضحة **«احسم أحدهما قبل اعتماد صنف جديد مكرر»** مع زر للانتقال إلى Candidate الآخر مباشرة. زر **«اعتماد وإضافة للكتالوج»** يبقى معطلاً أثناء اكتمال فحص التكرار حتى لا يسبق الاعتماد نتيجة الفحص.
+
+لتحسين الأداء، إذا وجد الفحص Pending Candidate قويًا (`>=85%` بدون تعارض مواصفة)، لا يتم تشغيل DeepSeek إضافي لمسح Catalog في نفس الضغط؛ تعرض فقط أي نتائج Catalog حتمية قوية كانت موجودة، لأن حسم تكرار الـQueue هو القرار الأول المطلوب. إذا لم يوجد Candidate قوي، يستمر فحص Catalog بالـHybrid/DeepSeek المعتاد.
+
+#### حماية Backend من اعتماد Candidate مكرر
+
+قبل `approveNew` يجري Backend فحصاً حتمياً للمرشحين `pending` الآخرين. إذا كان الاسم العربي/الإنجليزي مطابقاً بعد التطبيع، أو كان SKU المورد نفسه مطابقاً عند نفس المورد، يتم رفض إنشاء Catalog Item جديد برسالة Conflict تشير إلى رقم Candidate الآخر.
+
+هذا يمنع الحالة الواضحة مثل Candidate #1 و#3 من التحول بالخطأ إلى Catalog Items منفصلة حتى لو تم تجاوز تحذير الواجهة. المطابقات الدلالية غير القطعية تبقى اقتراحاً للمستخدم ولا تعتمد تلقائياً.
+
+#### تعديل UAT — قرار «نفس الصنف / ليسا نفس الصنف» بين Candidates
+
+أظهر UAT بعد تحسين التنقل أن Candidate #1 وCandidate #3 كان كل منهما يطلب «راجع الآخر أولاً»، مما صنع حلقة مراجعة دائرية رغم أن التشابه 98%. تم اعتماد حل دائم وقابل للتتبع بدلاً من الاعتماد على Scroll/Audit فقط.
+
+تمت إضافة جدول قرار مستقل:
+
+`catalog_item_candidate_duplicate_decisions`
+
+ويحفظ زوج Candidates بعد ترتيب IDs بشكل ثابت، مع أحد القرارين:
+
+- `same_item`: المرشحان يمثلان نفس Master Item.
+- `not_same_item`: المستخدم أكد أنهما صنفان مختلفان، فلا يعاد اقتراح نفس الزوج كتكرار مستقبلاً.
+
+عند `same_item` يحدد المستخدم **Candidate أساسي**. يبقى الأساسي فقط في Queue العمل، بينما المرشح التابع يظل `pending` في قاعدة البيانات مع Lineage واضح ولا يظهر كبطاقة مستقلة تحتاج قراراً مكرراً. عند حسم الأساسي لاحقاً بأحد المسارين:
+
+- `link_existing`
+- `approve_new`
+
+يتم حسم كل Candidates التابعة له داخل **نفس Transaction** بنفس `resolvedCatalogItemId` ونفس نوع الحسم، مع حفظ Supplier Item Alias لكل Candidate/مورد عند توفر المورد. لا يتم تعديل Inventory/Receipt/PO في هذه الخطوة؛ هذا ما زال 2B-7.
+
+إذا كان Candidate المراد جعله تابعاً هو أساس مجموعة `same_item` أخرى، لا يعيد النظام تشكيل المجموعات بصمت؛ يرفض القرار ويطلب اختيار ذلك Candidate كأساسي أو حسم مجموعته أولاً. الهدف الحفاظ على Lineage بسيط: كل علاقة `same_item` تشير مباشرة إلى Primary Candidate موجود في نفس الزوج.
+
+عند `not_same_item` تحفظ العلاقة بشكل دائم حتى لا يعيد **فحص التكرار** إظهار نفس Candidate pair مرة أخرى، كما يستثني Backend هذا الزوج من فحص Pending Duplicate الحتمي عند `approveNew`.
+
+هذا الحل استبدل المسار المؤقت السابق «احسم واحداً ثم ارجع يدوياً للثاني»، لأنه كان صحيحاً من ناحية Master Item النهائية لكنه غير مريح ويسمح بحلقة مراجعة دائرية.
+
+### مسار «ربط بموجود»
+
+- يمكن اختيار أحد الاقتراحات الذكية أو البحث يدوياً في Catalog بالاسم/الإنجليزي/الكود.
+- قبل الربط يوجد Confirmation للمستخدم.
+- Backend يتحقق أن Candidate ما زال `pending` وأن Catalog Item المختار نشط.
+- يتم تحديث Candidate فقط إلى:
+  - `status = linked_existing`
+  - `resolvedCatalogItemId = Catalog Item المختار`
+  - `resolvedById`
+  - `resolvedAt`
+- إذا كان المورد المركزي معروفاً، يتم حفظ/تعزيز Supplier Item Alias حتى تستفيد مطابقة 2B-3 مستقبلاً من قرار مسؤول الكتالوج.
+
+**مهم:** لا يتم في 2B-6 تحديث `inventory.linkedItemId` أو PO/Receipt references. نشر الهوية على هذه المراجع يبقى 2B-7 كما خُطط سابقاً.
+
+### مسار «اعتماد جديد»
+
+شاشة الاعتماد تسمح بتنظيف Master Data قبل الإنشاء:
+- الاسم العربي — مطلوب.
+- الاسم الإنجليزي — مطلوب.
+- الاسم الأردي — اختياري.
+- التصنيف — مطلوب.
+- كود الكتالوج — يولد تلقائياً من Backend ولا يكتبه المستخدم.
+- الوحدة.
+- المصنع.
+- الوصف العربي والإنجليزي.
+
+يتم Prefill من Snapshot الخاص بالـCandidate للبيانات المتاحة، **باستثناء الاسم الإنجليزي**: يبدأ فارغاً دائماً ويجب على مسؤول الكتالوج كتابته يدوياً، ويبقى مطلوباً في الواجهة والـBackend.
+
+كود الكتالوج لا يُكتب ولا يُعدل يدوياً في 2B-6. تعرض الواجهة Preview للرقم المتوقع، لكن Backend يعيد حساب الكود لحظة الاعتماد داخل Transaction ويستخدم القيمة التي يولدها هو كمصدر الحقيقة.
+
+### حماية إنشاء التكرار
+
+الحماية تعمل على طبقتين:
+
+1. **اقتراحات ذكية قبل الاعتماد:** إذا وجد تطابق قوي `>=85%` بدون تعارض مواصفات، يظهر تحذير ويطلب Confirmation صريح بأن المسؤول راجع التطابق ويؤكد أن الصنف مختلف فعلاً.
+2. **حماية Backend حتمية:** يمنع إنشاء Catalog Item جديد إذا وجد صنف نشط بنفس الاسم العربي بعد التطبيع، أو الاسم الإنجليزي، أو نفس الكود؛ وتظهر رسالة تطلب استخدام «ربط بموجود» بدلاً من التكرار.
+
+AI لا ينشئ Catalog Item ولا يحسم الربط منفرداً.
+
+### حماية المعالجة المتزامنة
+
+إذا فتح مستخدمان نفس Candidate وحاولا حسمه في الوقت نفسه، يتم تحديث الحالة بشرط `status='pending'`. إذا سبقت عملية أخرى بالحسم، تفشل العملية الثانية بـConflict، وإذا كانت قد بدأت إنشاء Catalog Item جديد داخل Transaction يتم Rollback لذلك الإنشاء. هذا يمنع حسم Candidate الواحد مرتين بسبب شاشتين مفتوحتين بالتوازي.
+
+### ماذا يحدث عند اعتماد صنف جديد
+
+داخل Transaction واحدة:
+1. إنشاء `catalog_items` جديد.
+2. تحديث Candidate إلى `approved_new`.
+3. حفظ `resolvedCatalogItemId` للصنف الجديد.
+4. حفظ/تعزيز Supplier Item Alias إذا كان المورد معروفاً.
+5. Audit Log اختياري لا يعطل الاعتماد.
+
+ثم يبقى نشر `resolvedCatalogItemId` على Inventory/PO/Receipt للمرحلة 2B-7.
+
+### ما لم يتم في 2B-6 عمداً
+
+- لا تعديل للكميات أو Weighted Average أو `totalCostValue`.
+- لا إعادة فتح أو إعادة إنشاء سند الاستلام.
+- لا تحديث `inventory.linkedItemId` بعد الحسم — 2B-7.
+- لا تحديث PO item / invoice line / receipt item إلى Catalog ID — 2B-7.
+- لا Receipt Lot أو QR — 2B-8.
+- لا إزالة خيار الربط اليدوي بسجل المخزون — مؤجل لما بعد اكتمال المرحلة B حسب القرار المعماري الموثق.
+
+### الملفات المعدلة في 2B-6
+
+- `client/src/components/catalog/CatalogItemCandidatesManager.tsx` — جديد.
+- `client/src/pages/catalog/CatalogDashboard.tsx`.
+- `server/routers/catalog/catalog.router.ts`.
+- `server/_core/catalog-item-candidate-review.ts` — جديد.
+- `server/_core/catalog-item-code.ts` — توليد كود Catalog Item حسب Leaf ونمط الترقيم التاريخي.
+- `server/tests/catalogItemCandidateReview.test.ts` — يشمل اختبارات Duplicate Decisions واختبارات توليد الأكواد `1110001→1110002` و`111003→111004`.
+- `drizzle/schema.ts` — إضافة جدول قرارات Duplicate بين Candidates.
+- `drizzle/migrations/2026_08_16_catalog_item_candidate_duplicate_decisions.sql` — جديد.
+- `docs/inventory/INVENTORY_DEVELOPMENT_PLAN_AND_CHANGE_CONTROL.md`.
+
+### قاعدة البيانات
+
+بدأت 2B-6 بدون Migration جديد، لكن UAT كشف الحاجة إلى Lineage دائم لقرار Duplicate بين Candidates. لذلك أضيف Migration واحد خاص بقرار التشابه:
+
+`drizzle/migrations/2026_08_16_catalog_item_candidate_duplicate_decisions.sql`
+
+الجدول الجديد `catalog_item_candidate_duplicate_decisions` يحتوي:
+- الزوج `candidateLowId / candidateHighId` مع Unique لمنع تكرار القرار لنفس الزوج.
+- `decision = same_item | not_same_item`.
+- `primaryCandidateId` عند قرار `same_item`.
+- `decidedById` ووقت الإنشاء/التحديث للتتبع.
+
+لم تضف 2B-6 أي FK صارم في هذه الخطوة؛ Governance/FKs الصارمة تبقى ضمن 2B-10 وفق النهج السابق.
+
+### تحسين UAT — زر «راجع Candidate الآخر أولاً»
+
+أظهر UAT أن زر **«راجع Candidate #... أولاً»** كان ينفذ `scrollIntoView` فقط. إذا كان المرشح الآخر ظاهراً أصلاً في نفس الشاشة، لم يكن هناك أثر بصري واضح وكان الزر يبدو للمستخدم كأنه غير مفعل.
+
+تم تعديل السلوك المعتمد ليقوم الزر بثلاث خطوات واضحة:
+
+1. الانتقال إلى بطاقة Candidate المطلوب ومركزتها في الشاشة.
+2. تمييز البطاقة بصرياً بشكل مؤقت لمدة تقارب 3.5 ثوانٍ حتى يعرف المستخدم أي مرشح تم الانتقال إليه.
+3. تشغيل **«فحص التكرار»** لذلك Candidate تلقائياً، بدل إجبار المستخدم على البحث عن البطاقة ثم الضغط على الزر مرة أخرى.
+
+إذا لم يعد Candidate موجوداً في قائمة `pending` وقت الضغط، تظهر رسالة واضحة بدلاً من تنفيذ انتقال صامت.
+
+هذا تحسين واجهة فقط داخل 2B-6؛ لا يغير حالات Candidates ولا قاعدة البيانات ولا الاستلام أو المخزون أو التكلفة.
+
+### تحسين UAT — إلغاء حلقة «راجع Candidate الآخر»
+
+بعد نجاح زر التنقل ظهر أن Candidate #1 و#3 المتطابقين يعرضان بعضهما لبعض، لذلك لا يوجد مرشح يمكن بدء الحسم منه بدون قرار صريح. تم استبدال الاعتماد على زر المراجعة فقط بثلاثة إجراءات واضحة داخل نتيجة Pending Candidate:
+
+- **نفس الصنف** → يفتح اختيار المرشح الأساسي.
+- **ليسا نفس الصنف** → يحفظ قرار الفصل ويمنع إعادة اقتراح الزوج.
+- **راجع Candidate #...** → يبقى كأداة تنقل/فحص فقط وليس كقرار Master Data.
+
+قرار «نفس الصنف» لا ينشئ Catalog Item ولا يغيّر أي حركة؛ هو فقط يجمع مهام Master Data حتى يتم حسم المرشح الأساسي لاحقاً.
+
+### إصلاح UAT — نافذة اختيار الـPrimary Candidate
+
+أظهر UAT أن زر **«نفس الصنف»** كان يضبط `sameItemPair` في حالة الواجهة فقط، لكن لم تكن هناك نافذة فعلية تسمح للمستخدم باختيار `primaryCandidateId`. لذلك لم يكن استدعاء `markSameItem` يحدث، ولم يُحفظ قرار `same_item` رغم ظهور الزر.
+
+تم إصلاح الواجهة بحيث:
+
+1. الضغط على **«نفس الصنف»** يفتح Dialog واضحاً يعرض المرشحين الاثنين.
+2. المستخدم يختار صراحة أي Candidate يبقى **Primary**.
+3. المرشح الأقدم يظهر كتوصية بصرية فقط (`الأقدم — مقترح`) دون فرضه تلقائياً.
+4. بعد الاختيار يُستدعى Backend `markSameItem` ويحفظ القرار في `catalog_item_candidate_duplicate_decisions`.
+5. الـPrimary يبقى في Queue، والـSecondary يختفي من قائمة العمل مع بقاء Lineage محفوظاً.
+6. أثناء الحفظ يتم تعطيل الإغلاق/الاختيار المتكرر لمنع الطلب المزدوج.
+7. الـDialog يوضح صراحة أن القرار لا ينشئ Catalog Item ولا يعدل الاستلام أو Inventory أو التكلفة.
+
+**سبب الإصلاح:** منع وجود زر Master Data يبدو فعالاً لكنه لا ينفذ قراراً دائماً في قاعدة البيانات، وجعل اختيار الـPrimary خطوة صريحة وقابلة للتدقيق.
+
+لا يوجد Migration أو SQL جديد لهذا الإصلاح؛ هو إصلاح واجهة فوق جدول القرار الذي تم إنشاؤه في نفس 2B-6.
+
+### تحسين UAT — اعتماد الجديد يستخدم نفس شجرة تصنيفات الكتالوج
+
+أظهر UAT أن حقل **«التصنيف»** داخل Dialog **«اعتماد صنف جديد في الكتالوج»** كان يعرض `catalog_nodes` في قائمة مسطحة مع بادئات مستوى. هذا صحيح من ناحية `nodeId` لكنه لا يحقق تجربة Master Data المعتمدة؛ لأن المستخدم يجب أن يرى **نفس الشجرة الهرمية** التي تمثل التصنيفات في تبويب «التصنيفات»، لا قائمة بديلة تبدو كنظام تصنيف آخر.
+
+تم اعتماد وتنفيذ التغيير التالي داخل 2B-6:
+
+1. مصدر البيانات بقي **نفسه تماماً**: `catalog.nodes.list({ isActive: true })` / جدول `catalog_nodes`.
+2. اختيار التصنيف أصبح Tree Selector هرمي يعتمد `parentId` ويعرض الأبناء تحت آبائهم مع فتح/طي الفروع.
+3. البحث داخل الشجرة يدعم الاسم العربي والإنجليزي وكود التصنيف، ويعرض التطابق مع مسار آبائه حتى يبقى السياق الهرمي واضحاً.
+4. بعد الاختيار يظهر للمستخدم **مسار التصنيف المختار** من الجذر إلى العقدة المحددة.
+5. القيمة المحفوظة في عملية `approveNew` بقيت **نفس `nodeId` الموجود في `catalog_nodes`**؛ لا يتم إنشاء تصنيف جديد أو نسخة موازية أو mapping إضافي.
+6. لا يسمح اعتماد Catalog Item على عقدة لها تفرعات نشطة. العقدة القابلة للاختيار كتصنيف للصنف يجب أن تكون **Leaf / آخر مستوى** في الشجرة. العقدة الرئيسية يمكن فتحها/طيها فقط، ويطلب من المستخدم اختيار آخر تفرع تحتها.
+7. كود Catalog Item يعتمد على `catalog_nodes.code` للعقدة النهائية نفسها ويولد من Backend وفق قاعدة الترقيم المعتمدة أدناه.
+8. لا يوجد Migration أو SQL جديد لهذا التحسين؛ هو تغيير منطق/واجهة فوق شجرة التصنيف المركزية الحالية.
+
+**السبب المعماري:** تثبيت القاعدة المعتمدة أن `Catalog taxonomy` هي مصدر الحقيقة الوحيد للتصنيفات، وأن كل شاشة تنشئ Master Item يجب أن تستهلك نفس الشجرة بدلاً من إعادة تمثيل التصنيف بطريقة قد توحي بوجود محور تصنيف آخر.
+
+### قرار UAT — Leaf-only + توليد كود Catalog Item من التصنيف النهائي
+
+**التاريخ:** 17 أغسطس 2026  
+**الحالة:** Approved / Implemented in 2B-6
+
+تم اعتماد القواعد التالية بعد مراجعة نافذة «اعتماد صنف جديد»: 
+
+1. **الاسم الإنجليزي لا ينسخ من الاسم العربي.** عند فتح النافذة يبدأ `nameEn` فارغاً، ويجب إدخاله يدوياً، وهو حقل إجباري في الواجهة والـBackend.
+2. **الصنف يضاف فقط إلى Leaf Category.** إذا كانت العقدة المختارة لها أي تفرع نشط في `catalog_nodes` يرفض Backend الاعتماد، والواجهة لا تسمح باختيارها كتصنيف صنف أصلاً. مثال: إذا `11 — دهان أبواب` تحته `111 — دهان حراري`، فلا يمكن إضافة Item على `11`؛ يجب اختيار آخر مستوى مثل `111`.
+3. **كود التصنيف هو Prefix لكود الصنف.** مثال: Leaf code=`111`.
+4. إذا كان الـLeaf لا يحتوي أي Catalog Item صالح للترقيم بعد، يبدأ أول صنف بـ:
+   - `1110001`
+5. إذا كان داخل نفس الـLeaf نمط موجود بأربع خانات تسلسلية:
+   - `1110001`, `1110002`, `1110003` → الجديد `1110004`.
+6. إذا كان النمط التاريخي داخل نفس الـLeaf بثلاث خانات:
+   - `111001`, `111002`, `111003` → الجديد `111004`.
+7. **لا نفرض عدداً جديداً من الأصفار على تصنيف يحتوي أصنافاً سابقة.** النظام يحافظ على عرض الجزء التسلسلي المستخدم فعلياً في أحدث نمط صالح لذلك الـLeaf، ثم يزيد أعلى Sequence ضمن نفس النمط بمقدار واحد.
+8. إذا كانت البيانات التاريخية تحتوي أكثر من عرض Suffix داخل نفس Leaf، يستخدم أحدث Item صالح لتحديد نمط العرض النشط، ثم يأخذ أعلى Sequence بنفس العرض لتجنب الرجوع إلى رقم مستخدم.
+9. الواجهة تعرض **Preview read-only** للكود بعد اختيار Leaf، لكن الكود النهائي يعاد توليده في Backend لحظة `approveNew`.
+10. أثناء الإنشاء يقفل Backend عقدة التصنيف في Transaction (`FOR UPDATE`) ثم يعيد قراءة أكواد Items داخل الـLeaf ويولد الرقم التالي، لتقليل خطر حصول مراجعتين متزامنتين على نفس الرقم. كما يفحص عدم وجود كود مطابق قبل Insert.
+11. إذا كان `catalog_nodes.code` فارغاً للعقدة النهائية، يرفض الاعتماد حتى يتم إصلاح كود التصنيف؛ لا يخترع النظام Prefix مستقلاً.
+
+**أمثلة معتمدة:**
+
+```text
+1       بويه
+└─ 11   دهان أبواب          ← غير صالح لإضافة Item إذا تحته فروع
+   └─ 111 دهان حراري        ← Leaf صالح
+
+Leaf جديد بلا Items:         1110001
+آخر نمط: 1110003            → 1110004
+آخر نمط تاريخي: 111003      → 111004
+```
+
+**سبب القرار:** كود Catalog Item يجب أن يعكس مكانه في شجرة Master Taxonomy، مع احترام نمط الأكواد التاريخي الموجود فعلياً داخل كل Leaf، وعدم السماح بربط Items بعقد تصنيف وسيطة قد يتغير معناها عند إضافة تفرعات لاحقاً.
+
+**ما لم يتغير:** لا تعديل في Workflow الاستلام، Inventory، التكلفة، Candidate statuses، أو منطق 2B-7.
+
+### تحسين UAT — عرض الوحدة بالعربي والإنجليزي معاً
+
+تم تعديل حقل **«الوحدة»** داخل Dialog **«اعتماد صنف جديد»** ليستهلك نفس سجلات `catalog_units` النشطة، لكن يعرض للمستخدم الاسمين معاً بالشكل:
+
+```text
+قطعة / piece
+كرتون / carton
+```
+
+القيمة التشغيلية المحفوظة بقيت الاسم العربي الحالي (`nameAr`) حفاظاً على توافق `catalog_items.unit` والمسارات الموجودة؛ التغيير في طريقة العرض/الاختيار فقط. إذا كانت قيمة `purchaseUnit` القديمة غير موجودة حالياً ضمن `catalog_units`، تبقى ظاهرة كخيار مؤقت حتى لا تضيع بيانات Candidate أثناء المراجعة.
+
+**السبب:** مسؤول Master Data يجب أن يرى الاسم العربي والإنجليزي من تعريف الوحدة المركزي نفسه، لا تسمية عربية منفردة قد تكون غامضة أو يصعب مطابقتها مع فواتير المورد الإنجليزية. لا يوجد Migration أو SQL جديد لهذا التحسين.
+
+### UAT المطلوب لإغلاق 2B-6
+
+1. ظهور مرشحي 2B-5 في تبويب «الأصناف الجديدة».
+2. تشغيل «فحص التكرار» وإظهار مجموعتين منفصلتين عند الحاجة:
+   - Pending Candidates مشابهة (مثال UAT: Candidate #1 و#3 «سمك شاورما»).
+   - Catalog Items معتمدة قريبة فقط إذا كانت النتيجة موثوقة.
+3. عند وجود Pending Candidate قوي، اختبار الزرين:
+   - **«نفس الصنف»**: اختيار Primary Candidate، اختفاء التابع من Queue، ثم حسم الأساسي والتأكد أن التابع حُسم تلقائياً بنفس `resolvedCatalogItemId`.
+   - **«ليسا نفس الصنف»**: اختفاء هذا الزوج من اقتراحات Duplicate عند إعادة الفحص.
+4. محاولة اعتماد Candidate باسم مطابق لـPending Candidate آخر بدون قرار Duplicate يجب أن تُرفض من Backend مع ذكر رقم المرشح الآخر.
+5. ربط Candidate/مجموعة Same Item بصنف موجود، ثم SQL Verify أن:
+   - `status='linked_existing'`
+   - `resolvedCatalogItemId` صحيح.
+   - `inventory.linkedItemId` لم يتغير بعد.
+6. اعتماد Candidate/مجموعة Same Item مختلفة فعلاً كصنف جديد بعد اختيار التصنيف وتنظيف البيانات، ثم التحقق أن:
+   - Catalog Item جديد تم إنشاؤه.
+   - Candidate أصبح `approved_new`.
+   - `resolvedCatalogItemId` يشير للصنف الجديد.
+7. محاولة اعتماد اسم/كود مطابق لصنف موجود يجب أن تُرفض ويُطلب «ربط بموجود».
+8. التأكد أن كميات Inventory وتكلفة الاستلام لم تتغير بسبب عملية Master Data.
+
+**معيار الإغلاق:** نجاح المسارين `link_existing` و`approve_new` وحماية Duplicate عملياً، مع إبقاء نشر الروابط التاريخية ضمن 2B-7.
+
+### إغلاق UAT لـ2B-6 — 17 أغسطس 2026
+
+**الحالة:** ✅ COMPLETE / UAT PASSED
+
+تم إكمال آخر سيناريو متبقٍ `not_same_item` عملياً:
+- Candidate #6 اقترح Candidate #5 كمرشح جديد مشابه بنسبة مرتفعة.
+- اختار المستخدم **«ليسا نفس الصنف»**.
+- بعد إعادة **«فحص التكرار»** اختفى Candidate #5 من اقتراحات Duplicate لنفس المرشح.
+- تحقق SQL من `catalog_item_candidate_duplicate_decisions` أكد:
+  - `candidateLowId = 5`
+  - `candidateHighId = 6`
+  - `decision = 'not_same_item'`
+  - `primaryCandidateId = NULL`
+
+وبذلك أصبحت 2B-6 مغلقة عملياً، بما في ذلك `same_item` و`linked_existing` و`approve_new` و`not_same_item`.
+
+---
+
+## قرار معماري مؤجل بعد اكتمال المرحلة B — إزالة الربط اليدوي بسجل مخزون من Workflow الاستلام
+
+**التاريخ:** 16 أغسطس 2026  
+**الحالة:** ✅ Backend Future Guard IMPLEMENTED / Runtime UAT PASSED 2026-08-20 / Legacy Consolidation Deferred  
+**سبب التأجيل الأصلي:** القرار اعتُمد أثناء 2B-4 وأُجّل حتى استقرار Catalog Candidate / New Item / Receipt Lot. أثناء Phase 3 Step 1 ظهر عمليًا أن مسار الاستلام لا يزال قادرًا على إنشاء Inventory ثانٍ لنفس Catalog Item + Warehouse، فوافق صاحب المشروع على تنفيذ الحماية المستقبلية فقط دون لمس البيانات القديمة.
+
+### القرار المعتمد
+
+بعد اكتمال جميع خطوات **المرحلة B**، يتم إزالة خيار المستخدم الحالي:
+
+**«ربط بصنف موجود»**
+
+من Workflow الاستلام العادي عندما يكون المقصود به اختيار سجل من جدول/كيان المخزون نفسه.
+
+الهدف هو منع وجود محورين متنافسين لهوية الصنف:
+
+- `Catalog Item` كهوية Master.
+- `Inventory Item` كهوية يختارها المستخدم يدويًا أثناء الاستلام.
+
+### المعمارية المستهدفة بعد المرحلة B
+
+1. **Catalog Item = الهوية المركزية الوحيدة للصنف (Master Item Identity).**
+2. **Inventory = حالة تشغيلية للصنف داخل مستودع معين** وتشمل الرصيد والقيمة والموقع وما شابه، وليست Master Identity مستقلة.
+3. أثناء الاستلام:
+   - يحدد النظام أولًا `catalogItemId`.
+   - بعد تأكيد Catalog Item، يبحث النظام تلقائيًا عن سجل المخزون المرتبط بنفس `catalogItemId` والمستودع المستهدف.
+   - إذا وجد سجلًا صالحًا، يستخدمه تلقائيًا.
+   - إذا لم يوجد، ينشئ/يهيئ سجل المخزون وفق القواعد المعتمدة حينها، بدون مطالبة المستخدم باختيار Inventory Item يدويًا.
+4. مسار **«صنف جديد»** يبقى مستمرًا وغير معطل وفق 2B-4/2B-5، ثم يتم ربط الهوية المركزية لاحقًا بعد اعتماد Catalog Candidate دون إعادة الحركات أو التكاليف التاريخية.
+
+### ماذا يحدث لخيار الربط اليدوي القديم
+
+بعد اكتمال المرحلة B، أحد الخيارين التاليين فقط يكون مقبولًا:
+
+- إزالته من Workflow الاستلام العادي بالكامل، **أو**
+- الإبقاء عليه كأداة إدارية استثنائية فقط لمعالجة Legacy Data / دمج سجلات مخزون مكررة / إصلاح روابط تاريخية، مع صلاحيات وأثر Audit واضح.
+
+**لا يبقى كقرار تشغيلي عادي للمستلم.**
+
+### لماذا هذا القرار مهم
+
+- يمنع ازدواج مصدر الحقيقة للصنف.
+- يثبت Catalog باعتباره Master Item Data كما تم اعتماده في 2B.
+- يقلل أخطاء ربط فاتورة Catalog Item صحيح بسجل Inventory خاطئ.
+- يجعل منطق الاستلام قابلًا للأتمتة لاحقًا.
+- يسهل Receipt Lot / QR / Returns / Traceability لأن هوية الصنف المركزية لا تتغير حسب سجل المخزون.
+- يسمح بإدارة تعدد المستودعات كـstock state للصنف نفسه بدل تكرار هوية الصنف.
+
+### تنفيذ الحماية المستقبلية — 20 أغسطس 2026
+
+أثناء UAT لـMain Phase 3 / Step 1 كشف `PR-2026-0387` أن Catalog Item `960014` داخل Warehouse `1` أصبح له سجلان Inventory (`210200` و`210222`) لأن الاستلام أنشأ سجلًا جديدًا عندما لم يصل `inventoryId` رغم وجود `linkedItemId`.
+
+بموافقة صاحب المشروع تم تنفيذ الجزء الآمن من القرار المعماري فقط:
+
+- عند غياب `inventoryId` ووجود Catalog identity، يبحث Backend عن Inventory بنفس `Catalog Item + Warehouse`.
+- سجل واحد → يُعاد استخدامه تلقائيًا.
+- لا سجل → يُنشأ Inventory جديد كما كان.
+- أكثر من سجل Legacy → يُرفض إنشاء سجل ثالث، بدون Merge/Delete/Backfill واختيار عشوائي.
+- الحماية مطبقة في `receipts.v2` ومسار Approved Receipt Draft.
+- لا SQL/Migration/FK/UNIQUE ولا تعديل للسجلات القديمة.
+- إزالة خيار الربط اليدوي من UI ليست ضمن هذه الحزمة وتبقى قرار Workflow مستقلًا إذا لزم.
+
+**مرجع التنفيذ:** `docs/CMMS_RECEIPT_INVENTORY_IDENTITY_FUTURE_GUARD_IMPLEMENTATION_2026-08-20.md`  
+**الحالة:** IMPLEMENTED / RUNTIME UAT PASSED — `PR-2026-0389` أعاد استخدام Inventory `210211` وحسب Moving Weighted Average إلى `10.0000` بدون إنشاء Inventory جديد؛ Legacy consolidation ما زال مؤجلًا.
+
+### قاعدة عدم التنفيذ المبكر — سجل القرار التاريخي
+
+**كان القرار الأصلي:** لا يتم تنفيذ هذا التغيير أثناء 2B-4 أو 2B-5 جزئيًا، ويعاد تقييمه بعد اكتمال المرحلة B.  
+تم احترام هذا الشرط؛ التنفيذ بتاريخ 2026-08-20 اقتصر على Backend future guard بعد اكتمال أعمال B ذات الصلة وبموافقة صريحة، بينما إزالة خيار الربط اليدوي والـLegacy consolidation لم تُنفذا.
+
+### فحص إلزامي قبل التنفيذ المستقبلي
+
+قبل إزالة الخيار مستقبلاً يجب حصر:
+- كل استخدامات `inventoryId` في الاستلام.
+- إنشاء/تحديث Inventory Item.
+- الاستلام من PO والفاتورة.
+- الإرجاع للمورد.
+- الإرجاع من المستخدم للمستودع.
+- النقل بين المستودعات.
+- التسويات والجرد.
+- Receipt Lot / QR.
+- أي تقارير أو قيود محاسبية تعتمد على Inventory Item ID.
+
+ثم يوضع Migration/Compatibility Plan مستقل، ويحتاج موافقة Workflow صريحة قبل التنفيذ.
+
+---
+
+## 2B-8 — التحويل بين المخازن Lot-aware خلف Feature Gate — 2026-08-18
+
+**الحالة:** CODE COMPLETE / UAT DEFERRED UNTIL FULL LOT ROLLOUT
+
+تم تحويل مسار `warehouse_transfers` إلى Lot-aware عند تفعيل `INVENTORY_LOTS_ENABLED` مع إبقاء السلوك القديم كما هو عندما يكون الـFeature Gate مغلقًا.
+
+### السلوك المعتمد والمنفذ
+
+1. كل بند تحويل يمثل **Lot واحدًا فقط**. إذا كان نفس Catalog Item موجودًا في أكثر من Lot، يضاف كل Lot كبند مستقل داخل نفس Transfer Batch.
+2. عند تفعيل Lots يصبح مسح `trackingToken` إلزاميًا لكل بند تحويل. يمكن للمستخدم:
+   - مسح QR مباشرة بعد اختيار المخزن المصدر فيتعرف النظام على الصنف والـLot، أو
+   - اختيار الصنف يدويًا ثم مسح QR، ويعيد الخادم التحقق أن الـQR يخص نفس Inventory داخل المخزن المصدر.
+3. الخادم لا يقبل `lotId` من العميل؛ العميل يرسل `trackingToken` فقط، والخادم يحل الـLot داخل قاعدة البيانات.
+4. التحويل ينقل **نفس `lotId` ونفس QR** من `fromInventoryId` إلى `toInventoryId`:
+   - ينقص `inventory_lot_balances.quantity` في المصدر.
+   - يزيد/ينشئ `inventory_lot_balances.quantity` في الهدف.
+   - **لا يتغير** `inventory_lots.remainingQuantity` لأن الكمية لم تخرج من الشركة.
+5. Aggregate Inventory يتغير داخل نفس Transaction:
+   - المصدر `inventory.quantity -= transferQty` بشرط ذري يمنع تجاوز الرصيد المتاح.
+   - الهدف `inventory.quantity += transferQty`.
+   - حركتا `inventory_transactions` (`out` و`in`) تسجلان نفس `lotId` ونوع `transfer`.
+   - `warehouse_transfers.lotId` يحفظ هوية الدفعة صراحةً.
+6. متوسط تكلفة Inventory في المخزن الهدف يبقى على منطق Moving Weighted Average الموجود قبل 2B-8؛ لم يتم تغيير سياسة التقييم المحاسبي. التحويل لا يعيد تسعير الـLot ولا ينشئ Lot جديدًا.
+7. عند تفعيل Lots، إذا كان الصنف المصدر مرتبطًا بـCatalog Item فلا يُستخدم fallback بالاسم/`internalCode` لاختيار Inventory هدف مختلف الهوية؛ يتم البحث أولًا بالـCatalog identity، وإن لم يوجد ينشأ Inventory جديد في المخزن الهدف. fallback التاريخي يبقى فقط للمسار القديم أو للصنف الذي لم تُحسم هويته بعد.
+8. يتم قفل سجل Inventory المصدر وسجل الهدف الموجود (`FOR UPDATE`) داخل مسار Lots قبل حساب/تحديث الرصيد لتقليل سباقات التحويل المتزامن.
+9. سجل التحويل يعرض `lotCode` في التفاصيل، ويمكن البحث في سجل التحويلات بكود الدفعة/Tracking Token عند توفر Lots.
+
+### سلامة الحركة
+
+بعد تحويل كمية `Q` من Lot واحد:
+
+```text
+قبل:
+Lot A @ Warehouse 1 = 70
+Lot A @ Warehouse 2 = 30
+Lot.remainingQuantity = 100
+
+تحويل 20 من Warehouse 1 إلى Warehouse 2
+
+بعد:
+Lot A @ Warehouse 1 = 50
+Lot A @ Warehouse 2 = 50
+Lot.remainingQuantity = 100   ← لا يتغير
+```
+
+وفي نفس الوقت يبقى:
+
+```text
+inventory.quantity لكل مخزن = مجموع Lot Balances لنفس Inventory
+```
+
+أي فشل في تحديث Lot Balance أو Aggregate Inventory أو سجل الحركة يؤدي إلى Rollback للمعاملة كاملة.
+
+### ما لم يتغير
+
+- `warehouse_transfer_batches` يبقى رأس العملية المجمعة كما هو.
+- حد 20 بندًا للعملية بقي كما هو.
+- سياسة `categoryMismatch` الحالية بقيت تنبيهًا مسجلًا وليست منعًا للتحويل.
+- لا FIFO/FEFO.
+- لا SQL أو Migration جديد في هذه الدفعة؛ `warehouse_transfers.lotId` و`inventory_transactions.lotId` والفهارس سبق تطبيقها يدويًا في تأسيس 2B-8.
+- Feature Gate يبقى **OFF** حتى اكتمال الاستبعاد والجرد الدوري/التسوية ومعالجة سياق مستودع مرتجع المورد للـLot الموزع على أكثر من مخزن، ثم UAT شامل لمعادلات السلامة.
+
+### UAT مؤجل
+
+عند اكتمال بقية الحركات وفتح Feature Gate في بيئة UAT:
+1. إنشاء Receipt/Open Balance Lot له رصيد في المخزن الرئيسي.
+2. تحويل جزء منه إلى مخزن فرعي بمسح QR.
+3. التحقق أن `warehouse_transfers.lotId` و`inventory_transactions.lotId` متطابقة.
+4. التحقق أن `remainingQuantity` للـLot لم تتغير.
+5. التحقق أن مجموع `inventory_lot_balances` لنفس Lot ثابت، وأن توزيع الرصيد فقط تغير بين Inventory المصدر والهدف.
+6. تحويل Lot ثانٍ لنفس Catalog Item في نفس Batch والتأكد أنه يظهر كبند مستقل ولا تختلط الكميات بين الدفعتين.
+
+## 2B-8 — الاستبعاد/التالف Lot-aware خلف Feature Gate — 2026-08-18
+
+**الحالة:** CODE COMPLETE / UAT DEFERRED UNTIL FULL LOT ROLLOUT
+
+تم تحويل مسار `disposal_operations` / `disposal_items` إلى Lot-aware عند تفعيل `INVENTORY_LOTS_ENABLED` مع إبقاء Workflow القديم كما هو عندما يكون الـFeature Gate مغلقًا.
+
+### السلوك المنفذ
+
+1. عند التفعيل يبدأ إضافة بند الاستبعاد بمسح `trackingToken` للـLot. البحث الحر بالاسم/رقم Inventory يبقى فقط للمسار القديم والـGate مغلقًا.
+2. الخادم لا يقبل `lotId` من العميل؛ `disposal.resolveLot` يحل Tracking Token إلى Lot + Inventory ويعرض `lotCode` والرصيد المتاح للدفعة.
+3. إذا كان نفس Lot له أكثر من Balance موجب، لا يتم اختيار Inventory/مستودع عشوائيًا؛ التحقق يرفض العملية حتى يتوفر Warehouse Context صريح.
+4. كل بند استبعاد يمثل Lot واحدًا. الواجهة تمنع إضافة نفس Tracking Token مرتين في العملية نفسها؛ الكمية المدخلة لا تتجاوز Balance الدفعة.
+5. عند الحفظ يعيد الخادم التحقق من Tracking Token داخل Transaction ولا يعتمد على نتيجة التحقق المسبق في الواجهة.
+6. الخصم عند التفعيل يتم داخل Transaction واحدة من:
+   - `inventory_lot_balances.quantity`
+   - `inventory_lots.remainingQuantity`
+   - `inventory.quantity` / `totalCostValue`
+   ثم يسجل `disposal_items.lotId` وحركة `inventory_transactions.lotId`.
+7. تكلفة الاستبعاد في المستند والحركة لا تؤخذ من العميل؛ مصدر الحقيقة هو `inventory.averageCost` الحالي على الخادم لحظة التنفيذ.
+8. تفاصيل عملية الاستبعاد تعرض `lotCode`، ووثيقة الطباعة تعرض كود الدفعة تحت اسم الصنف عند توفره.
+
+### سلامة الحركة
+
+أي فشل بعد استهلاك Lot Balance يؤدي إلى Rollback للمعاملة كاملة، فلا يمكن أن ينخفض Lot دون Aggregate Inventory أو العكس. التحديثات الشرطية تمنع استبعاد كمية أكبر من رصيد الدفعة/المخزون عند الطلبات المتزامنة.
+
+### التوافق
+
+- عندما يكون `INVENTORY_LOTS_ENABLED` مغلقًا يستمر Workflow الاستبعاد القديم كما هو.
+- لا SQL أو Migration جديد في هذه الدفعة؛ `disposal_items.lotId` و`inventory_transactions.lotId` والـIndexes سبق تطبيقها يدويًا في تأسيس 2B-8.
+- Feature Gate يبقى **OFF** حتى اكتمال الجرد الدوري/التسوية، حسم Warehouse Context للحالات متعددة المخازن، ثم UAT شامل لمعادلات السلامة.
+
+### UAT المؤجل
+
+بعد فتح الـGate في بيئة UAT:
+1. مسح QR Lot برصيد معروف.
+2. استبعاد كمية جزئية والتحقق من تطابق `disposal_items.lotId` و`inventory_transactions.lotId`.
+3. التحقق أن Balance الدفعة و`remainingQuantity` وAggregate Inventory انخفضت بنفس الكمية.
+4. محاولة استبعاد كمية أكبر من Balance والتأكد من الرفض بلا أي تغيير جزئي.
+5. اختبار Lot موزع على أكثر من مستودع والتأكد من عدم اختيار مستودع بصمت.
+
+
+## 2B-8 — الجرد الدوري والتسوية Lot-aware خلف Feature Gate — 2026-08-18
+
+**الحالة:** CODE COMPLETE / UAT DEFERRED UNTIL FULL LOT ROLLOUT
+
+تم تحويل الجرد الدوري والتسوية الناتجة عنه إلى Lot-aware عند تفعيل `INVENTORY_LOTS_ENABLED`، مع إبقاء الرصيد الافتتاحي المعتمد ومسار الجرد التاريخي كما هما عند إغلاق الـFeature Gate.
+
+### الجرد الدوري المعتمد والمنفذ
+
+1. عند تفعيل Lots يجب أن تكون عملية الجرد الدوري مرتبطة بمستودع محدد.
+2. **الجرد الشامل:** يلتقط Snapshot لكل `inventory_lot_balances` موجب في المستودع، وينشئ سطر `inventory_count_items` مستقلًا لكل Lot مع `lotId` وكمية النظام لحظة بدء الجرد.
+3. **الجرد الجزئي:** يبدأ فارغًا، ولا يضاف إليه أي Inventory بالاسم/الكود؛ كل Lot يدخل العملية فقط بعد مسح `trackingToken` الخاص به.
+4. حفظ الكمية المعدودة في الجرد الدوري يتطلب إعادة التحقق من نفس QR، ويمنع حفظ كمية تحت Lot مختلف عن الذي تم مسحه.
+5. بعد تفعيل Lots لا يسمح الجرد الدوري بإنشاء Inventory حر بالاسم؛ أي كمية يجب أن تنتمي إلى Lot معروف أو تدخل من Workflow الرصيد الافتتاحي المعتمد.
+6. لا يمكن إنهاء جرد شامل إذا بقي Lot محمل في العملية بدون عد. الجرد الجزئي لا يتطلب عد Lots لم تُمسح أصلًا.
+7. مسح Lot ذي Balance صفري مسموح إذا كان له Balance row فعلي في نفس المستودع، لأن العثور الفيزيائي على كمية بينما النظام يعرض صفرًا يمثل فرق جرد مشروعًا. لا يتم إنشاء وجود للـLot في مستودع آخر بصمت.
+
+### التسوية Lot-aware
+
+1. عند تفعيل Lots، التسوية الناتجة عن جرد دوري تحمل نفس `lotId` من `inventory_count_items` إلى `inventory_settlement_items` ثم إلى `inventory_transactions`.
+2. التسوية تعدّل **فرق Lot فقط** ولا تضبط Aggregate Inventory إلى رقم السطر مباشرة؛ بذلك لا تمس أرصدة Lots الأخرى لنفس الصنف.
+3. داخل Transaction واحدة يتم تحديث:
+   - `inventory_lot_balances.quantity` للـLot/Inventory المعدود.
+   - `inventory_lots.remainingQuantity` بنفس فرق الجرد.
+   - `inventory.quantity` بنفس الفرق.
+   - `inventory.totalCostValue` وفق `averageCost` الحالي.
+   - حركة `inventory_transactions` بنوع `adjustment` ونفس `lotId` إذا كان الفرق غير صفر.
+4. قبل تطبيق أي فرق، الخادم يتحقق أن:
+   - Balance الحالي للـLot ما زال يساوي Snapshot الذي أُخذ عند بدء/إضافة سطر الجرد؛ إذا حدثت حركة بعد العد تُرفض التسوية ويُطلب إعادة جرد الـLot.
+   - `inventory.quantity = SUM(inventory_lot_balances.quantity)` لنفس Inventory.
+   - `inventory_lots.remainingQuantity = SUM(inventory_lot_balances.quantity)` لنفس Lot عبر جميع المخازن.
+5. التحديثات شرطية؛ أي تغيير متزامن في Balance أو Aggregate Inventory أو Remaining يؤدي إلى Rollback كامل بدل كتابة تسوية فوق بيانات أحدث.
+6. عند تفعيل Lots، **التسوية اليدوية Aggregate-only القديمة موقوفة بالخادم والواجهة**. لا تعاد إلا بWorkflow مستقل معتمد يحافظ على Lot identity.
+7. الرصيد الافتتاحي يبقى مسارًا منفصلًا: يبدأ من Catalog Item، وعند تطبيق تسويته ينشئ Opening Balance Lot + Lot Balance + QR كما سبق اعتماده.
+
+### الطباعة والتتبع
+
+- تفاصيل الجرد والتسوية تعيد `lotCode` وبيانات صلاحية الـLot عند توفرها.
+- وثيقتا الجرد والتسوية تعرضان `lotCode` بدل حقل الدفعة التاريخي عندما يكون السطر Lot-aware، مع fallback للحقول القديمة عندما لا يوجد Lot.
+
+### ما لم يتغير
+
+- لا FIFO/FEFO.
+- لا SQL أو Migration جديد في هذه الدفعة؛ أعمدة `lotId` و`countType` والفهارس اللازمة طُبقت يدويًا مسبقًا أثناء تأسيس 2B-8.
+- Feature Gate يبقى **OFF** حتى حسم Warehouse Context لمسارات مرتجع المورد والاستبعاد عندما يكون Lot موزعًا على أكثر من مستودع، ثم UAT شامل لكل الحركات ومعادلات السلامة.
+
+### UAT المؤجل
+
+بعد اكتمال Warehouse Context وفتح الـGate في بيئة UAT:
+1. جرد شامل لمستودع يحوي أكثر من Lot لنفس Catalog Item، والتأكد أن كل Lot يظهر كسطر مستقل ولا يمكن إنهاء العملية قبل عد كل الـLots المحملة.
+2. جرد جزئي يبدأ فارغًا، ومسح QR لـLot واحد فقط ثم إتمامه بدون إجبار المستخدم على Lots لم يمسحها.
+3. فرق سالب وفرق موجب لنفس Lot، والتحقق من تطابق `inventory_count_items.lotId` و`inventory_settlement_items.lotId` و`inventory_transactions.lotId`.
+4. التحقق بعد التسوية من المعادلتين:
+   - `inventory.quantity = SUM(lot balances)`.
+   - `lot.remainingQuantity = SUM(balances across warehouses)`.
+5. إنشاء حركة كمية بعد Snapshot وقبل التسوية والتأكد أن التسوية ترفض باعتبار الجرد stale ولا تكتب أي تعديل جزئي.
+6. التأكد أن التسوية اليدوية Aggregate-only لا يمكن تنفيذها عند تفعيل Lots.
+
+
+## 2B-8 — Warehouse Context لمرتجع المورد والاستبعاد — 2026-08-18
+
+**الحالة:** CODE COMPLETE / UAT PENDING
+
+تم اعتماد وتنفيذ القاعدة التشغيلية: **اختيار المستودع أولًا → ثم مسح QR للـLot** في مرتجع المورد والاستبعاد/التالف عند تفعيل `INVENTORY_LOTS_ENABLED`.
+
+### مرتجع المورد
+1. الواجهة تطلب مستودعًا فعالًا قبل تمكين مسح QR.
+2. `warehouseReturns.resolveReturnLot` يستقبل `warehouseId + trackingToken`، والخادم يحل Balance الدفعة داخل ذلك المستودع فقط.
+3. إذا كان QR معروفًا لكن لا يملك رصيدًا في المستودع المحدد، تُرفض العملية برسالة صريحة؛ لا يتم اختيار Balance من مستودع آخر.
+4. `warehouseReturns.create` يعيد إرسال `warehouseId` مع Tracking Token، و`createLotAwareSupplierReturn()` يعيد التحقق من المستودع والـLot داخل Transaction قبل الخصم.
+5. Opening Balance Lot يبقى ممنوعًا من مرتجع المورد.
+
+### الاستبعاد/التالف
+1. عملية الاستبعاد تختار مستودعًا واحدًا قبل مسح QR.
+2. بعد إضافة أول بند يثبت المستودع للعملية؛ لا يمكن تبديله مع وجود بنود.
+3. `disposal.resolveLot` يحل Tracking Token داخل `warehouseId` المحدد فقط.
+4. عند الحفظ، الخادم يعيد حل QR داخل نفس المستودع ويطابق `inventoryId` الناتج مع بيانات البند؛ أي stale/tampered Inventory يرفض العملية.
+5. الخصم يبقى ذريًا من Lot Balance + Lot Remaining + Aggregate Inventory، وتبقى تكلفة الاستبعاد من Average Cost على الخادم.
+
+### الأثر على حالة 2B-8
+- مشكلة اختيار Balance عشوائي عندما يكون نفس Lot موزعًا بين مستودعات **أُغلقت على مستوى الكود**.
+- لا SQL أو Migration جديد لهذه الدفعة.
+- Feature Gate يبقى **OFF** حتى UAT شامل للحركات ومعادلات السلامة.
+- الاختبار المطلوب لاحقًا يتضمن Lot موزعًا على مخزنين، ثم مرتجع/استبعاد من كل مخزن والتأكد أن الخصم يقع على Balance المستودع المختار فقط.
+
+## 2B-8 — UAT: إظهار QR تلقائيًا بعد تأكيد استلام الفاتورة — 2026-08-18
+
+### القرار التشغيلي المعتمد
+عند الضغط على **تأكيد الاستلام** في مسار الفاتورة، لا توجد خطوة مستقلة لإنشاء QR. عند تفعيل `INVENTORY_LOTS_ENABLED` يجب أن تتم العملية تلقائيًا بهذا التسلسل:
+
+1. اعتماد/تأكيد الاستلام.
+2. إنشاء Receipt Lot لكل سطر مستلم داخل نفس مسار الحفظ.
+3. توليد `lotCode` و`trackingToken` تلقائيًا وحفظهما في `inventory_lots`.
+4. إنشاء Lot Balance وربط حركة الشراء بنفس `lotId`.
+5. بعد نجاح العملية، عرض شاشة **طباعة ملصقات الدفعات** مباشرة للمستخدم، ويكون كل QR ممثلًا لـLot واحد.
+
+### ما كشفه UAT
+- `PR-2026-0372` أثبت أن إنشاء الـLots والـBalances وحركات الشراء المرتبطة بـ`lotId` يعمل فعليًا بعد تفعيل Feature Gate.
+- تم إنشاء Lotين حقيقيين بنجاح، وكانت معادلات البداية صحيحة: `originalQuantity = remainingQuantity = lot balance`.
+- الخلل كان في مسار `InvoiceDraftReview → approveDraft`: الدالة الخلفية كانت تنشئ Lot و`trackingToken`، لكن `approveDraft` لم يكن يعيد `lotLabels` للواجهة، ولذلك انتقلت الشاشة إلى Inventory بدون إظهار QR للطباعة.
+
+### الإصلاح
+- `processApprovedReceiptItems()` أصبح يجمع ملصقات الـLots التي أنشأها في نفس عملية الاعتماد ويعيدها للراوتر.
+- `invoiceDraft.approveDraft` يعيد `inventoryLotsEnabled` و`lotLabels` إلى العميل.
+- `InvoiceDraftReview` يعرض `LotLabelsPrintScreen` بعد نجاح الاعتماد/طباعة سند الاستلام بدل الانتقال المباشر إلى Inventory عند وجود Lots.
+- عند إغلاق Feature Gate يبقى السلوك القديم بدون Lot Labels.
+
+### الحالة
+- إنشاء Lot/QR تلقائيًا عند تأكيد الاستلام: **UAT الأساسي ناجح**.
+- إظهار ملصقات QR بعد اعتماد الفاتورة: **UAT PASSED على `PR-2026-0373`**؛ ظهرت شاشة الملصقات تلقائيًا بعد «تأكيد الاستلام».
+- لا SQL جديد في هذا الإصلاح.
+
+## 2B-8 — Inventory: أيقونة دفعات QR + إعادة الطباعة — 2026-08-18
+
+**الحالة:** CODE COMPLETE — اختبار إعادة الطباعة من الأيقونة نفسها لم يُسجل كـUAT مستقل، لكنه لا يحجب إغلاق الـCore 2B-8؛ إنشاء/عرض QR بعد الاستلام والبحث باستخدام `trackingToken` تم إثباتهما عمليًا.
+
+### سبب التعديل
+UAT على `PR-2026-0373` أثبت أن «تأكيد الاستلام» أنشأ Lotين حقيقيين، وأن شاشة ملصقات QR ظهرت تلقائيًا بنجاح بعد التأكيد. لكن صفحة `Inventory` كانت ما تزال تعرض أيقونة `manufacturerBarcode` التاريخية فقط، لذلك لم يكن هناك طريق من صف الصنف لعرض Receipt Lots وإعادة طباعة QR الخاص بكل دفعة.
+
+### السلوك المعتمد والمنفذ
+1. عند تفعيل `INVENTORY_LOTS_ENABLED`، يظهر بجانب اسم الصنف في صفحة Inventory زر QR بنفسجي إذا كان لسجل Inventory الحالي Lot Balance موجب واحد على الأقل.
+2. الزر يعرض عدد الـLots ذات الرصيد الموجب داخل **سجل Inventory/المستودع نفسه**؛ لا يجمع أرصدة مستودعات أخرى في نفس الصف.
+3. الضغط على الزر يفتح قائمة الدفعات الموجودة فعليًا في ذلك المستودع، ويعرض لكل Lot:
+   - `lotCode`.
+   - الرصيد الحالي للـLot في هذا المستودع.
+   - الكمية الأصلية للدفعة.
+   - `remainingQuantity` الإجمالي للـLot عبر النظام.
+   - للمصدر `receipt`: المورد، الفاتورة، ورقم الاستلام عند توفرها.
+   - Batch/Expiry عند توفرهما.
+4. من كل Lot يمكن اختيار **عرض / طباعة QR**، ويُعاد استخدام `LotLabelsPrintScreen` والـ`trackingToken` المحفوظ أصلًا؛ لا يتم إنشاء Tracking Token جديد عند إعادة الطباعة.
+5. أيقونة/طباعة `inventory.manufacturerBarcode` القديمة بقيت كما هي ولم تُحذف أو يُعاد تعريف معناها.
+6. الاستعلام الملخص للـLots منفصل عن تفاصيلها لتجنب N+1 queries: صفحة Inventory تجلب Counts لكل `inventoryId` مرة واحدة، وتطلب تفاصيل Lot فقط عند فتح نافذة الصنف.
+
+### UAT المطلوب
+- فتح Inventory بعد استلام `PR-2026-0373` والتأكد أن الأصناف المستلمة تظهر بجانبها أيقونة QR بعدد `1` لكل صنف حاليًا.
+- فتح الأيقونة والتأكد أن Lot #4 / Lot #5 يظهران كل في صنفه مع الرصيد الصحيح والمورد/الفاتورة/الاستلام.
+- اختيار «عرض / طباعة QR» والتأكد أن QR المعروض يطابق `trackingToken` المخزن ولا ينشئ Lot/Token جديدًا.
+- بعد نجاح ذلك نعود لاختبار الصرف الإجباري بالـQR على Lot موجود.
+
+**لا SQL أو Migration جديد في هذه الدفعة.**
+
+## 2B-8 — إصلاح البحث بالـQR في Inventory وPurchase Cycle — 2026-08-18
+
+**الحالة:** ✅ CODE COMPLETE / UAT PASSED — تم لصق `trackingToken` فعليًا محليًا وظهر الصنف الصحيح في Inventory وفي `Purchase Cycle → التسليم`.
+
+### ما كشفه UAT
+بعد نجاح إنشاء Receipt Lots وظهور/إعادة طباعة QR، مسح QR من خانة البحث في `Inventory` أو تبويب **التسليم** في `Purchase Cycle` لم يكن يعيد الصنف. السبب أن الواجهتين كانتا تعاملان قيمة `trackingToken` كبحث نصي في حقول Inventory التاريخية (`internalCode` / `manufacturerBarcode`)، وفي Purchase Cycle كان المسح يحول وضع البحث إلى الاسم؛ لذلك لم يكن هناك أي Resolve فعلي من QR إلى Lot ثم Inventory.
+
+### الإصلاح المعتمد
+1. إضافة Backend resolver واحد `inventory.resolveLotSearch` يقبل `trackingToken` أو `lotCode` ويحل المسار الفعلي:
+   `inventory_lots → inventory_lot_balances → inventory`.
+2. يعيد فقط Lot Balances ذات الرصيد الموجب، مع `inventoryId` و`warehouseId` والكمية في كل Balance.
+3. صفحة `Inventory` تستخدم نتيجة الـresolver لتصفية سجل/سجلات Inventory الفعلية، مع إبقاء اختيار المستودع الحالي نافذًا؛ إذا كان الـLot معروفًا لكن لا يملك رصيدًا في المستودع المختار تظهر رسالة واضحة بدل نتيجة صامتة.
+4. تبويب **التسليم** في `Purchase Cycle` يستخدم نفس resolver ويعرض سجل/سجلات Inventory التي تحمل الـLot الممسوح بدل مقارنة QR باسم الصنف أو الباركود القديم.
+5. البحث القديم **بالاسم** و**بالرقم/`manufacturerBarcode`** بقي كما هو؛ لم يتم نسخ `trackingToken` إلى Inventory لأن Catalog Item/Inventory واحدًا قد يملك عدة Lots مستقلة.
+6. لا SQL أو Migration جديد.
+
+### UAT المطلوب
+- مسح QR لـLot #4 أو #5 من `PR-2026-0373` في Inventory والتأكد أن الصنف الصحيح يظهر في المستودع الرئيسي.
+- مسح نفس QR في `Purchase Cycle → التسليم` والتأكد أن الصنف الصحيح يظهر ويمكن فتح Dialog التسليم.
+- بعدها تنفيذ صرف كمية `1` فقط والتحقق من `inventory.quantity` وLot Balance و`lot.remainingQuantity` ومن ربط `inventory_transactions.lotId` و`delivery_documents.lotId/inventoryTransactionId`.
+
+## 2026-08-19 — 2B-9 Step 1.1: فلتر Inventory بشجرة Catalog منبثقة
+
+**الحالة:** ✅ CODE COMPLETE / UAT PASSED — لا SQL ولا Schema جديد.
+
+### القرار المعتمد
+في شاشة `Inventory`، حقل **التصنيف — من الكتالوج** لا يبقى Dropdown مسطحًا. عند فتحه تظهر شجرة `catalog_nodes` بنفس آلية شجرة اختيار نطاق الجرد: فتح/طي، بحث بالاسم أو الكود، واختيار أي عقدة بأي مستوى.
+
+### السلوك المنفذ
+- مصدر الشجرة هو `trpc.catalog.nodes.list({ isActive: true })`؛ لا توجد Taxonomy خاصة بالمخزن.
+- يمكن اختيار أي مستوى من الشجرة، وليس الأوراق فقط.
+- فلترة Inventory لا تنشئ Query تصنيف جديدًا ولا تكتب شيئًا في DB؛ يتم تطبيق العقدة المختارة على `catalogCategoryPath` الذي يعيده `inventory.taxonomy`.
+- اختيار عقدة أب يعرض أصناف تلك العقدة وكل descendants التابعة لها داخل **المخزن المختار فقط**.
+- يوجد خيار واضح `كل التصنيفات` لإلغاء فلتر التصنيف.
+- في المخزن الفرعي تُعلَّم عقدة `warehouse.catalogNodeId` داخل الشجرة كتخصص رئيسي للمخزن، لكن ذلك لا يمنع عرض/فلترة أصناف التصنيفات الأخرى الموجودة فعليًا فيه.
+- إذا تم اختيار عقدة لا يوجد تحتها صنف في المخزن الحالي، تظهر حالة فارغة واضحة ولا تتغير أي بيانات.
+- لا تغيير على البحث بالاسم/الكود/QR أو Lot/QR أو التحويل أو الاستلام أو الجرد أو التسوية.
+
+### التحقق المحلي / UAT
+- نجح TypeScript `transpileModule` لملف `client/src/pages/inventory/Inventory.tsx` بعد التعديل بدون أخطاء Syntax/Transform.
+- UAT الفعلي للواجهة: ✅ Passed بالعربية في 2026-08-19؛ شجرة Inventory ظهرت وعملت، واختيار أي مستوى والفلترة حسب Catalog path داخل المخزن المختار عمل كما هو معتمد.
+
+## 2026-08-19 — 2B-9 Step 2.3: شريط تمرير مخصص لشجرة نطاق الجرد
+
+**الحالة:** ✅ CODE COMPLETE / UAT PASSED — UI FIX ONLY.
+
+### سبب التعديل
+UAT الفعلي لـStep 2.2 أظهر أن `ScrollArea type=always` لم يُظهر شريطًا جانبيًا واضحًا في متصفح المستخدم، رغم أن القائمة نفسها كانت قابلة للتمرير. لذلك لا يُعتبر Step 2.2 ناجحًا بصريًا.
+
+### السلوك المنفذ
+- استبدال الاعتماد على الـnative/Radix scrollbar داخل شجرة `تصنيف محدد` بمسار تمرير مخصص ثابت داخل نافذة الشجرة.
+- Thumb واضح عالي التباين يظهر عند فتح القائمة الطويلة، ويمكن سحبه بالماوس.
+- النقر على Track ينقل موضع التمرير.
+- عجلة الماوس واللمس يظلان يعملان على نفس حاوية المحتوى.
+- لا تغيير على اختيار Catalog node أو descendants أو حفظ `catalogNodeId` أو حماية QR Server-side.
+- لا SQL/Schema ولا تعديل على Lots/Inventory quantities.
+
+### UAT الفعلي
+✅ المستخدم أكد في 2026-08-19 أن شريط التمرير المخصص ظاهر ويعمل فعليًا بعد تركيب Step 2.3.
+
+## 2026-08-19 — 2B-9 UI Fix: محاذاة جداول الجرد والاستبعاد
+
+**الحالة:** CODE COMPLETE / UAT جزئي — UI ONLY. محاذاة جدول الجرد ظهرت سليمة في Regression النهائي؛ جدول الاستبعاد لم يُسجل له Spot-check مستقل بعد، وهذا لا يحجب إغلاق 2B-9 لأنه تحسين بصري جانبي لا يغير Workflow.
+
+### المشكلة
+ظهرت في UAT ملاحظة بصرية أن محاذاة محتوى بعض خلايا جداول **الجرد** و**الاستبعاد** لا تطابق محاذاة ترويسة العمود، خصوصًا الأعمدة الرقمية والحالة/الإجراء.
+
+### الإصلاح
+- توحيد محاذاة كل عمود بين `<th>` و`<td>` داخل جدول تفاصيل الجرد.
+- الأعمدة النصية مثل الصنف/الملاحظة تبقى بمحاذاة RTL إلى اليمين.
+- الأعمدة الرقمية (كمية النظام، المعدودة، الفرق، قيمة الفرق) والدفعة/الإجراء تُوسّط لتتطابق مع الترويسة.
+- في قائمة عمليات الاستبعاد: عدد الأصناف/إجمالي الكمية/القيمة/الحالة/الإجراء أصبحت Header وBody بنفس المحاذاة.
+- في تفاصيل الاستبعاد: الكمية/السبب/القيمة أصبحت Header وBody بنفس المحاذاة.
+- إضافة `align-middle` للخلايا لضبط المحاذاة الرأسية أيضًا.
+- لا Backend/Schema/SQL ولا تغيير في الجرد/الاستبعاد نفسه أو Lot/QR.
+
+### UAT
+- جدول الجرد ظهر في اختبارات `CNT-2026-60024` و`CNT-2026-60025` بمحاذاة Header/Body سليمة بصريًا. ✅
+- جدول الاستبعاد لم يُسجل له اختبار بصري مستقل بعد؛ يبقى QA UI غير حاجب ولا يغير حالة 2B-9 المغلقة.
+
+
+
+## 2026-08-19 — 2B-9 Step 2.4: Manual Lot Count + Scrollbar Regression Hardening
+
+**القرار المعتمد:** الجرد الدوري بعد Lots يظل Lot-based. أضيف مسار بديل عند تعذر QR يسمح للمستخدم بإدخال الكمية **لسطر Lot محدد موجود أصلًا في عملية الجرد**. هذا ليس عودة إلى Aggregate-only ولا يسمح بكتابة كمية على Inventory بدون `lotId`.
+
+### السلوك
+- لكل Lot ظاهر في جرد دوري جارٍ يظهر خيار `إدخال يدوي`.
+- فتح الخيار يستخدم نفس `countItemId` و`lotId` الخاصين بالسطر؛ لا ينشئ Lot ولا Count Item جديدًا.
+- مسار QR يبقى كما هو ويظل الخيار المفضل عند توفر الملصق.
+- `recordItem` يقبل `entryMode: qr | manual`. في الوضع اليدوي لا يطلب `trackingToken`، لكنه يعيد Server-side التحقق من المستودع، ربط Lot/Inventory، Catalog identity، ونطاق `catalogNodeId` مع جميع descendants.
+- محاولة تجاوز نطاق التصنيف تستمر بإرجاع `COUNT_LOT_OUTSIDE_CATEGORY_SCOPE` وتترجمه الواجهة حسب لغة المستخدم.
+- مجرد تسجيل العد لا يغير Inventory/Lot balances؛ التسوية فقط هي التي تطبق الفرق وفق قواعد 2B-8 والتحقق من snapshot.
+
+### Regression الشريط
+بعد نجاح Step 2.3، أبلغ المستخدم أن شريط شجرة التصنيف اختفى مجددًا بعد تسليم تعديل محاذاة الجداول على نفس الملف. Step 2.4 يدمج التعديلات تراكميًا ويحوّل الشريط إلى عمود Layout مستقل ثابت العرض (`20px`) بجانب منطقة الشجرة، بدل Overlay قابل للتأثر. Wheel/touch يظلان عاملين.
+
+### DB / Schema
+لا SQL ولا Migration في هذه الخطوة. عمود `inventory_count_operations.catalogNodeId` السابق يكفي.
+
+### التحقق قبل التسليم / UAT النهائي
+- TypeScript syntax/transpile للواجهة والراوتر وDB واللغات الثلاث: PASS.
+- شريط الشجرة بعد Step 2.4: ✅ Passed.
+- الإدخال اليدوي لنفس Lot بدون QR: ✅ Passed.
+- تجاوز Catalog scope: ✅ مرفوض Server-side كما هو معتمد.
+- فرق فعلي +1 على `CNT-2026-60023` ثم `ADJ-2026-30005`: ✅ Passed.
+- فحص Lot/inventory invariants للبيانات الجديدة بعد التسوية: ✅ Passed.
+
+#### 2B-10-2B — Catalog Relationship & Inactive Data Protection — ✅ COMPLETE / UAT PASSED — 2026-08-19
+
+تم تنفيذ الجزء B بحماية مستقبلية فقط، بدون تعديل بيانات تاريخية أو DB Schema.
+
+**Purchase:**
+- الرابط الجديد إلى `catalog_items` يتطلب Item نشطاً.
+- Draft قديمة يمكنها الاستمرار بنفس Catalog identity إذا تعطّل الصنف لاحقاً؛ تغيير/إضافة الرابط يتطلب Active Item.
+
+**Receipt:**
+- الرابط الجديد أثناء الاستلام يتطلب Active Catalog Item.
+- نفس هوية PO التاريخية تستمر بعد Deactivation حتى لا ينكسر الاستلام.
+- في هذه الحالة لا يُنشأ Supplier Item Alias جديد إلى Item معطّل.
+
+**Taxonomy:**
+- إنشاء Node جديد أو Item جديد يتطلب أن يكون كامل Catalog Node path نشطاً.
+- Candidate approve-new يستخدم نفس حماية المسار.
+
+**Supplier historical candidate:**
+- حسم Candidate التاريخي يبقى مسموحاً، لكن لا Supplier-Item Alias جديد إذا Supplier Master مفقود/Inactive.
+
+**Units:** تبقى text snapshot وليست `unitId`; لا hard relationship جديد ضمن هذا الجزء حتى لا يتغير Workflow الحالي.
+
+**DB:** لا SQL / Migration / Schema / FK / UNIQUE / Backfill.
+
+**Verification:** Static TS syntax/transpile + source assertions = PASS. Vitest/Full tsc غير متاحين في dependency snapshot المرفوع.
+
+**مرجع التنفيذ:** `docs/CMMS_2B10_2B_CATALOG_RELATIONSHIP_INACTIVE_PROTECTION_IMPLEMENTATION_2026-08-19.md`
+
+**Exact stop:** **BEFORE 2B-10-2C — Integrity Rules, UAT & Closure.**
+
+
+### 2026-08-19 — 2B-10-2B UAT Closure
+
+**الحالة:** ✅ COMPLETE / UAT PASSED.
+
+UAT الفعلي أثبت:
+
+- Item `910001` / `1140006`: Deactivate/Reactivate، الاختفاء من PO الجديدة أثناء التعطيل، العودة بعد التفعيل، وAudit صحيح.
+- `PR-2026-0384`: استمرار PO/Receipt التاريخي بنفس `catalogItemId=1140006` بعد تعطيل الصنف؛ Receipt `420127` = PASS.
+- Unit `م3` / `60001`: `PR-2026-0383` احتفظ بالوحدة التاريخية، والوحدة اختفت من PO الجديدة أثناء التعطيل وعادت بعد التفعيل، Audit = PASS.
+- Node `1051` / `540002`: Soft Deactivate/Reactivate + Audit = PASS.
+- Supplier `30003`: inactive selection blocked + reactivation restored selection + Audit = PASS.
+- لا DB/Schema/Migration/Backfill/Historical rewrite.
+
+المرجع: `docs/CMMS_2B10_2B_CATALOG_RELATIONSHIP_INACTIVE_PROTECTION_UAT_CLOSURE_2026-08-19.md`.
+
+**STOP BEFORE 2B-10-2C — Integrity Rules, UAT & Closure.**
+
+### 2026-08-19 — قرار تأجيل 2B-10-2C إلى Final Project Hardening / Closure
+
+بقرار صاحب المشروع، لن يبدأ `2B-10-2C — Integrity Rules, UAT & Closure` الآن. تم تأجيله إلى مرحلة الإغلاق/التقوية النهائية للمشروع، بعد استقرار بقية المراحل والعلاقات النهائية.
+
+**الحالة الحالية:**
+- `2B-10-1` = ✅ COMPLETE / UAT PASSED.
+- `2B-10-2A` = ✅ COMPLETE / UAT PASSED.
+- `2B-10-2B` = ✅ COMPLETE / UAT PASSED.
+- `2B-10-2C` = ⏳ DEFERRED.
+- `2B-10` = implementation complete through 2B-10-2B; final integrity closure deferred.
+
+عند العودة إلى 2B-10-2C يجب إعادة فحص Live DB قبل اقتراح FK/UNIQUE/constraints، وفصل الحماية المستقبلية عن البيانات التاريخية، وعدم إجراء Backfill أو cleanup أو تغيير Workflow إلا بموافقة منفصلة.
+
+**هذا القرار Documentation-only؛ لا Code/DB/Schema/Migration change.**
+
+المرجع: `docs/CMMS_2B10_2C_DEFERRAL_DECISION_2026-08-19.md`.
+
+
+### 2026-08-23 — 6.1 Reports Foundation & Unified Reports Center — official Runtime closure
+
+- بعد تطبيق تصحيح الأزرار وإعادة تشغيل التطبيق، أكد صاحب المشروع Runtime أن `تحديث` و`إعادة تعيين الفلاتر` و`طباعة` وExcel وPDF تعمل فعليًا.
+- `reportExportFoundationPhase6Step1.test.ts` = **4/4 PASS**.
+- `reportCenterFoundationActionsPhase6Step1.test.ts` = **3/3 PASS**.
+- تم توليد وفتح ملفات Excel `.xlsx` وPDF فعلية من المركز. PDF أظهر العنوان وتاريخ/وقت الإنشاء وملخص الفلاتر والمجموعات الأربع بصورة صحيحة.
+- لا SQL/Schema/Migration/DB data change، ولا Historical Cleanup/Backfill/Revaluation، ولا Workflow/Accounting/Numbering/Batch semantics change.
+- لم يبدأ أي Report business scope من 6.2/6.3/6.4.
+- **6.1 = COMPLETE / TARGETED TESTS PASSED / RUNTIME VERIFICATION PASSED / OFFICIALLY CLOSED.**
+- **Current stop: before 6.2 — Stock Balance & Movement Reports. 6.2 = NOT STARTED.**
+- المرجع: `docs/CMMS_MAIN_PHASE6_STEP6_1_REPORTS_FOUNDATION_RUNTIME_UAT_CLOSURE_2026-08-23.md`.
+
+
+### 2026-08-23 — 6.2.1 Stock Balance & Status — Runtime verification checkpoint (not closure)
+
+- Runtime UI opened successfully at `/inventory/reports/stock-balance`.
+- Visible runtime summary at this checkpoint: total rows `709`; normal `141`; low stock `0`; zero stock `568`; negative stock `0`; Lot Tracking inventory `8`.
+- Targeted test command reported `4/4 PASS` in `server/tests/stockBalanceReportPhase6Step2_1.test.ts`.
+- Test evidence covers stock-status precedence/classification, filtered summary logic, RTL export definition preserving Lot codes, and read-only DB-facing service.
+- **Not yet sufficient for official closure:** owner has not yet confirmed the three final report-specific Runtime checks requested after this screenshot: status filter behavior, Lot drill-down display, and filtered Excel/PDF export contents.
+- No SQL, migration, DB mutation, backfill, cleanup, revaluation, workflow/accounting/posting/numbering change.
+- **Current stop:** inside 6.2.1 Runtime verification. Do not start 6.2.2 and do not mark 6.2.1 officially closed until the remaining Runtime checks are confirmed.
+
+
+### 2026-08-23 — 6.2.1 Stock Balance & Status — official closure
+
+- Targeted automated test = **4/4 PASS**.
+- Runtime report rendering = PASS.
+- Runtime stock-status filter = PASS.
+- Filter-aware Excel/PDF export = PASS.
+- Lot drill-down = PASS.
+- Report remains read-only and does not modify historical or current inventory data.
+- **6.2.1 = OFFICIALLY CLOSED.**
+- **Current stop: after 6.2.1 closure / before 6.2.2.**
+
+
+### 2026-08-23 — 6.2.2 Stock Card & Unified Movement Report — implementation checkpoint
+
+- 6.2.1 is officially closed. Owner explicitly started 6.2.2.
+- One centralized page `/inventory/reports/movements` now provides **جميع الحركات** + **بطاقة الصنف** instead of scattered per-movement pages.
+- Filters: search (item/code/Lot/document), warehouse, movement type, direction, date range; Stock Card adds one selected item.
+- Stock Card uses current stored quantity/value plus recorded transaction history only. No opening-balance fabrication and no legacy reconstruction/backfill.
+- Shared 6.1 Print/Excel/PDF/Refresh/Reset foundation is reused; no second export architecture.
+- No DB/schema/migration/data mutation or workflow/accounting/posting/numbering change.
+- **6.2.2 = IMPLEMENTED / TARGETED SOURCE CHECKS PASSED / DEPLOYED RUNTIME VERIFICATION PENDING.**
+- **6.2.3 = NOT STARTED.**
+- Current stop: deploy/test 6.2.2; do not start 6.2.3 automatically.
+
+
+### 2026-08-23 — 6.2.3 Unified Export & Review — implementation checkpoint
+
+- Owner explicitly started 6.2.3 after official closure of 6.2.2.
+- No new report page/export architecture was introduced; 6.2.3 reviews and hardens the shared 6.1 export foundation across the actual 6.2.1 and 6.2.2 reports.
+- Added cross-report targeted coverage for RTL, generated-at semantics, structured XLSX, printable HTML, active-filter metadata, mixed document/Lot codes and shared toolbar/export plumbing.
+- Hardened Unified Movement / Stock Card export filter metadata so a selected warehouse is exported as readable `warehouse code + name` instead of a raw numeric ID when metadata is available.
+- No DB/schema/migration/data mutation or Historical Cleanup/Backfill/Revaluation; no Accounting/Posting/Workflow/Numbering change.
+- **6.2.3 = IMPLEMENTED / TARGETED SOURCE CHECKS PASSED / DEPLOYED RUNTIME VERIFICATION PENDING.**
+- **6.2.4 = NOT STARTED.**
+- Current stop: deploy/test 6.2.3; do not start 6.2.4 automatically.
+- Reference: `docs/CMMS_MAIN_PHASE6_STEP6_2_3_UNIFIED_EXPORT_REVIEW_IMPLEMENTATION_2026-08-23.md`.
+
+
+### 2026-08-23 — 6.2.4 Runtime UAT & 6.2 official closure
+
+- 6.2.4 started only after 6.2.1, 6.2.2 and 6.2.3 were officially closed.
+- Stock Balance Runtime UAT for `LOT-2026-191EEB06` matched Live DB: `WH-MAIN = 3`, `SUB-1 = 1`, total Lot remaining `4`; values `30.00 + 10.00`.
+- Unified Movement Runtime UAT matched Live DB for Receipt `5`, Delivery `1`, Transfer OUT `1`, Transfer IN `1`, using `DLV-2026-300215` and `TRF-2026-030006`.
+- Stock Card search Runtime bug was found and fixed during 6.2.4; targeted `stockCardSearchPhase6Step2_4.test.ts` = **4/4 PASS** and Runtime re-check passed.
+- Stock Card Runtime result for the UAT item: current quantity `4`, current value `40.00`, `2` warehouses, `4` recorded movements, total in `6`, total out `2`.
+- Filters / Excel / PDF / Print remained verified from 6.2.1–6.2.3 acceptance.
+- All report behavior remains read-only; no SQL mutation, schema migration, Backfill, Cleanup, Revaluation, Accounting/Posting/Workflow/Numbering change, Batch Transfer redesign, or Production Cutover.
+- Riyadh timezone enforcement remains explicitly non-blocking/deferred by owner decision; no universal `Asia/Riyadh` guarantee is claimed.
+- **6.2.4 = RUNTIME UAT PASSED / OFFICIALLY CLOSED.**
+- **6.2 — Stock Balance & Movement Reports = COMPLETE / OFFICIALLY CLOSED.**
+- **6.3 = NOT STARTED. Current stop: after 6.2 closure / before 6.3.**
+- Closure reference: `docs/CMMS_MAIN_PHASE6_STEP6_2_4_RUNTIME_UAT_AND_STEP6_2_CLOSURE_2026-08-23.md`.
+
+
+### 2026-08-23 — 6.3 Inventory Valuation & Accounting Reports — approved execution scope
+
+- وافق صاحب المشروع على توثيق 6.3 قبل التنفيذ كمرحلة تقارير مالية/قيمية Read-only داخل **القيمة والمحاسبة** في مركز التقارير المخزنية.
+- التقسيم التنفيذي المعتمد:
+  - `6.3.1 — Inventory Valuation Report`
+  - `6.3.2 — Value by Warehouse / Category`
+  - `6.3.3 — Inventory Variance & Accounting Review`
+  - `6.3.4 — Runtime UAT & Closure`
+- 6.3.1 يعرض القيمة الحالية المعتمدة للمخزون (quantity / averageCost / totalCostValue) بدون إعادة تقييم أو تغيير قاعدة التكلفة.
+- 6.3.2 يجمع قيمة المخزون حسب المخزن والتصنيف، مع عدم افتراض علاقة Category غير مؤكدة من Schema؛ Live DB تبقى الحقيقة.
+- 6.3.3 تقرير مراجعة فقط للفروقات/الحالات المالية؛ لا Auto-fix ولا Revaluation، ولا تكرار/تفريع لمحرك 5.4 Reconciliation.
+- جميع التقارير تعيد استخدام Foundation المغلقة في 6.1 وExport/Review المقبول في 6.2: Refresh / Reset / Print / Excel `.xlsx` / PDF / RTL / mixed-language handling.
+- التوقيت `Asia/Riyadh` يبقى concern موثقًا ومؤجلًا/non-blocking حسب قرار صاحب المشروع الحالي؛ لا ضمان universal Riyadh timezone في هذا الـscope.
+- لا Historical Backfill/Legacy Cleanup/Revaluation/Accounting Posting/Workflow redesign/Centralized Numbering/Production Cutover.
+- **6.3 = SCOPE APPROVED / DOCUMENTED — IMPLEMENTATION NOT STARTED.**
+- **6.3.1 = NOT STARTED. Current stop: before 6.3.1.**
+- المرجع: `docs/CMMS_MAIN_PHASE6_STEP6_3_INVENTORY_VALUATION_ACCOUNTING_REPORTS_APPROVED_SCOPE_2026-08-23.md`.
+
+
+### 2026-08-24 — 6.3.1 Inventory Valuation Report — OFFICIALLY CLOSED
+
+- تم تنفيذ تقرير **Inventory Valuation Report** كطبقة تقارير Read-only على `/inventory/reports/valuation`.
+- التقرير يعرض `quantity` و`averageCost` و**`totalCostValue` المخزنة فعليًا**؛ لا يعيد تقييم المخزون ولا يغيّر قيمة أو تكلفة.
+- Runtime UI verified: التقرير يفتح من **القيمة والمحاسبة**، والبحث وفلتر المخزن وفلتر حالة القيمة تعمل فعليًا.
+- Runtime export/print verified by owner: **Excel / PDF / Print = PASS**.
+- Targeted test executed on deployed project: `pnpm exec vitest run server/tests/inventoryValuationReportPhase6Step3_1.test.ts` → **4/4 PASS**.
+- الاختبارات أثبتت: classification على القيمة المخزنة بدون recalculation، summary على filtered rows، RTL export من نفس `totalCostValue`، وDB-facing service = **read-only**.
+- لا SQL / Migration / DB mutation / Revaluation / Historical Backfill / Legacy Cleanup / Accounting or Posting redesign.
+- **6.3 = IN PROGRESS. 6.3.1 = COMPLETE / TARGETED TESTS PASSED / RUNTIME UAT PASSED / OFFICIALLY CLOSED.**
+- **6.3.2 = NOT STARTED. Current stop: before 6.3.2 — Value by Warehouse / Category.**
+- Closure reference: `docs/CMMS_MAIN_PHASE6_STEP6_3_1_INVENTORY_VALUATION_REPORT_RUNTIME_CLOSURE_2026-08-24.md`.
+
+
+## 2026-08-24 — تنفيذ Main Phase 6.3.2 — Value by Warehouse / Category
+
+**الحالة الحالية:** 🟡 **IMPLEMENTED IN CODE / DEPLOYED VERIFICATION PENDING**
+
+تم تنفيذ 6.3.2 كاملة كدفعة كود واحدة داخل منطقة **القيمة والمحاسبة** الحالية، مع الحفاظ على تقرير 6.3.1 المغلق وعدم إنشاء صفحات Top-level مشتتة.
+
+### التنفيذ
+
+- `/inventory/reports/valuation` يحتوي الآن على:
+  - `Inventory Valuation` — العرض التفصيلي المغلق في 6.3.1.
+  - `Value by Warehouse` — تجميع القيمة الحالية حسب المخزن.
+  - `Value by Category` — تجميع القيمة الحالية حسب Catalog taxonomy.
+- مصدر القيمة في التجميعين هو **stored `inventory.totalCostValue`** من نفس خدمة 6.3.1؛ لا Revaluation ولا إعادة حساب بديل.
+- Category grouping يعيد استخدام read layer المقبول والمغلق في 2B-9: `Inventory → linked Catalog Item → Catalog node/path`.
+- أي صف لا يحمل mapping موثوقًا يبقى ظاهرًا `Uncategorized / غير مصنف`; لا Backfill ولا Legacy Cleanup ولا إصلاح تلقائي.
+- الكميات المختلطة لا تجمع عبر وحدات مختلفة؛ تعرض كسياق quantities grouped by unit.
+- Share % يحسب من نتيجة الفلاتر الحالية فقط، ولا يعرض عندما يكون إجمالي القيمة الحالي صفرًا أو سالبًا.
+- نفس فلاتر 6.3.1 تطبق على المصدر قبل التجميع: search / warehouse / stored-value status.
+- تمت إضافة Excel/PDF/Print لكل grouped view عبر Foundation التقارير الحالية.
+
+### Change control
+
+لا SQL / Migration / DB writes / Auto-fix / Historical Backfill / Legacy Cleanup / Revaluation / Accounting أو Posting redesign / Centralized Numbering / Batch all-or-nothing / 6.4 Analytics / Cutover.
+
+### Verification state
+
+- TypeScript syntax checks للملفات المعدلة: PASS في بيئة التغليف.
+- Isolated exact grouping runtime harness: PASS.
+- `server/tests/inventoryValueDistributionReportPhase6Step3_2.test.ts` جاهز بـ5 اختبارات؛ يجب تشغيله على المشروع المحلي/المنشور الذي يحتوي dependencies قبل تسجيل PASS.
+- Runtime UI + filter + Excel/PDF/Print verification مطلوبة قبل الإغلاق الرسمي.
+
+**الحالة:** 6.3 = IN PROGRESS; 6.3.1 = OFFICIALLY CLOSED; **6.3.2 = IMPLEMENTED / VERIFICATION PENDING**; 6.3.3 = NOT STARTED. لا تبدأ 6.3.3 تلقائيًا.
+
+
+## 2026-08-24 — إغلاق Main Phase 6.3.2 — Value by Warehouse / Category
+
+**الحالة:** ✅ **COMPLETE / TARGETED TESTS PASSED / RUNTIME UAT ACCEPTED / OFFICIALLY CLOSED**
+
+- شغّل صاحب المشروع الاختبار المستهدف `inventoryValueDistributionReportPhase6Step3_2.test.ts` وكانت النتيجة **5/5 PASS**.
+- تم قبول Runtime للعروض الثلاثة داخل `/inventory/reports/valuation`: تقييم المخزون 6.3.1، حسب المخزن، حسب التصنيف.
+- Runtime evidence أظهر 717 سجل مصدر؛ 3 مجموعات في عرض المخزن، و16 مجموعة في عرض التصنيف، مع 688 سجلًا غير مربوط بتصنيف ظاهرًا بدون إصلاح تلقائي.
+- أكد صاحب المشروع أن التقرير يعمل جيدًا وأن **Excel / PDF / Print** تعمل.
+- بقيت stored `inventory.totalCostValue` هي أساس القيمة؛ لا Revaluation ولا تعديل `averageCost` أو `totalCostValue`.
+- لا SQL/Migration/DB mutation، ولا Historical Backfill/Legacy Cleanup/Auto-fix، ولا Accounting/Posting/Workflow/Numbering change، ولا Batch all-or-nothing، ولا 6.4 Analytics، ولا Cutover.
+- مرجع الإغلاق: `docs/CMMS_MAIN_PHASE6_STEP6_3_2_VALUE_BY_WAREHOUSE_CATEGORY_RUNTIME_CLOSURE_2026-08-24.md`.
+
+**نقطة التوقف الرسمية الجديدة:** `AFTER 6.3.2 OFFICIAL CLOSURE / BEFORE 6.3.3`.
+
+**6.3.3 = NOT STARTED — لا تبدأها تلقائيًا بدون موافقة صريحة منفصلة.**
+
+
+## 2026-08-24 — إعادة تنظيم 6.3 إلى جزئين + بدء Current 6.3.2
+
+بموافقة صريحة من صاحب المشروع تم تبسيط 6.3 من أربعة checkpoints إلى جزئين حاليين فقط، مع الإبقاء على وثائق وأسماء الاختبارات التاريخية كما هي:
+
+```text
+Current 6.3.1 — Inventory Valuation & Value Distribution
+= Former 6.3.1 Inventory Valuation Report
++ Former 6.3.2 Value by Warehouse / Category
+= OFFICIALLY CLOSED
+
+Current 6.3.2 — Inventory Variance, Accounting Review & Runtime Closure
+= Former 6.3.3 Inventory Variance & Accounting Review
++ Former 6.3.4 Runtime UAT & Closure
+= IMPLEMENTED IN CODE / TARGETED TEST + RUNTIME UAT PENDING
+```
+
+تم تنفيذ تبويب **المراجعة المحاسبية** داخل `/inventory/reports/valuation` كعرض Read-only يعيد استخدام stored `totalCostValue` من 6.3.1 ومحرك 5.4 Reconciliation المعتمد بدل نسخ/تفريع قواعده. حالات المراجعة المنفذة محصورة في: `INVENTORY_VALUE_MISMATCH`، `NEGATIVE_INVENTORY_QUANTITY`، استثناءات 5.4 المرتبطة بالـInventory، وحالة stored value السالبة الموجودة أصلًا في 6.3.1. لا توجد Auto-fix/Revaluation/Backfill/Legacy Cleanup.
+
+**نقطة التوقف:** Current 6.3.2 منفذة في الكود، لكن إغلاق 6.3 النهائي ينتظر Targeted Test + Runtime UAT. 6.4 تبقى DEFERRED / EXECUTE LAST.
+
+
+## 2026-08-24 — إغلاق Current 6.3.2 وإغلاق Main Phase 6.3 رسميًا
+
+- نجح الاختبار المستهدف `server/tests/inventoryAccountingReviewReportPhase6Step3_2Merged.test.ts` بنتيجة **6/6 PASS**.
+- قبل صاحب المشروع Runtime UAT لتبويب **المراجعة المحاسبية** وأكد عمل البحث وفلاتر المخزن/حالة القيمة/التصنيف/حالة المراجعة، إضافة إلى Excel/PDF/Print.
+- Current 6.3.2 تبقى Read-only وتعيد استخدام stored `totalCostValue` من 6.3.1 وأدلة 5.4 Reconciliation المعتمدة؛ لا Revaluation ولا Auto-fix ولا Backfill/Cleanup.
+- **Current 6.3.1 — Inventory Valuation & Value Distribution = OFFICIALLY CLOSED.**
+- **Current 6.3.2 — Inventory Variance, Accounting Review & Runtime Closure = OFFICIALLY CLOSED.**
+- **Main Phase 6.3 — Inventory Valuation & Accounting Reports = COMPLETE / OFFICIALLY CLOSED.**
+- لا SQL/Migration/DB mutation، ولا Accounting/Posting/Workflow/Numbering change، ولا Batch Transfer all-or-nothing، ولا Cutover.
+- **6.4 = DOCUMENTED FOR LATER / EXECUTE LAST / NOT STARTED.**
+- **6.5 = NOT STARTED.**
+- **نقطة التوقف الحالية:** بعد الإغلاق الرسمي لـMain Phase 6.3. لا تبدأ 6.4 أو 6.5 تلقائيًا.
+- مرجع الإغلاق: `docs/CMMS_MAIN_PHASE6_MERGED_STEP6_3_2_RUNTIME_UAT_AND_PHASE6_3_CLOSURE_2026-08-24.md`.
+
+## Main Phase 6.4 — implementation checkpoint — 2026-08-24
+
+Owner explicitly resumed 6.4 after Main Phase 6.3 official closure. The previously deferred/execute-last analytics scope is now implemented in code as one unified page `/inventory/reports/analytics` with Tabs for Slow Moving / Dead Moving / ABC / Aging / Turnover.
+
+Implementation boundaries remain unchanged: Read-only only; no Auto-fix, Historical Backfill, Legacy Cleanup, Revaluation, accounting/posting/workflow behavior change, Centralized Numbering, Batch Transfer all-or-nothing redesign, or Cutover.
+
+Analytics semantics are deliberately conservative: Slow/Dead uses recorded outbound history with configurable thresholds and does not classify missing history as movement age; ABC uses positive stored current value; Aging uses current positive Lot balances and recorded Lot creation date with uncovered inventory shown as unavailable coverage; Turnover is a planning indicator based on recorded outbound value divided by current stored value and is explicitly not claimed as COGS/Average Inventory accounting turnover.
+
+**Status after this implementation checkpoint:** Main Phase 6.3 = OFFICIALLY CLOSED. **6.4 = IMPLEMENTED IN CODE / TARGETED TEST + RUNTIME UAT PENDING.** 6.5 = NOT STARTED. Do not mark 6.4 OFFICIALLY CLOSED or start 6.5 until the owner completes targeted test and Runtime UAT acceptance.
+
+## Main Phase 6.4 — Runtime UAT & Official Closure — 2026-08-24
+
+Owner completed the targeted verification and explicitly accepted Runtime behavior for Main Phase 6.4.
+
+- `server/tests/inventoryAnalyticsReportPhase6Step4.test.ts` = **8/8 PASS**.
+- Runtime owner acceptance confirmed filters, export, and Print operate correctly.
+- The unified `/inventory/reports/analytics` page remains the approved five-tab analytics/planning surface.
+- Slow/Dead, ABC, Aging, and Turnover semantics remain as documented in the implementation checkpoint.
+- Turnover remains a planning indicator from recorded outbound value / current stored value; no accounting COGS/Average Inventory claim is introduced.
+- Read-only boundaries remain unchanged: no SQL/Migration/DB writes, Auto-fix, Historical Backfill, Legacy Cleanup, Revaluation, accounting/posting/workflow/numbering change, Batch Transfer all-or-nothing change, or Cutover.
+
+**Status after closure:** Main Phase 6.3 = OFFICIALLY CLOSED. **Main Phase 6.4 = COMPLETE / TARGETED TESTS PASSED / RUNTIME UAT ACCEPTED / OFFICIALLY CLOSED.** Main Phase 6.5 = NOT STARTED.
+
+**Current stop:** AFTER MAIN PHASE 6.4 OFFICIAL CLOSURE / BEFORE MAIN PHASE 6.5. Do not start 6.5 automatically.
+
+Closure reference: `docs/CMMS_MAIN_PHASE6_STEP6_4_INVENTORY_ANALYTICS_PLANNING_RUNTIME_UAT_CLOSURE_2026-08-24.md`.
+
+
+## Main Phase 6.5 — Final Runtime UAT & Closure Gate — 2026-08-24
+
+Owner explicitly approved starting 6.5 after Main Phase 6.4 official closure. 6.5 is a final regression/UAT/documentation closure gate only; it introduces no new reporting feature and does not change DB, workflow, accounting behavior, numbering, Batch Transfer semantics, or historical data.
+
+Final gate test: `server/tests/mainPhase6FinalClosurePhase6Step5.test.ts`.
+
+Final Runtime pass starts from `/inventory/reports` and confirms navigation and accepted filters/export/print behavior across Stock Balance, Movements/Stock Card, Valuation/Distribution/Accounting Review, and Analytics. Closed subphases are not reopened for accepted non-blocking notes.
+
+**Current status:** Main Phase 6.5 = IN PROGRESS / FINAL REGRESSION + OWNER RUNTIME ACCEPTANCE PENDING. Main Phase 6 remains IN PROGRESS until final acceptance.
+
+
+## Main Phase 6.5 + Main Phase 6 — Final Runtime UAT & Official Closure — 2026-08-24
+
+Owner completed and accepted the final 6.5 regression/runtime closure gate after all of 6.1–6.4 were already officially closed.
+
+- Corrected final regression gate `server/tests/mainPhase6FinalClosurePhase6Step5.test.ts` = **9/9 PASS / 1 test file passed**.
+- The first final-gate run had two test-only false positives because broad keyword checks matched explicit safety metadata (`autoFixIncluded: false`, `revaluationIncluded: false`); the gate was corrected to detect actual write/mutation behavior. No production report behavior changed for that correction.
+- Owner accepted the cleaned `/inventory/reports` center and confirmed all five operational cards open and work correctly.
+- Previously accepted filters / Excel / PDF / Print Runtime evidence remains valid across closed Main Phase 6 report surfaces.
+- Main Phase 6 remains reporting/read-only: no SQL/Migration/DB mutation, Historical Backfill, Legacy Cleanup, Revaluation, Auto-fix, accounting/workflow redesign, historical renumbering, Centralized Numbering, Batch Transfer all-or-nothing change, or Cutover.
+- Project gate still confirms no `receipt_number_counter`; Batch Transfer still retains per-item/partial-result semantics.
+
+**Final status:**
+
+```text
+6.1 = OFFICIALLY CLOSED
+6.2 = OFFICIALLY CLOSED
+6.3 = OFFICIALLY CLOSED
+6.4 = OFFICIALLY CLOSED
+6.5 = COMPLETE / FINAL REGRESSION PASSED / RUNTIME UAT PASSED / OFFICIALLY CLOSED
+Main Phase 6 = COMPLETE / RUNTIME UAT PASSED / OFFICIALLY CLOSED
+Main Phase 7 = NOT STARTED
+```
+
+**Official stop:** AFTER MAIN PHASE 6 OFFICIAL CLOSURE / BEFORE MAIN PHASE 7. Do not start Main Phase 7 automatically.
+
+Closure reference: `docs/CMMS_MAIN_PHASE6_FINAL_RUNTIME_UAT_AND_OFFICIAL_CLOSURE_2026-08-24.md`.
+
+
+## Main Phase 7 — Owner Deferral + Future Option B Direction — 2026-08-24
+
+بعد الإغلاق الرسمي لـMain Phase 6 ومراجعة الحاجة الفعلية لـInventory Posting Engine، قرر صاحب المشروع تأجيل Main Phase 7 وعدم بدء أي Coding فيها الآن.
+
+عند استئنافها مستقبلًا، الاتجاه المعتمد هو **Option B — Shared Posting Core صغير ومحافظ** بدل Full Centralized Inventory Posting Engine. تبقى Business Rules وسياسات التكلفة داخل Workflows المتخصصة، ويقتصر الـCore على primitives مشتركة ذات فائدة واضحة بعد إعادة الفحص وقت التنفيذ.
+
+الحدود المحفوظة: Batch Transfer = per-item/partial success؛ Centralized Numbering و`receipt_number_counter` خارج النطاق ومؤجلان؛ لا Historical Cleanup/Backfill/Revaluation/Renumbering؛ لا Cutover؛ لا Workflow/Accounting behavior change بدون موافقة منفصلة؛ Live DB هي مصدر الحقيقة وSQL واحد فقط في كل مرة إذا احتاج الأمر لاحقًا.
+
+**Status:** Main Phase 7 = DEFERRED / NOT STARTED. Main Phase 8 = NOT STARTED / DO NOT AUTO-START.
+
+Decision reference: `docs/CMMS_MAIN_PHASE7_DEFERRAL_AND_OPTION_B_SHARED_POSTING_CORE_DECISION_2026-08-24.md`.

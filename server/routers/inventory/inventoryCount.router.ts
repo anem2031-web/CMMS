@@ -2,8 +2,13 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { warehouseProcedure, inventoryReadProcedure, router } from "../_shared/procedures";
 import * as db from "../../_core/db";
+import { isInventoryLotsEnabled } from "../../_core/inventory-lots";
+import { findKnownInactiveCatalogUnitNames } from "../../_core/catalog-unit-governance";
 
 export const inventoryCountRouter = router({
+
+  // 2B-8 rollout status — UI uses this to avoid exposing opening-balance/Lot workflows before full activation.
+  lotTrackingStatus: inventoryReadProcedure.query(() => ({ enabled: isInventoryLotsEnabled() })),
 
   // ── بدء عملية جرد جديدة ──
   // ملاحظة: لا يُستقبل أي تاريخ/وقت من العميل إطلاقاً — يُحسب بالكامل من ساعة
@@ -11,17 +16,30 @@ export const inventoryCountRouter = router({
   createOperation: warehouseProcedure
     .input(z.object({
       operationTitle: z.string().max(200).optional(),
+      countType: z.enum(["periodic", "opening_balance"]).default("periodic"),
+      catalogNodeId: z.number().int().positive().optional(),
       scope: z.enum(["full", "partial"]),
       warehouseId: z.number().optional(),
       itemIds: z.array(z.number()).optional(),
       allowEmpty: z.boolean().default(false),   // true = وضع يدوي/باركود (يبدأ فاضي)
     }))
     .mutation(async ({ input, ctx }) => {
-      if (input.scope === "partial" && !input.allowEmpty && (!input.itemIds || input.itemIds.length === 0)) {
+      if (input.countType === "periodic" && input.scope === "partial" && !input.catalogNodeId && !input.allowEmpty && (!input.itemIds || input.itemIds.length === 0)) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "الجرد الجزئي يتطلب تحديد أصناف" });
+      }
+      if (input.countType === "opening_balance" && !input.warehouseId) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "الرصيد الافتتاحي يتطلب تحديد المستودع" });
+      }
+      if (input.countType === "opening_balance" && input.catalogNodeId) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "نطاق التصنيف مخصص للجرد الدوري" });
+      }
+      if (input.catalogNodeId && !input.warehouseId) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "الجرد حسب التصنيف يتطلب تحديد المستودع" });
       }
       return db.createCountOperation({
         operationTitle: input.operationTitle,
+        countType: input.countType,
+        catalogNodeId: input.catalogNodeId,
         scope: input.scope,
         warehouseId: input.warehouseId,
         itemIds: input.itemIds,
@@ -38,12 +56,48 @@ export const inventoryCountRouter = router({
       incrementBy: z.number().min(0.001).default(1),
     }))
     .mutation(async ({ input, ctx }) => {
-      return db.scanCountItem({
-        operationId: input.operationId,
-        inventoryId: input.inventoryId,
-        incrementBy: input.incrementBy,
-        countedById: ctx.user.id,
-      });
+      try {
+        return await db.scanCountItem({
+          operationId: input.operationId,
+          inventoryId: input.inventoryId,
+          incrementBy: input.incrementBy,
+          countedById: ctx.user.id,
+        });
+      } catch (error: any) {
+        if (error?.message === db.COUNT_ITEM_NOT_IN_OPENING_SNAPSHOT) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: db.COUNT_ITEM_NOT_IN_OPENING_SNAPSHOT });
+        }
+        throw error;
+      }
+    }),
+
+  // ── 2B-8: مسح QR للـLot أثناء الجرد الدوري ──
+  scanLot: warehouseProcedure
+    .input(z.object({
+      operationId: z.number(),
+      trackingToken: z.string().trim().min(1),
+    }))
+    .mutation(async ({ input }) => {
+      try {
+        return await db.scanCountLot({
+          operationId: input.operationId,
+          trackingToken: input.trackingToken,
+        });
+      } catch (error: any) {
+        if (error?.message === db.COUNT_LOT_OUTSIDE_CATEGORY_SCOPE) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: db.COUNT_LOT_OUTSIDE_CATEGORY_SCOPE,
+          });
+        }
+        if (error?.message === db.COUNT_LOT_NOT_IN_OPENING_SNAPSHOT) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: db.COUNT_LOT_NOT_IN_OPENING_SNAPSHOT,
+          });
+        }
+        throw error;
+      }
     }),
 
   // ── إضافة صنف لجرد جارٍ (بحث بالاسم/الرقم/الباركود) بدون كمية — بانتظار العدّ ──
@@ -54,26 +108,44 @@ export const inventoryCountRouter = router({
       inventoryId: z.number(),
     }))
     .mutation(async ({ input }) => {
-      return db.addItemToCount({
-        operationId: input.operationId,
-        inventoryId: input.inventoryId,
-      });
+      try {
+        return await db.addItemToCount({
+          operationId: input.operationId,
+          inventoryId: input.inventoryId,
+        });
+      } catch (error: any) {
+        if (error?.message === db.COUNT_ITEM_NOT_IN_OPENING_SNAPSHOT) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: db.COUNT_ITEM_NOT_IN_OPENING_SNAPSHOT });
+        }
+        throw error;
+      }
     }),
 
-  // ── إضافة صنف جديد كليّاً (غير موجود بالمخزون أصلاً) أثناء جرد جارٍ ──
-  // يُنشئ الصنف بالمخزون مباشرة (كود داخلي + باركود مصنع تلقائيَين) ويُدخله
-  // الرصيد فوراً بالكمية المُدخلة — مختلف عن addItem الذي يبحث بأصناف موجودة مسبقاً.
+  // ── إضافة صنف أثناء الجرد ──
+  // periodic: يحافظ على المسار التاريخي بالاسم الحر.
+  // opening_balance: catalogItemId إلزامي فعلياً في طبقة DB ولا تُطبّق الكمية حتى التسوية.
   addNewItem: warehouseProcedure
     .input(z.object({
       operationId: z.number(),
-      itemName: z.string().trim().min(1, "اسم الصنف مطلوب"),
-      unit: z.string().trim().min(1, "الوحدة مطلوبة"),
+      catalogItemId: z.number().optional(),
+      itemName: z.string().trim().optional(),
+      unit: z.string().trim().optional(),
       quantity: z.number().min(0.001, "الكمية يجب أن تكون أكبر من صفر"),
-      cost: z.number().min(0).optional(),   // اختياري دائماً
+      cost: z.number().min(0).optional(),
     }))
     .mutation(async ({ input, ctx }) => {
+      if (input.unit) {
+        const inactiveUnits = await findKnownInactiveCatalogUnitNames([input.unit]);
+        if (inactiveUnits.length > 0) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `لا يمكن استخدام وحدة قياس معطّلة: ${inactiveUnits.join(", ")}`,
+          });
+        }
+      }
       return db.addNewItemDuringCount({
         operationId: input.operationId,
+        catalogItemId: input.catalogItemId,
         itemName: input.itemName,
         unit: input.unit,
         quantity: input.quantity,
@@ -94,19 +166,33 @@ export const inventoryCountRouter = router({
     .input(z.object({
       countItemId: z.number(),
       countedQuantity: z.number().min(0),
+      entryMode: z.enum(["qr", "manual"]).optional(),
+      trackingToken: z.string().trim().optional(),
       lotNumber: z.string().optional(),
       expiryDate: z.string().optional(),
       notes: z.string().optional(),   // اختياري دائماً، حتى لو فيه فرق
     }))
     .mutation(async ({ input, ctx }) => {
-      return db.recordCountItem({
-        countItemId: input.countItemId,
-        countedQuantity: input.countedQuantity,
-        lotNumber: input.lotNumber,
-        expiryDate: input.expiryDate,
-        notes: input.notes,
-        countedById: ctx.user.id,
-      });
+      try {
+        return await db.recordCountItem({
+          countItemId: input.countItemId,
+          countedQuantity: input.countedQuantity,
+          entryMode: input.entryMode,
+          trackingToken: input.trackingToken,
+          lotNumber: input.lotNumber,
+          expiryDate: input.expiryDate,
+          notes: input.notes,
+          countedById: ctx.user.id,
+        });
+      } catch (error: any) {
+        if (error?.message === db.COUNT_LOT_OUTSIDE_CATEGORY_SCOPE) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: db.COUNT_LOT_OUTSIDE_CATEGORY_SCOPE,
+          });
+        }
+        throw error;
+      }
     }),
 
   // ── إنهاء عملية الجرد (تسجيل فقط، لا يمس المخزون) ──
@@ -152,8 +238,12 @@ export const inventoryCountRouter = router({
       reason: z.string().trim().min(10, {
         message: "سبب التسوية إلزامي (10 أحرف على الأقل)",
       }),
+      reference: z.string().trim().max(255, {
+        message: "مرجع التسوية يجب ألا يتجاوز 255 حرفاً",
+      }).optional(),
       items: z.array(z.object({
         inventoryId: z.number(),
+        lotId: z.number().optional(),
         afterQuantity: z.number().min(0),
         lotNumber: z.string().optional(),
         expiryDate: z.string().optional(),
@@ -167,6 +257,7 @@ export const inventoryCountRouter = router({
         sourceType: input.sourceType,
         sourceCountOperationId: input.sourceCountOperationId,
         reason: input.reason,
+        reference: input.reference,
         appliedById: ctx.user.id,
         items: input.items,
       });

@@ -3525,3 +3525,1385 @@ owner/admin، توافق رجعي بلا `reviewedById`) وحُدِّث اختب
 
 **لا Migration ولا تعديل قاعدة بيانات.**
 
+
+---
+
+## 2026-08-17 — 2B-8: تأسيس Inventory Lots + Receipt/Opening Balance Lots خلف Feature Gate
+
+**القرار المعتمد:** Catalog Item يبقى هوية الصنف الواحدة مهما تعدد الموردون أو مرات الشراء، بينما كل استلام فعلي ينشئ Lot مستقلًا له QR/Tracking Token خاص. الرصيد الافتتاحي من الجرد ينشئ Opening Balance Lot مستقلًا بدون اختراع مورد أو فاتورة. نفس Lot/QR يبقى عند التحويل بين المخازن، ويُحفظ رصيده المكاني في جدول منفصل.
+
+**قاعدة سلامة الحركة:** عند تفعيل Lots يجب أن تبقى كمية `inventory` مساوية لمجموع `inventory_lot_balances` لذلك Inventory، وأن تبقى `inventory_lots.remainingQuantity` مساوية لمجموع أرصدة نفس Lot عبر المخازن. لا يجوز لمس Aggregate Inventory من مسار كمية بدون تعديل الـLot/Balance المطابق داخل نفس Transaction.
+
+**Schema المنفذ يدويًا على قاعدة UAT، أمرًا واحدًا كل مرة:**
+- جدول `inventory_lots` لهوية المصدر/الدفعة، مع `sourceType = receipt | opening_balance`، `lotCode` و`trackingToken` فريدين، مراجع Catalog/Receipt/PO/Supplier/Count/Settlement، الكمية الأصلية والمتبقية، وحدات/تكلفة الاستلام، batch/expiry المستقبلية.
+- جدول `inventory_lot_balances` برصيد Lot لكل `inventoryId` مع `UNIQUE(lotId, inventoryId)`.
+- `lotId` nullable + Index في: `inventory_transactions`, `delivery_documents`, `warehouse_returns`, `warehouse_transfers`, `disposal_items`, `inventory_count_items`, `inventory_settlement_items`.
+- `delivery_documents.inventoryTransactionId` nullable + Index لربط مستند الصرف بالحركة صراحةً لاحقًا.
+- `inventory_count_operations.countType ENUM('periodic','opening_balance') NOT NULL DEFAULT 'periodic'`.
+- لا Foreign Keys جديدة؛ Governance/FKs تبقى 2B-10.
+- migration مرجعي مطابق: `drizzle/migrations/2026_08_17_inventory_lots_phase_2b8.sql`، **ولا يُعاد تشغيله على قاعدة UAT الحالية** لأن أوامره نُفذت يدويًا مسبقًا.
+
+**الكود المنفذ في هذه الدفعة:**
+- `server/_core/inventory-lots.ts`: إنشاء Lot + أول Balance، توليد `LOT-YYYY-...` و`CMMS-LOT-<uuid>`، ودالة Feature Gate `INVENTORY_LOTS_ENABLED` (القيمة الافتراضية غير مفعلة).
+- `server/routers/inventory/receipts.v2.router.ts`: عند التفعيل، إنشاء Receipt Item ثم Receipt Lot ثم حركة الشراء مع `lotId` داخل نفس DB Transaction؛ الاستلام المستقل ومسار PO كلاهما مشمولان. نتيجة الاستلام ترجع `lotLabels` للطباعة.
+- `server/_core/db/invoice-drafts.ts`: إصلاح/تهيئة المسار المجمد `processApprovedReceiptItems` ليكون Lot-aware عند التفعيل، ومسار جديد للرصد الافتتاحي يبدأ من Catalog Item ولا يرفع كمية Inventory قبل التسوية. تطبيق تسوية opening balance ينشئ `Opening Balance Lot + Balance + adjustment transaction` داخل Transaction واحدة.
+- `server/_core/catalog-item-identity-publication.ts`: عند اعتماد Catalog Candidate جديد، تُنشر الهوية أيضًا إلى أي Receipt Lots أنشئت من `receiptItemId` نفسه، مع Conflict protection نفسه المستخدم في 2B-7.
+- `client/src/pages/inventory/WarehouseReceiveV2.tsx` و`InventoryStandaloneReceive.tsx`: إذا رجعت `lotLabels` تطبع QR الدفعات بدل Barcode Inventory التاريخي.
+- `client/src/pages/inventory/InventoryOperations.tsx`: إضافة نوع عملية `opening_balance`، اختيار Master Catalog Item بدل الاسم الحر، وعدم إدخال الرصيد فعليًا قبل التسوية؛ بعد التسوية تظهر ملصقات QR للـOpening Lots.
+- `client/src/components/inventory/LotLabelsPrintScreen.tsx`: طباعة ملصقات 56×36mm تعتمد Tracking Token فقط، ولا تضع المورد/الفاتورة/التكلفة داخل QR.
+
+**لماذا Feature Gate:** Schema وأجزاء الإنشاء تسبق عمدًا تحويل كل حركات الكمية. تشغيل Receipt Lots بينما الصرف/التحويل/المرتجع/الاستبعاد القديم ما زال يغيّر Aggregate Inventory وحده سيخلق اختلافًا بين الرصيد والـLots. لذلك `INVENTORY_LOTS_ENABLED` يبقى **غير مفعّل افتراضيًا** ولا يجب تفعيله تشغيليًا حتى يصبح كل مسار كمية Lot-aware ويجتاز UAT.
+
+**ما لم يُفعّل بعد في هذه الدفعة:** الصرف الإجباري بالـQR، المرتجع بالـLot، نقل نفس Lot بين المخازن، الاستبعاد من Lot، والجرد الدوري بالـQR. أعمدتها موجودة في Schema فقط تمهيدًا، لكن Workflow القديم لم يُستبدل بعد. لا FIFO/FEFO في هذه المرحلة حسب القرار المعتمد؛ مسح QR هو الحقيقة الفيزيائية عند الصرف بعد تفعيله.
+
+**اختبارات هذه الدفعة:** فحص Syntax/Transpile لجميع ملفات TS/TSX المعدلة نجح باستخدام TypeScript 5.8.3. لم يُشغّل `tsc`/Vitest الكامل لأن نسخة المشروع المتاحة لا تحتوي dependencies كاملة في `node_modules`. التشغيل التشغيلي للـLots لم يبدأ لأن Feature Gate سيبقى مغلقًا حتى اكتمال بقية حركات الكمية.
+
+---
+
+## 2026-08-17 — 2B-8: تجهيز الصرف الإجباري بالـQR/Lot خلف Feature Gate
+
+**النطاق:** تحويل خدمة الصرف المركزية `issueDelivery()` إلى Lot-aware عند تفعيل `INVENTORY_LOTS_ENABLED`، بدون تفعيل الـFeature Gate تشغيليًا بعد.
+
+**السلوك المنفذ:**
+- إضافة تحقق فوري من QR الدفعة عبر `inventory.resolveDeliveryLot` قبل التأكيد؛ يجب أن يكون الـTracking Token مرتبطًا بنفس `inventoryId` وله رصيد موجب في المستودع الحالي.
+- لا تقبل خدمة الصرف `lotId` من العميل. الواجهة ترسل `lotTrackingToken` فقط، والخادم يعيد حل الـLot والتحقق منه داخل Transaction عند التأكيد.
+- عند التفعيل يصبح مسح QR إلزاميًا في مساري التسليم من `Inventory.tsx` و`PurchaseCycle.tsx`.
+- الخصم يتم داخل Transaction واحدة وبشروط ذرية من:
+  1. `inventory_lot_balances.quantity` لنفس `lotId + inventoryId`.
+  2. `inventory_lots.remainingQuantity`.
+  3. `inventory.quantity`.
+  أي فشل يعيد العملية كاملةً بالـrollback.
+- `inventory_transactions.lotId` يُسجل على حركة `delivery`.
+- يتم التقاط `inventoryTransactionId` الحقيقي من INSERT، ثم حفظه مع `lotId` في `delivery_documents`، فتكون علاقة مستند الصرف بالحركة والدفعة صريحة بدل الاستدلال من `inventoryId` أو الكمية.
+- نتيجة الصرف تعيد `lotCode` والمتبقي من الدفعة، وسند الطباعة الفوري يعرض `lotCode` عند توفره.
+- Audit Logs لمسارات الصرف المحدثة تحفظ `lotId` و`inventoryTransactionId`.
+
+**حمايات:**
+- منع صرف Lot لا يخص Inventory الحالي أو لا يملك Balance فيه.
+- منع Catalog identity conflict عندما تكون هوية Catalog معروفة في كل من Inventory وLot.
+- منع تجاوز رصيد الـLot أو `remainingQuantity` أو Aggregate Inventory حتى مع محاولات متزامنة.
+- عند كون Feature Gate غير مفعّل، يستمر Workflow القديم كما هو ولا يُطلب QR، مع الاستفادة فقط من الربط الجديد `delivery_documents.inventoryTransactionId` للحركات الجديدة.
+
+**لم يُفعّل تشغيليًا بعد:** `INVENTORY_LOTS_ENABLED` يبقى OFF؛ لأن المرتجع والتحويل والاستبعاد والجرد الدوري/التسوية ما زالت تحتاج تحويلًا Lot-aware قبل السماح بإنشاء/استهلاك Lots في التشغيل الحقيقي.
+
+**الاختبارات:** نجح Syntax/Transpile للملفات TS/TSX المعدلة باستخدام TypeScript 5.8.3. لم يُشغّل `tsc --noEmit` أو Vitest كاملًا لأن نسخة المشروع المتاحة لا تحتوي dependencies كاملة في `node_modules`.
+
+
+---
+
+## 2026-08-17 — 2B-8: تجهيز مرتجع المورد بالـQR/Lot خلف Feature Gate
+
+**النطاق المعتمد:** عند تفعيل Lots، مرتجع المورد لا يعتمد على اختيار يدوي للصنف/المورد/الفاتورة. QR الدفعة هو مصدر الحقيقة، وOpening Balance Lot لا يدخل مسار مرتجع المورد لأنه لا يملك موردًا/فاتورة مثبتة. Feature Gate يبقى OFF.
+
+**التغييرات:**
+- `server/_core/inventory-lots.ts`: إضافة `resolveInventoryLotForSupplierReturn()` التي تحل Tracking Token إلى Lot + Inventory Balance وتمنع `opening_balance`. لا تختار مستودعًا بصمت إذا كان نفس Lot له أكثر من Balance موجب.
+- `server/_core/db/warehouse-returns.ts`: إضافة `createLotAwareSupplierReturn()` داخل DB Transaction واحدة. تعيد التحقق من QR، تخصم Lot Balance و`remainingQuantity` وAggregate Inventory ذرّيًا، تنشئ `warehouse_returns` مع `lotId`، وتسجل `inventory_transactions.lotId`، وتحدّث returnedQuantity لبند PO والحالة الحالية للـPO بنفس السلوك السابق، وتُنشئ وثيقة المرتجع من بيانات Receipt/PO المستخرجة من المصدر الحقيقي.
+- `server/routers/inventory/returns.router.ts`: إضافة `resolveReturnLot`; وعند Feature Gate لا يثق `create` بـ`inventoryId/receiptId/purchaseOrderId/purchaseOrderItemId` المرسلة من العميل بل يحل المصدر من `lotTrackingToken`. المسار القديم يبقى كما هو عندما يكون الـGate OFF.
+- `client/src/pages/inventory/WarehouseReturn.tsx`: عند التفعيل يبدأ المرتجع بمسح QR، ثم يعرض الصنف والـLot والمورد والفاتورة وسند الاستلام/PO تلقائيًا، ويقيد الكمية برصيد الـLot. اختيار المورد/الفاتورة اليدوي يبقى فقط للمسار القديم والـGate مغلق.
+
+**سلامة الحركة:** أي فشل بعد خصم Lot يعيد كامل Transaction، فلا يمكن أن ينقص `inventory_lot_balances` دون `inventory` أو العكس. إعادة التأكيد تعيد حل الـToken داخل Transaction ولا تعتمد على نتيجة التحقق المسبق في الواجهة.
+
+**حالة multi-warehouse:** QR واحد قد يصبح له أرصدة في أكثر من مستودع بعد تحويل جزئي. لأن شاشة المرتجع الحالية لا تحمل Warehouse Context صريحًا، الكود يرفض هذه الحالة بدل اختيار Balance عشوائي. قبل فتح Feature Gate نهائيًا يجب إما تمرير سياق المستودع من Workflow التحويل/المخزن أو اعتماد اختيار مستودع صريح.
+
+**لا SQL جديد:** الأعمدة `warehouse_returns.lotId` و`inventory_transactions.lotId` والـIndexes كانت قد نُفذت يدويًا في Schema foundation.
+
+**الاختبارات:** نجح Syntax/Transpile للملفات TS/TSX المعدلة باستخدام TypeScript 5.8.3. لم يُشغّل `tsc --noEmit`/Vitest الكامل لأن نسخة العمل لا تحتوي dependencies كاملة. UAT التشغيلي مؤجل حتى اكتمال التحويل/الاستبعاد/الجرد الدوري وفتح Feature Gate في بيئة اختبار مضبوطة.
+
+---
+
+## 2026-08-18 — 2B-8: التحويل بين المخازن أصبح Lot-aware خلف Feature Gate
+
+**الملفات:**
+- `server/_core/inventory-lots.ts`
+- `server/_core/db/warehouses.ts`
+- `server/routers/inventory/transfers.router.ts`
+- `client/src/pages/inventory/WarehouseTransfer.tsx`
+- `docs/inventory/INVENTORY_DEVELOPMENT_PLAN_AND_CHANGE_CONTROL.md`
+- `PENDING_TASKS.md`
+- `CLAUDE.md`
+
+**المشكلة:** بعد تأسيس Inventory Lots، كان مسار التحويل القديم يعدّل `inventory.quantity` فقط عبر حركتي OUT/IN، ولا يعرف أي Lot نُقل. تشغيله مع Lots كان سيكسر المعادلة بين Aggregate Inventory و`inventory_lot_balances`، كما كان سيضيع مصدر الفاتورة/الدفعة بعد نقل الصنف إلى مستودع آخر.
+
+**الحل:**
+- إضافة `resolveInventoryLotForWarehouseTransfer()` للتحقق من `trackingToken` داخل المخزن المصدر بدون الثقة بـ`lotId` من العميل.
+- إضافة `moveInventoryLotBalanceForTransfer()` التي تنقص Balance المصدر ذريًا وتزيد/تنشئ Balance الهدف بنفس `lotId`، بدون تعديل `inventory_lots.remainingQuantity`.
+- `createWarehouseTransfer()` أصبح عند Feature Gate يتطلب Tracking Token، وينفذ Lot Balance + Aggregate Inventory + حركتي Inventory Transaction بنفس `lotId` + `warehouse_transfers.lotId` داخل Transaction واحدة.
+- المصدر والهدف الموجود يُقفلان `FOR UPDATE` في مسار Lots لتقليل سباقات الرصيد/متوسط التكلفة.
+- عند وجود Catalog identity لا يعود مسار Lots إلى fallback بالاسم/الكود إذا لم يجد Inventory مطابقًا في الهدف؛ ينشئ Inventory جديدًا بدل ربط Lot بسجل Master مختلف.
+- `transfers.resolveLot` يسمح بمسح QR مباشرة بعد اختيار المخزن المصدر أو التحقق منه بعد اختيار الصنف يدويًا.
+- الواجهة تجعل QR الدفعة إلزاميًا لكل بند عند التفعيل، وتسمح بعدة Lots لنفس الصنف كبنود مستقلة، وتعرض `lotCode` في السلة والنتيجة وسجل التحويل.
+- Audit Log لا يخزن Tracking Token الخام؛ يسجل بيانات البنود بدون رمز QR.
+
+**لماذا:** التحويل ليس استهلاكًا للمخزون بل تغيير موقع. لذلك يجب أن يتغير توزيع Lot Balances فقط، بينما يبقى `remainingQuantity` ثابتًا، وتبقى هوية الـLot/QR والمصدر التاريخي نفسها عبر جميع المستودعات.
+
+**التوافق:** عندما يكون `INVENTORY_LOTS_ENABLED` مغلقًا يستمر Workflow التحويل القديم كما هو. لا SQL جديد؛ Schema المطلوب سبق تطبيقه يدويًا.
+
+**الاختبار:** Syntax/Transpile للملفات TS/TSX المعدلة نجح باستخدام TypeScript 5.8.3. UAT التشغيلي مؤجل حتى اكتمال بقية الحركات وفتح Feature Gate في بيئة اختبار مضبوطة.
+
+---
+
+## 2026-08-18 — 2B-8: الاستبعاد/التالف أصبح Lot-aware خلف Feature Gate
+
+**الملفات:**
+- `server/_core/inventory-lots.ts`
+- `server/_core/db/warehouse-receipts.ts`
+- `server/routers/inventory/disposal.router.ts`
+- `client/src/pages/inventory/InventoryOperations.tsx`
+- `client/src/lib/printInventoryOperationDocuments.ts`
+- `docs/inventory/INVENTORY_DEVELOPMENT_PLAN_AND_CHANGE_CONTROL.md`
+- `PENDING_TASKS.md`
+- `CLAUDE.md`
+
+**المشكلة:** مسار الاستبعاد القديم كان يخصم `inventory.quantity` فقط ولا يعرف أي Receipt/Opening Lot أُتلفت منه الكمية. تشغيله مع Lots كان سيكسر معادلات الرصيد ويقطع تتبع المصدر.
+
+**الحل:**
+- إضافة `resolveInventoryLotForDisposal()` لحل Tracking Token إلى Lot/Inventory مع رفض الـLot ذي أكثر من Balance موجب بدل اختيار مستودع عشوائي.
+- إضافة `disposal.resolveLot` للواجهة؛ عند Feature Gate يصبح QR الدفعة هو مسار اختيار البند، بينما البحث القديم يبقى للـGate المغلق.
+- `disposal.create` يتطلب `lotTrackingToken` لكل بند عند التفعيل ولا يقبل `lotId` من العميل.
+- `createDisposal()` يستخدم مسار Transaction جديد عند Feature Gate: استهلاك Lot Balance + Lot Remaining، قفل/خصم Aggregate Inventory، إنشاء `disposal_items.lotId`، ثم `inventory_transactions.lotId`. أي فشل يعيد الجميع بالـrollback.
+- تكلفة الاستبعاد/الحركة تُحسب على الخادم من `inventory.averageCost` الحالي، وليس `unitCost/totalCost` المرسل من الواجهة.
+- تفاصيل العملية ووثيقة الطباعة تعرضان `lotCode` عند توفره.
+
+**التوافق:** عندما يكون `INVENTORY_LOTS_ENABLED` مغلقًا يبقى Workflow الاستبعاد القديم كما هو. لا SQL جديد؛ الأعمدة والفهارس المطلوبة موجودة مسبقًا.
+
+**حالة multi-warehouse:** لأن شاشة الاستبعاد الحالية لا تحمل Warehouse Context صريحًا، QR لدفعة موزعة بأكثر من Balance موجب يُرفض حاليًا. يجب حسم/إضافة سياق المستودع قبل فتح Feature Gate النهائي، بنفس مبدأ الحماية المستخدم في مرتجع المورد.
+
+**الاختبارات:** Syntax/Transpile للملفات TypeScript/TSX المعدلة. UAT التشغيلي مؤجل حتى اكتمال الجرد الدوري/التسوية وفتح Feature Gate في بيئة اختبار مضبوطة.
+
+
+---
+
+## 2026-08-18 — 2B-8: الجرد الدوري والتسوية أصبحا Lot-aware خلف Feature Gate
+
+**المشكلة:** بعد تأسيس Inventory Lots، كان الجرد/التسوية القديم يعمل على `inventoryId` فقط. تشغيله كما هو بعد فتح Lots كان يمكن أن يغيّر `inventory.quantity` بدون تعديل Lot Balance/`remainingQuantity` أو يخلط عدة Lots لنفس الصنف، فيكسر معادلات سلامة المخزون.
+
+**القرار المعتمد:** الجرد الدوري بعد تفعيل Lots يكون بمسح QR للـLot، وفرق الجرد يطبّق على نفس Lot. لا تسوية Aggregate-only مستقلة بعد التفعيل. الرصيد الافتتاحي يبقى Workflow مستقلًا ينشئ Opening Balance Lot.
+
+**التغييرات:**
+- `server/_core/inventory-lots.ts`:
+  - إضافة حل QR للجرد داخل مستودع محدد مع السماح بBalance صفري معروف.
+  - إضافة تطبيق فرق جرد ذري على Lot Balance + Lot Remaining + Aggregate Inventory.
+  - قبل التعديل يتم التحقق من معادلتي السلامة ومن أن Balance لم يتغير منذ Snapshot؛ أي stale count أو عدم تطابق يوقف التسوية.
+- `server/_core/db/invoice-drafts.ts`:
+  - الجرد الشامل في Lot mode يلتقط Snapshot لكل Balance موجب كسطر مستقل؛ الجزئي يبدأ فارغًا ويُملأ بمسح QR.
+  - `scanCountLot` يحدد Lot/Inventory من Tracking Token داخل مستودع العملية.
+  - `recordCountItem` يتطلب نفس QR لسطر Lot عند الحفظ.
+  - منع الإضافة الحرة/باركود Inventory القديم في الجرد الدوري بعد تفعيل Lots.
+  - منع إغلاق الجرد إذا بقيت Lots محملة بلا عد، مع السماح للجرد الجزئي بعدّ ما تم مسحه فقط.
+  - `applySettlement` يطبق فرق الـLot داخل Transaction ويسجل `inventory_settlement_items.lotId` و`inventory_transactions.lotId`، ويمنع التسوية اليدوية Aggregate-only عندما يكون الـGate مفعّلًا.
+  - `getSettlementDetails` يعيد `lotCode` وبيانات Lot للطباعة والتتبع.
+  - تنظيف رأس عملية الجرد الشامل إذا لم يوجد أي Lot مطابق بدل ترك عملية فارغة.
+- `server/routers/inventory/inventoryCount.router.ts`: إضافة `scanLot` وتمرير `trackingToken`/`lotId` في عقود الجرد والتسوية.
+- `client/src/pages/inventory/InventoryOperations.tsx`:
+  - الجرد الدوري Lot-aware يبدأ بالـQR، ويعرض Lot Code، ولا يسمح بإدخال كمية مباشرة من سطر غير ممسوح.
+  - الجرد الشامل والجزئي يعرضان شرح السلوك الجديد.
+  - التسوية الناتجة من الجرد تميز السطور بواسطة `(inventoryId, lotId)`.
+  - تعطيل التسوية المستقلة عند تفعيل Lots.
+- `client/src/lib/printInventoryOperationDocuments.ts`: عرض `lotCode` وصلاحية الـLot في وثائق الجرد والتسوية مع fallback للحقول القديمة.
+
+**سلامة التزامن:** Snapshot الجرد لا يملك حق الكتابة فوق حركة أحدث. عند التسوية، إذا تغير Lot Balance منذ الجرد أو لم تتطابق المعادلات قبل التعديل، يتم رفض العملية كاملة ويطلب إعادة جرد الدفعة.
+
+**التوافق:** عندما يكون `INVENTORY_LOTS_ENABLED` مغلقًا يبقى Workflow الجرد/التسوية التاريخي كما هو. لا يوجد SQL أو Migration جديد في هذه الدفعة؛ Schema المطلوب سبق تطبيقه يدويًا.
+
+**الاختبارات:** فحص Syntax/Transpile للملفات TS/TSX المعدلة. فحص TypeScript الكامل يبقى محدودًا بنقص typings `node` و`vite/client` في نسخة العمل. Runtime UAT مؤجل حتى اكتمال Warehouse Context ثم فتح Feature Gate في بيئة UAT.
+
+
+## 2026-08-18 — 2B-8: Warehouse Context صريح لمرتجع المورد والاستبعاد
+
+**المشكلة:** بعد دعم نقل نفس Lot بين المخازن، يمكن أن يكون QR واحد له Balance موجب في أكثر من مستودع. مسح QR وحده في مرتجع المورد أو الاستبعاد لا يكفي لتحديد أي Aggregate Inventory يجب الخصم منه. الاختيار التلقائي كان سيخاطر بخصم مخزن خاطئ.
+
+**الحل:**
+- `client/src/pages/inventory/WarehouseReturn.tsx`: اختيار مستودع فعال أصبح إلزاميًا قبل مسح QR عند تفعيل Lots؛ يعرض المستودع المحلول مع بيانات الدفعة، ويرسل `warehouseId` عند التحقق والحفظ.
+- `server/routers/inventory/returns.router.ts` + `server/_core/db/warehouse-returns.ts`: التحقق والحفظ يعيدان حل Tracking Token داخل المستودع المحدد، مع إعادة التحقق داخل Transaction.
+- `client/src/pages/inventory/InventoryOperations.tsx`: الاستبعاد يختار مستودعًا قبل QR، والمستودع يثبت بعد إضافة أول بند.
+- `server/routers/inventory/disposal.router.ts` + `server/_core/db/warehouse-receipts.ts`: `warehouseId` مطلوب عند Feature Gate، والخادم يعيد حل QR داخل نفس المستودع ويرفض `inventoryId` قديمًا أو متلاعبًا به.
+- `server/_core/inventory-lots.ts`: resolvers الخاصة بالمرتجع والاستبعاد أصبحت Warehouse-scoped؛ QR معروف في مستودع آخر لا يُختار تلقائيًا.
+
+**التوافق:** لا SQL جديد. عندما يكون `INVENTORY_LOTS_ENABLED` مغلقًا يبقى Workflow القديم كما هو. Feature Gate يبقى OFF إلى أن ينجح UAT الشامل.
+
+**الاختبارات:** نجح Syntax/Transpile للملفات TS/TSX المعدلة. `npm run check` ما زال يتوقف قبل فحص المشروع بسبب غياب type definitions لـ`node` و`vite/client` في نسخة العمل.
+
+---
+
+## 2026-08-18 — 2B-8: إصلاح عرض QR تلقائيًا بعد اعتماد الفاتورة
+
+**الملفات:**
+- `server/_core/db/invoice-drafts.ts`
+- `server/routers/inventory/invoiceDraft.router.ts`
+- `client/src/pages/inventory/InvoiceDraftReview.tsx`
+- `docs/inventory/INVENTORY_DEVELOPMENT_PLAN_AND_CHANGE_CONTROL.md`
+- `PENDING_TASKS.md`
+
+**المشكلة:** UAT على `PR-2026-0372` أثبت أن `inventory_lots` و`inventory_lot_balances` وحركة `purchase` المرتبطة بـ`lotId` تُنشأ بنجاح، لكن مسار اعتماد الفاتورة لم يعرض QR بعد التأكيد. السبب أن `processApprovedReceiptItems()` كان ينشئ `lotCode/trackingToken` ثم لا يعيدهما، و`approveDraft` كان يعيد فقط بيانات الاستلام الأساسية ثم تنتقل الواجهة مباشرة إلى Inventory.
+
+**الحل:**
+- تجميع `lotLabels` أثناء إنشاء Receipt Lots داخل `processApprovedReceiptItems()` وإعادتها فقط عند تفعيل Lots.
+- تمرير `inventoryLotsEnabled` و`lotLabels` في استجابة `invoiceDraft.approveDraft`.
+- عرض `LotLabelsPrintScreen` مباشرة بعد نجاح اعتماد الفاتورة (وبعد محاولة طباعة سند الاستلام)، ثم الانتقال إلى Inventory عند الضغط على «تم».
+
+**القاعدة التشغيلية:** «تأكيد الاستلام» هو نفسه حدث إنشاء الـLot والـQR؛ لا يوجد زر منفصل لإنشاء QR.
+
+**لا SQL جديد.**
+
+## 2026-08-18 — 2B-8: إظهار Lots وإعادة طباعة QR من صفحة Inventory
+
+**المشكلة:** بعد نجاح UAT إنشاء Receipt Lots وظهور ملصقات QR تلقائيًا عند «تأكيد الاستلام» (`PR-2026-0373`)، كانت صفحة Inventory لا تزال تعرض فقط باركود `inventory.manufacturerBarcode` التاريخي، ولا توفر وصولًا إلى QR الخاص بالـLots المخزنة.
+
+**الحل:**
+- `server/routers/inventory/inventory.router.ts`:
+  - إضافة `lotSummaries` لجلب عدد الـLot Balances الموجبة لكل `inventoryId` في استعلام واحد.
+  - إضافة `listLots` لجلب تفاصيل الـLots ذات الرصيد الموجب لسجل Inventory المحدد مع معلومات الاستلام/الفاتورة/المورد عند توفرها.
+- `client/src/pages/inventory/Inventory.tsx`:
+  - إضافة أيقونة QR بنفسجية بجانب اسم الصنف مع عدد الـLots الموجودة في ذلك Inventory/المستودع.
+  - فتح نافذة تعرض الدفعات ورصيد كل دفعة في المستودع والمصدر.
+  - إعادة استخدام `LotLabelsPrintScreen` لعرض/طباعة QR من `trackingToken` الأصلي، بدون إنشاء Token جديد.
+  - إبقاء باركود Inventory القديم دون تغيير.
+
+**الأداء:** لا يوجد Query منفصل لكل صف؛ Counts تُجلب دفعة واحدة، والتفاصيل تُحمّل فقط عند فتح نافذة الـLots.
+
+**لا SQL جديد.**
+
+**الاختبارات:** Syntax/Transpile نجح للملفين البرمجيين المعدلين. `npm run check` ما زال يتوقف قبل فحص المشروع بسبب غياب type definitions لـ`node` و`vite/client` في نسخة العمل.
+
+---
+
+## 2026-08-18 — 2B-8: إصلاح البحث الحقيقي بـLot QR في Inventory وPurchase Cycle
+
+**المشكلة:** حقول البحث بـQR كانت تعيد استخدام فلترة Inventory القديمة. `trackingToken` الخاص بـ`inventory_lots` لا يوجد في `inventory.internalCode` أو `inventory.manufacturerBarcode`، كما أن Purchase Cycle كان يحول المسح إلى وضع البحث بالاسم؛ لذلك كان مسح QR صحيح ينتج قائمة فارغة رغم وجود Lot/Balance سليمين في قاعدة البيانات.
+
+**الحل:**
+- `server/routers/inventory/inventory.router.ts`: إضافة `resolveLotSearch` كقراءة imperative عبر tRPC؛ يقبل `trackingToken` أو `lotCode`، يحل `inventory_lots` ثم كل `inventory_lot_balances` الموجبة، ويعيد `inventoryId/warehouseId/balanceQuantity`. QR معروف بدون رصيد موجب يعطي رسالة صريحة.
+- `client/src/pages/inventory/Inventory.tsx`: وضع QR لم يعد يتحول إلى البحث بالرقم؛ نتيجة الـresolver هي التي تحدد `inventoryId` المطابق، مع احترام المستودع المختار وإظهار تنبيه إذا كانت الدفعة في مستودع آخر.
+- `client/src/pages/purchase/PurchaseCycle.tsx`: وضع QR في تبويب التسليم لم يعد يتحول إلى الاسم؛ نفس resolver يحدد سجلات Inventory المرتبطة بالـLot، بينما البحث بالاسم/الرقم التاريخي بقي مستقلًا.
+
+**السبب المعماري:** لا يتم نسخ QR إلى Inventory؛ Lot الواحد له QR مستقل، والصنف/Inventory قد يحمل عدة Lots. البحث الصحيح يجب أن يبدأ من Lot identity ثم يصل إلى الرصيد التشغيلي.
+
+**قاعدة البيانات:** لا SQL أو Migration جديد.
+
+**UAT:** مطلوب مسح Lot موجود في Inventory ثم في Purchase Cycle، وبعد ظهوره تنفيذ أول صرف إجباري بالـQR والتحقق من معادلات الأرصدة والروابط.
+
+
+---
+
+## 2026-08-18 — 2B-8: إغلاق UAT النهائي لـInventory Lots وQR Traceability
+
+**الحالة:** ✅ COMPLETE / UAT PASSED.
+
+تم تفعيل `INVENTORY_LOTS_ENABLED=true` في البيئة المحلية وإجراء UAT end-to-end على بيانات فعلية أُنشئت من واجهات النظام، ثم فحص قاعدة البيانات بعد كل حركة.
+
+### ما تم إثباته
+- Receipt Lots تُنشأ تلقائيًا عند تأكيد الاستلام، مع `lotCode` و`trackingToken` وLot Balance وحركة Purchase مرتبطة بنفس `lotId`.
+- ملصقات QR تظهر تلقائيًا بعد تأكيد الاستلام في مسار الفاتورة، والبحث بالـQR يحل `trackingToken/lotCode → Lot → Lot Balance → Inventory` في Inventory وPurchase Cycle.
+- الصرف من Purchase Cycle والصرف المباشر من Inventory يخصمان Aggregate Inventory وLot Balance و`remainingQuantity` مع `delivery_documents.lotId` و`inventory_transactions.lotId` وربط `inventoryTransactionId`.
+- التحويل ينقل نفس Lot/QR بين Inventory records ولا يغيّر `remainingQuantity`; تم التحقق من حركتي OUT/IN بنفس `lotId`.
+- مرتجع المورد والاستبعاد يخصمان من Lot/Inventory الصحيحين ويسجلان نفس `lotId`.
+- الجرد الدوري والتسوية يطبقان فرق الجرد على نفس Lot ويسجلان Adjustment مرتبطًا به.
+
+### Evidence UAT رئيسي
+- `PR-2026-0372`: إنشاء Receipt Lots/Balance/Purchase Transaction.
+- `PR-2026-0373`: إنشاء Lotين وظهور QR labels بعد «تأكيد الاستلام».
+- Lot #4 `LOT-2026-CC321AD4`: صرفان، Transfer #30001، Return `RTN-2026-30003`, Disposal `DO-2026-000002`, Count `CNT-2026-60008`, Settlement `ADJ-2026-30004`.
+- فحص سلامة الكميات النهائي: كل LOT_TOTAL/INVENTORY_TOTAL = `OK`.
+- فحص روابط الحركات النهائي: Purchase/Delivery/Return/Transfer/Disposal/Adjustment = `OK`, بدون `MISMATCH`.
+
+### قواعد تبقى بعد الإغلاق
+- `inventory.quantity = SUM(lot balances)` لكل Inventory.
+- `inventory_lots.remainingQuantity = SUM(lot balances across warehouses)` لكل Lot.
+- Weighted Average لا يتغير بسبب Lot tracking.
+- التحويل لا ينشئ Lot جديدًا ولا ينقص `remainingQuantity`.
+- FIFO/FEFO أو الصرف بدون QR مؤجل لقرار Workflow مستقل.
+- Railway يحتاج `INVENTORY_LOTS_ENABLED=true` في Service Variables عند النشر؛ `.env` المحلي لا ينتقل عبر GitHub.
+- Governance/FKs تبقى 2B-10.
+
+**SQL جديد في إغلاق UAT:** لا يوجد؛ الإغلاق اعتمد على UAT وSELECT verification فقط.
+
+---
+
+## 2026-08-18 — 2B-9 Step 1: استهلاك Catalog Taxonomy في عرض/فلترة Inventory بدون Schema جديد
+
+**الحالة:** الكود منفذ محليًا، UAT pending. هذه الدفعة لا تعني اكتمال 2B-9.
+
+### الهدف
+
+إغلاق أول جزء من الفجوة بين هوية الصنف المركزية المنجزة في 2B-7 وبين شاشة Inventory، بدون إنشاء أي Taxonomy موازية للمخزن أو تعديل مسارات 2B-8.
+
+### الكود — `server/_core/db/inventory.ts`
+
+- أضيفت `getInventoryCatalogTaxonomy()` كقراءة مستقلة فقط.
+- تقرأ `inventory.linkedItemId` ثم Catalog Item ثم `catalog_items.nodeId` وتبني مسار الآباء كاملًا من `catalog_nodes`.
+- قراءة الشجرة تتم مرة واحدة ثم تُبنى المسارات في الذاكرة مع Cache وحارس دورة، لتجنب N+1 queries.
+- لا يتم كتابة `categoryId` أو `nodeId` جديد على Inventory، ولا تعديل أي كمية/تكلفة/حركة.
+- **`getInventoryItems()` بقيت بعقدها التاريخية بدون تعديل** حتى لا تتغير تكلفة/استجابة مستهلكين آخرين مثل AI والتصدير.
+
+### الكود — `server/routers/inventory/inventory.router.ts`
+
+- أضيف Query قراءة فقط `inventory.taxonomy` تحت نفس `inventoryReadProcedure`.
+- الإجراء منفصل عن `inventory.list` عمدًا لتقليل أثر 2B-9 على المسارات القائمة.
+
+### الكود — `client/src/pages/inventory/Inventory.tsx`
+
+- تدمج الصفحة `inventory.list` مع `inventory.taxonomy` حسب `inventoryId`.
+- بعد اختيار المخزن تُشتق قائمة التصنيفات من مسارات Catalog للأصناف الموجودة فعليًا داخل ذلك المخزن؛ لا توجد قائمة تصنيفات مخزن مستقلة.
+- اختيار عقدة أب يطابق وجودها داخل `catalogCategoryPath`، وبالتالي يشمل كل descendants تلقائيًا.
+- المخزن الرئيسي يبقى عامًا. المخزن الفرعي يعرض تصنيفه الرئيسي كتوصيف فقط، ولا يمنع ظهور أصناف تصنيفات أخرى.
+- أضيف عمود «التصنيف» لمسار Catalog الكامل. السجل غير المرتبط بالكتالوج يظهر بوضوح كـ«غير مرتبط بالكتالوج» بدل تصنيف محلي مصطنع.
+- إحصاءات الصفحة تتبع فلتر التصنيف المحدد مثل بقية فلاتر المخزن.
+
+### ما لم يتغير
+
+- لا SQL / Migration / Schema.
+- لا تعديل Matching/OCR/Supplier Aliases/Candidates/Publication.
+- لا تعديل Receipt/Lot/QR/Issue/Return/Transfer/Disposal/Count/Settlement من 2B-8.
+- `categoryMismatch` في التحويل يبقى Warning وليس Block.
+- `itemType` التاريخي لم يُحذف أو يُعاد تعريفه.
+
+### الخطوة التالية
+
+الجرد حسب Catalog subtree يحتاج إنفاذ النطاق على الخادم طوال حياة عملية الجرد. القرار المفتوح هو حفظ `catalogNodeId` كنطاق تاريخي على `inventory_count_operations`; هذا Schema change لم يُنفذ ضمن Step 1 ويحتاج موافقة صريحة ثم SQL أمرًا واحدًا في كل مرة.
+
+### التحقق المحلي
+
+- نجح TypeScript `transpileModule` للملفات البرمجية الثلاثة المعدلة بدون أخطاء Syntax/Transform.
+- لم يُنفذ UAT/DB runtime في نسخة العمل الحالية.
+## 2026-08-18 — 2B-9 Step 2: جرد Lot/QR حسب Catalog subtree مع إنفاذ Server-side
+
+**الحالة:** منفذ محليًا + DB column applied manually (`Query OK`); UAT pending. لا يعني اكتمال 2B-9.
+
+### DB
+- تم تنفيذ يدويًا: `ALTER TABLE inventory_count_operations ADD COLUMN catalogNodeId INT NULL AFTER countType;`
+- تم تحديث `drizzle/schema.ts` وإضافة migration توثيقية للحالة. لا FK ضمن هذه المرحلة.
+
+### Backend
+- `createOperation` يقبل `catalogNodeId` اختياريًا للجرد الدوري فقط.
+- Category scope يُحفظ على رأس العملية ويُعامل كـpartial warehouse scope، مع Snapshot مسبق لكل Lot موجب داخل Catalog subtree المختار.
+- `scanCountLot()` يفرض النطاق من الخادم بعد حل Lot داخل مخزن العملية؛ QR خارج النطاق يرفض برمز `COUNT_LOT_OUTSIDE_CATEGORY_SCOPE`.
+- قائمة/تفاصيل عمليات الجرد ترجع اسم Catalog node المحفوظ لعرض النطاق تاريخيًا.
+
+### Frontend / i18n
+- Lot count scope: كل المخزن / تصنيف محدد + descendants / جزئي يدوي بالـQR.
+- قائمة التصنيفات مشتقة من `inventory.taxonomy` المنفذ في Step 1؛ لا Warehouse taxonomy مستقل.
+- رسالة QR خارج التصنيف أضيفت للعربية والإنجليزية والأردية وتُعرض حسب لغة المستخدم.
+
+### Safety / regression
+- لا تعديل على Inventory/Lot quantities عند المسح؛ المسح يضيف/يحدد Count Item فقط كما في 2B-8.
+- لا تغيير في Opening Balance أو التسوية أو Matching أو transfer warning.
+- Syntax/transpile check مطلوب/موثق في التسليم، وUAT الفعلي ما زال مطلوبًا.
+
+## 2026-08-18 — 2B-9 Step 2.1: شجرة Catalog منبثقة لاختيار نطاق الجرد بأي مستوى
+
+**الحالة:** منفذ محليًا؛ لا Schema/SQL جديد؛ UAT واجهة مطلوب.
+
+### Frontend
+- استبدال قائمة تصنيفات الجرد المسطحة في `InventoryOperations.tsx` بشجرة منبثقة مبنية من `catalog.nodes.list`.
+- الشجرة هي نفس `catalog_nodes` وليست Taxonomy خاصة بالمخزن.
+- أي عقدة قابلة للاختيار، بما فيها العقد الأب؛ اختيار العقدة يعني `node + all descendants` كما يطبقه Backend الموجود من Step 2.
+- دعم فتح/طي الفروع والبحث بالاسم/الكود وعرض مسار العقدة المختارة.
+- لم يعد اختيار نطاق الجرد مقيدًا فقط بالتصنيفات المستخرجة من أرصدة المخزن في Dropdown؛ إذا اختير فرع لا توجد له Lots في المخزن، يبقى Backend هو المرجع ويعيد خطأ عدم وجود دفعات مطابقة بدل إنشاء جرد فارغ.
+
+### UAT المنفذ قبل هذا التعديل
+- `مخزن الدهانات + مواد الدهانات`: Lot الدهان ظهر وعدّ بنجاح.
+- QR لصنف `مواد/أدوات تركيب` داخل نفس المخزن رُفض Server-side أثناء جرد مواد الدهانات مع الرسالة العربية الصحيحة.
+- جرد `مواد/أدوات تركيب` داخل مخزن الدهانات قبل نفس الصنف بنجاح، مثبتًا أن تصنيف المخزن الرئيسي ليس قيد محتوى/جرد.
+
+### Safety
+- لا تعديل Backend أو Schema أو Lot quantities في Step 2.1.
+- نجح TypeScript transpile لملف `InventoryOperations.tsx`.
+
+
+---
+
+## 2026-08-19 — 2B-9 Step 2.1 UAT: Catalog tree picker + تثبيت قائمة الإغلاق
+
+**الحالة:** ✅ UAT أساسي للشجرة Passed بالعربية / 🟡 2B-9 ما زالت IN PROGRESS.
+
+### UAT الفعلي
+- شاشة `بدء جرد جديد → تصنيف محدد` عرضت شجرة `catalog_nodes` المنبثقة فعليًا.
+- تم فتح الفروع واختيار عقدة عميقة بأي مستوى، مع ظهور مسار Catalog الكامل في الاختيار.
+- اختيار نطاق موجود فعليًا عمل مع منطق `selected node + descendants` الذي يفرضه Backend.
+- اختيار `مواد الدهانات → PRIMER/PUTTY` في المخزن الرئيسي، مع عدم وجود Lots مطابقة، لم ينشئ جردًا فارغًا وأظهر رسالة `لا توجد دفعات ذات رصيد مطابق لنطاق الجرد المحدد`.
+- UAT السابق لهذه الدفعة أثبت أيضًا: رفض QR خارج Catalog scope Server-side برسالة عربية صحيحة، وقبول نفس الصنف عند إنشاء جرد بنطاق تصنيفه الحقيقي داخل مخزن فرعي تخصصه مختلف.
+
+### ما لم يُعلن Passed بعد
+- البحث داخل الشجرة بالاسم/الكود لم يُسجل UAT مستقل.
+- رسالة out-of-scope بالإنجليزية والأردية لم تُختبر فعليًا بعد.
+- لم يُنفذ بعد Category-scoped count بفرق غير صفري وصولًا إلى Settlement وفحص invariants النهائي.
+- لم يُنفذ Regression مسجل بعد للجرد الكامل والجرد الجزئي اليدوي بالـQR بعد Step 2/2.1.
+- Step 1 Inventory taxonomy display/filter ما زال يحتاج UAT فعليًا.
+
+### ملاحظة سلامة البيانات
+خلال تجهيز UAT ظهرت خمسة صفوف Inventory قديمة/اختبارية فيها Aggregate quantity = 0 مع Lot Balances موجبة، مع وجود حركات `delivery` بلا `lotId`. لم يتم إجراء أي UPDATE أو backfill عليها لتجنب كسر Traceability أو فتح سلسلة إصلاحات غير معتمدة. بعد Restart للسيرفر مع `INVENTORY_LOTS_ENABLED=true`، Lots الجديدة المستخدمة في UAT 2B-9 (بما فيها Lot الدهان وLot الأدوات) حافظت على تطابق Inventory/Lot Balance/Lot Remaining والتحويل الصحيح بين المخازن.
+
+### قرار الإغلاق
+لا تُغيّر حالة 2B-9 إلى `COMPLETE / UAT PASSED` إلا بعد إكمال: Inventory Step 1 UAT، Tree search UAT، English/Urdu message UAT، Category settlement بفرق فعلي، Regression للجرد الكامل/الجزئي، ثم فحص سلامة نهائي للكميات/العلاقات.
+
+## 2026-08-19 — 2B-9 Step 1.1: Inventory Catalog Tree Filter
+
+- `client/src/pages/inventory/Inventory.tsx`: استبدال Dropdown التصنيف المسطح بشجرة `catalog_nodes` منبثقة بنفس نمط شجرة نطاق الجرد.
+- الشجرة تدعم فتح/طي الفروع، البحث بالاسم/الكود، واختيار أي عقدة بأي مستوى.
+- اختيار عقدة يفلتر أصناف المخزن حسب وجودها في `catalogCategoryPath`، وبالتالي يشمل العقدة وكل descendants بدون إنشاء تصنيف مخزني مستقل.
+- مصدر الشجرة `catalog.nodes.list({ isActive: true })`، مع بقاء `inventory.taxonomy` مصدر مسار تصنيف كل Inventory.
+- `warehouse.catalogNodeId` يظهر كتوصيف للتصنيف الرئيسي للمخزن الفرعي فقط، وليس قيدًا على المحتوى.
+- لا Schema/SQL، ولا تغيير في Lot/QR أو الجرد/التسوية أو الاستلام/التحويل.
+- TypeScript syntax/transpile check: PASS. UAT واجهة Inventory الجديدة: ✅ PASSED بالعربية في 2026-08-19.
+
+
+## 2026-08-19 — 2B-9 Step 2.2: شريط تمرير جانبي دائم لشجرة نطاق الجرد
+
+- `client/src/pages/inventory/InventoryOperations.tsx`: استبدال حاوية الشجرة ذات `overflow-y-auto` بمكوّن `ScrollArea` الموجود في المشروع.
+- ضبط `type="always"` لإظهار شريط تمرير جانبي واضح دائمًا داخل القائمة الطويلة، قابل للسحب، مع دعم عجلة الماوس واللمس.
+- لا تغيير في Catalog taxonomy أو اختيار العقدة أو descendants أو منطق الجرد Server-side.
+- لا Schema/SQL ولا تعديل Lots/QR/التسوية.
+- TypeScript syntax/transpile check: PASS. UAT الواجهة: PENDING.
+
+## 2026-08-19 — 2B-9 Step 2.3: Custom Count Tree Scrollbar
+
+- UAT لـStep 2.2 كشف أن `ScrollArea type=always` لم يظهر scrollbar بصريًا في متصفح المستخدم؛ لا يُعد هذا السلوك Passed.
+- `client/src/pages/inventory/InventoryOperations.tsx`: استبدال scrollbar المعتمد على المتصفح بمسار ثابت مخصص داخل شجرة نطاق الجرد مع Thumb قابل للسحب والنقر على Track.
+- wheel/touch ما زالا يعملان على محتوى الشجرة.
+- UI-only؛ لا Backend/Schema/SQL ولا تغيير في Catalog subtree semantics أو Lot/QR.
+- UAT بعد التركيب: ✅ PASSED — المستخدم أكد أن الشريط المخصص ظاهر ويعمل فعليًا.
+
+
+
+## 2026-08-19 — InventoryOperations Table Header/Cell Alignment Fix
+
+- `client/src/pages/inventory/InventoryOperations.tsx`: توحيد محاذاة خلايا وترويسات جداول الجرد والاستبعاد.
+- جدول الجرد: الأعمدة الرقمية/الفرق/قيمة الفرق/الدفعة/الإجراء أصبحت `text-center` في Header وBody؛ الصنف والملاحظة `text-right`؛ الخلايا `align-middle`.
+- قائمة عمليات الاستبعاد: عدد الأصناف/إجمالي الكمية/إجمالي القيمة/الحالة/الإجراء أصبحت محاذاتها متطابقة بين Header وBody، مع إبقاء رقم العملية/التاريخ/المنفذ RTL يمين.
+- تفاصيل الاستبعاد: الكمية/السبب/القيمة أصبحت centered في Header وBody؛ الصنف RTL يمين.
+- UI-only؛ لا Backend/Schema/SQL ولا تغيير Workflow/Lot/QR.
+- TypeScript syntax/transpile check: PASS. UAT بصري: PENDING.
+
+
+## 2026-08-19 — Inventory 2B-9 Step 2.4 — Manual Lot Count + persistent tree scrollbar
+
+- `client/src/pages/inventory/InventoryOperations.tsx`
+  - أضيف زر `إدخال يدوي` لكل Lot في الجرد الدوري الجاري.
+  - نافذة العد تميّز الإدخال اليدوي وتوضح أن الخادم سيعيد التحقق قبل الحفظ.
+  - مسار QR بقي بدون تغيير.
+  - شريط شجرة Catalog أصبح في gutter مستقل ثابت (`20px`) لتفادي Regression اختفائه بعد دمج تعديلات الجدول.
+  - احتُفظ بإصلاح محاذاة Header/Body للجرد والاستبعاد داخل نفس النسخة التراكمية.
+- `server/routers/inventory/inventoryCount.router.ts`
+  - `recordItem` يقبل `entryMode` اختياريًا (`qr`/`manual`) ويحافظ على ترجمة كود خطأ نطاق التصنيف.
+- `server/_core/db/invoice-drafts.ts`
+  - `recordCountItem` في manual mode يتحقق Server-side من Warehouse، Count Item، Lot/Inventory relation، Catalog identity، وCatalog scope قبل تسجيل الكمية.
+  - لا Aggregate-only ولا تعديل رصيد عند العد.
+- `client/src/i18n/{ar,en,ur}.ts`
+  - نصوص الإدخال اليدوي ورسالة النجاح باللغات الثلاث.
+- لا Schema/SQL جديد.
+- Static TypeScript transpile: PASS. Runtime UAT pending.
+
+## 2026-08-19 — 2B-9 FINAL CLOSURE — Catalog Taxonomy ↔ Warehouse Taxonomy
+
+**الحالة:** ✅ **COMPLETE / UAT PASSED**.
+
+### ما تم إغلاقه
+- `catalog_nodes` هي Taxonomy الوحيدة للكتالوج والمخزون؛ لا `inventory.categoryId` ولا Warehouse category tree موازية.
+- Inventory يستهلك تصنيف Catalog عبر `linkedItemId → catalog_items.nodeId → catalog_nodes`, مع عرض المسار وفلترة شجرة Catalog بأي مستوى.
+- `warehouses.catalogNodeId` في المخزن الفرعي توصيف للتخصص الرئيسي فقط، وليس قيدًا على الأصناف الفعلية.
+- الجرد الدوري يدعم: كل المخزن / Catalog subtree محدد / جزئي يدوي بالـQR.
+- Category scope محفوظ في `inventory_count_operations.catalogNodeId` ومفروض Server-side على QR/Lot.
+- الإدخال اليدوي للجرد Per-Lot فقط، مع إعادة تحقق Server-side من Warehouse/Lot/Inventory/Catalog/scope.
+- Custom Catalog tree scrollbar النهائي Passed.
+
+### UAT النهائي
+- **Category scope + out-of-scope rejection:** Passed بالعربية.
+- **Cross-category subwarehouse count:** Passed.
+- **Inventory Catalog tree/filter:** Passed.
+- **Tree search:** البحث عن `JOTUN` ثم اختيار `مواد الدهانات → دهانات أساسية → JOTUN` Passed.
+- **Full count regression:** `CNT-2026-60024` — 8 Lots في المخزن الرئيسي، بدون قيد Catalog. Passed.
+- **Manual partial QR regression:** `CNT-2026-60025` — Lot #9 أضيف بالـQR وعدّ `3` مقابل System `3`, Diff `0`. Passed.
+- **Manual Per-Lot entry:** Passed.
+- **Real-difference settlement:**
+  - Count `CNT-2026-60023`, Main Warehouse + `JOTUN`.
+  - Lot #9 `LOT-2026-DD6F05FB`.
+  - System `2.000`, Counted `3.000`, Diff `+1.000`.
+  - Settlement `ADJ-2026-30005`.
+  - Post-settlement: Main Inventory `3`, Main Lot Balance `3`, Paint Lot Balance `2`, Lot Remaining `5`.
+  - Adjustment transaction `450372`: `adjustment / in / 1.000 / lotId=9`.
+  - Passed.
+
+### سلامة البيانات
+- فحص Lots النهائي: Lots #1..#9 كلها `OK` بالنسبة للمعادلة `remainingQuantity = SUM(lot balances)`.
+- بيانات JOTUN الجديدة حققت أيضًا تطابق Aggregate Inventory مع Lot Balance في المخزنين.
+- الفحص العام كشف 7 Inventory mismatches قديمة/اختبارية. تم إثبات حالتي `210193` و`210194` كحركات `delivery` من النسخة السحابية القديمة بلا `lotId`; لم يتم أي UPDATE/backfill لها ضمن 2B-9.
+
+### Localization
+- كود `COUNT_LOT_OUTSIDE_CATEGORY_SCOPE` ورسائله موجود بالعربية/English/Urdu.
+- Runtime العربي تم اختباره فعليًا وPassed.
+- لم يُسجل تبديل Runtime مستقل إلى English/Urdu في جلسة الإغلاق؛ هذا Spot-check localization غير حاجب بعد اعتماد إغلاق 2B-9.
+
+### حدود الإغلاق
+- لا تغيير FIFO/FEFO.
+- لا صرف Aggregate-only بدون Lot.
+- لا تحويل `categoryMismatch` إلى Block.
+- لا Broad FKs/Governance ضمن 2B-9.
+- **2B-10 لم يبدأ** ويحتاج موافقة صريحة قبل أي تعديل Workflow/Schema/Security.
+
+## 2026-08-19 — 2B-10-1 FINAL CLOSURE — Catalog Governance / Permissions
+
+**الحالة:** ✅ **COMPLETE / UAT PASSED**.
+
+**الملفات البرمجية للخطوة:**
+- `shared/roles.ts`
+- `server/routers/_shared/procedures.ts`
+- `server/routers/catalog/catalog.router.ts`
+- `server/routers/catalog/catalogImportExport.router.ts`
+- `server/routers/uploads/attachments.access.ts`
+- `client/src/components/layout/DashboardLayout.tsx`
+- `client/src/pages/catalog/CatalogDashboard.tsx`
+- `client/src/components/catalog/{ItemsManager,TaxonomyManager,UnitsManager}.tsx`
+- `server/tests/splitMaintenanceRoles.test.ts`
+
+### السياسة النهائية المعتمدة
+- `owner/admin`: كامل Catalog.
+- `construction_procurement_manager`: الأصناف/التصنيفات عرض+إضافة+تعديل؛ الوحدات عرض+إضافة+تعديل فقط؛ الموردون وCatalog Candidates كامل الصلاحية؛ بدون Settings/Import/Export/Delete للأصناف/التصنيفات/الوحدات.
+- بقية الأدوار: لا دخول لوحدة `/catalog` ولا Catalog mutations.
+- القراءة المرجعية اللازمة داخل PO/Receipt/Warehouse/Inventory بقيت كما هي عبر `catalogReadProcedure` حتى لا يتغير الـWorkflow التشغيلي.
+
+### الحماية المنفذة
+- Backend authorization مستقل عن إخفاء عناصر الواجهة.
+- `catalogAdminProcedure` للإجراءات الإدارية المقيدة.
+- منع مدير الإنشاءات من استخدام `isActive` كمسار التفافي لتعطيل الأصناف/التصنيفات.
+- تقييد كتابة مرفقات `catalog_item`.
+- تقييد Route/Sidebar وإخفاء Settings/Import/Export/Delete حسب الدور.
+
+### UAT
+- صاحب المشروع أكد أن الصلاحيات تعمل حسب الخطة. ✅
+- سلوك حذف المورد تم اختباره واعتماد بقائه **Soft Delete / Deactivation** مع حفظ السجل والعلاقات التاريخية. ✅
+- أكواد Catalog Item النشطة التي ظهر فيها تكرار تم تصحيحها يدويًا، وإعادة الفحص النهائية أعادت `empty set`. ✅
+
+### DB / Workflow
+- لا Schema.
+- لا SQL.
+- لا Migration.
+- لا تعديل بيانات ضمن تنفيذ الصلاحيات.
+- لا تغيير في Workflow الشراء/الاستلام/المخزون.
+
+### بند منفصل مؤجل
+أثناء UAT ظهر `PR-2026-0378` بحالة Parent PO غير متسقة (`pending_management`) رغم اعتماد Batch/Item والإدارة. المقارنة مع `PR-2026-0379` السليم وعدم وجود DB Trigger يدعمان اشتباه Race Condition بين اعتماد الحسابات والإدارة. **هذا البند مؤجل وخارج نطاق 2B-10-1.**
+
+### مرجع الإغلاق
+`docs/CMMS_2B10_1_CATALOG_PERMISSIONS_UAT_CLOSURE_2026-08-19.md`
+
+
+## 2026-08-19 — 2B-10-2A — Catalog Audit Trail — ✅ COMPLETE / UAT PASSED
+
+- `server/_core/catalog-audit.ts`: إضافة helpers لبناء snapshot القيم السابقة وتسلسل JSON المتوافق مع `catalog_audit_logs` الحي.
+- `server/routers/catalog/catalog.router.ts`:
+  - Items / Nodes / Units / Suppliers: Audit لـCreate/Update/Soft Delete داخل نفس Transaction.
+  - Update يحفظ `oldValues` و`newValues` للحقول المعدلة.
+  - Soft Delete يبقي `action=delete` للتوافق، مع `isActive` قبل/بعد.
+  - Units أصبح لها Audit كامل.
+  - Item/Supplier Candidate audit لم يعد best-effort؛ أصبح جزءًا من Transaction.
+  - اعتماد Candidate كMaster جديد يكتب أيضًا `create` مستقل للـItem/Supplier الناتج.
+  - إضافة `catalog.audit.list` لـOwner/Admin فقط لقراءة `catalog_audit_logs`.
+- `client/src/pages/admin/AuditLog.tsx`:
+  - دمج سجلات `audit_logs` و`catalog_audit_logs` في شاشة واحدة.
+  - دعم TEXT JSON في Catalog Audit وعرض old/new values.
+  - Catalog Audit مقيد في الواجهة لـOwner/Admin، مع Backend authorization مستقل.
+- `server/tests/catalogAuditGovernance.test.ts`: تغطية helpers الجديدة.
+- لا DB Schema / SQL / Migration / Backfill.
+- لا تعديل لسلوك Supplier Soft Delete المعتمد.
+- لا بدء لـ2B-10-2B/2C.
+- Static TS syntax/transpile: PASS؛ runtime helper checks: PASS؛ Full dependency-based check لم يُنفذ لأن `node_modules` غير موجودة في النسخة المرفوعة ومحاولة التثبيت لم تكتمل ضمن بيئة الفحص.
+- المرجع: `docs/CMMS_2B10_2A_CATALOG_AUDIT_TRAIL_IMPLEMENTATION_2026-08-19.md`.
+
+- UAT follow-up: إصلاح `SuppliersManager.tsx` لتحويل `isManufacturer` من قيمة DB الرقمية `0/1` إلى Boolean عند فتح نموذج تعديل المورد؛ لا DB/Schema/Workflow change.
+- UAT Live DB: Items `1140011`, Node `540001`, Unit `150001`, Supplier `30003` نجحت في Create/Update/Deactivate مع old/new values حسب العملية.
+- Catalog Item Candidate `#8` -> Item `1140012`: approve + Master create = PASS.
+- Supplier Candidate `#2` (من `PR-2026-0381`) -> Supplier `30004`: approve + Master create = PASS.
+- Supplier Update أعيد اختباره بعد Boolean normalization ونجح.
+- `/audit-log` role-view Runtime spot-check لم ينفذ مستقلاً في الجلسة؛ Backend/UI authorization موجود ويظل spot-check غير حاجب بعد اعتماد المستخدم للإغلاق.
+- **Exact stop:** BEFORE `2B-10-2B — Catalog Relationship & Inactive Data Protection`.
+- مرجع الإغلاق: `docs/CMMS_2B10_2A_CATALOG_AUDIT_TRAIL_UAT_CLOSURE_2026-08-19.md`.
+
+## 2026-08-19 — 2B-10-2B — Catalog Relationship & Inactive Data Protection — ✅ COMPLETE / UAT PASSED
+
+### المبدأ
+- العلاقات الجديدة مع Catalog Master تتطلب Master نشطاً.
+- العلاقة التاريخية نفسها تبقى قابلة للاستمرار إذا تعطّل الـMaster لاحقاً.
+- لا Backfill / SQL / Migration / FK / UNIQUE ولا إعادة كتابة بيانات قديمة.
+
+### التنفيذ
+- `server/_core/db/purchase.ts`: إضافة `getActiveCatalogItemIds()` مع الإبقاء على فحص الوجود المنفصل للعلاقات التاريخية.
+- `server/routers/purchase/purchase-orders.router.ts`:
+  - Create/Save Draft: Catalog Item الجديد يجب أن يكون Active.
+  - Update Draft: نفس الرابط التاريخي مسموح بعد Deactivation؛ الرابط المضاف/المبدّل يجب أن يكون Active.
+  - فحص العلاقة يسبق أي كتابة على المسودة.
+- `server/routers/inventory/receipts.v2.router.ts`:
+  - رفض Catalog Item مفقود دائماً.
+  - رفض أي Receipt link جديد إلى Item معطّل.
+  - السماح باستمرار نفس هوية PO التاريخية إذا تعطّل Item لاحقاً.
+  - عدم إنشاء/إعادة تنشيط Supplier Item Alias عند هذا الاستمرار التاريخي إلى Item معطّل.
+- `server/routers/catalog/catalog.router.ts`:
+  - `assertActiveCatalogNodePath()` لإنشاء Node/Item جديد فقط تحت مسار Taxonomy نشط بالكامل.
+  - Candidate approval يستخدم نفس حماية المسار.
+  - Candidate تاريخي مع Supplier معطّل يمكن حسمه، لكن لا يُنشأ Supplier-Item Alias جديد للمورد المعطّل.
+- Units بقيت text snapshot وليست hard relationship؛ لا تحويل ضمن هذه المرحلة إلى `unitId` أو قيد صلب يغيّر Workflow الحالي.
+- Suppliers Soft Delete بقي كما هو؛ حمايات Active في Receipt/Candidate linking كانت موجودة ولم تُغيّر.
+
+### Verification
+- TypeScript syntax/transpile للملفات المعدلة: PASS.
+- Source regression assertions: PASS.
+- Vitest/Full tsc لم يُشغلا لعدم توفر dependency toolchain الكامل في النسخة المرفوعة.
+
+### المرجع
+`docs/CMMS_2B10_2B_CATALOG_RELATIONSHIP_INACTIVE_PROTECTION_IMPLEMENTATION_2026-08-19.md`
+
+**الحالة:** ✅ COMPLETE / UAT PASSED.  
+**Exact stop:** BEFORE 2B-10-2C — Integrity Rules, UAT & Closure.
+
+- 2B-10-2B UAT refinement: Catalog Items المعطلة تبقى ظاهرة لـOwner/Admin داخل إدارة الكتالوج مع علامة «معطّل»، مع بقاء القراءات التشغيلية Active-only.
+- `catalog.items.list` يدعم `includeInactive` محمياً من Backend لـOwner/Admin فقط؛ زر «حذف» أصبح «تعطيل» ولا يظهر للصنف المعطّل.
+- لا DB/Schema/Migration/Data change.
+
+- 2B-10-2B UAT refinement: إضافة **إعادة تفعيل Catalog Item** للـOwner/Admin من شاشة الكتالوج؛ نفس الهوية تعود Active، مع Audit `isActive: false -> true` داخل Transaction.
+- Backend يمنع Deactivate مكرر للصنف المعطّل، ويمنع Reactivate إذا كان مسار Taxonomy للصنف غير نشط.
+- لا DB/Schema/Migration/Backfill change.
+
+- 2B-10-2B UAT refinement: التصنيفات `catalog_nodes` المعطلة تبقى ظاهرة لـOwner/Admin داخل إدارة Taxonomy بعلامة «معطّل»؛ زر «حذف» أصبح «تعطيل».
+- إضافة `catalog.nodes.reactivate` لإعادة تفعيل نفس Node identity مع Audit `isActive: false -> true` داخل Transaction، مع اشتراط أن يكون parent/ancestor path نشطاً.
+- Backend يمنع Deactivate مكرر للتصنيف المعطّل وReactivate مكرر للتصنيف النشط؛ الواجهة لا تعرض إضافة فرع تحت Node معطّل.
+- لا DB/Schema/Migration/Backfill change.
+
+- 2B-10-2B UAT refinement: **Catalog Units Governance** — الوحدة المعطّلة تبقى ظاهرة لـOwner/Admin بعلامة «معطّل» ويمكن إعادة تفعيل نفس الهوية مع Audit `false -> true`.
+- كل قوائم `catalog.units.list` التشغيلية تبقى Active-only؛ الوحدة المعطّلة تختفي من Catalog Item/Candidate/PO/Inventory choices وتعود تلقائياً بعد Reactivation.
+- إضافة Backend guards لمنع الاستخدام الجديد لوحدة Catalog معطّلة في PO وInventory اليدوي، وحماية Catalog Item create/update من ربط Unit غير موجودة/Inactive، مع الحفاظ على القيم التاريخية دون Backfill.
+- إضافة `server/_core/catalog-unit-governance.ts`; لا DB/Schema/Migration/Data rewrite.
+
+
+### 2B-10-2B UAT closure — 2026-08-19
+
+- `PR-2026-0382`: إنشاء PO بصنف Catalog نشط = PASS، والعلاقة القائمة بقيت محفوظة بعد تغير حالة الـMaster.
+- Catalog Item `910001` / `1140006`: Soft Deactivate = PASS؛ اختفى من PO الجديدة أثناء التعطيل؛ Reactivate أعاد نفس الهوية للظهور؛ Live DB `isActive=1` بعد الإعادة؛ Audit `false -> true` = PASS.
+- `PR-2026-0384`: أُنشئ والصنف `910001` Active ثم عُطّل؛ PO بقي مرتبطاً بـ`catalogItemId=1140006`; Warehouse Receipt `420127` / Receipt Item `240168` أكمل بنفس الهوية والصنف Inactive = PASS.
+- Node `1051` / `540002`: Soft Deactivate + Reactivate + Audit `true -> false -> true` = PASS.
+- Unit `م3 / M3` / `60001`: `PR-2026-0383` احتفظ بالقيمة التاريخية؛ الوحدة اختفت من PO الجديدة أثناء `isActive=0` وعادت بعد Reactivate؛ Audit = PASS.
+- Supplier `30003` (`RED  MAN`): اختفى من الاختيارات الجديدة أثناء التعطيل، وعاد بعد Reactivate؛ Audit = PASS.
+- Taxonomy Runtime spot-check مستقل لمحاولة إنشاء Item/Child تحت Node معطّل لم يُسجّل في الجلسة؛ Backend/UI guards موجودة، والبند موثق non-blocking بعد اعتماد المستخدم للإغلاق.
+- لا SQL / Migration / Schema change / FK / UNIQUE / Backfill / historical rewrite.
+- مرجع الإغلاق: `docs/CMMS_2B10_2B_CATALOG_RELATIONSHIP_INACTIVE_PROTECTION_UAT_CLOSURE_2026-08-19.md`.
+- **Final status: ✅ COMPLETE / UAT PASSED.**
+- **Exact stop: BEFORE 2B-10-2C — Integrity Rules, UAT & Closure.**
+
+## 2026-08-19 — 2B-10-2C — Deferral Decision (Documentation Only)
+
+- بقرار صاحب المشروع، تم تأجيل **2B-10-2C — Integrity Rules, UAT & Closure** إلى **Final Project Hardening / Closure** بدل تنفيذها الآن.
+- حالة 2B-10 الحالية: التنفيذ مكتمل حتى **2B-10-2B**؛ الإغلاق النهائي للـIntegrity مؤجل، لذلك لا تُعد 2B-10 Final Closed بعد.
+- السبب: إعادة تقييم FK / UNIQUE / hard constraints بعد استقرار بقية المشروع والعلاقات النهائية يقلل مخاطر فرض قيود مبكرة أو الحاجة لتغيير التاريخ.
+- عند العودة إلى 2B-10-2C يجب إعادة فحص Live DB، فصل future protection عن legacy issues، ثم اعتماد النطاق صراحةً قبل التنفيذ.
+- **لا Code / DB / Schema / Migration / FK / UNIQUE / Backfill / Workflow change في هذا القرار.**
+- البنود المؤجلة الأخرى مثل duplicate PO numbers و`PR-2026-0378` تبقى خارج هذا القرار كما هي.
+- المرجع: `docs/CMMS_2B10_2C_DEFERRAL_DECISION_2026-08-19.md`.
+
+## 2026-08-20 — Main Phase 3 / Step 1 — Inventory Count Opening Snapshot
+
+- Live DB: إنشاء `inventory_count_snapshots` والتحقق من `SHOW CREATE TABLE`.
+- Snapshot يحفظ `systemQuantity DECIMAL(12,3)` و`averageCostSnapshot DECIMAL(12,4)` لكل Inventory/Lot داخل نطاق الجرد الدوري لحظة الفتح.
+- الجرد الجزئي QR يحتفظ بواجهة فارغة، لكن Snapshot تُلتقط قبل العودة للواجهة؛ المسح اللاحق يستخدم Snapshot بدل الرصيد الحالي.
+- Lot دخل بعد فتح الجرد يُرفض برمز `COUNT_LOT_NOT_IN_OPENING_SNAPSHOT`; المسار القديم بدون Lots له حماية مماثلة.
+- حذف مسودة الجرد ينظف Snapshot التابعة لها.
+- لا تغيير في معادلة Moving Weighted Average؛ المرجع المجمد هو `inventory.averageCost` الفعلي وقت الفتح.
+- لا تنفيذ للخطوة 2 (قيمة الفرق/التقارير) ولا تطوير Settlement ضمن هذا التغيير.
+- TypeScript syntax/transpile: PASS؛ Source regression assertions: PASS؛ Full Vitest/full-project tsc غير مُدعى بسبب غياب `node_modules` الكامل.
+- المرجع: `docs/CMMS_PHASE3_STEP1_INVENTORY_COUNT_OPENING_SNAPSHOT_IMPLEMENTATION_2026-08-20.md`.
+
+---
+
+## 2026-08-20 — Receipt Inventory Identity Future Guard (Phase 2 deferred architecture follow-up)
+
+**الاكتشاف أثناء Phase 3 Step 1:** استلام `PR-2026-0387` للصنف Catalog `960014` في Warehouse `1` أنشأ Inventory `210222` بدل تحديث Inventory القائم `210200`، فأصبح لنفس Catalog Item + Warehouse سجلان منفصلان وتعطل اختبار Moving Weighted Average على الرصيد القائم.
+
+**السبب:** `processReceiptItem()` كان يعتمد على `inventoryId` القادم من العميل؛ عند غيابه ينشئ Inventory جديدًا دون lookup بـ`linkedItemId + warehouseId`.
+
+**الإصلاح:**
+- `server/_core/db/inventory.ts`: إضافة `getInventoryMatchesByCatalogItemAndWarehouse()` (بحد أقصى صفين لكشف Legacy ambiguity).
+- `server/routers/inventory/receipts.v2.router.ts`: عند غياب `inventoryId` ووجود Catalog identity، إعادة استخدام السجل الوحيد لنفس Catalog Item + Warehouse؛ إن وجد أكثر من سجل يرفض إنشاء سجل ثالث.
+- `server/_core/db/invoice-drafts.ts`: تطبيق نفس الحماية على Approved Receipt Drafts؛ المسار التاريخي يبقى Warehouse `1` كما كان.
+- `server/tests/receiptInventoryIdentityGovernance.test.ts`: Regression assertions للحماية وعدم الدمج التاريخي.
+
+**عدم التأثير التاريخي:** لا Merge/Delete/Backfill للسجلات القديمة، لا SQL/Migration/FK/UNIQUE، ولا إعادة كتابة Lots/Transactions/Costs السابقة.
+
+**الحالة:** IMPLEMENTED / RUNTIME UAT PASSED — تم إثبات إعادة استخدام Inventory `210211` في `PR-2026-0389` وحساب averageCost=`10.0000` مع بقاء Snapshot الجرد القديمة ثابتة.
+
+## 2026-08-20 — Main Phase 3 / Step 1 — Runtime UAT Closure
+
+- `CNT-2026-60028` / operation `60028`: تم إنشاء 13 Opening Snapshot بنفس وقت الفتح.
+- Quantity stability PASS: Inventory `210214` / Lot `13` بقي `snapshotQuantity=1.000` بعد `DLV-2026-300181` الذي جعل Current Lot Quantity=`0.000`.
+- Cost stability PASS: `PR-2026-0389` على Inventory `210211` غيّر Current quantity `2→3` وCurrent averageCost `5→10` بعد استلام `1×20`, بينما بقي `snapshotQuantity=2.000` و`averageCostSnapshot=5.0000`.
+- **Step 1 = COMPLETE / RUNTIME UAT PASSED.**
+- المرجع: `docs/CMMS_PHASE3_STEP1_INVENTORY_COUNT_OPENING_SNAPSHOT_UAT_CLOSURE_2026-08-20.md`.
+
+## 2026-08-20 — Main Phase 3 / Step 2 — Snapshot-based Count Results & Reports
+
+- Backend count details يربط كل Count Item مع Opening Snapshot ويعيد `averageCostSnapshot`, `systemValueSnapshot`, `countedValueAtSnapshotCost`, `diffValue`.
+- `diffValue = diffQuantity × averageCostSnapshot`; لا fallback إلى Current `inventory.averageCost` عند غياب Snapshot تاريخية.
+- شاشة الجرد تعرض متوسط التكلفة وقت الفتح وقيمة الفرق، وتحسب إجمالي النقص/الزيادة/الصافي من `diffValue` فقط.
+- وثيقة طباعة الجرد تعرض نفس Snapshot valuation وتحذّر من البنود القديمة غير القابلة للتقييم بدل إعطاء قيمة مضللة.
+- `getCountDiscrepancies()` يعيد نفس حقول Snapshot valuation لمسار التسوية دون تغيير Settlement نفسه.
+- Record Count / Complete Count ما زالا non-posting؛ لا تعديل Inventory قبل Settlement.
+- لا SQL / Migration / Schema change جديد في Step 2.
+- TypeScript syntax/transpile: PASS; Source regression assertions: PASS.
+- **Step 2 = IMPLEMENTED / RUNTIME UAT PENDING.**
+- المرجع: `docs/CMMS_PHASE3_STEP2_INVENTORY_COUNT_RESULTS_REPORTS_IMPLEMENTATION_2026-08-20.md`.
+
+
+
+## 2026-08-20 — Main Phase 3 / Step 2 — Inventory Count Results & Reports
+
+- Backend يربط Count Items مع `inventory_count_snapshots` بحسب `operationId + inventoryId + lotId` ويعيد `averageCostSnapshot`, `systemValueSnapshot`, `countedValueAtSnapshotCost`, `diffValue`.
+- التقييم المالي أصبح: `diffValue = diffQuantity × averageCostSnapshot`; لا استخدام لـCurrent `inventory.averageCost` لتقييم فرق جرد تاريخي.
+- `getCountDiscrepancies()` يستخدم نفس بيانات Snapshot valuation حتى تبقى شاشة التسوية متوافقة مع نتائج الجرد دون تغيير منطق Settlement نفسه.
+- شاشة الجرد تعرض متوسط التكلفة وقت الفتح، قيمة الفرق، إجمالي النقص/الزيادة، وصافي الأثر المالي من Snapshot فقط.
+- وثيقة طباعة الجرد تعرض نفس القيم وتحذّر للجرد القديم الذي لا يملك Cost Snapshot بدل إعطائه تقييمًا مضللًا.
+- لا SQL / Migration / Schema change. تسجيل العد وإكمال الجرد لا يعدلان Inventory؛ Settlement فقط يبقى مسار Posting.
+- TypeScript syntax/transpile للملفات المعدلة: PASS. Source regression assertions: PASS. Full Vitest/full-project tsc غير مُدعى بسبب غياب `node_modules` الكامل.
+- **Status: IMPLEMENTED / RUNTIME UAT PENDING.**
+- المرجع: `docs/CMMS_PHASE3_STEP2_INVENTORY_COUNT_RESULTS_REPORTS_IMPLEMENTATION_2026-08-20.md`.
+
+## 2026-08-20 — Main Phase 3 / Step 2 Runtime UAT Passed + Step 3 Settlement Cut-off Implemented
+
+### Step 2 Runtime UAT
+
+- `CNT-2026-60028` أثبت أن Count Results/Reports تستخدم Opening Cost Snapshot:
+  - system `2.000`
+  - counted `3.000`
+  - diff `+1.000`
+  - `averageCostSnapshot=5.0000`
+  - Current Average Cost بعد استلام لاحق = `10.0000`
+  - قيمة فرق الجرد = `+5.00` وليس `+10.00`.
+- Final Save أكمل `12/12` Lots مع فرق واحد، ولم يغير Inventory قبل Settlement.
+- **Step 2 = COMPLETE / RUNTIME UAT PASSED.**
+
+### Step 3 — Settlement Cut-off / Lot Freeze
+
+بموافقة صاحب المشروع تم إدخال Posting الكمي للتسوية ضمن Main Phase 3 قبل الإغلاق النهائي:
+
+- إضافة Future-facing Lot movement guard لعمليات الجرد التي تملك `inventory_count_snapshots` فقط؛ لا تجميد رجعي للجرد التاريخي القديم.
+- Count Lot أثناء `in_progress` يُمنع من الحركات التي تنقص/تنقل الرصيد عبر QR.
+- بعد Final Save:
+  - `diff=0` => Lot متاح.
+  - `diff!=0` => Lot يبقى مجمداً حتى Applied Settlement Item لنفس Count Operation + Inventory + Lot.
+- Receipt Lot جديد دخل بعد فتح الجرد لا يكون Count Target ويستمر Workflow عليه بشكل مستقل.
+- مسارات الحماية المركزية: Delivery/Issue، Supplier Return decrement، Disposal، Warehouse Transfer source/target.
+- Settlement من الجرد الدوري أصبح يطبق **الفرق المحفوظ فوق الرصيد الحالي**:
+  - `frozenDiff = counted - system`
+  - `newLotBalance = currentLotBalance + frozenDiff`
+  - `newInventoryQuantity = currentInventoryQuantity + frozenDiff`
+- Backend لا يثق بـ`afterQuantity` من العميل للجرد الدوري بعد Final Save؛ يستخدم `countedQuantity` المحفوظة.
+- شاشة Settlement من الجرد لم تعد تسمح بتعديل Counted Quantity؛ تعرض System / Counted / Diff فقط.
+- التسوية يجب أن تشمل جميع فروقات الجرد المحفوظة معاً.
+- إضافة duplicate protection: `FOR UPDATE` على Count Operation + رفض Applied Settlement ثانٍ لنفس الجرد.
+- `completedAt` و`inventory_settlements.appliedAt` مستخدمان كوقت Final Save وSettlement؛ لا Schema جديد.
+- لا Merge/Delete/Backfill، ولا SQL/Migration/FK/UNIQUE جديد.
+- TypeScript syntax/transpile: PASS. Source regression assertions: PASS.
+- **Step 3 = IMPLEMENTED / RUNTIME UAT PENDING. Main Phase 3 remains open until Settlement UAT passes.** *(Historical checkpoint; superseded by the final closure entry below after Runtime UAT passed.)*
+
+المراجع:
+- `docs/CMMS_PHASE3_STEP2_INVENTORY_COUNT_RESULTS_REPORTS_UAT_CLOSURE_2026-08-20.md`
+- `docs/CMMS_PHASE3_STEP3_SETTLEMENT_CUTOFF_IMPLEMENTATION_2026-08-20.md`
+
+
+## 2026-08-20 — Main Phase 3 — Final Runtime UAT & Official Closure
+
+- تم إغلاق **Main Phase 3 — Inventory Count Development** رسميًا: **COMPLETE / RUNTIME UAT PASSED / CLOSED**.
+- `CNT-2026-60028`: قبل Settlement، محاولة الصرف من Count `Lot 10` رُفضت برسالة عربية لأن الفرق غير مسوّى = PASS.
+- تم تطبيق `ADJ-2026-30006` بنجاح على `inventoryId=210211`, `lotId=10`: `before=2.000`, `diff=+1.000`, `after=3.000`.
+- بعد Settlement: `currentInventoryQuantity=4.000` و`totalLotBalances=4.000` و`settledLotCurrentQuantity=3.000` = invariant PASS.
+- بعد التسوية تم فك تجميد `Lot 10` ونجح الصرف عبر `DLV-2026-300182`.
+- الفحص النهائي بعد الصرف: `inventory.quantity=3.000`, `Lot 10=2.000`, `SUM(lot balances)=3.000` = invariant PASS.
+- Settlement حافظت على الكمية المستقلة الناتجة عن Receipt لاحق ولم تستبدل Aggregate Inventory بكمية العد القديمة.
+- لا Code/Schema/Migration جديد ضمن **حزمة توثيق الإغلاق** نفسها؛ هذه الحزمة توثيق فقط لنتائج التنفيذ/UAT المنجزة.
+- ملاحظتان غير حاجبتين موثقتان: لم يُنفذ Runtime retry مستقل للـduplicate settlement guard، ولم يُنفذ query مستقل لـ`inventory_lots.remainingQuantity` بعد آخر صرف.
+- `2B-10-2C` يبقى مؤجلاً إلى Final Project Hardening / Closure.
+- المرجع: `docs/CMMS_PHASE3_INVENTORY_COUNT_FINAL_CLOSURE_2026-08-20.md`.
+
+
+## 2026-08-20 — Main Phase 4 / Step 1 — Database Foundation
+
+- بقرار صاحب المشروع تم تبسيط Main Phase 4 إلى ثلاث خطوات فقط.
+- **Live DB manual change / verified:**
+  - `inventory_settlement_items.unitCostUsed DECIMAL(12,4) NULL`
+  - `inventory_settlement_items.adjustmentValue DECIMAL(14,2) NULL`
+  - `inventory_settlements.reference VARCHAR(255) NULL`
+- تم التحقق من الحقول عبر `INFORMATION_SCHEMA.COLUMNS`.
+- الحقول Nullable عمدًا لحماية التسويات التاريخية؛ لا Backfill / Cleanup / Historical rewrite.
+- Latest Project `drizzle/schema.ts` لم يُعدّل بعد؛ مزامنته مع Live DB تدخل في Step 2 ولا تعني إعادة تنفيذ ALTER على Live DB.
+- **Step 1 = COMPLETE / LIVE DB VERIFIED.**
+- **Step 2 = DESIGN APPROVED / CODE IMPLEMENTATION NOT STARTED.**
+- **Step 3 = PENDING / NOT STARTED.**
+- القاعدة المعتمدة: Count variance تستخدم Opening `averageCostSnapshot`; Manual settlement في المسار المسموح تستخدم Current Average Cost.
+- لا Approval Workflow جديد، لا New Manual Lot Workflow، لا Revaluation system، لا legacy repair ضمن هذا النطاق.
+- المرجع: `docs/CMMS_PHASE4_SETTLEMENT_THREE_STEP_PLAN_AND_STATUS_2026-08-20.md`.
+
+## 2026-08-22 — Main Phase 4 / Step 2 — Settlement Valuation & Posting Logic
+
+- **4.2.1 — Schema + Inputs:** مزامنة `drizzle/schema.ts` مع أعمدة Live DB الموجودة مسبقًا: `unitCostUsed`, `adjustmentValue`, `reference`; إضافة `reference` اختياريًا إلى Backend فقط. لا SQL/Migration/Backfill.
+- **4.2.2 — Valuation:** Count Settlement أصبحت تستخدم `inventory_count_snapshots.averageCostSnapshot` بدل Current Average Cost لتقييم الفرق، وتحفظ `unitCostUsed` و`adjustmentValue`, وتحدّث `totalCostValue` ثم `averageCost` من الحالة الحالية. Manual supported path تستخدم Current Average Cost ولا تسمح بإدخال تكلفة يدوية.
+- **4.2.3 — Atomicity:** جميع مسارات Posting المدعومة أصبحت تمر عبر `db.transaction(async (tx) => applyWith(tx))` بدل وجود legacy non-Lot path خارج Transaction.
+- تم نقل Settlement number allocation إلى helper يستخدم نفس transaction writer؛ لم تتغير بنية جدول العداد. MySQL AUTO_INCREMENT قد يترك gaps بعد rollback، لذلك لم يُدّعَ gapless numbering.
+- `from_count` يقفل Count Operation بـ`FOR UPDATE` داخل Transaction ويعيد التحقق من `completed` قبل duplicate/discrepancy checks.
+- حمايات Phase 3 بقيت: frozen diff, current-balance delta, duplicate guard, immutable finalized count quantity, Lot freeze/unfreeze governance, independent later Receipt Lots.
+- Manual Aggregate Settlement مع Lots Enabled بقي محجوبًا. لا UI/Workflow redesign ولا Historical Cleanup/Revaluation/Approval Workflow.
+- Targeted TypeScript syntax/transpile + source regression: PASS. Runtime DB/UAT/rollback evidence مؤجل إلى Main Phase 4 / Step 3.
+- المرجع: `docs/CMMS_PHASE4_STEP2_SETTLEMENT_VALUATION_POSTING_IMPLEMENTATION_2026-08-22.md`.
+
+## 2026-08-22 — Main Phase 4 / Step 3 — Minimum Settlement UI Implemented
+
+- Count Settlement preview now exposes Opening Snapshot cost (`averageCostSnapshot`) and the calculated settlement value (`diffValue`) and explicitly states that periodic Count valuation does not use Current Average Cost. Snapshot cost remains non-editable.
+- Manual Settlement UI, only where the existing workflow permits it, shows Current Quantity, Current Average Cost, and an estimated adjustment value; Backend still re-reads current cost at posting and no operator-entered unit cost was added.
+- Added optional Manual Settlement `reference` input with UI max length 255, matching API/Live DB; Count linkage remains through `sourceCountOperationId`.
+- Settlement archive shows `reference` when present.
+- `getSettlementDetails()` now exposes persisted `unitCostUsed`, `adjustmentValue`, and source count type for audit/printing.
+- Settlement print document now shows unit cost used, adjustment value, optional reference, and valuation basis. Historical rows with null Phase 4 fields remain displayed as unavailable; no backfill.
+- Added `server/tests/inventorySettlementPhase4Step3Ui.test.ts` source-regression coverage.
+- Targeted TypeScript syntax/transpile and source assertions: PASS. Full Runtime UAT has not started and Main Phase 4 remains open.
+- No SQL/Migration/Live DB change, no Historical Backfill/Cleanup, no Approval Workflow, and no Manual Lot Workflow change.
+- Reference: `docs/CMMS_PHASE4_STEP3_SETTLEMENT_UI_RUNTIME_UAT_2026-08-22.md`.
+
+## 2026-08-22 — Main Phase 4 — Settlement Development — Final Runtime UAT & Official Closure
+
+- **Main Phase 4 = COMPLETE / RUNTIME UAT PASSED / OFFICIALLY CLOSED.**
+- **Step 1 — Database Foundation:** Live DB fields verified previously: `unitCostUsed DECIMAL(12,4) NULL`, `adjustmentValue DECIMAL(14,2) NULL`, `reference VARCHAR(255) NULL`; no historical backfill.
+- **Step 2 — Valuation & Posting:** code schema synchronized to Live DB; Count Settlement uses Opening `averageCostSnapshot`; `unitCostUsed` / `adjustmentValue` persisted; `totalCostValue` / resulting `averageCost` updated; supported posting paths use DB Transaction.
+- **Step 3 — Minimum UI:** Count preview shows Snapshot valuation/value, Snapshot cost remains non-editable, persisted financial audit values are exposed in settlement details/print, Manual unit cost entry was not introduced.
+- **Runtime UAT — Count Surplus:** `CNT-2026-60030`:
+  - Opening Snapshot `2.000 @ 10.0000`.
+  - Later `RCV-2026-420142` changed current state for `inventoryId=210174` to quantity `15.000`, Average Cost `16.0000`, Total Value `240.00`.
+  - Count remained `diff=+1`, value `+10.00`.
+  - Final Save left Inventory unchanged.
+  - Count Lot issue was blocked before settlement.
+  - `ADJ-2026-30008`: `unitCostUsed=10.0000`, `adjustmentValue=+10.00`, Inventory `16.000`, Value `250.00`, Average `15.6250`, SUM Lots `16.000`.
+  - After settlement, `DLV-2026-300202` succeeded and final checked quantity invariant was `15.000 = 15.000`.
+  - Duplicate settlement retry was rejected = PASS.
+- **Runtime UAT — Count Shortage:** `CNT-2026-60031`:
+  - Opening `2.000 @ 8.5714`, counted `1.000`, `diff=-1`, value `-8.57`.
+  - Final Save left Inventory `7.000`, Value `60.00`, Lot `2.000`.
+  - Lot issue was blocked before settlement.
+  - `ADJ-2026-30009`: `unitCostUsed=8.5714`, `adjustmentValue=-8.57`, Inventory `6.000`, Value `51.43`, Average `8.5717`, SUM Lots `6.000`.
+  - After settlement, `DLV-2026-300203` succeeded and final checked quantity invariant was `5.000 = 5.000`.
+- **Runtime UAT — Atomicity/Rollback:** `CNT-2026-60032`, `inventoryId=210200`, `lotId=9`:
+  - UAT-only failpoint restricted to `operationId=60032` intentionally failed inside the transaction.
+  - After forced failure: Inventory/Lot `3.000`, Average `1.0000`, Value `3.00`, Settlement rows `0`, Settlement item rows `0`, adjustment transactions after Final Save `0`.
+  - Temporary failpoint was removed and server restarted.
+  - Same Count then succeeded as `ADJ-2026-30011`: Inventory/Lot `4.000`, `unitCostUsed=1.0000`, `adjustmentValue=+1.00`, Value `4.00`, SUM Lots `4.000`.
+- **Manual Settlement boundary:** Lots are enabled; independent/manual settlement button remained disabled. Existing Manual Aggregate Settlement guard = PASS; no Manual Lot workflow was introduced.
+- **Non-blocking UAT setup observation:** `PR-2026-0395` had legacy/null Catalog links, while fresh `PR-2026-0396`, `PR-2026-0397`, and `RCV-2026-420140` verified current Catalog-link inheritance works. No backfill or Purchase workflow code change was made.
+- No Historical Backfill, Legacy Cleanup, Revaluation, Approval Workflow, broad FK/UNIQUE rollout, or Manual Lot Settlement workflow was added.
+- Full-project Vitest/full `tsc --noEmit` is not claimed from the implementation workspace; targeted source/syntax checks passed and Live DB Runtime UAT is the closure evidence.
+- Final references:
+  - `docs/CMMS_PHASE4_STEP3_SETTLEMENT_UI_RUNTIME_UAT_2026-08-22.md`
+  - `docs/CMMS_PHASE4_SETTLEMENT_FINAL_CLOSURE_2026-08-22.md`
+- **Do not start Main Phase 5 automatically.**
+
+## 2026-08-22 — Roadmap Documentation — إعادة تجميع وترقيم Main Phases 5–11
+
+- **نوع التغيير:** Documentation only.
+- بقرار صاحب المشروع تم دمج المراحل القديمة 5/6/7/8 ضمن **Main Phase 5** واحدة بأجزاء 5.1–5.4.
+- المرحلة القديمة 9 أصبحت **Main Phase 6**.
+- المرحلة القديمة 10 أصبحت **Main Phase 7**.
+- المرحلة القديمة 11 أصبحت **Main Phase 8**.
+- لم يتغير نطاق الأعمال نفسه بسبب إعادة الترقيم؛ التغيير تنظيمي لتجميع الـRoadmap.
+- لم يتم تعديل Code أو Schema أو Migration أو Live DB، ولم يبدأ تنفيذ Main Phase 5.
+- لم تُعدّل وثائق إغلاق Main Phase 3/4 التاريخية.
+- `2B-10-2C` يبقى مؤجلًا إلى Final Project Hardening / Closure.
+- الملفات المحدثة: `docs/inventory/INVENTORY_DEVELOPMENT_PLAN_AND_CHANGE_CONTROL.md`, `docs/PENDING_TASKS.md`, `docs/INDEX.md`, `docs/CHANGELOG_TECHNICAL.md`.
+- وثيقة القرار الجديدة: `docs/CMMS_INVENTORY_MAIN_PHASES_RENUMBERING_2026-08-22.md`.
+
+## 2026-08-22 — Main Phase 5 / 5.1 — Disposal / Write-off Atomicity Hardening
+
+- بدأت Main Phase 5 بموافقة صريحة من صاحب المشروع؛ أول جزء هو 5.1 Disposal / Write-off.
+- Gap Analysis: مسار Lots كان بالفعل Lot-aware وداخل Transaction واحدة، بينما Legacy non-Lot كان ينشئ Header/Items ثم يستدعي posting منفصلًا، ما يسمح نظريًا بحالة جزئية عند فشل الخصم.
+- أضيف `generateDisposalNumberWith(writer)` وأصبح حجز رقم `DO-...` من نفس transaction writer المستخدم لإنشاء العملية. لا gapless numbering redesign؛ AUTO_INCREMENT قد يترك gap بعد rollback.
+- أضيف `issueDisposalWith(writer, operationId)` ليستخدم نفس writer ويعيد قراءة/قفل Inventory بـ`FOR UPDATE`، ويستخدم Current `inventory.averageCost` على الخادم، ويثبت `unitCost`/`totalCost` الفعليين ثم ينفذ خصمًا شرطيًا ويكتب حركة `transactionType="disposal"`.
+- Legacy non-Lot `createDisposal()` أصبح بالكامل داخل `db.transaction(...)`: number + header + items + quantity/value + movement.
+- المسار Lot-aware بقي داخل Transaction كما هو، مع نقل Number allocation إلى نفس Transaction.
+- أضيف `server/tests/inventoryDisposalPhase5Step1.test.ts` لحماية atomicity/valuation/workflow boundaries على مستوى المصدر.
+- لا SQL/Migration/Live DB change، لا historical backfill/cleanup، ولا Approval/Workflow change.
+- **5.1 implementation completed; Runtime UAT subsequently passed and 5.1 was officially closed.**
+- المراجع: `docs/CMMS_PHASE5_STEP1_DISPOSAL_IMPLEMENTATION_2026-08-22.md` + `docs/CMMS_PHASE5_STEP1_DISPOSAL_RUNTIME_UAT_CLOSURE_2026-08-22.md`.
+
+
+
+## 2026-08-22 — Main Phase 5 / 5.1 — Disposal Runtime UAT & Official Closure
+
+- **5.1 Disposal / Write-off = COMPLETE / TARGETED CHECKS PASSED / RUNTIME UAT PASSED / OFFICIALLY CLOSED.**
+- Runtime UAT used Lots from `RCV-2026-420140` under the deployed Lots-enabled workflow.
+- `DO-2026-000003` (Lot 22 / `LOT-2026-0D2DAF0B`): posted `1.000 @ 1.0000 = 1.00`; Live DB after posting showed Lot remaining `9.000`, Lot balance `9.000`, Inventory `9.000`, SUM Lots `9.000`, Total Value `9.00`; transaction `450498` = `out/disposal`, quantity `1.000`, value `1.00`. PASS.
+- Over-quantity UI test: requested `10` while available Lot balance was `9`; UI rejected with `الكمية أكبر من رصيد الدفعة المتاح (9)`. PASS. This is UI Runtime evidence; backend insufficient-stock/concurrency protection remains covered by targeted source/regression checks rather than a deliberate UI-bypass Runtime test.
+- `DO-2026-000004` (Lot 21 / `LOT-2026-AD6712E9`): posted `4.000 @ 1.0000 = 4.00`; Live DB after posting showed Lot remaining `6.000`, Lot balance `6.000`, Inventory `6.000`, SUM Lots `6.000`, Total Value `6.00`; transaction `450499` = `out/disposal`, quantity `4.000`, value `4.00`. PASS.
+- Detail view for `DO-2026-000004` displayed completed status, item/Lot, quantity `4`, reason `منتهي الصلاحية`, value `4 ر.س`. PASS.
+- Printed document for `DO-2026-000004` displayed operation number, status, item/Lot, quantity, reason, unit cost `1 ر.س`, and total value `4 ر.س`. PASS.
+- Verification limit accepted as non-blocking: deployed environment uses Lots Enabled, therefore hardened legacy non-Lot path was not separately Runtime-exercised; targeted checks remain its evidence.
+- No SQL/Migration/Live DB schema change, Historical Backfill, Legacy Cleanup, Approval Workflow, or Accounting redesign.
+- **Main Phase 5 remains IN PROGRESS. 5.2 / 5.3 / 5.4 remain NOT STARTED. Do not start 5.2 automatically.**
+- Closure reference: `docs/CMMS_PHASE5_STEP1_DISPOSAL_RUNTIME_UAT_CLOSURE_2026-08-22.md`.
+
+
+## 2026-08-22 — Main Phase 5 / 5.2 — Returns: Supplier Return Atomicity & Valuation Hardening
+
+- بدأ 5.2 بموافقة صريحة بعد إغلاق 5.1.
+- Gap Analysis أكد أن Supplier Return مع Lots Enabled كان موجودًا بالفعل: Warehouse + QR/Lot source resolution، منع Opening Balance، ربط Receipt/PO/Vendor/Invoice، Lot/Inventory decrement، `warehouse_returns.lotId`، Return transaction ووثيقة مرتجع.
+- `createLotAwareSupplierReturn()` أصبح يعيد قفل/قراءة Aggregate Inventory بـ`FOR UPDATE` بعد حجز Lot، ويستخدم Current `inventory.averageCost` من الخادم لتثبيت `inventory_transactions.unitCost/totalCost`، مع خصم Inventory شرطي وتحديث `totalCostValue` داخل نفس Transaction.
+- توليد `RTN-...` أصبح يقبل transaction writer ويُستدعى من داخل Transaction بدل توليده خارج posting core. هذا لا يغير سياسة ترقيم المستندات العامة؛ معالجة uniqueness/governance الشاملة تبقى ضمن 5.3.
+- أضيف `createLegacySupplierReturn()` ليحافظ على Legacy UI/behavior مع جمع Return header + Inventory quantity/value + movement + PO updates + Return document في Transaction واحدة.
+- لم يتم فرض سياسة quantity جديدة على Legacy path اعتمادًا على code schema فقط؛ أي حسم لـINT/DECIMAL في Live DB يبقى خاضعًا لفحص Live DB وقاعدة SQL واحد في كل مرة عند الحاجة.
+- أضيف `server/tests/inventoryReturnsPhase5Step2.test.ts` كحماية مصدرية مستهدفة.
+- لم يُنشأ Recipient-to-Warehouse Return جديد تلقائيًا؛ أحدث المشروع لا يملك Workflow عامًا مستقلًا له، والـRoadmap نفسه يشترط قرارًا صريحًا بشأن same-original-Lot مقابل return-specific Lot/state وقاعدة valuation.
+- لا SQL/Migration/Live DB schema change، لا Historical Backfill/Cleanup، ولا Approval/Workflow redesign.
+- **5.2 = IN PROGRESS / Supplier Return implementation ready for Runtime UAT.** Recipient-to-Warehouse was pending at this initial checkpoint and was later approved/implemented; see the later 5.2 Recipient Return changelog entry.
+
+## 2026-08-22 — Main Phase 5 / 5.2 — Recipient → Warehouse Return implementation
+
+- اعتمد صاحب المشروع صراحة: **Same Original Lot + Original Issue Cost + Original Issue Link + Partial/Over-return Guards + Atomic Posting**.
+- فحص Live DB أثبت أن Delivery الحديث يملك `inventoryId`, `lotId`, `inventoryTransactionId`; أضيف future-only `warehouse_returns.sourceDeliveryDocumentId INT NULL` ثم index `idx_warehouse_returns_source_delivery` يدويًا وبأوامر SQL منفصلة.
+- أول محاولة combined ALTER فشلت وتم التحقق أن العمود لم يُضف جزئيًا قبل إعادة المحاولة الآمنة.
+- لا FK/UNIQUE/Backfill/Legacy repair. لا migration SQL في patch لأن Live DB change طُبق يدويًا وتم التحقق منه.
+- `drizzle/schema.ts` تمت مزامنته مع Live DB.
+- أضيف `resolveRecipientReturnSource()` للتحقق من رقم Delivery فريد وربطه بحركة `out/delivery` المطابقة للـInventory/Lot/quantity، ورفض السجلات القديمة غير المرتبطة بدل تخمينها.
+- أضيف `createRecipientWarehouseReturn()` بTransaction واحدة: قفل Delivery، cumulative over-return check، lock/update same Lot balance + Lot remaining + Inventory، valuation من original movement `unitCost`، update value/average cost، Return header، `in/return` movement، Return document.
+- Return movement يحفظ `RTN-...` في `documentUrl` لمرجع Ledger مباشر.
+- UI أضيف له mode مستقل `مرتجع من الجهة إلى المخزن` يبدأ من سند الصرف الأصلي ويعرض original recipient/warehouse/Lot/issued/previous returns/returnable/original issue cost/value.
+- Return list/print يميز Recipient Return ويعرض source Delivery number؛ Supplier Return behavior بقي منفصلًا.
+- targeted source checks + TypeScript syntax/transpile = PASS. **Historical implementation checkpoint:** Runtime UAT was pending at this point and subsequently passed; see the closure entry below.
+
+
+## 2026-08-22 — Main Phase 5 / 5.2 — Returns Runtime UAT & Official Closure
+
+- **5.2 Returns = COMPLETE / TARGETED CHECKS PASSED / RUNTIME UAT PASSED / OFFICIALLY CLOSED.**
+- Fresh Supplier Return UAT on `RCV-2026-420140`: `RTN-2026-60003` returned `1` from Lot `LOT-2026-AD6712E9`; Live DB showed Lot remaining/balance/Inventory/SUM Lots `5.000`, Average Cost `1.0000`, Total Value `5.00`, and movement `out/return 1.000 @ 1.0000 = 1.00`. PASS.
+- Fresh Recipient Return UAT on `DLV-2026-300204`: `RTN-2026-60004` restored the same Inventory/Lot and used original issue cost `1.0000`; movement `in/return`, value `1.00`, explicit `sourceDeliveryDocumentId=210204`. PASS.
+- Fully-returned Delivery retry was rejected with `تم إرجاع كامل الكمية المصروفة في هذا السند مسبقًا`. PASS.
+- Partial/over-return UAT on `DLV-2026-300205`: attempted `3` while remaining `2` was rejected; `RTN-2026-60005` then returned `1`; Live DB showed cumulative returned `1`, remaining returnable `1`, Lot/Inventory/SUM Lots `4.000`, Total Value `4.00`, movement `in/return 1.000 @ original issue cost 1.0000`. UI re-resolve displayed issued `2`, returned `1`, remaining `1`. PASS.
+- Live DB future-only source-link change used by Recipient Returns remains: `warehouse_returns.sourceDeliveryDocumentId INT NULL` + index `idx_warehouse_returns_source_delivery`; no FK/UNIQUE/backfill/legacy cleanup.
+- Accepted verification limits: legacy non-Lot Supplier Return was not separately Runtime-exercised because deployed workflow uses Lots Enabled; Recipient list/print Delivery-reference behavior remains covered by targeted source checks.
+- No Approval/Inspection/Quarantine workflow, historical rewrite, or unrelated accounting redesign was introduced.
+- Closure reference: `docs/CMMS_PHASE5_STEP2_RETURNS_RUNTIME_UAT_CLOSURE_2026-08-22.md`.
+- **Main Phase 5 remains IN PROGRESS. 5.1 = CLOSED; 5.2 = CLOSED; 5.3 = NOT STARTED; 5.4 = NOT STARTED. Do not start 5.3 automatically.**
+
+
+## 2026-08-23 — Main Phase 5 / 5.3 Receipt-Issue-Transfer hardening + centralized numbering deferral
+
+- Started 5.3 by explicit owner approval after 5.2 official closure.
+- Removed fixed `warehouseId = 1` from current Receipt submit paths and backend receipt fallback; added dynamic single-active-Main resolution with safe ambiguity rejection.
+- Added Aggregate Inventory `FOR UPDATE` before existing-inventory Receipt moving-average calculation; hardened legacy invoice-draft receipt similarly.
+- Added Aggregate Inventory lock before Delivery quantity/cost read.
+- Extended Warehouse Transfer source/destination Inventory locks to both Lot and legacy paths.
+- Allocates `TRF-...` inside the active transfer transaction before movement insertion and stores the same Transfer number in `inventory_transactions.documentUrl` for both OUT/IN movements.
+- Preserved existing batch-transfer mixed item success/failure behavior; no In-Transit/destination-approval/all-or-nothing workflow change.
+- Reviewed RCV numbering. Live DB evidence: max current-year RCV sequence `420148`, duplicate Receipt Number groups `0`, no `receipt_number_counter`. Existing `getNextReceiptNumber(tx?)` retained.
+- Owner decided to defer numbering unification to a future **Centralized Document Numbering Service / Engine**; no RCV-only counter table, migration, backfill, historical renumbering, or gapless-number policy introduced.
+- Added `server/tests/inventoryReceiptIssueTransferPhase5Step3.test.ts`. Targeted source checks and TS/TSX syntax/transpile checks passed; full-project test/typecheck not claimed.
+- 5.3 remains **IN PROGRESS / RUNTIME UAT PENDING**.
+
+## 2026-08-23 — Main Phase 5 / 5.3 Receipt-Issue-Transfer Runtime UAT & Official Closure
+
+- **5.3 Receipt / Issue / Warehouse Transfer Review = COMPLETE / TARGETED CHECKS PASSED / RUNTIME UAT PASSED / OFFICIALLY CLOSED.**
+- Fresh Receipt `RCV-2026-420150` verified two items in Live DB under `WH-MAIN`: Inventory `210261` / Lot `23 / LOT-2026-224A39C8` and Inventory `210262` / Lot `24 / LOT-2026-EC1B7E38`; each posted `5.000 @ 10.0000 = 50.00`, Lot balance = Inventory = SUM Lots `5.000`, movement `in/purchase`.
+- Fresh Delivery `DLV-2026-300213` on Inventory `210261` / Lot `23` verified quantity `1` decrement: Lot/Inventory/SUM Lots `4.000`, Average Cost `10.0000`, Total Value `40.00`, movement `450522 = out/delivery 1 @ 10 = 10`, `documentUrl=DLV-2026-300213`.
+- Fresh Transfer `TRB-2026-030005` / `TRF-2026-030005` moved `1` of Lot `23` from `WH-MAIN` to `SUB-1`: source Inventory `210261` qty/value `3 / 30.00`, destination Inventory `210264` qty/value `1 / 10.00`, source/destination Lot balances `3 / 1`, company-wide Lot remaining and total balances `4`, paired `transfer` OUT/IN movements present, transfer cost/value `10.0000 / 10.00`.
+- Runtime over-quantity attempt `4` with source balance `3` rejected with `الكمية أكبر من الرصيد المتاح (3 قطعة)`. PASS.
+- Existing document-number mechanisms remain unchanged. The separately documented **Centralized Document Numbering Service / Engine** stays DEFERRED; no `receipt_number_counter`, historical renumbering/backfill, gapless-number guarantee or prefix change.
+- Accepted non-blocking limits: hardened legacy/non-Lot and invoice-draft variants were not separately Runtime-exercised; transfer UAT used a one-item batch and existing mixed item success/failure behavior was intentionally preserved; UI over-quantity evidence was not a deliberate backend-bypass/failpoint test.
+- No Historical Backfill, Legacy Cleanup, broad FK/UNIQUE rollout, In-Transit/destination-approval workflow, batch all-or-nothing redesign, or unrelated Accounting redesign.
+- Closure reference: `docs/CMMS_PHASE5_STEP3_RECEIPT_ISSUE_TRANSFER_RUNTIME_UAT_CLOSURE_2026-08-23.md`.
+- **Main Phase 5 remains IN PROGRESS. 5.1 = CLOSED; 5.2 = CLOSED; 5.3 = CLOSED; 5.4 = NOT STARTED. Do not start 5.4 automatically.**
+
+
+
+## 2026-08-23 — Main Phase 5 / 5.4 Approved Scope + 5.4.1 Inventory Integrity Rules — Official Closure
+
+- Owner explicitly started 5.4 after 5.3 closure and approved a four-step structure: **5.4.1 Inventory Integrity Rules → 5.4.2 Read-only Reconciliation Engine → 5.4.3 Reconciliation Exception Report → 5.4.4 Runtime UAT & Closure**.
+- Owner explicitly confirmed that old/experimental inventory data is not a repair target: keep it unchanged and design for future correctness. No Baseline table or Historical Transaction-Ledger Reconstruction is part of 5.4. Final production cutover/opening balances are separate future work.
+- Live DB was inspected read-only, one SQL statement at a time. Confirmed quantity scale `decimal(12,3)`, average cost `decimal(12,4)`, total value `decimal(14,2)`, and actual Lot/Inventory relation through `inventory_lot_balances(lotId, inventoryId)`.
+- Approved integrity rules: (1) Inventory quantity equals its Lot balances when participating in Lots; (2) Lot remaining equals distribution across warehouses; (3) no negative Inventory/Lot quantities; (4) current Inventory value is consistent with quantity × average cost within the approved precision tolerance; (5) Lot Balance references resolve to valid Inventory/Lot/Warehouse identity with no duplicate Lot Inventory identity in the same warehouse.
+- Live DB evidence at closure: Inventory rows `695`, Lot-participating Inventories `5`, quantity/Lot mismatches `0`; Lots `4`, global Lot mismatches `0`; negative Inventory/LotBalance/LotRemaining rows `0`; Lot Balance rows `5`, orphan/warehouse/duplicate identity exceptions `0`.
+- Value diagnostic found two existing experimental mismatches (`inventory.id=180001` and `167`, last updated 2026-08-15). By explicit owner policy they were not repaired, backfilled, revalued, or treated as blockers.
+- No application code, DB schema, migrations, or data were modified in 5.4.1. No Auto-fix, Historical Cleanup, Centralized Numbering, Batch Transfer semantics, Workflow, or Accounting behavior changed.
+- **5.4.1 = COMPLETE / LIVE DB READ-ONLY DISCOVERY PASSED / RULES APPROVED / OFFICIALLY CLOSED.**
+- **Historical stop at 5.4.1 closure:** 5.4.2 was NOT STARTED then; superseded by the 5.4.2 implementation entry below.
+- References: `docs/CMMS_PHASE5_STEP4_INVENTORY_RECONCILIATION_APPROVED_SCOPE_2026-08-23.md` and `docs/CMMS_PHASE5_STEP4_1_INVENTORY_INTEGRITY_RULES_CLOSURE_2026-08-23.md`.
+
+
+## 2026-08-23 — Main Phase 5 / 5.4.2 — Read-only Reconciliation Engine implementation
+
+- Owner explicitly started 5.4.2 after 5.4.1 official closure.
+- Added `server/services/inventory-reconciliation-core.ts`: pure, persistence-free evaluator for the approved quantity/Lot/negative/value/reference invariants.
+- Added `server/services/inventory-reconciliation.ts`: reads `inventory`, `inventory_lots`, `inventory_lot_balances`, and `warehouses` using SELECT-only queries and evaluates current state.
+- Added query-only `server/routers/inventory/reconciliation.router.ts` registered as `inventoryReconciliation.run`. No mutation or repair endpoint was introduced.
+- Legacy/experimental non-Lot Inventory rows are deliberately excluded from Inventory quantity/value failure scope; no historical ledger reconstruction is attempted.
+- Added structured exception codes for quantity/global-Lot/value/negative/reference/duplicate-Lot-within-warehouse conditions.
+- Added `server/tests/inventoryReconciliationPhase5Step4_2.test.ts`.
+- Uploaded Full Project contains no `node_modules`; therefore full Vitest/full `tsc --noEmit` is not claimed. Targeted TS syntax/transpile checks, a dependency-free functional harness of the pure evaluator, and an explicit DB-facing read-only source scan passed.
+- No DB migration/schema/data change, Auto-fix, Historical Backfill/Cleanup/Revaluation, Centralized Numbering, Workflow/Accounting redesign, or Batch Transfer semantic change.
+- **5.4.2 implementation complete; deployed verification/owner application confirmation pending. 5.4.3 remains NOT STARTED.**
+- Reference: `docs/CMMS_PHASE5_STEP4_2_READ_ONLY_RECONCILIATION_ENGINE_IMPLEMENTATION_2026-08-23.md`.
+
+## 2026-08-23 — Main Phase 5 / 5.4.2 — Read-only Reconciliation Engine official closure
+
+- Owner confirmed the 5.4.2 implementation package was extracted and the server was restarted.
+- The deployed `runInventoryReconciliation()` service was executed directly against Live DB.
+- Runtime evidence: `readOnly=true`; `historicalReconstructionIncluded=false`; `autoFixIncluded=false`; Inventory rows=`698`; Lot-tracked Inventory=`5`; outside Lot-tracked scope=`693`; Lots=`4`; Lot Balance rows=`5`; checks performed=`53`; passed=`53`; exception checks=`0`; `exceptions=[]`.
+- The increase in total Inventory rows from the earlier 5.4.1 discovery snapshot (`695`) to the Runtime snapshot (`698`) is recorded as a point-in-time DB change only; it is not a reconciliation mismatch because the engine evaluated current state and all checks passed.
+- No DB write, migration/schema change, Historical Cleanup/Backfill/Revaluation, Auto-fix, Centralized Numbering, Workflow/Accounting redesign, or Batch Transfer semantic change occurred.
+- **5.4.2 = COMPLETE / TARGETED CHECKS PASSED / LIVE DB RUNTIME VERIFICATION PASSED / OFFICIALLY CLOSED.**
+- **Current stop:** before 5.4.3; 5.4.3 remains NOT STARTED until explicit owner instruction.
+- References: `docs/CMMS_PHASE5_STEP4_2_READ_ONLY_RECONCILIATION_ENGINE_IMPLEMENTATION_2026-08-23.md` and `docs/CMMS_PHASE5_STEP4_2_READ_ONLY_RECONCILIATION_ENGINE_CLOSURE_2026-08-23.md`.
+
+
+## 2026-08-23 — Main Phase 5 / 5.4.3 — Reconciliation Exception Report official closure
+
+- Owner explicitly approved and started 5.4.3 after 5.4.2 closure.
+- Implemented a read-only **تقرير مطابقة المخزون** page backed by the existing query-only `inventoryReconciliation.run` engine.
+- Added summary/scope cards, exception table, text search, warehouse filter, exception-type filter and manual refresh; no Fix/Recalculate/Mutation action was introduced.
+- Runtime UI verification after extraction/restart showed: total checks=`53`, passed=`53`, exceptions=`0`, tracked Inventory=`5`, total Inventory=`698`, outside scope=`693`, Lots=`4`, Lot Balance rows=`5`.
+- Added a concise one-page Arabic PDF user guide focused on the practical benefit of the screen and using the same visible terms. Owner confirmed the report's PDF download button works correctly at Runtime.
+- Accepted verification limit: because current reconciliation state had `0` exceptions, no real exception row existed to exercise filtering against a failing row. No deliberate Live DB corruption was introduced just for this test.
+- No Live DB data/schema change, SQL/migration, Auto-fix, Historical Backfill/Cleanup/Revaluation, Centralized Numbering, Workflow/Accounting redesign or Batch Transfer semantic change.
+- **5.4.3 = IMPLEMENTED / TARGETED CHECKS PASSED / RUNTIME UI VERIFICATION PASSED / OFFICIALLY CLOSED.**
+- **Historical stop at 5.4.3 closure:** before 5.4.4; later superseded by explicit owner start and successful 5.4.4 Runtime UAT.
+- References: `docs/CMMS_PHASE5_STEP4_3_RECONCILIATION_EXCEPTION_REPORT_IMPLEMENTATION_2026-08-23.md` and `docs/CMMS_PHASE5_STEP4_3_RECONCILIATION_EXCEPTION_REPORT_CLOSURE_2026-08-23.md`.
+
+## 2026-08-23 — Main Phase 5 / 5.4.4 Runtime UAT & Closure — approved plan documented
+
+- Owner approved the 5.4.4 design after 5.4.3 official closure.
+- Documented 5.4.4 as the final Runtime UAT/closure gate; no new reconciliation feature, code, SQL, migration, or DB change is introduced by this documentation step.
+- Approved execution model: perform a small representative set of new supported inventory movements, re-run **تقرير مطابقة المخزون** after material movements, and verify the five 5.4.1 integrity invariants continue to pass.
+- Historical/experimental inventory remains untouched. No Historical Reconstruction, Cleanup, Backfill, Revaluation, or Auto-fix is approved.
+- Do not corrupt Live DB solely to create a reconciliation exception; targeted evaluator/source tests may cover exception behavior while deployed Runtime proves the normal future path stays consistent.
+- Centralized Numbering / `receipt_number_counter`, Batch Transfer all-or-nothing semantics, Workflow/Accounting redesign, and Production Cutover remain outside 5.4.
+- **Historical plan status:** 5.4.1 = CLOSED; 5.4.2 = CLOSED; 5.4.3 = CLOSED; 5.4.4 = SCOPE APPROVED / DOCUMENTED — NOT STARTED; Main Phase 5.4 = IN PROGRESS.
+- This approved-plan checkpoint is superseded by the subsequent successful Runtime UAT and official closure entries below.
+- Reference: `docs/CMMS_PHASE5_STEP4_4_RUNTIME_UAT_AND_CLOSURE_APPROVED_PLAN_2026-08-23.md`.
+
+## 2026-08-23 — Main Phase 5 / 5.4.4 Runtime UAT & Inventory Reconciliation official closure
+
+- Owner explicitly started 5.4.4 after 5.4.3 official closure. No new reconciliation feature was added in this step.
+- Pre-UAT deployed report baseline: total checks=`53`, passed=`53`, exceptions=`0`; Lot-tracked Inventory=`5`, total Inventory=`702`, outside scope=`697`, Lots=`4`, Lot Balances=`5`.
+- Fresh Receipt path: `PR-2026-0397` → `RCV-2026-420151`, with two newly created Lot-aware Inventory/Lot rows confirmed. Reconciliation after receipt: `75/75` PASS, `0` exceptions; tracked Inventory=`7`, total Inventory=`704`, Lots=`6`, Lot Balances=`7`.
+- Fresh Issue/Delivery path: `DLV-2026-300215`. Reconciliation after delivery: `75/75` PASS, `0` exceptions; tracked Inventory=`7`, total Inventory=`705`, outside scope=`698`, Lots=`6`, Lot Balances=`7`.
+- Fresh Warehouse Transfer path: `TRB-2026-030006` with one item. Reconciliation after transfer: `84/84` PASS, `0` exceptions; tracked Inventory=`8`, total Inventory=`706`, outside scope=`698`, Lots=`6`, Lot Balances=`8`.
+- Exact individual `TRF-...` number for the final UAT batch was not supplied and is intentionally not invented in documentation.
+- No Live DB mismatch was deliberately manufactured. Exception-generation behavior remains covered by targeted evaluator/source checks; Runtime UAT validates that normal new supported operations preserve all approved 5.4.1 invariants.
+- No SQL/migration/schema change or reconciliation data write was introduced by 5.4.4. No Historical Cleanup/Backfill/Revaluation, Auto-fix, Legacy repair, Centralized Numbering/`receipt_number_counter`, historical renumbering, Batch Transfer semantic redesign, Workflow/Accounting redesign, or Production Cutover.
+- **5.4.4 = COMPLETE / RUNTIME UAT PASSED / OFFICIALLY CLOSED.**
+- **Main Phase 5.4 — Inventory Reconciliation = COMPLETE / RUNTIME UAT PASSED / OFFICIALLY CLOSED.**
+- Closure reference: `docs/CMMS_PHASE5_STEP4_4_RUNTIME_UAT_CLOSURE_2026-08-23.md`.
+
+## 2026-08-23 — Main Phase 5 Final Official Closure
+
+- All approved Main Phase 5 parts are now officially closed: 5.1 Disposal, 5.2 Returns, 5.3 Receipt/Issue/Transfer Review, and 5.4 Inventory Reconciliation.
+- **Main Phase 5 = COMPLETE / OFFICIALLY CLOSED.**
+- Deferred decisions remain deferred, including Centralized Document Numbering and any future Batch Transfer all-or-nothing redesign.
+- Old/experimental data remains untouched. Production Cutover / real Opening Balance loading remains separate future work.
+- **Current stop:** before Main Phase 6 — Inventory / Accounting Reports. Do not start Main Phase 6 automatically.
+- Reference: `docs/CMMS_MAIN_PHASE5_FINAL_CLOSURE_2026-08-23.md`.
+
+
+
+## 2026-08-23 — Main Phase 6 Inventory / Accounting Reports — scope approved/documented
+
+- After Main Phase 5 official closure, owner approved the design of Main Phase 6 without starting implementation.
+- Approved one **Inventory Reports Center** rather than scattering the report catalog across many unrelated top-level pages.
+- Approved groups: (1) Stock balance/status, (2) movements/traceability, (3) valuation/accounting, and (4) analytics/planning.
+- Approved sequence: `6.1 Reports Foundation & Unified Reports Center` → `6.2 Stock Balance & Movement Reports` → `6.3 Inventory Valuation & Accounting Reports` → `6.4 Inventory Analytics & Planning Reports` → `6.5 Runtime UAT & Main Phase 6 Closure`.
+- Owner explicitly classified **6.4 Analytics & Planning as low priority and execute-last**. Slow Moving, Dead Moving, ABC, Aging, and Inventory Turnover are documented for later, not for immediate build. Preferred future UX is one **تحليل المخزون** page with tabs rather than five scattered top-level pages.
+- Main Phase 6 remains reporting/read-oriented and must not change accepted inventory workflow/posting/accounting behavior. 5.4 Reconciliation remains a separate existing control; reports may link to it later but must not duplicate its engine or add Auto-fix.
+- No code, SQL, migration, DB data change, Historical Backfill/Cleanup/Revaluation, Centralized Numbering, Batch Transfer redesign, Workflow/Accounting redesign, or Production Cutover was introduced by this documentation step.
+- **Main Phase 6 = SCOPE APPROVED / DOCUMENTED — IMPLEMENTATION NOT STARTED. Current stop: before 6.1.**
+- Reference: `docs/CMMS_MAIN_PHASE6_INVENTORY_ACCOUNTING_REPORTS_APPROVED_SCOPE_2026-08-23.md`.
+
+## 2026-08-23 — Main Phase 6 reporting export/toolbar UX requirement documented
+
+- Recorded owner approval for a unified report-toolbar/export foundation in 6.1.
+- Required common actions: Refresh, Reset Filters, Print, and a grouped Export menu containing Excel/PDF.
+- Required generated-at date/time visibility.
+- Required Excel `.xlsx` quality standard and PDF/print quality standard, including filtered-scope export and Arabic/mixed-language-safe rendering.
+- Required reusable shared implementation rather than scattered buttons or duplicated export logic per report.
+- No code, SQL, migration, DB change, or Main Phase 6 implementation started by this documentation update.
+- References: `docs/CMMS_MAIN_PHASE6_INVENTORY_ACCOUNTING_REPORTS_APPROVED_SCOPE_2026-08-23.md` and `docs/CMMS_MAIN_PHASE6_UNIFIED_REPORT_TOOLBAR_AND_EXPORT_STANDARD_APPROVED_2026-08-23.md`.
+
+
+## 2026-08-23 — Main Phase 6 / 6.1 Reports Foundation & Unified Reports Center implemented
+
+- Owner explicitly started 6.1 after the documented Main Phase 6 scope approval.
+- Reused existing project capabilities instead of replacing them: `exceljs`, authenticated download patterns, and `server/services/pdf/htmlToPdfService.ts` / Chromium. No new Excel/PDF dependency added.
+- Added `/inventory/reports` and one **Inventory Reports Center** rather than adding many report links. Four sections are displayed; 6.4 Analytics/Planning is marked deferred/execute-last.
+- Added reusable client reporting primitives: `ReportToolbar`, `ReportFiltersBar`, `ReportGeneratedAt`, and common report-download helpers.
+- Added reusable server export foundation for organized `.xlsx` plus shared PDF/print HTML. Mixed Arabic/English values are preserved; source values are HTML-escaped; UTF-8 filename headers are supported.
+- Existing `/reports` pages and Main Phase 5.4 reconciliation engine remain unchanged. The center links to Reconciliation without duplicating it.
+- No DB/schema/migration/SQL/data mutation, no workflow/accounting/posting/numbering change, and no 6.2/6.3/6.4 business report implementation.
+- Targeted TypeScript syntax/transpile, translation structural parity, source linkage and template/filename checks = PASS. Full project tsc/Vitest not claimed in the dependency-less uploaded snapshot; deployed verification pending.
+- **Main Phase 6 = IN PROGRESS. 6.1 = IMPLEMENTED / TARGETED CHECKS PASSED / DEPLOYED VERIFICATION PENDING.**
+- **Stop before 6.2 until 6.1 is deployed, verified, and officially closed.**
+- Reference: `docs/CMMS_MAIN_PHASE6_STEP6_1_REPORTS_FOUNDATION_IMPLEMENTATION_2026-08-23.md`.
+
+
+## 2026-08-23 — Main Phase 6 / 6.1 Reports Foundation — official Runtime closure
+
+- First deployed verification found a blocking 6.1 issue: the report-center action labels were visual-only and not wired to handlers. 6.1 remained open.
+- Corrected the center to use the shared functional report toolbar and authenticated foundation-preview endpoints; no 6.2 business-report query was added.
+- Owner confirmed Runtime that Refresh, Reset Filters, Print, Excel export, and PDF export now work correctly.
+- Targeted `reportExportFoundationPhase6Step1.test.ts` = **4/4 PASS**.
+- Targeted `reportCenterFoundationActionsPhase6Step1.test.ts` = **3/3 PASS**.
+- Owner supplied generated `.xlsx` and PDF outputs; PDF visibly contained the Reports Center foundation title, generated date/time, filter summary, and the four approved report groups.
+- No Live DB/SQL/Schema/Migration/data mutation, Historical Backfill/Cleanup/Revaluation, Workflow/Accounting/Posting/Numbering change, Batch Transfer semantic change, or Production Cutover.
+- **6.1 = COMPLETE / TARGETED TESTS PASSED / RUNTIME VERIFICATION PASSED / OFFICIALLY CLOSED.**
+- **Main Phase 6 = IN PROGRESS. Current stop: before 6.2 — Stock Balance & Movement Reports. 6.2 = NOT STARTED.**
+- Reference: `docs/CMMS_MAIN_PHASE6_STEP6_1_REPORTS_FOUNDATION_RUNTIME_UAT_CLOSURE_2026-08-23.md`.
+
+## 2026-08-23 — Main Phase 6 / 6.2 Stock Balance & Movement Reports — scope approved
+
+- After official closure of 6.1, the owner approved the detailed 6.2 execution scope.
+- Approved checkpoints: `6.2.1 Stock Balance & Status`, `6.2.2 Stock Card & Unified Movement Report`, `6.2.3 Unified Export & Review`, `6.2.4 Runtime UAT & Closure`.
+- Operational reports remain centralized under **مركز التقارير المخزنية** instead of scattered pages.
+- 6.2.1 covers Stock Balance plus Minimum/Zero/Negative status and optional Lot drill-down.
+- 6.2.2 uses a focused Stock Card plus one unified movement report with movement-type/date/warehouse/item/reference filters where supported.
+- 6.2.3 reuses the officially closed 6.1 Refresh/Reset/Print/Excel/PDF foundation and verifies it with actual 6.2 data.
+- No implementation/code/SQL/DB data change was made by this documentation checkpoint. No Historical Backfill/Cleanup, Auto-fix, Accounting redesign, Posting Engine, Centralized Numbering or Production Cutover is approved.
+- **6.2 = SCOPE APPROVED / DOCUMENTED — IMPLEMENTATION NOT STARTED. Current stop before 6.2.1.**
+- Reference: `docs/CMMS_MAIN_PHASE6_STEP6_2_STOCK_BALANCE_MOVEMENT_REPORTS_APPROVED_SCOPE_2026-08-23.md`.
+
+## 2026-08-23 — Main Phase 6 / 6.2.1 Stock Balance & Status implemented
+
+- Owner explicitly started 6.2.1 after the approved 6.2 scope.
+- Added read-only Stock Balance report at `/inventory/reports/stock-balance` and linked the Reports Center **Balance & Status** card to it.
+- Added a focused report service that reads current Inventory/Warehouse state and optional Lot balances only; no historical transaction reconstruction.
+- Added mutually exclusive operational statuses: Negative, Zero, Low (positive quantity at/below configured minimum), Normal.
+- Added filters for item name/internal code, warehouse and stock status.
+- Added collapsed Lot detail with Lot Code, warehouse balance, global remaining quantity, expiry and Tracking Token where Lots are enabled.
+- Reused 6.1 shared toolbar/export foundation for Refresh, Reset, Print, Excel and PDF. Export endpoints use the same filter contract as the UI report.
+- Added targeted test `server/tests/stockBalanceReportPhase6Step2_1.test.ts`.
+- Targeted TypeScript/TSX syntax/transpile checks = PASS in packaging environment. Full project test/runtime execution is not claimed until deployed verification.
+- No SQL, schema migration, data mutation, Auto-fix, historical cleanup/backfill/revaluation, workflow/accounting/posting/numbering change, or 6.2.2 implementation.
+- **6.2.1 = IMPLEMENTED / TARGETED SOURCE CHECKS PASSED / DEPLOYED RUNTIME VERIFICATION PENDING.**
+- **Current stop:** deploy and Runtime-verify 6.2.1; do not start 6.2.2 automatically.
+- Reference: `docs/CMMS_MAIN_PHASE6_STEP6_2_1_STOCK_BALANCE_STATUS_IMPLEMENTATION_2026-08-23.md`.
+
+
+## 2026-08-23 — Main Phase 6 / 6.2.1 Stock Balance & Status — Runtime checkpoint
+
+- Deployed Stock Balance & Status report was opened successfully in Runtime.
+- Runtime summary shown by the report: 709 rows, 141 normal, 0 low-stock, 568 zero-stock, 0 negative-stock, 8 inventories within Lot Tracking.
+- Owner ran `pnpm exec vitest run server/tests/stockBalanceReportPhase6Step2_1.test.ts`; result: 1 test file passed, 4/4 tests passed.
+- The passing targeted tests verify classification precedence, active-filter summary behavior, RTL export-definition generation preserving Lot codes, and that the DB-facing report service remains read-only.
+- Official closure is intentionally **not** recorded yet because the final report-specific Runtime checks (status filter, Lot drill-down, filtered Excel/PDF exports) have not yet been confirmed by the owner.
+- No SQL/schema/migration/data mutation, no historical cleanup/backfill/revaluation, and no workflow/accounting/posting/numbering change.
+- **Current stop:** 6.2.1 Runtime verification pending completion; 6.2.2 NOT STARTED.
+
+
+## 2026-08-23 — Main Phase 6 / 6.2.1 Stock Balance & Status — OFFICIALLY CLOSED
+
+- Owner completed deployed Runtime verification for the Stock Balance & Status report.
+- `server/tests/stockBalanceReportPhase6Step2_1.test.ts` = **4/4 PASS**.
+- Runtime summary snapshot verified: 709 report rows / 141 normal / 0 low / 568 zero / 0 negative / 8 within Lot Tracking.
+- Runtime stock-status filtering confirmed working.
+- Excel and PDF exports confirmed working with an active filter and honoring the filtered result.
+- Lot drill-down confirmed working and displaying Lot Code, warehouse Lot balance, total remaining, expiry when available, and QR / Tracking Token.
+- No DB mutation, backfill, cleanup, revaluation, workflow change, accounting redesign, Posting Engine work or Centralized Numbering work was introduced by this closure.
+- **6.2.1 = COMPLETE / TARGETED TESTS PASSED / RUNTIME UAT PASSED / OFFICIALLY CLOSED.**
+- **6.2.2 = NOT STARTED.**
+
+## 2026-08-23 — Main Phase 6 / 6.2.2 Stock Card & Unified Movement Report implemented
+
+- Added centralized read-only movement/Stock Card page at `/inventory/reports/movements` and linked the Reports Center Movement/Tracking card.
+- Added DB-facing movement report service over current `inventory_transactions` + current Inventory/Warehouse/Lot/document links.
+- Added Stock Card item identity grouping across warehouses using linked item, internal code, then Inventory fallback identity.
+- Added filters for search, warehouse, movement type, direction, date range and Stock Card item selection.
+- Added authenticated Print/Excel/PDF movement export routes reusing the same report service/filter contract.
+- Added Arabic/English/Urdu report UI/export labels and targeted test coverage.
+- No DB mutation, migration, historical reconstruction, workflow/accounting/posting/numbering change, or 6.2.3 implementation.
+- **6.2.2 Runtime verification pending; do not close from packaging checks alone.**
+
+
+## 2026-08-23 — Main Phase 6 / 6.2.2 Stock Card & Unified Movement Report — OFFICIALLY CLOSED
+
+- Deployed Runtime verification completed for `/inventory/reports/movements`.
+- Runtime verified both approved views: **جميع الحركات** and **بطاقة الصنف**.
+- Owner ran `pnpm exec vitest run server/tests/inventoryMovementReportPhase6Step2_2.test.ts`; result: **1 test file passed / 4 of 4 tests passed**.
+- Passing targeted coverage verifies filter normalization / stable Stock Card item identity, in/out summaries without inventing a historical opening balance, RTL export rows preserving mixed document/Lot codes, and read-only DB-facing service behavior.
+- Owner confirmed report filters work correctly and Excel/PDF export works with the active filtered result.
+- Stock Card remains intentionally bounded to current stored balance/value plus recorded transactions; no legacy-history reconstruction or backfill is introduced.
+- No SQL/schema/migration/data mutation, Auto-fix, Historical Cleanup/Backfill/Revaluation, Workflow/Accounting/Posting/Numbering change, Batch Transfer redesign, or Production Cutover.
+- **6.2.2 = COMPLETE / TARGETED TESTS PASSED / RUNTIME UAT PASSED / OFFICIALLY CLOSED.**
+- **6.2.3 = NOT STARTED. Current stop: after 6.2.2 closure / before 6.2.3.**
+- Closure reference: `docs/CMMS_MAIN_PHASE6_STEP6_2_2_STOCK_CARD_UNIFIED_MOVEMENT_RUNTIME_CLOSURE_2026-08-23.md`.
+
+
+## 2026-08-23 — Main Phase 6 / 6.2.3 Unified Export & Review implemented
+
+- Started 6.2.3 after official closure of Stock Balance and Stock Card/Unified Movement report steps.
+- Reused the closed 6.1 export foundation; no new report screen or parallel export architecture.
+- Added cross-report targeted test `server/tests/unifiedReportExportReviewPhase6Step2_3.test.ts`.
+- Added movement report warehouse metadata to its read-only result so exported active-filter metadata can show a readable warehouse code/name.
+- Unified Movement/Stock Card exported warehouse filter no longer defaults to a raw numeric ID when the warehouse metadata is available.
+- Targeted syntax/source checks passed in packaging environment. Deployed Vitest and actual Excel/PDF/Print review remain required before closure.
+- No SQL/schema/migration/data mutation, Historical Backfill/Cleanup/Revaluation, Accounting/Posting/Workflow/Numbering change.
+- **6.2.3 Runtime verification pending; 6.2.4 NOT STARTED.**
+
+
+## 2026-08-23 — Main Phase 6 / 6.2.3 Unified Export & Review — OFFICIALLY CLOSED
+
+- Deployed Runtime verification completed for the unified export/review behavior used by the closed 6.2 operational reports.
+- Owner ran `pnpm exec vitest run server/tests/unifiedReportExportReviewPhase6Step2_3.test.ts`; result: **1 test file passed / 4 of 4 tests passed**.
+- Owner confirmed Runtime filters, Excel export, PDF export and Print work correctly, and exports respect active filtered results.
+- Shared 6.1 report toolbar/generated-at/download/Excel/PDF/Print foundation remains the single common implementation.
+- Movement/Stock Card export warehouse filter metadata uses readable warehouse code/name when metadata is available instead of a raw numeric ID.
+- A timezone review noted no explicit shared `Asia/Riyadh` enforcement; owner explicitly deferred this concern as **not important currently**, so it is not a 6.2.3 closure blocker. No Riyadh-time guarantee is claimed by this closure.
+- No SQL/schema/migration/data mutation, Auto-fix, Historical Cleanup/Backfill/Revaluation, Workflow/Accounting/Posting/Numbering change, Batch Transfer redesign, or Production Cutover.
+- **6.2.3 = COMPLETE / TARGETED TESTS PASSED / RUNTIME EXPORT-PRINT REVIEW PASSED / OFFICIALLY CLOSED.**
+- **6.2.4 = NOT STARTED. Current stop: after 6.2.3 closure / before 6.2.4.**
+- Closure reference: `docs/CMMS_MAIN_PHASE6_STEP6_2_3_UNIFIED_EXPORT_REVIEW_RUNTIME_CLOSURE_2026-08-23.md`.
+
+
+## 2026-08-23 — Main Phase 6 / 6.2.4 Runtime UAT & 6.2 — OFFICIALLY CLOSED
+
+- Completed final Runtime UAT for the closed 6.2 report set.
+- Stock Balance report matched Live DB for `LOT-2026-191EEB06`: quantities `3` in `WH-MAIN` + `1` in `SUB-1` = `4`, matching Lot remaining `4`; current values `30.00` + `10.00`.
+- Unified Movement Report matched Live DB transaction rows for purchase IN `5`, delivery OUT `1`, transfer OUT `1`, transfer IN `1`, with `DLV-2026-300215` / `TRF-2026-030006`.
+- Runtime UAT exposed a Stock Card search UX bug. Added the approved search fix; `server/tests/stockCardSearchPhase6Step2_4.test.ts` = **4/4 PASS**, and deployed Runtime re-test confirmed automatic item selection for a unique match.
+- Stock Card Runtime summary: current quantity `4`, current value `40.00`, `2` warehouses, `4` movements, total in `6`, total out `2`.
+- Prior accepted filter-aware Excel/PDF/Print behavior remained working.
+- Riyadh timezone enforcement is explicitly deferred/non-blocking by owner decision; this closure does not claim universal `Asia/Riyadh` timestamp enforcement.
+- No SQL/schema migration/data mutation, Historical Reconstruction/Backfill/Cleanup/Revaluation, Workflow/Accounting/Posting/Numbering change, Batch Transfer redesign, or Production Cutover.
+- **6.2.4 = RUNTIME UAT PASSED / OFFICIALLY CLOSED.**
+- **6.2 — Stock Balance & Movement Reports = COMPLETE / OFFICIALLY CLOSED.**
+- **6.3 = NOT STARTED. Current stop: after 6.2 closure / before 6.3.**
+- Closure reference: `docs/CMMS_MAIN_PHASE6_STEP6_2_4_RUNTIME_UAT_AND_STEP6_2_CLOSURE_2026-08-23.md`.
+
+
+## 2026-08-23 — Main Phase 6 / 6.3 Inventory Valuation & Accounting Reports — scope approved/documented
+
+- After official closure of 6.2, owner approved documenting 6.3 before any implementation.
+- Approved execution checkpoints: `6.3.1 Inventory Valuation Report`, `6.3.2 Value by Warehouse / Category`, `6.3.3 Inventory Variance & Accounting Review`, `6.3.4 Runtime UAT & Closure`.
+- 6.3 remains a read-only reporting layer over current accepted inventory quantity/cost/value state; it does not update `averageCost` or `totalCostValue`, perform Revaluation, regenerate transactions, or change Accounting/Posting behavior.
+- 6.3.3 must not duplicate/fork Main Phase 5.4 reconciliation or introduce Auto-fix; it may present relevant accepted read-only review evidence where useful.
+- Existing shared report toolbar/filter/generated-at/Print/Excel/PDF/RTL foundation from 6.1 and accepted export behavior from 6.2 remain mandatory.
+- Riyadh-time enforcement remains a documented deferred/non-blocking concern by current owner decision.
+- No SQL/schema/migration/data mutation, Historical Backfill/Cleanup/Revaluation, Workflow/Accounting/Posting/Numbering change, Batch Transfer redesign, or Production Cutover.
+- **6.3 = SCOPE APPROVED / DOCUMENTED — IMPLEMENTATION NOT STARTED.**
+- **6.3.1 = NOT STARTED. Current stop: before 6.3.1.**
+- Reference: `docs/CMMS_MAIN_PHASE6_STEP6_3_INVENTORY_VALUATION_ACCOUNTING_REPORTS_APPROVED_SCOPE_2026-08-23.md`.
+
+
+## 2026-08-24 — Main Phase 6 / 6.3.1 Inventory Valuation Report — OFFICIALLY CLOSED
+
+- Deployed report `/inventory/reports/valuation` verified in Runtime.
+- Search, warehouse filter, and stored-value status filter verified working.
+- Excel/PDF/Print verified working by owner.
+- Targeted test `server/tests/inventoryValuationReportPhase6Step3_1.test.ts` executed: **4 tests passed / 1 file passed**.
+- Report uses stored `totalCostValue` and current `quantity`/`averageCost`; no revaluation/recalculation posting behavior was introduced.
+- DB-facing report service remains read-only.
+- No SQL, migration, schema/data mutation, Historical Backfill, Legacy Cleanup, Accounting redesign, or Main Phase 7 Posting Engine work.
+- **6.3.1 = COMPLETE / TARGETED TESTS PASSED / RUNTIME UAT PASSED / OFFICIALLY CLOSED.**
+- **6.3 remains IN PROGRESS. 6.3.2 = NOT STARTED. Current stop before 6.3.2 — Value by Warehouse / Category.**
+- Closure doc: `docs/CMMS_MAIN_PHASE6_STEP6_3_1_INVENTORY_VALUATION_REPORT_RUNTIME_CLOSURE_2026-08-24.md`.
+
+
+## 2026-08-24 — Main Phase 6 / 6.3.2 Value by Warehouse / Category — implemented in one delivery
+
+- Added `server/services/reports/inventoryValueDistributionReport.ts` as a read-only grouping layer over the closed 6.3.1 valuation service.
+- Added warehouse grouping with current stored value, active-result share %, inventory-row count, and quantity context separated by unit.
+- Added category grouping using the accepted 2B-9 Inventory→Catalog taxonomy resolver; incomplete mapping stays `Uncategorized / غير مصنف`, with no mutation/backfill.
+- Extended `/inventory/reports/valuation` with three tabs: 6.3.1 detail, Value by Warehouse, Value by Category.
+- Added `inventoryReports.valueDistribution` read-only tRPC query.
+- Added filter-aware Excel/PDF/Print endpoints for warehouse and category grouped views.
+- Updated Reports Center status and Arabic/English/Urdu strings for 6.3.2.
+- Added targeted test file `server/tests/inventoryValueDistributionReportPhase6Step3_2.test.ts` with 5 cases covering warehouse grouping, mixed units, Catalog/Uncategorized grouping, percentage safety, exports, and read-only source behavior.
+- Packaging checks: modified TypeScript/TSX syntax transpilation PASS; isolated runtime harness against exact grouping implementation PASS. Full/project Vitest not claimed because dependencies are not installed in the uploaded-project environment.
+- No SQL/schema/migration/data mutation, Historical Backfill/Cleanup/Revaluation, Auto-fix, Accounting/Posting/Workflow/Numbering change, Batch Transfer redesign, 6.4 implementation, or Cutover.
+- **6.3.2 = IMPLEMENTED IN CODE / DEPLOYED TARGETED TEST + RUNTIME UAT PENDING. 6.3.3 remains NOT STARTED.**
+
+
+## 2026-08-24 — Main Phase 6 / 6.3.2 Value by Warehouse / Category — OFFICIALLY CLOSED
+
+- Owner executed targeted Vitest on the deployed/local project: `server/tests/inventoryValueDistributionReportPhase6Step3_2.test.ts` → **5/5 PASS / 1 file passed**.
+- Runtime review confirmed `/inventory/reports/valuation` continues to render the closed 6.3.1 detail view and the new grouped **Value by Warehouse** / **Value by Category** views.
+- Runtime evidence: warehouse grouping loaded from **717** inventory rows into **3** groups; category grouping loaded from **717** rows into **16** groups with **688** rows visibly uncategorized/unmapped.
+- Owner confirmed report operation plus **Excel / PDF / Print = PASS** in Runtime.
+- Grouped reports remain read-only and preserve stored `inventory.totalCostValue` as the valuation basis.
+- No Revaluation, `averageCost`/`totalCostValue` mutation, SQL/schema/migration/data mutation, Backfill/Cleanup, Auto-fix, Accounting/Posting/Workflow/Numbering change, Batch Transfer redesign, 6.4 implementation, or Cutover.
+- **6.3.2 = COMPLETE / TARGETED TESTS PASSED / RUNTIME UAT ACCEPTED / OFFICIALLY CLOSED.**
+- **6.3 remains IN PROGRESS; 6.3.3 = NOT STARTED. Current stop after 6.3.2 closure / before 6.3.3.**
+- Closure doc: `docs/CMMS_MAIN_PHASE6_STEP6_3_2_VALUE_BY_WAREHOUSE_CATEGORY_RUNTIME_CLOSURE_2026-08-24.md`.
+
+
+## 2026-08-24 — Main Phase 6.3 reorganized to two checkpoints + Current 6.3.2 Accounting Review
+
+**Owner decision:** merge former `6.3.1 + 6.3.2` into current **6.3.1 — Inventory Valuation & Value Distribution**, and merge former `6.3.3 + 6.3.4` into current **6.3.2 — Inventory Variance, Accounting Review & Runtime Closure**. Historical closure/test filenames are preserved.
+
+**Implemented files:**
+- `server/services/reports/inventoryAccountingReviewReport.ts`
+- `server/routers/reports/inventory-reports.router.ts`
+- `server/_core/index.ts`
+- `client/src/pages/inventory/InventoryValuationReport.tsx`
+- `client/src/i18n/ar.ts`, `en.ts`, `ur.ts`
+- `server/tests/inventoryAccountingReviewReportPhase6Step3_2Merged.test.ts`
+
+**Behavior:** read-only Accounting Review reuses 6.3.1 stored-value rows and authoritative Main Phase 5.4 reconciliation evidence. It surfaces only supported current-state conditions (5.4 value mismatch, 5.4 negative quantity, other Inventory-linked 5.4 exceptions, and existing negative stored-value status). It does not invent a new valuation formula or write to DB. Active filters are reused by screen/Excel/PDF/Print.
+
+**Boundaries preserved:** no quantity/cost/value update; no Revaluation; no Auto-fix; no Backfill; no Legacy Cleanup; no Posting Engine; no Centralized Numbering; no Batch Transfer all-or-nothing; no 6.4 Analytics.
+
+**Status:** current 6.3.2 implemented in code; targeted Vitest + deployed Runtime UAT + final 6.3 closure pending.
+
+
+## 2026-08-24 — Merged Main Phase 6.3.2 Runtime UAT passed; Main Phase 6.3 officially closed
+
+**Verification:** `pnpm exec vitest run server/tests/inventoryAccountingReviewReportPhase6Step3_2Merged.test.ts` passed **6/6**. Runtime owner acceptance confirmed the Accounting Review view, search, warehouse/value-status/category/review-status filters, Excel, PDF and Print.
+
+**Accepted behavior:** Accounting Review remains read-only, uses stored `totalCostValue`, and reuses authoritative Main Phase 5.4 reconciliation evidence without forking its engine or inventing exceptions for normal rows.
+
+**Boundaries preserved:** no DB/Schema/Migration changes; no Revaluation; no `averageCost`/`totalCostValue`/quantity mutation; no Auto-fix; no Historical Backfill; no Legacy Cleanup; no Posting/Workflow/Numbering changes; no Batch Transfer all-or-nothing; no 6.4 Analytics; no Cutover.
+
+**Status:** current 6.3.1 = OFFICIALLY CLOSED; current 6.3.2 = OFFICIALLY CLOSED; **Main Phase 6.3 = COMPLETE / OFFICIALLY CLOSED**. 6.4 remains DOCUMENTED FOR LATER / EXECUTE LAST / NOT STARTED; 6.5 remains NOT STARTED.
+
+**Closure document:** `docs/CMMS_MAIN_PHASE6_MERGED_STEP6_3_2_RUNTIME_UAT_AND_PHASE6_3_CLOSURE_2026-08-24.md`.
+
+## 2026-08-24 — Main Phase 6.4 Inventory Analytics & Planning implementation
+
+- Added unified Inventory Analytics page `/inventory/reports/analytics` with five approved tabs: Slow Moving, Dead Moving, ABC, Aging, Turnover.
+- Added read-only analytics service/core and tRPC query.
+- Added Excel/PDF/Print endpoints using the shared Main Phase 6 report export foundation.
+- Added current catalog taxonomy filter support with explicit Uncategorized handling.
+- Added configurable Slow/Dead thresholds and turnover-indicator period.
+- Added Lot-based current aging via `inventory_lot_balances.inventoryId` + `inventory_lots.createdAt`, without historical age reconstruction.
+- Added planning turnover indicator from recorded outbound value / current stored value; explicitly not an accounting turnover claim.
+- Added targeted test `inventoryAnalyticsReportPhase6Step4.test.ts`.
+- No DB writes, migration, backfill, cleanup, revaluation, posting/workflow change, centralized numbering, or Batch Transfer semantic change.
+- 6.4 remains verification-pending until targeted test and Runtime UAT pass; 6.5 not started.
+
+## 2026-08-24 — Main Phase 6.4 Inventory Analytics & Planning — Runtime UAT / Official Closure
+
+- Targeted Vitest `server/tests/inventoryAnalyticsReportPhase6Step4.test.ts` passed **8/8**.
+- Owner accepted Runtime operation and confirmed filters, export, and Print work correctly.
+- 6.4 remains one unified `/inventory/reports/analytics` page with Slow Moving, Dead Moving, ABC, Aging, and Turnover planning-indicator tabs.
+- Turnover semantics remain conservative: recorded outbound value during the selected period divided by current stored value; not claimed as accounting COGS/Average Inventory turnover.
+- No SQL/schema/migration/data mutation, Historical Backfill/Cleanup/Revaluation, Auto-fix, Accounting/Posting/Workflow/Numbering change, Batch Transfer redesign, or Cutover.
+- Reports Center status updated from verification-pending to **Officially closed**.
+- **Status:** Main Phase 6.3 = OFFICIALLY CLOSED; **Main Phase 6.4 = COMPLETE / OFFICIALLY CLOSED**; Main Phase 6.5 = NOT STARTED.
+- Closure reference: `docs/CMMS_MAIN_PHASE6_STEP6_4_INVENTORY_ANALYTICS_PLANNING_RUNTIME_UAT_CLOSURE_2026-08-24.md`.
+
+
+## 2026-08-24 — Main Phase 6.5 Final Runtime UAT & Closure Gate started
+
+- Owner explicitly approved executing 6.5 as one final closure pass.
+- Added one final regression gate test covering unified routes/foundation, read-only reporting, stored valuation behavior, analytics surface, deferred numbering protection, and Batch Transfer partial-result protection.
+- Added final owner Runtime navigation/export/print checklist.
+- No new feature, SQL, migration, DB mutation, historical repair, revaluation, accounting/workflow redesign, or numbering implementation.
+- **Status:** Main Phase 6.5 = IN PROGRESS / FINAL VERIFICATION PENDING; Main Phase 6 remains IN PROGRESS until acceptance.
+
+
+## 2026-08-24 — Main Phase 6.5 final regression passed; Main Phase 6 officially closed
+
+- Final regression gate `server/tests/mainPhase6FinalClosurePhase6Step5.test.ts` passed **9/9** on the owner project.
+- Two failures in the first gate execution were test-only false positives from broad `autoFix` / `revaluation` keyword scans matching explicit safety flags set to `false`; the test was corrected to check actual write/mutation patterns. No production report logic changed for this correction.
+- Runtime owner acceptance confirmed the cleaned five-card `/inventory/reports` center and that all five cards navigate and operate correctly.
+- Closed Main Phase 6 surfaces retain previously accepted filter / Excel / PDF / Print behavior.
+- DB-facing report services remain read-only; valuation remains based on stored `totalCostValue`.
+- No Centralized Numbering or `receipt_number_counter` implementation; Batch Transfer remains per-item/partial-result.
+- No SQL/Migration/DB mutation, Historical Backfill/Cleanup, Revaluation, Auto-fix, accounting/workflow redesign, Batch Transfer all-or-nothing change, or Cutover.
+- **Main Phase 6.5 = COMPLETE / OFFICIALLY CLOSED.**
+- **Main Phase 6 = COMPLETE / RUNTIME UAT PASSED / OFFICIALLY CLOSED.**
+- **Next stop: before Main Phase 7 — Inventory Posting Engine; Main Phase 7 remains NOT STARTED.**
+- Closure doc: `docs/CMMS_MAIN_PHASE6_FINAL_RUNTIME_UAT_AND_OFFICIAL_CLOSURE_2026-08-24.md`.

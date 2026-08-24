@@ -1,23 +1,29 @@
 import { useState } from "react";
 import { useTranslation } from "@/contexts/LanguageContext";
 import { trpc } from "@/lib/trpc";
+import { useAuth } from "@/_core/hooks/useAuth";
+import { isCatalogAdminRole } from "@shared/roles";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
-import { Plus, Trash2, Edit2, Loader2, Ruler } from "lucide-react";
+import { Plus, Trash2, Edit2, Loader2, Ruler, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 
 export default function UnitsManager() {
   const { t } = useTranslation();
+  const { user } = useAuth();
+  const isCatalogAdmin = isCatalogAdminRole(user?.role);
   const [dialogMode, setDialogMode] = useState<"add" | "edit" | null>(null);
   const [selected, setSelected] = useState<{ id: number; nameAr: string; nameEn: string } | null>(null);
   const [nameAr, setNameAr] = useState("");
   const [nameEn, setNameEn] = useState("");
 
-  const { data: units, isLoading, refetch } = trpc.catalog.units.list.useQuery();
+  const { data: units, isLoading, refetch } = trpc.catalog.units.list.useQuery({
+    includeInactive: isCatalogAdmin || undefined,
+  });
 
   const createMut = trpc.catalog.units.create.useMutation({
     onSuccess: () => { refetch(); close(); toast.success("تمت إضافة الوحدة"); },
@@ -30,7 +36,12 @@ export default function UnitsManager() {
   });
 
   const deleteMut = trpc.catalog.units.delete.useMutation({
-    onSuccess: () => { refetch(); toast.success("تم حذف الوحدة"); },
+    onSuccess: () => { refetch(); toast.success("تم تعطيل الوحدة"); },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const reactivateMut = trpc.catalog.units.reactivate.useMutation({
+    onSuccess: () => { refetch(); toast.success("تمت إعادة تفعيل الوحدة"); },
     onError: (e) => toast.error(e.message),
   });
 
@@ -66,7 +77,6 @@ export default function UnitsManager() {
 
   return (
     <div className="space-y-4">
-      {/* Header */}
       <div className="flex items-center justify-between">
         <h3 className="text-lg font-semibold">وحدات القياس</h3>
         <Button size="sm" className="gap-2" onClick={openAdd}>
@@ -75,43 +85,64 @@ export default function UnitsManager() {
         </Button>
       </div>
 
-      {/* Units List */}
       {isLoading ? (
         <div className="flex justify-center py-12"><Loader2 className="w-5 h-5 animate-spin" /></div>
       ) : units && units.length > 0 ? (
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-          {units.map((unit: any) => (
-            <Card key={unit.id} className="hover:shadow-md transition-shadow">
-              <CardContent className="p-4">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="flex items-center gap-2">
-                    <Ruler className="w-4 h-4 text-muted-foreground shrink-0" />
-                    <div>
-                      <p className="font-medium text-sm">{unit.nameAr}</p>
-                      <p className="text-xs text-muted-foreground">{unit.nameEn}</p>
+          {units.map((unit: any) => {
+            const isActive = Number(unit.isActive) === 1;
+            return (
+              <Card key={unit.id} className={`hover:shadow-md transition-shadow ${!isActive ? "opacity-80 border-dashed" : ""}`}>
+                <CardContent className="p-4">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <Ruler className="w-4 h-4 text-muted-foreground shrink-0" />
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="font-medium text-sm">{unit.nameAr}</p>
+                          {!isActive && (
+                            <span className="text-[11px] font-medium rounded-full border px-2 py-0.5 text-muted-foreground">معطّل</span>
+                          )}
+                        </div>
+                        <p className="text-xs text-muted-foreground">{unit.nameEn}</p>
+                      </div>
+                    </div>
+                    <div className="flex gap-1 shrink-0">
+                      <button
+                        onClick={() => openEdit(unit)}
+                        className="p-1 rounded hover:bg-blue-100 hover:text-blue-700 transition-colors"
+                        title="تعديل"
+                      >
+                        <Edit2 className="w-3.5 h-3.5" />
+                      </button>
+                      {isCatalogAdmin && isActive && (
+                        <button
+                          onClick={() => {
+                            if (confirm(`تعطيل وحدة "${unit.nameAr}"؟\n\nستختفي من الاختيارات الجديدة، مع بقاء السجلات التاريخية كما هي.`)) {
+                              deleteMut.mutate(unit.id);
+                            }
+                          }}
+                          className="p-1 rounded hover:bg-red-100 hover:text-red-700 transition-colors"
+                          title="تعطيل"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                      {isCatalogAdmin && !isActive && (
+                        <button
+                          onClick={() => reactivateMut.mutate(unit.id)}
+                          className="p-1 rounded hover:bg-green-100 hover:text-green-700 transition-colors"
+                          title="إعادة تفعيل"
+                        >
+                          <RotateCcw className="w-3.5 h-3.5" />
+                        </button>
+                      )}
                     </div>
                   </div>
-                  <div className="flex gap-1 shrink-0">
-                    <button
-                      onClick={() => openEdit(unit)}
-                      className="p-1 rounded hover:bg-blue-100 hover:text-blue-700 transition-colors"
-                    >
-                      <Edit2 className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      onClick={() => {
-                        if (confirm(`حذف وحدة "${unit.nameAr}"؟`))
-                          deleteMut.mutate(unit.id);
-                      }}
-                      className="p-1 rounded hover:bg-red-100 hover:text-red-700 transition-colors"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+                </CardContent>
+              </Card>
+            );
+          })}
         </div>
       ) : (
         <Card>
@@ -125,7 +156,6 @@ export default function UnitsManager() {
         </Card>
       )}
 
-      {/* Dialog */}
       <Dialog open={!!dialogMode} onOpenChange={() => close()}>
         <DialogContent className="max-w-sm">
           <DialogHeader>

@@ -8,7 +8,7 @@ import { alias } from "drizzle-orm/mysql-core";
 import mysql from "mysql2/promise";
 import {
   InsertUser, users, tickets, purchaseOrders, purchaseOrderItems,
-  inventory, inventoryTransactions, notifications, auditLogs,
+  inventory, inventoryTransactions, inventoryLots, inventoryLotBalances, notifications, auditLogs,
   ticketStatusHistory, attachments, sites, backups,
   assets, preventivePlans, pmWorkOrders, assetSpareParts, pmJobs, assetMetrics,
   pmChecklistItems, pmWorkOrderBranches,
@@ -21,6 +21,7 @@ import {
   type InsertProcurementComment,
   warehouseReceipts,
   warehouseReturns,
+  warehouses,
   warehouseReceiptItems,
   ocrJobs,
   type InsertWarehouseReceipt,
@@ -49,11 +50,12 @@ import { ENV } from '../env';
 import { getDb } from "./client";
 import { getInventoryItemById, getUserById } from "./deletes";
 import { getPOItemById, getPurchaseOrderById, getPOItems, updatePurchaseOrder } from "./purchase";
-import { getNextDeliveryNumber } from "./warehouse-receipts";
-import { calculateInventoryValue, calculateMovementTotal } from "../inventory-costing";
+import { getNextDeliveryNumber, getNextReturnNumber } from "./warehouse-receipts";
+import { calculateInventoryValue, calculateMovementTotal, normalizeInventoryQuantity, roundTo } from "../inventory-costing";
+import { consumeInventoryLotForIssue, isInventoryLotsEnabled, resolveInventoryLotForSupplierReturn } from "../inventory-lots";
 
-export async function createWarehouseReturn(data: InsertWarehouseReturn) {
-  const db = await getDb();
+export async function createWarehouseReturn(data: InsertWarehouseReturn, tx?: any) {
+  const db = tx || await getDb();
   if (!db) return null;
   const result = await db.insert(warehouseReturns).values(data);
   return result[0].insertId;
@@ -78,8 +80,8 @@ export async function getWarehouseReturns(filters?: { purchaseOrderId?: number; 
 //   (Batch/Lot) فعلياً؛ الرصيد الحقيقي القابل للإرجاع هو رصيد المخزون الكلي فقط،
 //   ونعرض هنا فقط "الكمية المستلمة" و"المُرجَع سابقاً ضد هذا السند تحديداً"
 //   كمعلومة استرشادية للموظف لا كحد ملزم.
-export async function getReturnSources(inventoryId: number) {
-  const db = await getDb();
+export async function getReturnSources(inventoryId: number, tx?: any) {
+  const db = tx || await getDb();
   if (!db) return [];
 
   const receiveRows = await db
@@ -154,6 +156,746 @@ export async function getReturnSources(inventoryId: number) {
     ...s,
     returnedQty: returnedByReceipt.get(s.receiptId) || 0,
   }));
+}
+
+
+
+/**
+ * 2B-8 — مرتجع مورد Lot-aware.
+ *
+ * QR الدفعة هو مصدر الحقيقة: لا نثق بـ inventoryId/receiptId/PO ids من العميل.
+ * كل تخفيضات الكمية (Lot balance + lot remaining + aggregate Inventory) وإنشاء
+ * warehouse_return وحركة المخزون ووثيقة المرتجع تتم في Transaction واحدة.
+ */
+export async function createLotAwareSupplierReturn(params: {
+  trackingToken: string;
+  warehouseId: number;
+  returnedQuantity: number;
+  reason: string;
+  recipientName?: string;
+  returnedById: number;
+}) {
+  const database = await getDb();
+  if (!database) throw new Error("تعذر الاتصال بقاعدة البيانات");
+
+  const returnedQuantity = normalizeInventoryQuantity(params.returnedQuantity);
+  if (!(returnedQuantity > 0)) throw new Error("كمية المرتجع يجب أن تكون أكبر من صفر");
+  // warehouse_returns.returnedQuantity ما زال INT في الـLive model الحالي؛ لا نوسّع
+  // مستندات المرتجع إلى الكسور ضمن 5.2 بدون Schema/Workflow approval منفصل.
+  if (!Number.isInteger(returnedQuantity)) {
+    throw new Error("مسار مرتجع المورد الحالي يدعم الكميات الصحيحة فقط");
+  }
+
+  const performer = await getUserById(params.returnedById);
+
+  return database.transaction(async (tx: any) => {
+    const warehouseRows = await tx
+      .select()
+      .from(warehouses)
+      .where(eq(warehouses.id, params.warehouseId))
+      .limit(1);
+    const warehouse: any = warehouseRows[0];
+    if (!warehouse || !warehouse.isActive) {
+      throw new Error("المستودع المحدد غير موجود أو غير مفعّل");
+    }
+
+    const resolvedLot = await resolveInventoryLotForSupplierReturn({
+      tx,
+      trackingToken: params.trackingToken,
+      warehouseId: params.warehouseId,
+    });
+
+    const initialInventoryItem = await getInventoryItemById(resolvedLot.inventoryId, tx);
+    if (!initialInventoryItem) throw new Error("سجل المخزون المرتبط بالدفعة غير موجود");
+
+    const inventoryCatalogItemId = (initialInventoryItem as any).linkedItemId == null
+      ? null
+      : Number((initialInventoryItem as any).linkedItemId);
+    if (
+      resolvedLot.catalogItemId != null &&
+      inventoryCatalogItemId != null &&
+      resolvedLot.catalogItemId !== inventoryCatalogItemId
+    ) {
+      throw new Error("هوية الكتالوج للدفعة لا تطابق هوية الصنف في المخزون");
+    }
+
+    if (returnedQuantity > resolvedLot.balanceQuantity) {
+      throw new Error(`الكمية المُرجَعة (${returnedQuantity}) أكبر من رصيد الدفعة في المستودع (${resolvedLot.balanceQuantity})`);
+    }
+
+    const receiptRows = await tx
+      .select()
+      .from(warehouseReceipts)
+      .where(eq(warehouseReceipts.id, resolvedLot.receiptId!))
+      .limit(1);
+    const receipt: any = receiptRows[0];
+    if (!receipt) throw new Error("سند الاستلام الأصلي للدفعة غير موجود");
+
+    const purchaseOrderId = resolvedLot.purchaseOrderId ?? receipt.purchaseOrderId ?? null;
+    const purchaseOrderItemId = resolvedLot.purchaseOrderItemId ?? null;
+
+    // إن كان الـLot مرتبطاً ببند PO، نتحقق من أن البند يعود لنفس أمر الشراء.
+    let poItem: any = null;
+    if (purchaseOrderItemId) {
+      poItem = await getPOItemById(purchaseOrderItemId, tx);
+      if (!poItem) throw new Error("بند أمر الشراء الأصلي للدفعة غير موجود");
+      if (purchaseOrderId && Number(poItem.purchaseOrderId) !== Number(purchaseOrderId)) {
+        throw new Error("بند أمر الشراء في الدفعة لا يطابق أمر الشراء الأصلي");
+      }
+    }
+
+    const consumedLot = await consumeInventoryLotForIssue({
+      tx,
+      trackingToken: resolvedLot.trackingToken,
+      inventoryId: resolvedLot.inventoryId,
+      inventoryCatalogItemId,
+      quantity: returnedQuantity,
+      actionLabel: "المرتجع",
+    });
+
+    // Phase 5.2: بعد حجز رصيد الـLot نقفل Aggregate Inventory ونقرأ الرصيد
+    // ومتوسط التكلفة الحاليين. أي فشل بعد ذلك يعيد تعديلات الـLot بالـRollback.
+    await tx.execute(sql`SELECT id FROM inventory WHERE id = ${resolvedLot.inventoryId} FOR UPDATE`);
+    const lockedInventoryRows = await tx
+      .select()
+      .from(inventory)
+      .where(eq(inventory.id, resolvedLot.inventoryId))
+      .limit(1);
+    const inventoryItem: any = lockedInventoryRows[0];
+    if (!inventoryItem) throw new Error("سجل المخزون المرتبط بالدفعة لم يعد موجودًا");
+    if (returnedQuantity > Number(inventoryItem.quantity || 0)) {
+      throw new Error(`الكمية المتاحة في المخزون ${inventoryItem.quantity} أقل من الكمية المُرجَعة`);
+    }
+
+    const movementUnitCost = parseFloat(inventoryItem.averageCost || "0");
+    const movementTotalCost = calculateMovementTotal(returnedQuantity, movementUnitCost);
+
+    // تخفيض Aggregate Inventory شرطياً داخل نفس Transaction. القيمة تُخفض
+    // باستخدام Current Average Cost المقروء من الخادم، لا أي تكلفة من العميل.
+    const stockUpdateResult: any = await tx
+      .update(inventory)
+      .set({
+        quantity: sql`${inventory.quantity} - ${returnedQuantity}`,
+        totalCostValue: sql`ROUND((${inventory.quantity} - ${returnedQuantity}) * ${inventory.averageCost}, 2)`,
+        updatedAt: new Date(),
+      } as any)
+      .where(and(
+        eq(inventory.id, resolvedLot.inventoryId),
+        gte(inventory.quantity, returnedQuantity),
+      ));
+    if (Number(stockUpdateResult?.[0]?.affectedRows ?? 0) !== 1) {
+      throw new Error("رصيد المخزون تغيّر أثناء تنفيذ المرتجع؛ أعد مسح QR وحاول مرة أخرى");
+    }
+
+    // رقم المرتجع يُولَّد عبر نفس transaction writer. سياسة منع التكرار
+    // الشاملة لأرقام المستندات تبقى ضمن 5.3 ولا نضيف UNIQUE/Counter جديد هنا.
+    const returnNumber = await getNextReturnNumber(tx);
+
+    const [returnInsert] = await tx.insert(warehouseReturns).values({
+      returnNumber,
+      receiptId: resolvedLot.receiptId,
+      purchaseOrderId,
+      purchaseOrderItemId,
+      inventoryId: resolvedLot.inventoryId,
+      lotId: resolvedLot.lotId,
+      returnedQuantity,
+      reason: params.reason,
+      returnedById: params.returnedById,
+    } as any);
+    const returnId = Number((returnInsert as any)?.insertId || 0);
+    if (!returnId) throw new Error("تعذر إنشاء سجل مرتجع المورد");
+
+    await tx.insert(inventoryTransactions).values({
+      inventoryId: resolvedLot.inventoryId,
+      lotId: resolvedLot.lotId,
+      type: "out",
+      quantity: returnedQuantity,
+      unitCost: movementUnitCost.toFixed(4),
+      totalCost: movementTotalCost.toFixed(2),
+      reason: `إرجاع للمورد - ${params.reason} - مرتجع ${returnNumber}`,
+      purchaseOrderItemId,
+      performedById: params.returnedById,
+      transactionType: "return",
+      receiptId: resolvedLot.receiptId,
+      returnId,
+      invoiceNumber: receipt.invoiceNumber ?? null,
+    } as any);
+
+    if (purchaseOrderItemId) {
+      await tx.update(purchaseOrderItems).set({
+        returnedQuantity: sql`COALESCE(${purchaseOrderItems.returnedQuantity}, 0) + ${returnedQuantity}`,
+        returnReason: params.reason,
+        returnedAt: new Date(),
+      } as any).where(eq(purchaseOrderItems.id, purchaseOrderItemId));
+    }
+
+    // نحافظ على السلوك الحالي: إذا كان PO مكتمل الاستلام ثم حصل مرتجع، يعود
+    // إلى partial_purchase. لا نغيّر حالات أخرى ضمن هذه الدفعة.
+    if (purchaseOrderId) {
+      await tx.update(purchaseOrders).set({ status: "partial_purchase" } as any)
+        .where(and(
+          eq(purchaseOrders.id, purchaseOrderId),
+          eq(purchaseOrders.status, "received" as any),
+        ));
+    }
+
+    const poRows = purchaseOrderId
+      ? await tx.select({ poNumber: purchaseOrders.poNumber })
+          .from(purchaseOrders)
+          .where(eq(purchaseOrders.id, purchaseOrderId))
+          .limit(1)
+      : [];
+    const poNumber = poRows[0]?.poNumber ?? null;
+
+    await createReturnDocument({
+      returnNumber,
+      returnId,
+      itemName: inventoryItem.itemName,
+      internalCode: inventoryItem.internalCode,
+      manufacturerBarcode: inventoryItem.manufacturerBarcode,
+      returnedQuantity,
+      unit: inventoryItem.unit || undefined,
+      reason: params.reason,
+      returnedByName: (performer as any)?.name || (performer as any)?.username || "—",
+      recipientName: params.recipientName,
+      receiptNumber: receipt.receiptNumber ?? undefined,
+      invoiceNumber: receipt.invoiceNumber ?? undefined,
+      vendorName: receipt.vendorName ?? undefined,
+      poNumber: poNumber ?? undefined,
+    }, tx);
+
+    return {
+      returnId,
+      returnNumber,
+      lotId: consumedLot.lotId,
+      lotCode: consumedLot.lotCode,
+      trackingToken: consumedLot.trackingToken,
+      inventoryId: resolvedLot.inventoryId,
+      warehouseId: resolvedLot.warehouseId,
+      warehouseName: warehouse.nameAr ?? warehouse.nameEn ?? `#${resolvedLot.warehouseId}`,
+      itemName: inventoryItem.itemName,
+      unit: inventoryItem.unit || null,
+      returnedQuantity,
+      unitCostUsed: movementUnitCost,
+      returnValue: movementTotalCost,
+      receiptId: resolvedLot.receiptId,
+      receiptNumber: receipt.receiptNumber ?? null,
+      invoiceNumber: receipt.invoiceNumber ?? null,
+      vendorName: receipt.vendorName ?? null,
+      purchaseOrderId,
+      purchaseOrderItemId,
+      poNumber,
+      lotRemainingInWarehouse: consumedLot.balanceQuantity,
+      lotRemainingTotal: consumedLot.remainingQuantity,
+    };
+  });
+}
+
+/**
+ * Phase 5.2 — المسار Legacy لمرتجع المورد بدون Lots.
+ *
+ * لا نغيّر Workflow القديم، لكن نجمع رأس المرتجع + حركة المخزون + تخفيض
+ * الكمية/القيمة + تحديث PO عند وجوده + وثيقة المرتجع داخل Transaction واحدة.
+ * هذا يمنع ترك مستند أو حركة جزئية إذا فشل أي جزء لاحقًا.
+ */
+export async function createLegacySupplierReturn(params: {
+  receiptId?: number;
+  purchaseOrderId?: number;
+  purchaseOrderItemId?: number;
+  inventoryId: number;
+  returnedQuantity: number;
+  reason: string;
+  recipientName?: string;
+  returnedById: number;
+}) {
+  const database = await getDb();
+  if (!database) throw new Error("تعذر الاتصال بقاعدة البيانات");
+
+  const returnedQuantity = normalizeInventoryQuantity(params.returnedQuantity);
+  if (!(returnedQuantity > 0)) throw new Error("كمية المرتجع يجب أن تكون أكبر من صفر");
+  // لا نغيّر هنا سياسة الكسور للمسار Legacy اعتمادًا على code schema فقط؛
+  // Live DB هو مصدر الحقيقة ويُفحص منفصلًا إذا أصبح هذا المسار ضمن UAT الفعلي.
+
+  return database.transaction(async (tx: any) => {
+    await tx.execute(sql`SELECT id FROM inventory WHERE id = ${params.inventoryId} FOR UPDATE`);
+    const inventoryItem = await getInventoryItemById(params.inventoryId, tx) as any;
+    if (!inventoryItem) throw new Error("الصنف غير موجود في المخزون");
+    if (returnedQuantity > Number(inventoryItem.quantity || 0)) {
+      throw new Error(`الكمية المتاحة في المخزون ${inventoryItem.quantity} أقل من الكمية المُرجَعة`);
+    }
+
+    let receipt: any = null;
+    let matchedSource: any = null;
+    if (params.receiptId) {
+      const receiptRows = await tx.select().from(warehouseReceipts)
+        .where(eq(warehouseReceipts.id, params.receiptId)).limit(1);
+      receipt = receiptRows[0] || null;
+      if (!receipt) throw new Error("سند الاستلام غير موجود");
+
+      if (params.purchaseOrderId && Number(receipt.purchaseOrderId) !== Number(params.purchaseOrderId)) {
+        throw new Error("طلب الشراء المُرسَل لا يطابق سند الاستلام المُختار");
+      }
+
+      const sources = await getReturnSources(params.inventoryId, tx);
+      matchedSource = sources.find((source: any) => Number(source.receiptId) === Number(params.receiptId));
+      if (!matchedSource) {
+        throw new Error("سند الاستلام المُختار لا يطابق سجل استلام هذا الصنف");
+      }
+    }
+
+    const purchaseOrderId = params.purchaseOrderId ?? receipt?.purchaseOrderId ?? null;
+    const purchaseOrderItemId = params.purchaseOrderItemId ?? matchedSource?.purchaseOrderItemId ?? null;
+
+    let poItem: any = null;
+    if (purchaseOrderItemId) {
+      poItem = await getPOItemById(purchaseOrderItemId, tx);
+      if (!poItem) throw new Error("بند طلب الشراء غير موجود");
+      if (purchaseOrderId && Number(poItem.purchaseOrderId) !== Number(purchaseOrderId)) {
+        throw new Error("بند طلب الشراء المُرسَل لا يطابق طلب الشراء المرتبط بالمصدر");
+      }
+    }
+
+    const returnNumber = await getNextReturnNumber(tx);
+    const [returnInsert] = await tx.insert(warehouseReturns).values({
+      returnNumber,
+      receiptId: params.receiptId ?? null,
+      purchaseOrderId,
+      purchaseOrderItemId,
+      inventoryId: params.inventoryId,
+      returnedQuantity,
+      reason: params.reason,
+      returnedById: params.returnedById,
+    } as any);
+    const returnId = Number((returnInsert as any)?.insertId || 0);
+    if (!returnId) throw new Error("تعذر إنشاء سجل مرتجع المورد");
+
+    const movementUnitCost = parseFloat(inventoryItem.averageCost || "0");
+    const movementTotalCost = calculateMovementTotal(returnedQuantity, movementUnitCost);
+
+    const stockUpdateResult: any = await tx.update(inventory).set({
+      quantity: sql`${inventory.quantity} - ${returnedQuantity}`,
+      totalCostValue: sql`ROUND((${inventory.quantity} - ${returnedQuantity}) * ${inventory.averageCost}, 2)`,
+      updatedAt: new Date(),
+    } as any).where(and(
+      eq(inventory.id, params.inventoryId),
+      gte(inventory.quantity, returnedQuantity),
+    ));
+    if (Number(stockUpdateResult?.[0]?.affectedRows ?? 0) !== 1) {
+      throw new Error("رصيد المخزون تغيّر أثناء تنفيذ المرتجع؛ أعد المحاولة");
+    }
+
+    await tx.insert(inventoryTransactions).values({
+      inventoryId: params.inventoryId,
+      type: "out",
+      quantity: returnedQuantity,
+      unitCost: movementUnitCost.toFixed(4),
+      totalCost: movementTotalCost.toFixed(2),
+      reason: params.receiptId
+        ? `إرجاع للمورد - ${params.reason} - مرتجع ${returnNumber}`
+        : `إرجاع عام (بلا سند استلام معروف) - ${params.reason} - مرتجع ${returnNumber}`,
+      purchaseOrderItemId: purchaseOrderItemId ?? undefined,
+      performedById: params.returnedById,
+      transactionType: "return",
+      receiptId: params.receiptId ?? undefined,
+      returnId,
+      invoiceNumber: receipt?.invoiceNumber ?? null,
+    } as any);
+
+    if (purchaseOrderItemId) {
+      await tx.update(purchaseOrderItems).set({
+        returnedQuantity: sql`COALESCE(${purchaseOrderItems.returnedQuantity}, 0) + ${returnedQuantity}`,
+        returnReason: params.reason,
+        returnedAt: new Date(),
+      } as any).where(eq(purchaseOrderItems.id, purchaseOrderItemId));
+    }
+
+    if (purchaseOrderId) {
+      await tx.update(purchaseOrders).set({ status: "partial_purchase" } as any)
+        .where(and(
+          eq(purchaseOrders.id, purchaseOrderId),
+          eq(purchaseOrders.status, "received" as any),
+        ));
+    }
+
+    const poRows = purchaseOrderId
+      ? await tx.select({ poNumber: purchaseOrders.poNumber }).from(purchaseOrders)
+          .where(eq(purchaseOrders.id, purchaseOrderId)).limit(1)
+      : [];
+    const poNumber = poRows[0]?.poNumber ?? null;
+
+    const performerRows = await tx.select({ name: users.name, username: users.username })
+      .from(users).where(eq(users.id, params.returnedById)).limit(1);
+    const performer: any = performerRows[0];
+
+    await createReturnDocument({
+      returnNumber,
+      returnId,
+      itemName: inventoryItem.itemName,
+      internalCode: inventoryItem.internalCode,
+      manufacturerBarcode: inventoryItem.manufacturerBarcode,
+      returnedQuantity,
+      unit: inventoryItem.unit || undefined,
+      reason: params.reason,
+      returnedByName: performer?.name || performer?.username || "—",
+      recipientName: params.recipientName,
+      receiptNumber: receipt?.receiptNumber ?? undefined,
+      invoiceNumber: receipt?.invoiceNumber ?? undefined,
+      vendorName: receipt?.vendorName ?? undefined,
+      poNumber: poNumber ?? undefined,
+    }, tx);
+
+    return {
+      returnId,
+      returnNumber,
+      inventoryId: params.inventoryId,
+      itemName: inventoryItem.itemName,
+      unit: inventoryItem.unit || null,
+      returnedQuantity,
+      unitCostUsed: movementUnitCost,
+      returnValue: movementTotalCost,
+      receiptId: params.receiptId ?? null,
+      invoiceNumber: receipt?.invoiceNumber ?? null,
+      purchaseOrderId,
+      purchaseOrderItemId,
+      poNumber,
+    };
+  });
+}
+
+
+// ── Phase 5.2: Recipient → Warehouse Return ────────────────────────────────
+// Approved policy (2026-08-22):
+//   Same Original Lot + Original Issue Cost + Original Issue Link
+//   + Partial/Over-return Guards + Atomic Posting.
+// Historical supplier returns stay sourceDeliveryDocumentId = NULL.
+
+async function readRecipientReturnSourceById(sourceDeliveryDocumentId: number, tx: any) {
+  const rows = await tx
+    .select({
+      deliveryId: deliveryDocuments.id,
+      deliveryNumber: deliveryDocuments.deliveryNumber,
+      inventoryId: deliveryDocuments.inventoryId,
+      lotId: deliveryDocuments.lotId,
+      inventoryTransactionId: deliveryDocuments.inventoryTransactionId,
+      itemName: deliveryDocuments.itemName,
+      quantity: deliveryDocuments.quantity,
+      unit: deliveryDocuments.unit,
+      deliveredToId: deliveryDocuments.deliveredToId,
+      deliveredToName: deliveryDocuments.deliveredToName,
+      deliveredByName: deliveryDocuments.deliveredByName,
+      ticketId: deliveryDocuments.ticketId,
+      ticketNumber: deliveryDocuments.ticketNumber,
+      poNumber: deliveryDocuments.poNumber,
+      createdAt: deliveryDocuments.createdAt,
+      warehouseId: inventory.warehouseId,
+      inventoryQuantity: inventory.quantity,
+      inventoryAverageCost: inventory.averageCost,
+      inventoryTotalCostValue: inventory.totalCostValue,
+      internalCode: inventory.internalCode,
+      manufacturerBarcode: inventory.manufacturerBarcode,
+      lotCode: inventoryLots.lotCode,
+      lotTrackingToken: inventoryLots.trackingToken,
+      lotRemainingQuantity: inventoryLots.remainingQuantity,
+      movementId: inventoryTransactions.id,
+      movementInventoryId: inventoryTransactions.inventoryId,
+      movementLotId: inventoryTransactions.lotId,
+      movementType: inventoryTransactions.type,
+      movementTransactionType: inventoryTransactions.transactionType,
+      movementQuantity: inventoryTransactions.quantity,
+      movementUnitCost: inventoryTransactions.unitCost,
+      movementTotalCost: inventoryTransactions.totalCost,
+      movementTicketId: inventoryTransactions.ticketId,
+      movementPurchaseOrderItemId: inventoryTransactions.purchaseOrderItemId,
+      warehouseNameAr: warehouses.nameAr,
+      warehouseNameEn: warehouses.nameEn,
+    })
+    .from(deliveryDocuments)
+    .leftJoin(inventory, eq(inventory.id, deliveryDocuments.inventoryId))
+    .leftJoin(inventoryLots, eq(inventoryLots.id, deliveryDocuments.lotId))
+    .leftJoin(inventoryTransactions, eq(inventoryTransactions.id, deliveryDocuments.inventoryTransactionId))
+    .leftJoin(warehouses, eq(warehouses.id, inventory.warehouseId))
+    .where(eq(deliveryDocuments.id, sourceDeliveryDocumentId))
+    .limit(2);
+
+  if (rows.length === 0) throw new Error("سند الصرف الأصلي غير موجود");
+  if (rows.length > 1) throw new Error("بيانات سند الصرف غير متسقة");
+
+  const row: any = rows[0];
+  if (!row.inventoryId || !row.lotId || !row.inventoryTransactionId) {
+    throw new Error("سند الصرف قديم أو غير مكتمل الربط بالـInventory/Lot/Movement؛ لا يمكن إنشاء مرتجع آمن منه بدون Backfill");
+  }
+  if (!row.movementId) throw new Error("حركة الصرف الأصلية المرتبطة بالسند غير موجودة");
+  if (row.movementType !== "out" || row.movementTransactionType !== "delivery") {
+    throw new Error("الحركة المرتبطة بسند الصرف ليست حركة Delivery صادرة");
+  }
+  if (Number(row.movementInventoryId) !== Number(row.inventoryId) || Number(row.movementLotId) !== Number(row.lotId)) {
+    throw new Error("ربط سند الصرف لا يطابق Inventory/Lot في حركة الصرف الأصلية");
+  }
+
+  const deliveryQuantity = normalizeInventoryQuantity(Number(row.quantity || 0));
+  const movementQuantity = normalizeInventoryQuantity(Number(row.movementQuantity || 0));
+  if (!(deliveryQuantity > 0) || deliveryQuantity !== movementQuantity) {
+    throw new Error("كمية سند الصرف لا تطابق كمية حركة الصرف الأصلية؛ أوقف المرتجع وراجع السجل");
+  }
+
+  const originalIssueUnitCost = Number(row.movementUnitCost);
+  if (!Number.isFinite(originalIssueUnitCost) || originalIssueUnitCost < 0) {
+    throw new Error("تكلفة حركة الصرف الأصلية غير متاحة؛ لا يمكن تقييم المرتجع بأمان");
+  }
+
+  const previousRows = await tx
+    .select({ total: sql<string>`COALESCE(SUM(${warehouseReturns.returnedQuantity}), 0)` })
+    .from(warehouseReturns)
+    .where(eq(warehouseReturns.sourceDeliveryDocumentId, sourceDeliveryDocumentId));
+  const previouslyReturnedQuantity = normalizeInventoryQuantity(Number(previousRows[0]?.total || 0));
+  if (previouslyReturnedQuantity < 0 || previouslyReturnedQuantity > deliveryQuantity) {
+    throw new Error("إجمالي المرتجعات السابقة لهذا السند غير متسق مع الكمية المصروفة");
+  }
+
+  const returnableQuantity = normalizeInventoryQuantity(deliveryQuantity - previouslyReturnedQuantity);
+  const warehouseName = row.warehouseNameAr || row.warehouseNameEn || (row.warehouseId ? `#${row.warehouseId}` : "المخزن الأصلي");
+
+  return {
+    sourceDeliveryDocumentId: Number(row.deliveryId),
+    deliveryNumber: String(row.deliveryNumber),
+    inventoryId: Number(row.inventoryId),
+    lotId: Number(row.lotId),
+    inventoryTransactionId: Number(row.inventoryTransactionId),
+    itemName: String(row.itemName),
+    internalCode: row.internalCode ?? null,
+    manufacturerBarcode: row.manufacturerBarcode ?? null,
+    unit: row.unit ?? null,
+    deliveredToId: row.deliveredToId == null ? null : Number(row.deliveredToId),
+    deliveredToName: row.deliveredToName ?? null,
+    deliveredByName: row.deliveredByName ?? null,
+    ticketId: row.ticketId == null ? null : Number(row.ticketId),
+    ticketNumber: row.ticketNumber ?? null,
+    poNumber: row.poNumber ?? null,
+    deliveredAt: row.createdAt ?? null,
+    warehouseId: row.warehouseId == null ? null : Number(row.warehouseId),
+    warehouseName,
+    lotCode: row.lotCode ?? null,
+    lotTrackingToken: row.lotTrackingToken ?? null,
+    lotRemainingQuantity: normalizeInventoryQuantity(Number(row.lotRemainingQuantity || 0)),
+    deliveryQuantity,
+    previouslyReturnedQuantity,
+    returnableQuantity,
+    originalIssueUnitCost: roundTo(originalIssueUnitCost, 4),
+    originalIssueTotalCost: row.movementTotalCost == null ? null : roundTo(Number(row.movementTotalCost || 0), 2),
+    currentInventoryQuantity: normalizeInventoryQuantity(Number(row.inventoryQuantity || 0)),
+    currentInventoryAverageCost: roundTo(Number(row.inventoryAverageCost || 0), 4),
+    currentInventoryTotalCostValue: roundTo(Number(row.inventoryTotalCostValue || 0), 2),
+    movementTicketId: row.movementTicketId == null ? null : Number(row.movementTicketId),
+    movementPurchaseOrderItemId: row.movementPurchaseOrderItemId == null ? null : Number(row.movementPurchaseOrderItemId),
+  };
+}
+
+export async function resolveRecipientReturnSource(deliveryNumber: string) {
+  const db = await getDb();
+  if (!db) throw new Error("تعذر الاتصال بقاعدة البيانات");
+  const normalizedNumber = String(deliveryNumber || "").trim();
+  if (!normalizedNumber) throw new Error("رقم سند الصرف الأصلي مطلوب");
+
+  const ids = await db
+    .select({ id: deliveryDocuments.id })
+    .from(deliveryDocuments)
+    .where(eq(deliveryDocuments.deliveryNumber, normalizedNumber))
+    .limit(2);
+  if (ids.length === 0) throw new Error("لم يتم العثور على سند الصرف بهذا الرقم");
+  if (ids.length > 1) throw new Error("رقم سند الصرف مكرر؛ أوقف العملية وراجع حوكمة أرقام المستندات");
+
+  const source = await readRecipientReturnSourceById(Number(ids[0].id), db);
+  if (!(source.returnableQuantity > 0)) {
+    throw new Error("تم إرجاع كامل الكمية المصروفة في هذا السند مسبقًا");
+  }
+  return source;
+}
+
+export async function createRecipientWarehouseReturn(params: {
+  sourceDeliveryDocumentId: number;
+  returnedQuantity: number;
+  reason: string;
+  returnedById: number;
+}) {
+  const database = await getDb();
+  if (!database) throw new Error("تعذر الاتصال بقاعدة البيانات");
+
+  const returnedQuantity = normalizeInventoryQuantity(params.returnedQuantity);
+  if (!(returnedQuantity > 0)) throw new Error("كمية المرتجع يجب أن تكون أكبر من صفر");
+  // Live DB: warehouse_returns.returnedQuantity + return_documents.returnedQuantity are INT.
+  // Keep 5.2 future-safe without silently widening historical document quantity semantics.
+  if (!Number.isInteger(returnedQuantity)) {
+    throw new Error("مرتجع الجهة الحالي يدعم الكميات الصحيحة فقط");
+  }
+  if (!String(params.reason || "").trim()) throw new Error("سبب الإرجاع مطلوب");
+
+  return database.transaction(async (tx: any) => {
+    // Serialize every return against the same original delivery so two concurrent
+    // partial returns cannot both pass the over-return check.
+    await tx.execute(sql`SELECT id FROM delivery_documents WHERE id = ${params.sourceDeliveryDocumentId} FOR UPDATE`);
+    const source = await readRecipientReturnSourceById(params.sourceDeliveryDocumentId, tx);
+    if (!(source.returnableQuantity > 0)) {
+      throw new Error("تم إرجاع كامل الكمية المصروفة في هذا السند مسبقًا");
+    }
+    if (returnedQuantity > source.returnableQuantity) {
+      throw new Error(`الكمية المُرجَعة (${returnedQuantity}) أكبر من المتبقي القابل للإرجاع من سند الصرف (${source.returnableQuantity})`);
+    }
+
+    // Approved policy requires the exact original Lot and Inventory row. We do
+    // not invent a new return Lot and we do not backfill old delivery documents.
+    await tx.execute(sql`SELECT id FROM inventory_lot_balances WHERE lotId = ${source.lotId} AND inventoryId = ${source.inventoryId} FOR UPDATE`);
+    await tx.execute(sql`SELECT id FROM inventory_lots WHERE id = ${source.lotId} FOR UPDATE`);
+    await tx.execute(sql`SELECT id FROM inventory WHERE id = ${source.inventoryId} FOR UPDATE`);
+
+    const balanceRows = await tx
+      .select({ id: inventoryLotBalances.id, quantity: inventoryLotBalances.quantity })
+      .from(inventoryLotBalances)
+      .where(and(
+        eq(inventoryLotBalances.lotId, source.lotId),
+        eq(inventoryLotBalances.inventoryId, source.inventoryId),
+      ));
+    if (balanceRows.length !== 1) {
+      throw new Error("رصيد الـLot الأصلي في المخزن غير موجود أو غير متسق؛ لا يمكن إنشاء رصيد جديد بصمت");
+    }
+
+    const lotRows = await tx
+      .select({ id: inventoryLots.id, remainingQuantity: inventoryLots.remainingQuantity })
+      .from(inventoryLots)
+      .where(eq(inventoryLots.id, source.lotId))
+      .limit(1);
+    if (lotRows.length !== 1) throw new Error("الـLot الأصلي لم يعد موجودًا");
+
+    const inventoryRows = await tx
+      .select({
+        id: inventory.id,
+        quantity: inventory.quantity,
+        averageCost: inventory.averageCost,
+        totalCostValue: inventory.totalCostValue,
+        itemName: inventory.itemName,
+        internalCode: inventory.internalCode,
+        manufacturerBarcode: inventory.manufacturerBarcode,
+        unit: inventory.unit,
+      })
+      .from(inventory)
+      .where(eq(inventory.id, source.inventoryId))
+      .limit(1);
+    const currentInventory: any = inventoryRows[0];
+    if (!currentInventory) throw new Error("سجل المخزون الأصلي لم يعد موجودًا");
+
+    const currentBalance = normalizeInventoryQuantity(Number(balanceRows[0].quantity || 0));
+    const currentLotRemaining = normalizeInventoryQuantity(Number(lotRows[0].remainingQuantity || 0));
+    const currentQuantity = normalizeInventoryQuantity(Number(currentInventory.quantity || 0));
+    const currentValue = roundTo(Number(currentInventory.totalCostValue || 0), 2);
+    const originalIssueUnitCost = roundTo(Number(source.originalIssueUnitCost || 0), 4);
+    const returnValue = calculateMovementTotal(returnedQuantity, originalIssueUnitCost);
+
+    const newBalance = normalizeInventoryQuantity(currentBalance + returnedQuantity);
+    const newLotRemaining = normalizeInventoryQuantity(currentLotRemaining + returnedQuantity);
+    const newQuantity = normalizeInventoryQuantity(currentQuantity + returnedQuantity);
+    const newValue = roundTo(currentValue + returnValue, 2);
+    const newAverageCost = newQuantity > 0 ? roundTo(newValue / newQuantity, 4) : 0;
+
+    await tx.update(inventoryLotBalances)
+      .set({ quantity: newBalance.toFixed(3) } as any)
+      .where(eq(inventoryLotBalances.id, Number(balanceRows[0].id)));
+
+    await tx.update(inventoryLots)
+      .set({ remainingQuantity: newLotRemaining.toFixed(3) } as any)
+      .where(eq(inventoryLots.id, source.lotId));
+
+    await tx.update(inventory)
+      .set({
+        quantity: newQuantity.toFixed(3),
+        totalCostValue: newValue.toFixed(2),
+        averageCost: newAverageCost.toFixed(4),
+        updatedAt: new Date(),
+      } as any)
+      .where(eq(inventory.id, source.inventoryId));
+
+    const returnNumber = await getNextReturnNumber(tx);
+    const [returnInsert] = await tx.insert(warehouseReturns).values({
+      returnNumber,
+      receiptId: null,
+      purchaseOrderId: null,
+      purchaseOrderItemId: null,
+      inventoryId: source.inventoryId,
+      lotId: source.lotId,
+      sourceDeliveryDocumentId: source.sourceDeliveryDocumentId,
+      returnedQuantity,
+      reason: String(params.reason).trim(),
+      returnedById: params.returnedById,
+    } as any);
+    const returnId = Number((returnInsert as any)?.insertId || 0);
+    if (!returnId) throw new Error("تعذر إنشاء سجل مرتجع الجهة");
+
+    await tx.insert(inventoryTransactions).values({
+      inventoryId: source.inventoryId,
+      lotId: source.lotId,
+      type: "in",
+      quantity: returnedQuantity,
+      unitCost: originalIssueUnitCost.toFixed(4),
+      totalCost: returnValue.toFixed(2),
+      reason: `إرجاع من الجهة إلى المخزن - ${String(params.reason).trim()} - عكس سند ${source.deliveryNumber} - مرتجع ${returnNumber}`,
+      ticketId: source.movementTicketId ?? undefined,
+      purchaseOrderItemId: source.movementPurchaseOrderItemId ?? undefined,
+      performedById: params.returnedById,
+      transactionType: "return",
+      returnId,
+      documentUrl: returnNumber,
+    } as any);
+
+    const performerRows = await tx
+      .select({ name: users.name, username: users.username })
+      .from(users)
+      .where(eq(users.id, params.returnedById))
+      .limit(1);
+    const performer: any = performerRows[0];
+
+    await createReturnDocument({
+      returnNumber,
+      returnId,
+      itemName: currentInventory.itemName || source.itemName,
+      internalCode: currentInventory.internalCode || undefined,
+      manufacturerBarcode: currentInventory.manufacturerBarcode || undefined,
+      returnedQuantity,
+      unit: currentInventory.unit || source.unit || undefined,
+      reason: String(params.reason).trim(),
+      returnedByName: performer?.name || performer?.username || "مستخدم المستودع",
+      // For recipient returns this is the original recipient who is returning the item.
+      recipientName: source.deliveredToName || undefined,
+      poNumber: source.poNumber || undefined,
+    }, tx);
+
+    return {
+      returnId,
+      returnNumber,
+      returnType: "recipient_to_warehouse" as const,
+      sourceDeliveryDocumentId: source.sourceDeliveryDocumentId,
+      sourceDeliveryNumber: source.deliveryNumber,
+      inventoryId: source.inventoryId,
+      lotId: source.lotId,
+      lotCode: source.lotCode,
+      itemName: currentInventory.itemName || source.itemName,
+      unit: currentInventory.unit || source.unit || null,
+      returnedQuantity,
+      previouslyReturnedQuantity: source.previouslyReturnedQuantity,
+      remainingReturnableQuantity: normalizeInventoryQuantity(source.returnableQuantity - returnedQuantity),
+      originalIssueUnitCost,
+      returnValue,
+      inventoryQuantityBefore: currentQuantity,
+      inventoryQuantityAfter: newQuantity,
+      inventoryValueBefore: currentValue,
+      inventoryValueAfter: newValue,
+      inventoryAverageCostAfter: newAverageCost,
+      lotBalanceBefore: currentBalance,
+      lotBalanceAfter: newBalance,
+      lotRemainingBefore: currentLotRemaining,
+      lotRemainingAfter: newLotRemaining,
+      deliveredToName: source.deliveredToName,
+      warehouseId: source.warehouseId,
+      warehouseName: source.warehouseName,
+    };
+  });
 }
 
 export async function getInventoryTransactions(inventoryId?: number) {
@@ -302,8 +1044,12 @@ export async function getInventoryLedger(inventoryId: number) {
     } else if (tx.transactionType === "disposal") {
       // رقم عملية الاستبعاد محفوظ مباشرة على الحركة في حقل documentUrl (DO-YYYY-NNNNNN)
       reference = tx.documentUrl ?? null;
+    } else if (tx.transactionType === "return") {
+      // 5.2: Recipient→Warehouse returns persist RTN directly on the movement.
+      // Older supplier-return rows may still have no direct documentUrl.
+      reference = tx.documentUrl ?? null;
     }
-    // transactionType === "return" أو "adjustment" (تحويل/جرد مستقبلاً): لا مرجع بعد
+    // transactionType === "adjustment" (تحويل/جرد مستقبلاً): لا مرجع بعد
 
     return {
       transactionId:   tx.id,
@@ -327,6 +1073,8 @@ export async function createDeliveryDocument(data: {
   deliveryNumber: string;
   poItemId: number;
   inventoryId?: number;
+  lotId?: number;
+  inventoryTransactionId?: number;
   ticketId?: number;
   ticketNumber?: string;
   assignedTechnicianId?: number;
@@ -376,7 +1124,32 @@ export async function createReturnDocument(data: {
 export async function getReturnDocuments() {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(returnDocuments).orderBy(desc(returnDocuments.createdAt));
+  const rows = await db
+    .select({
+      document: returnDocuments,
+      lotId: warehouseReturns.lotId,
+      lotCode: inventoryLots.lotCode,
+      lotTrackingToken: inventoryLots.trackingToken,
+      sourceDeliveryDocumentId: warehouseReturns.sourceDeliveryDocumentId,
+      sourceDeliveryNumber: deliveryDocuments.deliveryNumber,
+      sourceDeliveredToName: deliveryDocuments.deliveredToName,
+    })
+    .from(returnDocuments)
+    .leftJoin(warehouseReturns, eq(returnDocuments.returnId, warehouseReturns.id))
+    .leftJoin(inventoryLots, eq(warehouseReturns.lotId, inventoryLots.id))
+    .leftJoin(deliveryDocuments, eq(warehouseReturns.sourceDeliveryDocumentId, deliveryDocuments.id))
+    .orderBy(desc(returnDocuments.createdAt));
+
+  return rows.map((row: any) => ({
+    ...row.document,
+    lotId: row.lotId ?? null,
+    lotCode: row.lotCode ?? null,
+    lotTrackingToken: row.lotTrackingToken ?? null,
+    returnType: row.sourceDeliveryDocumentId ? "recipient_to_warehouse" : "supplier_return",
+    sourceDeliveryDocumentId: row.sourceDeliveryDocumentId ?? null,
+    sourceDeliveryNumber: row.sourceDeliveryNumber ?? null,
+    sourceDeliveredToName: row.sourceDeliveredToName ?? null,
+  }));
 }
 
 export async function incrementReturnDocPrintCount(id: number) {
@@ -409,9 +1182,20 @@ export async function issueDelivery(params: {
   notes?:               string;
   warehousePhotoUrl?:   string;
   markPurchaseOrderItemDelivered?: boolean;
+  // 2B-8: عند تفعيل Lots يصبح QR الدفعة إلزامياً، ولا نقبل lotId من العميل.
+  // الخادم يحل trackingToken إلى lotId ويتحقق من رصيد نفس Inventory/المستودع.
+  lotTrackingToken?:    string;
 }) {
   const db = await getDb();
   if (!db) throw new Error("تعذر الاتصال بقاعدة البيانات");
+
+  if (params.quantity < 0.001) throw new Error("الكمية المسلّمة يجب أن تكون 0.001 أو أكثر");
+  const deliveryQuantity = normalizeInventoryQuantity(params.quantity);
+  const lotsEnabled = isInventoryLotsEnabled();
+  const lotTrackingToken = String(params.lotTrackingToken || "").trim();
+  if (lotsEnabled && !lotTrackingToken) {
+    throw new Error("يجب مسح QR الدفعة قبل تأكيد الصرف");
+  }
 
   const performer = await getUserById(params.performedById);
   const receiver = params.deliveredToId ? await getUserById(params.deliveredToId) : null;
@@ -432,12 +1216,28 @@ export async function issueDelivery(params: {
   }
 
   const result = await db.transaction(async (tx: any) => {
+    // Phase 5.3: lock Aggregate Inventory before reading quantity/cost so the
+    // delivery quantity and valuation are based on the same current state.
+    await tx.execute(sql`SELECT id FROM inventory WHERE id = ${params.inventoryId} FOR UPDATE`);
     const item = await getInventoryItemById(params.inventoryId, tx);
     if (!item) throw new Error("الصنف غير موجود في المخزون");
-    if (params.quantity <= 0) throw new Error("الكمية المسلّمة يجب أن تكون أكبر من صفر");
-    if (params.quantity > (item.quantity || 0)) {
-      throw new Error(`الكمية المطلوبة (${params.quantity}) أكبر من الرصيد المتاح (${item.quantity})`);
+    if (deliveryQuantity <= 0) throw new Error("الكمية المسلّمة يجب أن تكون أكبر من صفر");
+    if (deliveryQuantity > Number(item.quantity || 0)) {
+      throw new Error(`الكمية المطلوبة (${deliveryQuantity}) أكبر من الرصيد المتاح (${item.quantity})`);
     }
+
+    // 2B-8: QR هو الحقيقة الفيزيائية للصرف. لا نثق بأي lotId مرسل من الواجهة؛
+    // نحل Token داخل نفس transaction ونخصم من Lot Balance + Lot Remaining
+    // قبل خصم Aggregate Inventory. أي فشل لاحق يعيد الثلاثة معاً بالـrollback.
+    const consumedLot = lotsEnabled
+      ? await consumeInventoryLotForIssue({
+          tx,
+          trackingToken: lotTrackingToken,
+          inventoryId: params.inventoryId,
+          inventoryCatalogItemId: (item as any).linkedItemId ?? null,
+          quantity: deliveryQuantity,
+        })
+      : null;
 
     const deliveryNumber = await getNextDeliveryNumber(tx);
 
@@ -468,24 +1268,25 @@ export async function issueDelivery(params: {
     const stockUpdateResult: any = await tx
       .update(inventory)
       .set({
-        quantity: sql`${inventory.quantity} - ${params.quantity}`,
-        totalCostValue: sql`ROUND((${inventory.quantity} - ${params.quantity}) * ${inventory.averageCost}, 2)`,
+        quantity: sql`${inventory.quantity} - ${deliveryQuantity}`,
+        totalCostValue: sql`ROUND((${inventory.quantity} - ${deliveryQuantity}) * ${inventory.averageCost}, 2)`,
       } as any)
       .where(and(
         eq(inventory.id, params.inventoryId),
-        gte(inventory.quantity, params.quantity),
+        gte(inventory.quantity, deliveryQuantity),
       ));
     if (Number(stockUpdateResult?.[0]?.affectedRows ?? 0) !== 1) {
       throw new Error("الرصيد المتاح تغيّر أثناء عملية التسليم؛ حدّث الصفحة وحاول مرة أخرى");
     }
 
     const deliveryUnitCost = parseFloat((item as any).averageCost || "0");
-    await tx.insert(inventoryTransactions).values({
+    const [transactionResult] = await tx.insert(inventoryTransactions).values({
       inventoryId: params.inventoryId,
+      lotId: consumedLot?.lotId ?? null,
       type: "out",
-      quantity: params.quantity,
+      quantity: deliveryQuantity,
       unitCost: deliveryUnitCost.toFixed(4),
-      totalCost: calculateMovementTotal(params.quantity, deliveryUnitCost).toFixed(2),
+      totalCost: calculateMovementTotal(deliveryQuantity, deliveryUnitCost).toFixed(2),
       reason: params.notes || "تسليم من المخزون",
       ticketId: params.ticketId,
       purchaseOrderItemId: params.purchaseOrderItemId,
@@ -493,6 +1294,10 @@ export async function issueDelivery(params: {
       transactionType: "delivery",
       documentUrl: deliveryNumber,
     } as any);
+    const inventoryTransactionId = Number((transactionResult as any)?.insertId || 0);
+    if (!inventoryTransactionId) {
+      throw new Error("تعذر تسجيل حركة الصرف في سجل المخزون");
+    }
 
     if (params.markPurchaseOrderItemDelivered && params.purchaseOrderItemId && purchaseOrderId) {
       const allItems = await getPOItems(purchaseOrderId, tx);
@@ -508,6 +1313,8 @@ export async function issueDelivery(params: {
       deliveryNumber,
       poItemId: params.purchaseOrderItemId ?? 0,
       inventoryId: params.inventoryId,
+      lotId: consumedLot?.lotId,
+      inventoryTransactionId,
       ticketId: params.ticketId,
       ticketNumber: params.ticketNumber,
       assignedTechnicianId: params.assignedTechnicianId,
@@ -516,7 +1323,7 @@ export async function issueDelivery(params: {
       itemName: item.itemName,
       deliveredByName: (performer as any)?.name || "مستخدم المستودع",
       deliveredToName: (receiver as any)?.name || "غير محدد",
-      quantity: params.quantity,
+      quantity: deliveryQuantity,
       unit: params.unit || item.unit || undefined,
       supplierName,
       actualUnitCost,
@@ -528,8 +1335,14 @@ export async function issueDelivery(params: {
     return {
       deliveryNumber,
       itemName: item.itemName,
-      quantity: params.quantity,
+      quantity: deliveryQuantity,
       unit: params.unit || item.unit || "",
+      inventoryTransactionId,
+      lotId: consumedLot?.lotId ?? null,
+      lotCode: consumedLot?.lotCode ?? null,
+      lotTrackingToken: consumedLot?.trackingToken ?? null,
+      lotRemainingInWarehouse: consumedLot?.balanceQuantity ?? null,
+      lotRemainingTotal: consumedLot?.remainingQuantity ?? null,
     };
   });
 
@@ -545,6 +1358,7 @@ export async function issueDelivery(params: {
     deliveredAt: new Date().toLocaleDateString("ar-SA", { year: "numeric", month: "long", day: "numeric" }),
   };
 }
+
 
 export async function updateDeliveryDocumentPdf(id: number, pdfKey: string, pdfUrl: string) {
   const db = await getDb();
@@ -634,7 +1448,12 @@ export async function createInventoryItemV2(data: {
 }, tx?: any) {
   const db = tx || await getDb();
   if (!db) return null;
-  const result = await db.insert(inventory).values(data as any);
+  const normalizedData = {
+    ...data,
+    quantity: normalizeInventoryQuantity(data.quantity),
+    ...(data.minQuantity != null ? { minQuantity: normalizeInventoryQuantity(data.minQuantity) } : {}),
+  };
+  const result = await db.insert(inventory).values(normalizedData as any);
   return result[0].insertId;
 }
 
@@ -660,6 +1479,8 @@ export async function updateInventoryItemV2(id: number, data: {
 
 export async function addInventoryTransactionV2(data: {
   inventoryId:          number;
+  // 2B-8: الدفعة التي أثرت عليها الحركة، عندما يكون مسار الـLot مفعلاً.
+  lotId?:               number;
   type:                 "in" | "out";
   quantity:             number;
   unitCost?:            string;
@@ -685,29 +1506,34 @@ export async function addInventoryTransactionV2(data: {
   const item = await db.select().from(inventory).where(eq(inventory.id, data.inventoryId)).limit(1);
   if (!item[0]) return;
 
-  const currentQty = Number(item[0].quantity || 0);
+  const currentQty = normalizeInventoryQuantity(Number(item[0].quantity || 0));
+  const movementQuantity = normalizeInventoryQuantity(data.quantity);
   const averageCost = parseFloat((item[0] as any).averageCost || "0");
   const movementUnitCost = data.unitCost != null
     ? parseFloat(String(data.unitCost))
     : averageCost;
   const movementTotalCost = data.totalCost != null
     ? parseFloat(String(data.totalCost))
-    : calculateMovementTotal(data.quantity, movementUnitCost);
+    : calculateMovementTotal(movementQuantity, movementUnitCost);
 
-  await db.insert(inventoryTransactions).values({
+  const [transactionResult] = await db.insert(inventoryTransactions).values({
     ...data,
+    quantity: movementQuantity,
     unitCost: movementUnitCost.toFixed(4),
     totalCost: movementTotalCost.toFixed(2),
   } as any);
+  const transactionId = Number((transactionResult as any)?.insertId || 0) || undefined;
 
   const newQty = data.type === "in"
-    ? currentQty + data.quantity
-    : Math.max(0, currentQty - data.quantity);
+    ? currentQty + movementQuantity
+    : Math.max(0, currentQty - movementQuantity);
 
   await db.update(inventory).set({
-    quantity:       newQty,
+    quantity:       normalizeInventoryQuantity(newQty),
     totalCostValue: calculateInventoryValue(newQty, averageCost).toFixed(2),
   } as any).where(eq(inventory.id, data.inventoryId));
+
+  return transactionId;
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -724,6 +1550,8 @@ export async function createWarehouseReceiptV2(data: {
   vendorName?:      string;
   vendorNameEn?:    string;
   vendorTaxNumber?: string;
+  catalogSupplierId?: number;
+  supplierCandidateId?: number;
   invoiceNumber?:   string;
   invoiceDate?:     Date;
   subtotal?:        string;
@@ -744,9 +1572,13 @@ export async function createWarehouseReceiptItem(data: {
   receiptId:            number;
   inventoryId?:         number;
   purchaseOrderItemId?: number;
+  // 2B-7: Catalog identity snapshot for the receipt/invoice line.
+  catalogItemId?:        number;
   itemName:             string;
-  itemNameAr?:         string;
-  itemNameEn?:         string;
+  itemNameAr?:           string;
+  itemNameEn?:           string;
+  // 2B-4: علم Master Data فقط؛ إنشاء Candidate يتم في 2B-5.
+  isNewCatalogItem?:     boolean;
   receivedQuantity:     string;
   purchaseUnit?:        string;
   unitCost:             string;

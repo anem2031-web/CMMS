@@ -24,6 +24,7 @@ const S3_BUCKET = process.env.S3_BUCKET || "cmms-uploads";
 export interface OcrExtractedItem {
   itemName:         string;
   itemNameEn?:      string;
+  supplierItemCode?: string;
   quantity:         number;
   unit?:            string;
   unitPrice:        number;
@@ -63,6 +64,7 @@ const INVOICE_PROMPT = `أنت محلل فواتير متخصص. قم بتحلي
     {
       "itemName": "اسم الصنف بالعربي",
       "itemNameEn": "اسم الصنف بالإنجليزي إن وجد",
+      "supplierItemCode": "كود/SKU الصنف لدى المورد كما هو مكتوب في الفاتورة إن وجد",
       "quantity": 0,
       "unit": "وحدة القياس",
       "unitPrice": 0.00,
@@ -79,6 +81,7 @@ const INVOICE_PROMPT = `أنت محلل فواتير متخصص. قم بتحلي
 - إذا لم تجد قيمة معينة، اتركها null وليس فارغة
 - الرقم الضريبي السعودي يبدأ بـ 3 ويتكون من 15 رقم
 - نسبة الضريبة في السعودية 15% إلا إذا كانت مختلفة في الفاتورة
+- احتفظ بكود/SKU الصنف لدى المورد كما هو مكتوب في الفاتورة إن وجد، ولا تخترع كوداً غير موجود
 - confidence هي نسبة ثقتك في دقة الاستخراج من 0 إلى 1
 - أرجع JSON فقط بدون أي تفسير أو نص إضافي`;
 

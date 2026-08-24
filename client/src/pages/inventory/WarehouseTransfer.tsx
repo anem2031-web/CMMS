@@ -29,6 +29,9 @@ interface CartItem {
   unit?: string;
   balanceAtAddTime: number;
   quantity: number;
+  lotTrackingToken?: string;
+  lotCode?: string;
+  lotBalanceAtAddTime?: number;
   notes?: string;
 }
 
@@ -39,6 +42,9 @@ export default function WarehouseTransfer() {
   const { data: inventoryList } = trpc.inventory.list.useQuery();
   const { data: usersList } = trpc.users.list.useQuery();
   const { data: cardsList, refetch: refetchCards } = trpc.transfers.listCards.useQuery({});
+  const { data: lotTrackingStatus } = trpc.inventoryCount.lotTrackingStatus.useQuery();
+  const lotsEnabled = !!lotTrackingStatus?.enabled;
+  const resolveTransferLotMut = trpc.transfers.resolveLot.useMutation();
 
   const [fromWarehouseId, setFromWarehouseId] = useState<string>("");
   const [toWarehouseId, setToWarehouseId] = useState<string>("");
@@ -50,6 +56,7 @@ export default function WarehouseTransfer() {
   const [foundItem, setFoundItem] = useState<any>(null);
   const [qty, setQty] = useState("");
   const [itemNotes, setItemNotes] = useState("");
+  const [transferLotInfo, setTransferLotInfo] = useState<any>(null);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [lastResult, setLastResult] = useState<{ batchNumber: string; results: any[] } | null>(null);
@@ -95,11 +102,40 @@ export default function WarehouseTransfer() {
 
   function selectItem(item: any) {
     setFoundItem(item);
+    setTransferLotInfo(null);
     setSearchQuery("");
     setQty("");
   }
 
-  function handleQRScan(code: string) {
+  async function handleQRScan(code: string) {
+    if (lotsEnabled) {
+      if (!fromWarehouseId) {
+        toast.error("اختر المخزن المصدر أولاً");
+        return;
+      }
+      setTransferLotInfo(null);
+      try {
+        const resolved = await resolveTransferLotMut.mutateAsync({
+          fromWarehouseId: Number(fromWarehouseId),
+          trackingToken: code,
+          fromInventoryId: foundItem?.id,
+        });
+        const item = sourceItems.find((i: any) => i.id === resolved.inventoryId);
+        if (!item) {
+          toast.error("الدفعة صحيحة لكن صنفها غير ظاهر ضمن رصيد المخزن المصدر؛ حدّث الصفحة");
+          return;
+        }
+        setFoundItem(item);
+        setTransferLotInfo(resolved);
+        setSearchQuery("");
+        setQty("");
+        toast.success(`تم التحقق من الدفعة ${resolved.lotCode}: ${item.itemName}`);
+      } catch (err: any) {
+        toast.error(err?.message || "QR الدفعة غير صالح للتحويل");
+      }
+      return;
+    }
+
     const found = sourceItems.find((i: any) =>
       i.internalCode === code || i.manufacturerBarcode === code || String(i.id) === code
     );
@@ -114,7 +150,15 @@ export default function WarehouseTransfer() {
   function addItemToCart() {
     if (!foundItem) { toast.error("اختر صنفاً أولاً"); return; }
     if (cart.length >= MAX_ITEMS_PER_TRANSFER) {
-      toast.error(`الحد الأقصى ${MAX_ITEMS_PER_TRANSFER} صنف بالعملية الواحدة`);
+      toast.error(`الحد الأقصى ${MAX_ITEMS_PER_TRANSFER} ${lotsEnabled ? "بند/دفعة" : "صنف"} بالعملية الواحدة`);
+      return;
+    }
+    if (lotsEnabled && !transferLotInfo) {
+      toast.error("يجب مسح QR الدفعة قبل إضافة بند التحويل");
+      return;
+    }
+    if (lotsEnabled && cart.some(c => c.lotTrackingToken === transferLotInfo?.trackingToken)) {
+      toast.error("هذه الدفعة مضافة للعملية بالفعل؛ احذف البند أولاً إذا أردت تغيير كميته");
       return;
     }
     const qtyNum = parseFloat(qty);
@@ -122,6 +166,10 @@ export default function WarehouseTransfer() {
     const remaining = remainingBalance(foundItem);
     if (qtyNum > remaining) {
       toast.error(`الكمية أكبر من الرصيد المتاح (${remaining} ${foundItem.unit || ""})`);
+      return;
+    }
+    if (lotsEnabled && qtyNum > Number(transferLotInfo?.availableQuantity || 0)) {
+      toast.error(`الكمية أكبر من رصيد الدفعة الممسوحة (${transferLotInfo?.availableQuantity || 0} ${foundItem.unit || ""})`);
       return;
     }
 
@@ -133,14 +181,18 @@ export default function WarehouseTransfer() {
       unit: foundItem.unit,
       balanceAtAddTime: foundItem.quantity,
       quantity: qtyNum,
+      lotTrackingToken: lotsEnabled ? transferLotInfo?.trackingToken : undefined,
+      lotCode: lotsEnabled ? transferLotInfo?.lotCode : undefined,
+      lotBalanceAtAddTime: lotsEnabled ? Number(transferLotInfo?.availableQuantity || 0) : undefined,
       notes: itemNotes.trim() || undefined,
     }]);
 
     setFoundItem(null);
+    setTransferLotInfo(null);
     setQty("");
     setItemNotes("");
     setSearchQuery("");
-    toast.success("تم إضافة الصنف — يمكنك إضافة صنف آخر أو تنفيذ العملية");
+    toast.success(lotsEnabled ? "تم إضافة الدفعة للعملية" : "تم إضافة الصنف — يمكنك إضافة صنف آخر أو تنفيذ العملية");
   }
 
   function removeFromCart(idx: number) {
@@ -163,6 +215,7 @@ export default function WarehouseTransfer() {
         items: cart.map(c => ({
           fromInventoryId: c.inventoryId,
           quantity: c.quantity,
+          lotTrackingToken: lotsEnabled ? c.lotTrackingToken : undefined,
           notes: c.notes,
         })),
       });
@@ -170,6 +223,7 @@ export default function WarehouseTransfer() {
       const resultsWithNames = res.results.map((r: any, idx: number) => ({
         ...r,
         itemName: cart[idx]?.itemName || `صنف #${r.fromInventoryId}`,
+        lotCode: r.lotCode || cart[idx]?.lotCode || null,
       }));
       setLastResult({ batchNumber: res.batchNumber, results: resultsWithNames });
 
@@ -214,7 +268,9 @@ export default function WarehouseTransfer() {
         if (historySearchMode === "code" || historySearchMode === "qr") {
           return items.some((it: any) =>
             String(it.internalCode ?? "").toLowerCase().includes(q) ||
-            String(it.manufacturerBarcode ?? "").toLowerCase().includes(q)
+            String(it.manufacturerBarcode ?? "").toLowerCase().includes(q) ||
+            String(it.lotCode ?? "").toLowerCase().includes(q) ||
+            String(it.lotTrackingToken ?? "").toLowerCase().includes(q)
           );
         }
         // وضع "بالاسم": يبحث باسم أي صنف داخل العملية، أو برقم العملية، أو بالملاحظات
@@ -265,7 +321,7 @@ export default function WarehouseTransfer() {
                   <Label className="text-xs">من مخزن *</Label>
                   <Select
                     value={fromWarehouseId}
-                    onValueChange={(v) => { setFromWarehouseId(v); setCart([]); setFoundItem(null); setSearchQuery(""); }}
+                    onValueChange={(v) => { setFromWarehouseId(v); setCart([]); setFoundItem(null); setTransferLotInfo(null); setSearchQuery(""); }}
                     disabled={cart.length > 0}
                   >
                     <SelectTrigger><SelectValue placeholder="اختر المخزن المصدر" /></SelectTrigger>
@@ -316,12 +372,15 @@ export default function WarehouseTransfer() {
                       </Button>
                       <Button size="sm" variant={searchMode === "qr" ? "default" : "outline"}
                         onClick={() => { setSearchMode("qr"); setSearchQuery(""); }} className="gap-1">
-                        <QrCode className="w-3.5 h-3.5" /> QR Code
+                        <QrCode className="w-3.5 h-3.5" /> {lotsEnabled ? "QR الدفعة" : "QR Code"}
                       </Button>
                     </div>
 
                     {searchMode === "qr" && !foundItem && (
-                      <BarcodeScanner onScan={handleQRScan} placeholder="امسح QR Code الصنف..." />
+                      <BarcodeScanner
+                        onScan={handleQRScan}
+                        placeholder={lotsEnabled ? "امسح QR الدفعة في المخزن المصدر..." : "امسح QR Code الصنف..."}
+                      />
                     )}
 
                     {(searchMode === "name" || searchMode === "code") && !foundItem && (
@@ -372,11 +431,46 @@ export default function WarehouseTransfer() {
                                 <p>المتاح فعلياً للتحويل الآن: <strong className="text-foreground">{remainingBalance(foundItem)} {foundItem.unit}</strong></p>
                               </div>
                             </div>
-                            <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => { setFoundItem(null); setQty(""); setItemNotes(""); }}>
+                            <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => { setFoundItem(null); setTransferLotInfo(null); setQty(""); setItemNotes(""); }}>
                               <X className="w-3.5 h-3.5" />
                             </Button>
                           </div>
                         </div>
+
+                        {lotsEnabled && (
+                          <div className="space-y-2 rounded-lg border border-blue-200 bg-blue-50/60 p-3">
+                            <Label className="text-xs flex items-center gap-1">
+                              <QrCode className="w-3.5 h-3.5" /> QR الدفعة *
+                            </Label>
+                            {!transferLotInfo && (
+                              <BarcodeScanner
+                                onScan={handleQRScan}
+                                placeholder="امسح QR الدفعة المراد نقلها..."
+                              />
+                            )}
+                            {resolveTransferLotMut.isPending && (
+                              <p className="text-xs text-muted-foreground flex items-center gap-1">
+                                <Loader2 className="w-3 h-3 animate-spin" /> جاري التحقق من الدفعة...
+                              </p>
+                            )}
+                            {transferLotInfo && (
+                              <div className="text-xs text-emerald-800 bg-emerald-50 border border-emerald-200 rounded p-2 flex items-center justify-between gap-2">
+                                <span>
+                                  <strong>{transferLotInfo.lotCode}</strong> — المتاح في المخزن المصدر: {transferLotInfo.availableQuantity} {foundItem.unit || "وحدة"}
+                                </span>
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-6 px-2 text-xs"
+                                  onClick={() => setTransferLotInfo(null)}
+                                >
+                                  تغيير
+                                </Button>
+                              </div>
+                            )}
+                          </div>
+                        )}
 
                         <div className="space-y-1.5">
                           <Label className="text-xs">الكمية المراد تحويلها *</Label>
@@ -389,6 +483,11 @@ export default function WarehouseTransfer() {
                               <AlertTriangle className="w-3 h-3" /> أكبر من المتاح
                             </p>
                           )}
+                          {lotsEnabled && transferLotInfo && qty && parseFloat(qty) > Number(transferLotInfo.availableQuantity || 0) && (
+                            <p className="text-xs text-destructive flex items-center gap-1">
+                              <AlertTriangle className="w-3 h-3" /> أكبر من رصيد الدفعة الممسوحة
+                            </p>
+                          )}
                         </div>
 
                         <div className="space-y-1.5">
@@ -396,7 +495,12 @@ export default function WarehouseTransfer() {
                           <Input value={itemNotes} onChange={e => setItemNotes(e.target.value)} placeholder="سبب خاص بهذا الصنف..." />
                         </div>
 
-                        <Button className="w-full gap-2" variant="outline" onClick={addItemToCart}>
+                        <Button
+                          className="w-full gap-2"
+                          variant="outline"
+                          onClick={addItemToCart}
+                          disabled={resolveTransferLotMut.isPending || (lotsEnabled && !transferLotInfo)}
+                        >
                           <Plus className="w-4 h-4" /> إضافة هذا الصنف للعملية
                         </Button>
                       </div>
@@ -408,7 +512,7 @@ export default function WarehouseTransfer() {
               {cart.length > 0 && (
                 <div className="space-y-2">
                   <p className="text-sm font-medium">
-                    الأصناف المضافة ({cart.length}/{MAX_ITEMS_PER_TRANSFER})
+                    {lotsEnabled ? "البنود/الدفعات المضافة" : "الأصناف المضافة"} ({cart.length}/{MAX_ITEMS_PER_TRANSFER})
                   </p>
                   <div className="space-y-1.5">
                     {cart.map((item, idx) => (
@@ -417,6 +521,7 @@ export default function WarehouseTransfer() {
                           <p className="font-medium text-sm truncate">{item.itemName}</p>
                           <p className="text-xs text-muted-foreground">
                             الكمية: {item.quantity} {item.unit || ""}
+                            {item.lotCode ? ` — الدفعة: ${item.lotCode}` : ""}
                             {item.notes ? ` — ${item.notes}` : ""}
                           </p>
                         </div>
@@ -440,7 +545,7 @@ export default function WarehouseTransfer() {
               <Button className="w-full gap-1.5" onClick={handleSubmitAll} disabled={isSubmitting || cart.length === 0}>
                 {isSubmitting
                   ? <Loader2 className="w-4 h-4 animate-spin" />
-                  : <><ArrowLeftRight className="w-4 h-4" /> تنفيذ تحويل {cart.length > 0 ? `(${cart.length} صنف)` : ""}</>}
+                  : <><ArrowLeftRight className="w-4 h-4" /> تنفيذ تحويل {cart.length > 0 ? `(${cart.length} ${lotsEnabled ? "بند" : "صنف"})` : ""}</>}
               </Button>
 
               {lastResult && (
@@ -452,6 +557,7 @@ export default function WarehouseTransfer() {
                     <div key={i} className={`flex items-center gap-2 text-xs p-2 rounded ${r.success ? "bg-emerald-50 text-emerald-800" : "bg-red-50 text-red-800"}`}>
                       {r.success ? <CheckCircle2 className="w-3.5 h-3.5 shrink-0" /> : <XCircle className="w-3.5 h-3.5 shrink-0" />}
                       <span className="font-medium">{r.itemName}</span>
+                      {r.lotCode && <span className="font-mono">{r.lotCode}</span>}
                       <span className="text-muted-foreground">— {r.message}</span>
                     </div>
                   ))}
@@ -522,7 +628,7 @@ export default function WarehouseTransfer() {
             {historySearchMode === "qr" ? (
               <BarcodeScanner
                 onScan={(code) => { setHistorySearch(code); setHistorySearchMode("code"); }}
-                placeholder="امسح QR Code الصنف..."
+                placeholder={lotsEnabled ? "امسح/أدخل كود الدفعة للبحث في السجل..." : "امسح QR Code الصنف..."}
               />
             ) : (
               <div className="relative">
@@ -650,6 +756,7 @@ export default function WarehouseTransfer() {
                       </div>
                       <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
                         {item.internalCode && <span>الكود: <span className="font-mono">{item.internalCode}</span></span>}
+                        {item.lotCode && <span>الدفعة: <span className="font-mono">{item.lotCode}</span></span>}
                         <span>الكمية: <strong className="text-foreground">{item.quantity} {item.unit}</strong></span>
                         {item.categoryMismatch ? (
                           <span className="flex items-center gap-1 text-amber-600 font-medium">

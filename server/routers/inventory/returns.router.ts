@@ -2,6 +2,7 @@ import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { router, warehouseProcedure } from "../_shared/procedures";
 import * as db from "../../_core/db";
+import { isInventoryLotsEnabled, resolveInventoryLotForSupplierReturn } from "../../_core/inventory-lots";
 
 export const returnsRouter = router({
 
@@ -33,6 +34,161 @@ export const returnsRouter = router({
       return db.getReturnSources(input.inventoryId);
     }),
 
+  // Phase 5.2 — Resolve an exact original Delivery document for
+  // Recipient → Warehouse Return. The delivery number is the explicit source
+  // link; old/unlinked deliveries are rejected rather than backfilled silently.
+  resolveRecipientReturnSource: warehouseProcedure
+    .input(z.object({
+      deliveryNumber: z.string().trim().min(1, "رقم سند الصرف الأصلي مطلوب"),
+    }))
+    .mutation(async ({ input }) => {
+      try {
+        return await db.resolveRecipientReturnSource(input.deliveryNumber);
+      } catch (error: any) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: error?.message || "تعذر التحقق من سند الصرف الأصلي" });
+      }
+    }),
+
+  // Phase 5.2 — approved Recipient → Warehouse policy:
+  // same original Lot + original issue cost + original Delivery link +
+  // partial/over-return guards + atomic posting.
+  createRecipientReturn: warehouseProcedure
+    .input(z.object({
+      sourceDeliveryDocumentId: z.number().int().positive(),
+      returnedQuantity: z.number().min(1),
+      reason: z.string().trim().min(1, "سبب الإرجاع مطلوب"),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      let result: any;
+      try {
+        result = await db.createRecipientWarehouseReturn({
+          sourceDeliveryDocumentId: input.sourceDeliveryDocumentId,
+          returnedQuantity: input.returnedQuantity,
+          reason: input.reason,
+          returnedById: ctx.user.id,
+        });
+      } catch (error: any) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: error?.message || "تعذر تنفيذ مرتجع الجهة إلى المخزن" });
+      }
+
+      const managers = await db.getManagerUsers();
+      for (const mgr of managers) {
+        await db.createNotification({
+          userId: mgr.id,
+          title: `↩️ مرتجع جهة ${result.returnNumber}`,
+          message: `أُعيد ${result.returnedQuantity} ${result.unit || "وحدة"} من "${result.itemName}" إلى ${result.warehouseName || "المخزن"}` +
+            ` — عكس سند ${result.sourceDeliveryNumber}` +
+            (result.lotCode ? ` — الدفعة ${result.lotCode}` : ""),
+          type: "info",
+        });
+      }
+
+      await db.createAuditLog({
+        userId: ctx.user.id,
+        action: "recipient_warehouse_return",
+        entityType: "inventory",
+        entityId: result.inventoryId,
+        newValues: {
+          returnNumber: result.returnNumber,
+          sourceDeliveryDocumentId: result.sourceDeliveryDocumentId,
+          sourceDeliveryNumber: result.sourceDeliveryNumber,
+          returnedQuantity: result.returnedQuantity,
+          reason: input.reason,
+          lotId: result.lotId,
+          lotCode: result.lotCode,
+          originalIssueUnitCost: result.originalIssueUnitCost,
+          returnValue: result.returnValue,
+          inventoryQuantityAfter: result.inventoryQuantityAfter,
+          inventoryValueAfter: result.inventoryValueAfter,
+        },
+      });
+
+      return result;
+    }),
+
+  // 2B-8 — QR الدفعة هو مصدر الحقيقة لمرتجع المورد. لا نطلب من المستخدم
+  // اختيار الصنف/المورد/الفاتورة عندما يكون نظام Lots مفعلاً؛ الخادم يحلها
+  // من trackingToken ويمنع Opening Balance Lots من مسار مرتجع المورد.
+  resolveReturnLot: warehouseProcedure
+    .input(z.object({
+      warehouseId: z.number().int().positive("المستودع مطلوب"),
+      trackingToken: z.string().trim().min(1, "QR الدفعة مطلوب"),
+    }))
+    .mutation(async ({ input }) => {
+      if (!isInventoryLotsEnabled()) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "تتبع الدفعات غير مفعّل تشغيليًا بعد" });
+      }
+      const database = await db.getDb();
+      if (!database) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر الاتصال بقاعدة البيانات" });
+
+      try {
+        const warehouse = await db.getWarehouseById(input.warehouseId);
+        if (!warehouse || !(warehouse as any).isActive) {
+          throw new Error("المستودع المحدد غير موجود أو غير مفعّل");
+        }
+        const lot = await resolveInventoryLotForSupplierReturn({
+          tx: database,
+          trackingToken: input.trackingToken,
+          warehouseId: input.warehouseId,
+        });
+        const item = await db.getInventoryItemById(lot.inventoryId);
+        if (!item) throw new Error("سجل المخزون المرتبط بالدفعة غير موجود");
+
+        const inventoryCatalogItemId = (item as any).linkedItemId == null
+          ? null
+          : Number((item as any).linkedItemId);
+        if (
+          lot.catalogItemId != null &&
+          inventoryCatalogItemId != null &&
+          lot.catalogItemId !== inventoryCatalogItemId
+        ) {
+          throw new Error("هوية الكتالوج للدفعة لا تطابق هوية الصنف في المخزون");
+        }
+
+        const receipt = await db.getWarehouseReceiptById(lot.receiptId!);
+        if (!receipt) throw new Error("سند الاستلام الأصلي للدفعة غير موجود");
+
+        const purchaseOrderId = lot.purchaseOrderId ?? receipt.purchaseOrderId ?? null;
+        const po = purchaseOrderId ? await db.getPurchaseOrderById(purchaseOrderId) : null;
+        const inventoryQuantity = Number((item as any).quantity || 0);
+        const availableQuantity = Math.min(lot.balanceQuantity, lot.remainingQuantity, inventoryQuantity);
+        if (!(availableQuantity > 0)) throw new Error("لا يوجد رصيد متاح للإرجاع من هذه الدفعة");
+
+        return {
+          lotId: lot.lotId,
+          lotCode: lot.lotCode,
+          trackingToken: lot.trackingToken,
+          sourceType: lot.sourceType,
+          catalogItemId: lot.catalogItemId,
+          inventoryId: lot.inventoryId,
+          warehouseId: lot.warehouseId,
+          warehouseName: (warehouse as any).nameAr ?? (warehouse as any).nameEn ?? `#${input.warehouseId}`,
+          availableQuantity,
+          remainingQuantity: lot.remainingQuantity,
+          item: {
+            id: (item as any).id,
+            itemName: (item as any).itemName,
+            internalCode: (item as any).internalCode,
+            unit: (item as any).unit,
+            quantity: inventoryQuantity,
+            linkedItemId: inventoryCatalogItemId,
+          },
+          source: {
+            receiptId: lot.receiptId,
+            receiptNumber: (receipt as any).receiptNumber ?? null,
+            receiptDate: (receipt as any).invoiceDate ?? (receipt as any).receivedAt ?? (receipt as any).createdAt ?? null,
+            invoiceNumber: (receipt as any).invoiceNumber ?? null,
+            vendorName: (receipt as any).vendorName ?? null,
+            purchaseOrderId,
+            purchaseOrderItemId: lot.purchaseOrderItemId,
+            poNumber: (po as any)?.poNumber ?? null,
+          },
+        };
+      } catch (error: any) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: error?.message || "QR الدفعة غير صالح لمرتجع المورد" });
+      }
+    }),
+
   // إرجاع صنف للمندوب
   create: warehouseProcedure
     .input(z.object({
@@ -41,152 +197,126 @@ export const returnsRouter = router({
       receiptId: z.number().optional(),
       purchaseOrderId: z.number().optional(),
       purchaseOrderItemId: z.number().optional(),
-      inventoryId: z.number(),
+      inventoryId: z.number().optional(),
+      // 2B-8: عند تفعيل Lots يكون هذا هو المدخل الوحيد الموثوق لتحديد الصنف/المصدر.
+      lotTrackingToken: z.string().trim().min(1).optional(),
+      warehouseId: z.number().int().positive().optional(),
       returnedQuantity: z.number().min(1),
       reason: z.string().min(1, "سبب الإرجاع مطلوب"),
       recipientName: z.string().optional(), // من استلم الصنف المرتجَع (توقيع الوثيقة)
     }))
     .mutation(async ({ input, ctx }) => {
-      // التحقق من المخزون — الحد الأقصى الملزم الوحيد هو الرصيد الكلي الفعلي
-      // (النظام لا يدعم تتبّع دفعات/Batch، فلا يوجد "متاح لكل سند" ملزم فعلياً)
-      const inventoryItem = await db.getInventoryItemById(input.inventoryId);
-      if (!inventoryItem) throw new TRPCError({ code: "NOT_FOUND", message: "الصنف غير موجود في المخزون" });
+      // 2B-8: عند التفعيل، QR/Lot هو مصدر الحقيقة الكامل. نتجاهل أي receipt/PO/
+      // inventory ids قد يرسلها العميل ونحلها من الـLot داخل Transaction ذرية.
+      if (isInventoryLotsEnabled()) {
+        const trackingToken = String(input.lotTrackingToken || "").trim();
+        if (!trackingToken) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "يجب مسح QR الدفعة قبل تأكيد مرتجع المورد" });
+        }
+        if (!input.warehouseId) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "يجب اختيار المستودع قبل تأكيد مرتجع المورد" });
+        }
 
-      if (inventoryItem.quantity < input.returnedQuantity) {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: `الكمية المتاحة في المخزون ${inventoryItem.quantity} أقل من الكمية المُرجَعة`,
+        let result: any;
+        try {
+          result = await db.createLotAwareSupplierReturn({
+            trackingToken,
+            warehouseId: input.warehouseId,
+            returnedQuantity: input.returnedQuantity,
+            reason: input.reason,
+            recipientName: input.recipientName,
+            returnedById: ctx.user.id,
+          });
+        } catch (error: any) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: error?.message || "تعذر تنفيذ مرتجع المورد من الدفعة" });
+        }
+
+        const managers = await db.getManagerUsers();
+        for (const mgr of managers) {
+          await db.createNotification({
+            userId: mgr.id,
+            title: `↩️ مرتجع ${result.returnNumber}`,
+            message: `تم إرجاع ${result.returnedQuantity} ${result.unit || "وحدة"} من "${result.itemName}"` +
+              ` — الدفعة ${result.lotCode}` +
+              (result.invoiceNumber ? ` — فاتورة ${result.invoiceNumber}` : ""),
+            type: "warning",
+            relatedPoId: result.purchaseOrderId ?? undefined,
+          });
+        }
+
+        await db.createAuditLog({
+          userId: ctx.user.id,
+          action: "warehouse_return",
+          entityType: result.purchaseOrderId ? "purchase_order" : "inventory",
+          entityId: result.purchaseOrderId ?? result.inventoryId,
+          newValues: {
+            returnNumber: result.returnNumber,
+            returnedQuantity: result.returnedQuantity,
+            reason: input.reason,
+            lotId: result.lotId,
+            lotCode: result.lotCode,
+            receiptId: result.receiptId,
+            invoiceNumber: result.invoiceNumber,
+            unitCostUsed: result.unitCostUsed,
+            returnValue: result.returnValue,
+          },
         });
+
+        return result;
       }
 
-      // ── تحقق ترابط المصدر (فقط لو زُوِّد receiptId) ──────────────────────
-      // يمنع ربط الإرجاع بسند/طلب/بند لا علاقة له فعلياً بهذا الصنف — نفس
-      // حاجز الأمان المطبَّق بمسار الاستلام، بدل الثقة العمياء بأرقام مُرسَلة
-      let receipt: any = null;
-      if (input.receiptId) {
-        receipt = await db.getWarehouseReceiptById(input.receiptId);
-        if (!receipt) throw new TRPCError({ code: "NOT_FOUND", message: "سند الاستلام غير موجود" });
-
-        if (input.purchaseOrderId && receipt.purchaseOrderId !== input.purchaseOrderId) {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: "طلب الشراء المُرسَل لا يطابق سند الاستلام المُختار",
-          });
-        }
-        if (input.purchaseOrderItemId) {
-          const poItem = await db.getPOItemById(input.purchaseOrderItemId);
-          if (!poItem || poItem.purchaseOrderId !== receipt.purchaseOrderId) {
-            throw new TRPCError({
-              code: "BAD_REQUEST",
-              message: "بند طلب الشراء المُرسَل لا يطابق سند الاستلام المُختار",
-            });
-          }
-        }
-        // تحقق أن هذا السند فعلاً استلم هذا الصنف (وليس صنفاً آخر بالخطأ)
-        const sources = await db.getReturnSources(input.inventoryId);
-        const matchedSource = sources.find(s => s.receiptId === input.receiptId);
-        if (!matchedSource) {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: "سند الاستلام المُختار لا يطابق سجل استلام هذا الصنف",
-          });
-        }
+      if (!input.inventoryId) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "الصنف مطلوب لإنشاء المرتجع" });
       }
 
-      // توليد رقم المرتجع
-      const returnNumber = await db.getNextReturnNumber();
-
-      // إنشاء المرتجع
-      const returnId = await db.createWarehouseReturn({
-        returnNumber,
-        receiptId: input.receiptId ?? null,
-        purchaseOrderId: input.purchaseOrderId ?? null,
-        purchaseOrderItemId: input.purchaseOrderItemId ?? null,
-        inventoryId: input.inventoryId,
-        returnedQuantity: input.returnedQuantity,
-        reason: input.reason,
-        returnedById: ctx.user.id,
-      } as any);
-
-      // تسجيل حركة خروج من المخزون
-      await db.addInventoryTransaction({
-        inventoryId: input.inventoryId,
-        type: "out",
-        quantity: input.returnedQuantity,
-        reason: input.receiptId
-          ? `إرجاع للمندوب - ${input.reason} - مرتجع ${returnNumber}`
-          : `إرجاع عام (بلا سند استلام معروف) - ${input.reason} - مرتجع ${returnNumber}`,
-        purchaseOrderItemId: input.purchaseOrderItemId,
-        performedById: ctx.user.id,
-        transactionType: "return",
-        receiptId: input.receiptId,
-        returnId: returnId!,
-      });
-
-      // تحديث طلب الشراء - فقط لو الإرجاع مرتبط فعلياً ببند طلب حقيقي
-      if (input.purchaseOrderItemId && input.purchaseOrderId) {
-        const poItem = await db.getPOItemById(input.purchaseOrderItemId);
-        if (poItem) {
-          const newReturnedQty = (poItem.returnedQuantity || 0) + input.returnedQuantity;
-          await db.updatePOItem(input.purchaseOrderItemId, {
-            returnedQuantity: newReturnedQty,
-            returnReason: input.reason,
-            returnedAt: new Date(),
-          });
-
-          // تحديث حالة طلب الشراء إذا كانت received
-          const po = await db.getPurchaseOrderById(input.purchaseOrderId);
-          if (po && po.status === "received") {
-            await db.updatePurchaseOrder(input.purchaseOrderId, {
-              status: "partial_purchase",
-            });
-          }
-        }
+      // Phase 5.2: نحافظ على واجهة ومسار Legacy الحاليين، لكن التنفيذ الداخلي
+      // أصبح Transactional حتى لا يبقى رأس مرتجع/حركة/PO/وثيقة بصورة جزئية.
+      let result: any;
+      try {
+        result = await db.createLegacySupplierReturn({
+          receiptId: input.receiptId,
+          purchaseOrderId: input.purchaseOrderId,
+          purchaseOrderItemId: input.purchaseOrderItemId,
+          inventoryId: input.inventoryId,
+          returnedQuantity: input.returnedQuantity,
+          reason: input.reason,
+          recipientName: input.recipientName,
+          returnedById: ctx.user.id,
+        });
+      } catch (error: any) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: error?.message || "تعذر تنفيذ مرتجع المورد" });
       }
 
-      // إشعارات للمدراء
-      const po = input.purchaseOrderId ? await db.getPurchaseOrderById(input.purchaseOrderId) : null;
+      // الإشعارات والـAudit تبقى آثارًا لاحقة بعد نجاح الترحيل الأساسي. لا
+      // ندخل Workflow جديد ولا نربط نجاح حركة المخزون بنجاح إشعار خارجي.
       const managers = await db.getManagerUsers();
       for (const mgr of managers) {
         await db.createNotification({
           userId: mgr.id,
-          title: `↩️ مرتجع ${returnNumber}`,
-          message: `تم إرجاع ${input.returnedQuantity} ${inventoryItem.unit || "وحدة"} من "${inventoryItem.itemName}"` +
-            (po ? ` - طلب الشراء ${po.poNumber}` : " - بلا طلب شراء مرتبط"),
+          title: `↩️ مرتجع ${result.returnNumber}`,
+          message: `تم إرجاع ${result.returnedQuantity} ${result.unit || "وحدة"} من "${result.itemName}"` +
+            (result.poNumber ? ` - طلب الشراء ${result.poNumber}` : " - بلا طلب شراء مرتبط"),
           type: "warning",
-          relatedPoId: input.purchaseOrderId,
+          relatedPoId: result.purchaseOrderId ?? undefined,
         });
       }
 
       await db.createAuditLog({
         userId: ctx.user.id,
         action: "warehouse_return",
-        entityType: input.purchaseOrderId ? "purchase_order" : "inventory",
-        entityId: input.purchaseOrderId ?? input.inventoryId,
-        newValues: { returnNumber, returnedQuantity: input.returnedQuantity, reason: input.reason },
+        entityType: result.purchaseOrderId ? "purchase_order" : "inventory",
+        entityId: result.purchaseOrderId ?? result.inventoryId,
+        newValues: {
+          returnNumber: result.returnNumber,
+          returnedQuantity: result.returnedQuantity,
+          reason: input.reason,
+          receiptId: result.receiptId,
+          invoiceNumber: result.invoiceNumber,
+          unitCostUsed: result.unitCostUsed,
+          returnValue: result.returnValue,
+        },
       });
 
-      // ── وثيقة المرتجع الرسمية — تُنشأ تلقائياً هنا بالخادم مع كل عملية
-      //   إرجاع (لا تعتمد على استدعاء منفصل من الواجهة)، فتظهر مضمونة
-      //   بتبويب "التوثيق" وبصفحة المرتجعات مع كل مرتجع محفوظ
-      const performer = await db.getUserById(ctx.user.id);
-      await db.createReturnDocument({
-        returnNumber,
-        returnId: returnId!,
-        itemName: inventoryItem.itemName,
-        internalCode: (inventoryItem as any).internalCode,
-        manufacturerBarcode: (inventoryItem as any).manufacturerBarcode,
-        returnedQuantity: input.returnedQuantity,
-        unit: inventoryItem.unit,
-        reason: input.reason,
-        returnedByName: (performer as any)?.name || (performer as any)?.username || "—",
-        recipientName: input.recipientName,
-        receiptNumber: receipt?.receiptNumber,
-        invoiceNumber: receipt?.invoiceNumber,
-        vendorName: receipt?.vendorName,
-        poNumber: po?.poNumber,
-      });
-
-      return { returnId, returnNumber };
+      return result;
     }),
 });

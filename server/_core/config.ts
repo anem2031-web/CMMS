@@ -12,6 +12,8 @@ const serverEnvSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   BUILT_IN_FORGE_API_URL: z.string().optional(),
   BUILT_IN_FORGE_API_KEY: z.string().optional(),
+  DEEPSEEK_API_URL: z.string().url().optional(),
+  DEEPSEEK_API_KEY: z.string().optional(),
   ANTHROPIC_API_KEY: z.string().optional(),
   VITE_APP_ID: z.string().optional(),
 });

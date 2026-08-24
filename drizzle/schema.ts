@@ -326,6 +326,8 @@ export const catalogSuppliers = mysqlTable("catalog_suppliers", {
 	phone: varchar({ length: 50 }),
 	email: varchar({ length: 255 }),
 	address: text(),
+	taxNumber: varchar({ length: 50 }),
+	commercialRegistration: varchar({ length: 100 }),
 	isActive: tinyint().default(1).notNull(),
 	createdAt: timestamp({ mode: 'string' }).default('CURRENT_TIMESTAMP').notNull(),
 	updatedAt: timestamp({ mode: 'string' }).defaultNow().onUpdateNow().notNull(),
@@ -336,6 +338,138 @@ export const catalogSuppliers = mysqlTable("catalog_suppliers", {
 (table) => [
 	index("idx_suppliers_active").on(table.isActive),
 	index("idx_suppliers_name").on(table.nameAr),
+	index("idx_catalog_suppliers_tax_number").on(table.taxNumber),
+	index("idx_catalog_suppliers_cr").on(table.commercialRegistration),
+]);
+
+// 2B-2: أسماء المورد البديلة كما تظهر في الفواتير أو الإدخال اليدوي.
+// تبقى هوية المورد المركزية في catalog_suppliers، بينما هذه الأسماء تساعد
+// المطابقة المستقبلية بدون إنشاء مورد مكرر بسبب اختلاف طريقة الكتابة.
+export const catalogSupplierAliases = mysqlTable("catalog_supplier_aliases", {
+	id: int().autoincrement().notNull(),
+	supplierId: int().notNull(),
+	aliasName: varchar({ length: 300 }).notNull(),
+	normalizedAlias: varchar({ length: 300 }).notNull(),
+	source: mysqlEnum(['invoice','manual','import']).default('invoice').notNull(),
+	createdById: int(),
+	createdAt: timestamp({ mode: 'string' }).default('CURRENT_TIMESTAMP').notNull(),
+},
+(table) => [
+	uniqueIndex("uq_catalog_supplier_alias").on(table.supplierId, table.normalizedAlias),
+	index("idx_catalog_supplier_alias_normalized").on(table.normalizedAlias),
+]);
+
+// 2B-2: المورد الجديد لا يوقف الفاتورة أو الاستلام. ينشأ كمرشح
+// Master Data، ثم يربطه مسؤول الكتالوج بمورد موجود أو يعتمد مورداً جديداً.
+export const catalogSupplierCandidates = mysqlTable("catalog_supplier_candidates", {
+	id: int().autoincrement().notNull(),
+	receiptId: int(),
+	purchaseOrderId: int(),
+	invoiceNumber: varchar({ length: 100 }),
+	invoicePhotoUrl: text(),
+	extractedName: varchar({ length: 300 }).notNull(),
+	extractedNameEn: varchar({ length: 300 }),
+	taxNumber: varchar({ length: 50 }),
+	commercialRegistration: varchar({ length: 100 }),
+	phone: varchar({ length: 50 }),
+	email: varchar({ length: 255 }),
+	address: text(),
+	status: mysqlEnum(['pending','linked_existing','approved_new','rejected']).default('pending').notNull(),
+	resolvedSupplierId: int(),
+	createdById: int().notNull(),
+	resolvedById: int(),
+	resolvedAt: timestamp({ mode: 'string' }),
+	createdAt: timestamp({ mode: 'string' }).default('CURRENT_TIMESTAMP').notNull(),
+	updatedAt: timestamp({ mode: 'string' }).defaultNow().onUpdateNow().notNull(),
+},
+(table) => [
+	index("idx_catalog_supplier_candidates_status").on(table.status),
+	index("idx_catalog_supplier_candidates_receipt").on(table.receiptId),
+	index("idx_catalog_supplier_candidates_po").on(table.purchaseOrderId),
+]);
+
+// 2B-3: ذاكرة أسماء وأكواد الصنف كما يستخدمها كل مورد.
+// لا تستبدل Catalog Item المركزي ولا جدول الأسعار؛ تسمح بعدة aliases/SKU
+// لنفس الصنف والمورد وتدعم المطابقة المستقبلية أثناء تحليل الفاتورة.
+export const catalogSupplierItemAliases = mysqlTable("catalog_supplier_item_aliases", {
+	id: int().autoincrement().notNull(),
+	supplierId: int().notNull(),
+	catalogItemId: int().notNull(),
+	supplierItemName: varchar({ length: 300 }).notNull(),
+	normalizedName: varchar({ length: 300 }).notNull(),
+	supplierItemCode: varchar({ length: 100 }),
+	normalizedItemCode: varchar({ length: 100 }),
+	normalizedMeasurements: json(),
+	source: mysqlEnum(['invoice','manual','import']).default('invoice').notNull(),
+	confirmationCount: int().default(1).notNull(),
+	lastConfirmedAt: timestamp({ mode: 'string' }).default('CURRENT_TIMESTAMP').notNull(),
+	createdById: int(),
+	isActive: tinyint().default(1).notNull(),
+	createdAt: timestamp({ mode: 'string' }).default('CURRENT_TIMESTAMP').notNull(),
+	updatedAt: timestamp({ mode: 'string' }).defaultNow().onUpdateNow().notNull(),
+},
+(table) => [
+	index("idx_supplier_item_alias_supplier").on(table.supplierId),
+	index("idx_supplier_item_alias_catalog_item").on(table.catalogItemId),
+	index("idx_supplier_item_alias_name").on(table.supplierId, table.normalizedName),
+	index("idx_supplier_item_alias_code").on(table.supplierId, table.normalizedItemCode),
+]);
+
+// 2B-5: Queue غير معطلة للأصناف التي استُلمت تشغيلياً قبل اعتماد Catalog Master.
+// السجل يمثل هوية Inventory واحدة تنتظر مراجعة الكتالوج، وليس فاتورة واحدة؛
+// لذلك inventoryId فريد لمنع تكرار نفس مهمة Master Data مع كل استلام لاحق.
+export const catalogItemCandidates = mysqlTable("catalog_item_candidates", {
+	id: int().autoincrement().notNull(),
+	inventoryId: int().notNull(),
+	sourceReceiptId: int().notNull(),
+	sourceReceiptItemId: int().notNull(),
+	purchaseOrderId: int(),
+	purchaseOrderItemId: int(),
+	catalogSupplierId: int(),
+	supplierCandidateId: int(),
+	invoiceNumber: varchar({ length: 100 }),
+	itemName: varchar({ length: 300 }).notNull(),
+	itemNameAr: text(),
+	itemNameEn: text(),
+	supplierItemCode: varchar({ length: 100 }),
+	purchaseUnit: varchar({ length: 50 }),
+	manufacturerBarcode: varchar({ length: 200 }),
+	status: mysqlEnum(['pending','linked_existing','approved_new','rejected']).default('pending').notNull(),
+	resolvedCatalogItemId: int(),
+	createdById: int().notNull(),
+	resolvedById: int(),
+	resolvedAt: timestamp({ mode: 'string' }),
+	createdAt: timestamp({ mode: 'string' }).default('CURRENT_TIMESTAMP').notNull(),
+	updatedAt: timestamp({ mode: 'string' }).defaultNow().onUpdateNow().notNull(),
+},
+(table) => [
+	uniqueIndex("uq_catalog_item_candidates_inventory").on(table.inventoryId),
+	index("idx_catalog_item_candidates_status").on(table.status),
+	index("idx_catalog_item_candidates_receipt").on(table.sourceReceiptId),
+	index("idx_catalog_item_candidates_receipt_item").on(table.sourceReceiptItemId),
+	index("idx_catalog_item_candidates_po").on(table.purchaseOrderId),
+	index("idx_catalog_item_candidates_supplier").on(table.catalogSupplierId),
+	index("idx_catalog_item_candidates_resolved_item").on(table.resolvedCatalogItemId),
+]);
+
+// 2B-6: قرار مسؤول Master Data حول تشابه مرشحين جديدين.
+// same_item يربط المرشح التابع بمرشح أساسي حتى يُحسما لاحقاً بنفس Catalog Item،
+// وnot_same_item يمنع إعادة اقتراح نفس الزوج كتكرار بعد تأكيد المستخدم أنهما مختلفان.
+export const catalogItemCandidateDuplicateDecisions = mysqlTable("catalog_item_candidate_duplicate_decisions", {
+	id: int().autoincrement().notNull(),
+	candidateLowId: int().notNull(),
+	candidateHighId: int().notNull(),
+	decision: mysqlEnum(['same_item','not_same_item']).notNull(),
+	primaryCandidateId: int(),
+	decidedById: int().notNull(),
+	createdAt: timestamp({ mode: 'string' }).default('CURRENT_TIMESTAMP').notNull(),
+	updatedAt: timestamp({ mode: 'string' }).defaultNow().onUpdateNow().notNull(),
+},
+(table) => [
+	uniqueIndex("uq_catalog_item_candidate_duplicate_pair").on(table.candidateLowId, table.candidateHighId),
+	index("idx_catalog_item_candidate_duplicate_low").on(table.candidateLowId),
+	index("idx_catalog_item_candidate_duplicate_high").on(table.candidateHighId),
+	index("idx_catalog_item_candidate_duplicate_primary").on(table.primaryCandidateId),
 ]);
 
 export const catalogUnits = mysqlTable("catalog_units", {
@@ -760,6 +894,10 @@ export const deliveryDocuments = mysqlTable("delivery_documents", {
 	deliveryNumber: varchar({ length: 20 }).notNull(),
 	poItemId: int().notNull(),
 	inventoryId: int(),
+	// 2B-8: الدفعة الفعلية التي صُرف منها هذا المستند. Nullable للتوافق التاريخي.
+	lotId: int(),
+	// 2B-8: ربط صريح بحركة المخزون الناتجة عن مستند الصرف.
+	inventoryTransactionId: int(),
 	ticketId: int(),
 	ticketNumber: varchar({ length: 50 }),
 	assignedTechnicianId: int(),
@@ -782,6 +920,8 @@ export const deliveryDocuments = mysqlTable("delivery_documents", {
 },
 (table) => [
 	index("idx_delivery_documents_inventory").on(table.inventoryId),
+	index("idx_delivery_documents_lotId").on(table.lotId),
+	index("idx_delivery_documents_inventoryTransactionId").on(table.inventoryTransactionId),
 	index("idx_delivery_documents_ticket").on(table.ticketId),
 ]);
 
@@ -863,6 +1003,8 @@ export const disposalItems = mysqlTable("disposal_items", {
 	id: int().autoincrement().notNull(),
 	operationId: int().notNull(),
 	inventoryId: int().notNull(),
+	// 2B-8: الدفعة المحددة التي أُتلفت/استُبعدت منها الكمية.
+	lotId: int(),
 	quantity: decimal({ precision: 12, scale: 3 }).notNull(),
 	reason: mysqlEnum(['damaged','expired','missing','other']).notNull(),
 	unitCost: decimal({ precision: 12, scale: 4 }).default('0').notNull(),
@@ -874,6 +1016,7 @@ export const disposalItems = mysqlTable("disposal_items", {
 (table) => [
 	index("idx_disposal_items_op").on(table.operationId),
 	index("idx_disposal_items_inv").on(table.inventoryId),
+	index("idx_disposal_items_lotId").on(table.lotId),
 ]);
 
 export const disposalNumberCounter = mysqlTable("disposal_number_counter", {
@@ -1003,9 +1146,9 @@ export const inventory = mysqlTable("inventory", {
 	id: int().autoincrement().notNull(),
 	itemName: varchar({ length: 300 }).notNull(),
 	description: text(),
-	quantity: int().default(0).notNull(),
+	quantity: decimal({ precision: 12, scale: 3, mode: 'number' }).default(0).notNull(),
 	unit: varchar({ length: 50 }),
-	minQuantity: int().default(0),
+	minQuantity: decimal({ precision: 12, scale: 3, mode: 'number' }).default(0),
 	location: varchar({ length: 200 }),
 	siteId: int(),
 	lastRestockedAt: timestamp({ mode: 'string' }),
@@ -1029,6 +1172,69 @@ export const inventory = mysqlTable("inventory", {
 	assetId: int(),
 	warehouseId: int(),
 });
+
+// ══════════════════════════════════════════════════════════════════════
+// 2B-8 — Inventory Lots / Receipt traceability
+// Inventory remains the aggregate balance for Catalog Item + warehouse.
+// inventory_lots identifies the physical/source lot; inventory_lot_balances
+// tells where the remaining quantity of that same lot currently exists.
+// No FK rollout here by design; governance remains deferred to 2B-10.
+// ══════════════════════════════════════════════════════════════════════
+export const inventoryLots = mysqlTable("inventory_lots", {
+	id: int().autoincrement().notNull(),
+	lotCode: varchar({ length: 50 }).notNull(),
+	trackingToken: varchar({ length: 100 }).notNull(),
+	sourceType: mysqlEnum(['receipt','opening_balance']).notNull(),
+	catalogItemId: int(),
+	receiptId: int(),
+	receiptItemId: int(),
+	purchaseOrderId: int(),
+	purchaseOrderItemId: int(),
+	catalogSupplierId: int(),
+	supplierCandidateId: int(),
+	sourceCountOperationId: int(),
+	sourceSettlementId: int(),
+	sourceSettlementItemId: int(),
+	originalQuantity: decimal({ precision: 12, scale: 3 }).notNull(),
+	remainingQuantity: decimal({ precision: 12, scale: 3 }).notNull(),
+	purchaseUnit: varchar({ length: 50 }),
+	issueUnit: varchar({ length: 50 }),
+	conversionFactor: decimal({ precision: 10, scale: 4 }).default('1.0000').notNull(),
+	purchaseUnitCost: decimal({ precision: 12, scale: 4 }),
+	issueUnitCost: decimal({ precision: 12, scale: 4 }).default('0.0000').notNull(),
+	supplierItemName: varchar({ length: 300 }),
+	supplierItemCode: varchar({ length: 100 }),
+	batchNumber: varchar({ length: 100 }),
+	expiryDate: date({ mode: 'string' }),
+	createdById: int().notNull(),
+	createdAt: timestamp({ mode: 'string' }).default('CURRENT_TIMESTAMP').notNull(),
+	updatedAt: timestamp({ mode: 'string' }).defaultNow().onUpdateNow().notNull(),
+},
+(table) => [
+	uniqueIndex("uq_inventory_lots_lotCode").on(table.lotCode),
+	uniqueIndex("uq_inventory_lots_trackingToken").on(table.trackingToken),
+	index("idx_inventory_lots_catalogItemId").on(table.catalogItemId),
+	index("idx_inventory_lots_receiptId").on(table.receiptId),
+	index("idx_inventory_lots_receiptItemId").on(table.receiptItemId),
+	index("idx_inventory_lots_purchaseOrderItemId").on(table.purchaseOrderItemId),
+	index("idx_inventory_lots_catalogSupplierId").on(table.catalogSupplierId),
+	index("idx_inventory_lots_sourceCountOperationId").on(table.sourceCountOperationId),
+	index("idx_inventory_lots_sourceSettlementId").on(table.sourceSettlementId),
+]);
+
+export const inventoryLotBalances = mysqlTable("inventory_lot_balances", {
+	id: int().autoincrement().notNull(),
+	lotId: int().notNull(),
+	inventoryId: int().notNull(),
+	quantity: decimal({ precision: 12, scale: 3 }).default('0.000').notNull(),
+	createdAt: timestamp({ mode: 'string' }).default('CURRENT_TIMESTAMP').notNull(),
+	updatedAt: timestamp({ mode: 'string' }).defaultNow().onUpdateNow().notNull(),
+},
+(table) => [
+	uniqueIndex("uq_inventory_lot_balances_lot_inventory").on(table.lotId, table.inventoryId),
+	index("idx_inventory_lot_balances_inventoryId").on(table.inventoryId),
+	index("idx_inventory_lot_balances_lotId").on(table.lotId),
+]);
 
 export const inventoryBackup20260704 = mysqlTable("inventory_backup_20260704", {
 	id: int().autoincrement().notNull(),
@@ -1061,10 +1267,33 @@ export const inventoryBackup20260704 = mysqlTable("inventory_backup_20260704", {
 	warehouseId: int(),
 });
 
+// Main Phase 3 / Step 1 — immutable opening snapshot for periodic counts.
+// This table is deliberately separate from inventory_count_items so a manual/QR partial
+// count can preserve the warehouse state at operation opening without turning every
+// snapshotted Lot into a mandatory count target.
+export const inventoryCountSnapshots = mysqlTable("inventory_count_snapshots", {
+	id: int().autoincrement().notNull(),
+	operationId: int().notNull(),
+	inventoryId: int().notNull(),
+	lotId: int(),
+	systemQuantity: decimal({ precision: 12, scale: 3 }).notNull(),
+	averageCostSnapshot: decimal({ precision: 12, scale: 4 }).notNull(),
+	// you can use { mode: 'date' }, if you want to have Date as type for this column
+	expiryDate: date({ mode: 'string' }),
+	createdAt: timestamp({ mode: 'string' }).default('CURRENT_TIMESTAMP').notNull(),
+},
+(table) => [
+	index("inventory_count_snapshots_operation_idx").on(table.operationId),
+	index("inventory_count_snapshots_inventory_idx").on(table.inventoryId),
+	index("inventory_count_snapshots_lot_idx").on(table.lotId),
+]);
+
 export const inventoryCountItems = mysqlTable("inventory_count_items", {
 	id: int().autoincrement().notNull(),
 	operationId: int().notNull(),
 	inventoryId: int().notNull(),
+	// 2B-8: الجرد الدوري يصبح على مستوى الدفعة/QR، لا Inventory المجمع فقط.
+	lotId: int(),
 	systemQuantity: decimal({ precision: 12, scale: 3 }).notNull(),
 	countedQuantity: decimal({ precision: 12, scale: 3 }),
 	diffQuantity: decimal({ precision: 12, scale: 3 }),
@@ -1079,6 +1308,7 @@ export const inventoryCountItems = mysqlTable("inventory_count_items", {
 (table) => [
 	index("inventory_count_items_operation_idx").on(table.operationId),
 	index("inventory_count_items_inventory_idx").on(table.inventoryId),
+	index("idx_inventory_count_items_lotId").on(table.lotId),
 	index("inventory_count_items_countedby_idx").on(table.countedById),
 ]);
 
@@ -1093,6 +1323,11 @@ export const inventoryCountOperations = mysqlTable("inventory_count_operations",
 	// you can use { mode: 'date' }, if you want to have Date as type for this column
 	operationDate: date({ mode: 'string' }).notNull(),
 	scope: mysqlEnum(['full','partial']).default('full').notNull(),
+	// 2B-8: يفصل الجرد الدوري عن تأسيس الرصيد الافتتاحي.
+	countType: mysqlEnum(['periodic','opening_balance']).default('periodic').notNull(),
+	// 2B-9: نطاق تصنيف اختياري للجرد الدوري؛ المرجع المنطقي هو catalog_nodes.
+	// لا نضيف FK هنا لأن الحوكمة الشاملة مؤجلة إلى 2B-10.
+	catalogNodeId: int(),
 	warehouseId: int(),
 	status: mysqlEnum(['in_progress','completed']).default('in_progress').notNull(),
 	totalItemsCounted: int().default(0).notNull(),
@@ -1115,9 +1350,15 @@ export const inventorySettlementItems = mysqlTable("inventory_settlement_items",
 	id: int().autoincrement().notNull(),
 	settlementId: int().notNull(),
 	inventoryId: int().notNull(),
+	// 2B-8: فرق الجرد يبقى مربوطاً بالدفعة التي تم عدّها.
+	lotId: int(),
 	beforeQuantity: decimal({ precision: 12, scale: 3 }).notNull(),
 	afterQuantity: decimal({ precision: 12, scale: 3 }).notNull(),
 	diffQuantity: decimal({ precision: 12, scale: 3 }).notNull(),
+	// Main Phase 4 / Step 2: nullable for legacy rows; new supported settlements
+	// will persist the posting valuation basis and signed financial adjustment.
+	unitCostUsed: decimal({ precision: 12, scale: 4 }),
+	adjustmentValue: decimal({ precision: 14, scale: 2 }),
 	lotNumber: varchar({ length: 50 }),
 	// you can use { mode: 'date' }, if you want to have Date as type for this column
 	expiryDate: date({ mode: 'string' }),
@@ -1125,6 +1366,7 @@ export const inventorySettlementItems = mysqlTable("inventory_settlement_items",
 },
 (table) => [
 	index("inventory_settlement_items_inventory_idx").on(table.inventoryId),
+	index("idx_inventory_settlement_items_lotId").on(table.lotId),
 	index("inventory_settlement_items_settlement_idx").on(table.settlementId),
 ]);
 
@@ -1140,6 +1382,9 @@ export const inventorySettlements = mysqlTable("inventory_settlements", {
 	sourceCountOperationId: int(),
 	status: mysqlEnum(['applied']).default('applied').notNull(),
 	reason: text().notNull(),
+	// Optional external/document/business reference. Count linkage remains in
+	// sourceCountOperationId and is not duplicated here automatically.
+	reference: varchar({ length: 255 }),
 	appliedById: int().notNull(),
 	appliedAt: timestamp({ mode: 'string' }).default('CURRENT_TIMESTAMP').notNull(),
 	createdAt: timestamp({ mode: 'string' }).default('CURRENT_TIMESTAMP').notNull(),
@@ -1153,8 +1398,10 @@ export const inventorySettlements = mysqlTable("inventory_settlements", {
 export const inventoryTransactions = mysqlTable("inventory_transactions", {
 	id: int().autoincrement().notNull(),
 	inventoryId: int().notNull(),
+	// 2B-8: الدفعة التي أثرت عليها الحركة. Nullable للتاريخ/المسارات غير المفعّلة بعد.
+	lotId: int(),
 	type: mysqlEnum(['in','out']).notNull(),
-	quantity: int().notNull(),
+	quantity: decimal({ precision: 12, scale: 3, mode: 'number' }).notNull(),
 	reason: text(),
 	ticketId: int(),
 	purchaseOrderItemId: int().references(() => purchaseOrderItems.id, { onDelete: "set null" } ),
@@ -1173,6 +1420,7 @@ export const inventoryTransactions = mysqlTable("inventory_transactions", {
 },
 (table) => [
 	index("inventory_tx_item_type_date_idx").on(table.inventoryId, table.transactionType, table.createdAt),
+	index("idx_inventory_transactions_lotId").on(table.lotId),
 	index("idx_invtx_purchaseOrderItemId").on(table.purchaseOrderItemId),
 ]);
 
@@ -1515,6 +1763,9 @@ export const procurementComments = mysqlTable("procurement_comments", {
 export const purchaseOrderItems = mysqlTable("purchase_order_items", {
 	id: int().autoincrement().notNull(),
 	purchaseOrderId: int().notNull().references(() => purchaseOrders.id, { onDelete: "restrict" } ),
+	// 2B-1: الهوية المركزية للصنف عند اختيار البند من الكتالوج.
+	// تبقى nullable لأن الإدخال اليدوي ما زال مسموحًا كاستثناء.
+	catalogItemId: int(),
 	itemName: varchar({ length: 300 }).notNull(),
 	description: text(),
 	quantity: int().default(1).notNull(),
@@ -1578,6 +1829,7 @@ export const purchaseOrderItems = mysqlTable("purchase_order_items", {
 (table) => [
 	index("purchase_order_items_batch_idx").on(table.batchId),
 	index("idx_poi_purchaseOrderId").on(table.purchaseOrderId),
+	index("idx_poi_catalogItemId").on(table.catalogItemId),
 ]);
 
 export const purchaseOrders = mysqlTable("purchase_orders", {
@@ -2041,9 +2293,14 @@ export const warehouseReceiptItems = mysqlTable("warehouse_receipt_items", {
 	receiptId: int().notNull(),
 	inventoryId: int(),
 	purchaseOrderItemId: int().references(() => purchaseOrderItems.id, { onDelete: "set null" } ),
+	// 2B-7: هوية Catalog المركزية لسطر الاستلام/الفاتورة.
+	// تبقى nullable للسجلات التاريخية التي لم تُحسم هويتها بعد.
+	catalogItemId: int(),
 	itemName: varchar({ length: 300 }).notNull(),
 	itemNameAr: text("itemName_ar"),
 	itemNameEn: text("itemName_en"),
+	// 2B-4: قرار المستخدم بأن الصنف غير موجود في Catalog Master الحالي.
+	isNewCatalogItem: tinyint().default(0).notNull(),
 	receivedQuantity: decimal({ precision: 12, scale: 3 }).notNull(),
 	purchaseUnit: varchar({ length: 50 }),
 	unitCost: decimal({ precision: 12, scale: 4 }).default('0').notNull(),
@@ -2063,6 +2320,7 @@ export const warehouseReceiptItems = mysqlTable("warehouse_receipt_items", {
 	index("idx_receipt_items_inventoryId").on(table.inventoryId),
 	index("idx_receipt_items_poItemId").on(table.purchaseOrderItemId),
 	index("idx_wri_purchaseOrderItemId").on(table.purchaseOrderItemId),
+	index("idx_receipt_items_catalogItemId").on(table.catalogItemId),
 ]);
 
 export const warehouseReceiptItemsLegacyOrphans = mysqlTable("warehouse_receipt_items_legacy_orphans", {
@@ -2104,6 +2362,9 @@ export const warehouseReceipts = mysqlTable("warehouse_receipts", {
 	vendorName: varchar({ length: 300 }),
 	vendorNameEn: varchar({ length: 300 }),
 	vendorTaxNumber: varchar({ length: 50 }),
+	// 2B-2: المورد المركزي المختار، أو مرشح المورد الجديد عند عدم وجوده.
+	catalogSupplierId: int(),
+	supplierCandidateId: int(),
 	invoiceNumber: varchar({ length: 100 }),
 	// you can use { mode: 'date' }, if you want to have Date as type for this column
 	invoiceDate: date({ mode: 'string' }),
@@ -2125,6 +2386,8 @@ export const warehouseReceipts = mysqlTable("warehouse_receipts", {
 },
 (table) => [
 	index("idx_warehouse_receipts_po_null").on(table.purchaseOrderId),
+	index("idx_warehouse_receipts_catalog_supplier").on(table.catalogSupplierId),
+	index("idx_warehouse_receipts_supplier_candidate").on(table.supplierCandidateId),
 ]);
 
 export const warehouseReceiptsLegacyOrphans = mysqlTable("warehouse_receipts_legacy_orphans", {
@@ -2172,12 +2435,22 @@ export const warehouseReturns = mysqlTable("warehouse_returns", {
 	purchaseOrderId: int(),
 	purchaseOrderItemId: int(),
 	inventoryId: int().notNull(),
+	// 2B-8: الدفعة الأصلية المرتبطة بالمرتجع.
+	lotId: int(),
+	// 5.2: Future-only link for Recipient → Warehouse Return.
+	// NULL keeps all historical/supplier returns unchanged. Live DB was manually
+	// extended on 2026-08-22; no historical backfill/FK is introduced here.
+	sourceDeliveryDocumentId: int(),
 	returnedQuantity: int().notNull(),
 	reason: text().notNull(),
 	returnedById: int().notNull(),
 	returnedAt: timestamp({ mode: 'string' }).default('CURRENT_TIMESTAMP').notNull(),
 	createdAt: timestamp({ mode: 'string' }).default('CURRENT_TIMESTAMP').notNull(),
-});
+},
+(table) => [
+	index("idx_warehouse_returns_lotId").on(table.lotId),
+	index("idx_warehouse_returns_source_delivery").on(table.sourceDeliveryDocumentId),
+]);
 
 export const warehouses = mysqlTable("warehouses", {
 	id: int().autoincrement().notNull(),
@@ -2219,6 +2492,8 @@ export const warehouseTransfers = mysqlTable("warehouse_transfers", {
 	toWarehouseId: int().notNull().references(() => warehouses.id, { onDelete: "restrict" } ),
 	fromInventoryId: int().notNull().references(() => inventory.id, { onDelete: "restrict" } ),
 	toInventoryId: int().notNull().references(() => inventory.id, { onDelete: "restrict" } ),
+	// 2B-8: التحويل ينقل نفس Lot/QR بين المخازن ولا ينشئ هوية دفعة جديدة.
+	lotId: int(),
 	quantity: decimal({ precision: 12, scale: 3 }).notNull(),
 	// true إن كان تصنيف الصنف لا يطابق تصنيف المخزن الهدف — تحويل مسموح به
 	// (تنبيه فقط وليس منعاً، بقرار صاحب المشروع) لكن يُسجَّل للمراجعة اللاحقة.
@@ -2231,6 +2506,7 @@ export const warehouseTransfers = mysqlTable("warehouse_transfers", {
 	uniqueIndex("idx_warehouse_transfers_number_unique").on(table.transferNumber),
 	index("idx_warehouse_transfers_from_warehouse").on(table.fromWarehouseId),
 	index("idx_warehouse_transfers_to_warehouse").on(table.toWarehouseId),
+	index("idx_warehouse_transfers_lotId").on(table.lotId),
 	index("idx_warehouse_transfers_batch").on(table.batchId),
 ]);
 

@@ -1,6 +1,8 @@
 import React, { useState, useCallback } from "react";
 import { useTranslation } from "@/contexts/LanguageContext";
 import { trpc } from "@/lib/trpc";
+import { useAuth } from "@/_core/hooks/useAuth";
+import { isCatalogAdminRole } from "@shared/roles";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -10,7 +12,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Plus, Edit2, Trash2, ChevronRight, Loader2, FolderPlus } from "lucide-react";
+import { Plus, Edit2, Trash2, ChevronRight, Loader2, FolderPlus, RotateCcw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
@@ -31,6 +33,9 @@ type DialogMode = "addRoot" | "addChild" | "edit" | null;
 // ── Main Component ─────────────────────────────────────────────────────────
 export default function TaxonomyManager() {
   const { t } = useTranslation();
+  const { user } = useAuth();
+  const canDelete = isCatalogAdminRole(user?.role);
+  const isCatalogAdmin = canDelete;
   const [expandedNodes, setExpandedNodes] = useState<Set<number>>(new Set());
   const [selectedNode, setSelectedNode] = useState<TreeNode | null>(null);
   const [dialogMode, setDialogMode] = useState<DialogMode>(null);
@@ -39,7 +44,9 @@ export default function TaxonomyManager() {
 
   // ── Queries ──────────────────────────────────────────────────────────────
   // جلب جميع التصنيفات ثم نفلتر الجذور في الفرونت
-  const { data: allNodes, isLoading, refetch } = trpc.catalog.nodes.list.useQuery({});
+  const { data: allNodes, isLoading, refetch } = trpc.catalog.nodes.list.useQuery(
+    isCatalogAdmin ? { includeInactive: true } : {}
+  );
   const roots = (allNodes || []).filter((n: any) => !n.parentId || n.parentId === null || n.parentId === 0);
 
   // ── Mutations ─────────────────────────────────────────────────────────────
@@ -54,7 +61,12 @@ export default function TaxonomyManager() {
   });
 
   const deleteMut = trpc.catalog.nodes.delete.useMutation({
-    onSuccess: () => { refetch(); setSelectedNode(null); toast.success("تم حذف التصنيف"); },
+    onSuccess: () => { refetch(); setSelectedNode(null); toast.success("تم تعطيل التصنيف"); },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const reactivateMut = trpc.catalog.nodes.reactivate.useMutation({
+    onSuccess: () => { refetch(); setSelectedNode(null); toast.success("تمت إعادة تفعيل التصنيف"); },
     onError: (e) => toast.error(e.message),
   });
 
@@ -139,8 +151,13 @@ export default function TaxonomyManager() {
   };
 
   const handleDelete = async (node: TreeNode) => {
-    if (!confirm(`هل أنت متأكد من حذف "${node.nameAr}"؟\nلا يمكن الحذف إذا كان فيه فروع أو أصناف مرتبطة.`)) return;
+    if (!confirm(`هل أنت متأكد من تعطيل "${node.nameAr}"؟\nلا يمكن التعطيل إذا كان فيه فروع أو أصناف نشطة مرتبطة.`)) return;
     await deleteMut.mutateAsync(node.id);
+  };
+
+  const handleReactivate = async (node: TreeNode) => {
+    if (!confirm(`هل تريد إعادة تفعيل "${node.nameAr}"؟`)) return;
+    await reactivateMut.mutateAsync(node.id);
   };
 
   // ── Dialog Title ───────────────────────────────────────────────────────────
@@ -182,6 +199,8 @@ export default function TaxonomyManager() {
                   onAddChild={openAddChild}
                   onEdit={openEdit}
                   onDelete={handleDelete}
+                  onReactivate={handleReactivate}
+                  canDelete={canDelete}
                 />
               ))}
             </div>
@@ -289,15 +308,18 @@ interface TreeNodeItemProps {
   onAddChild: (node: TreeNode) => void;
   onEdit: (node: TreeNode) => void;
   onDelete: (node: TreeNode) => void;
+  onReactivate: (node: TreeNode) => void;
+  canDelete: boolean;
   depth?: number;
 }
 
 function TreeNodeItem({
-  node, allNodes, isExpanded, expandedNodes, onToggle, onAddChild, onEdit, onDelete, depth = 0
+  node, allNodes, isExpanded, expandedNodes, onToggle, onAddChild, onEdit, onDelete, onReactivate, canDelete, depth = 0
 }: TreeNodeItemProps) {
   const children = (allNodes || []).filter(n => Number(n.parentId) === Number(node.id));
   const hasChildren = children.length > 0;
-  const canAddChild = node.level < 6;
+  const isInactive = Number((node as any).isActive) !== 1;
+  const canAddChild = node.level < 6 && !isInactive;
 
   return (
     <div>
@@ -324,9 +346,16 @@ function TreeNodeItem({
         </span>
 
         {/* الاسم */}
-        <div className="flex-1 min-w-0">
-          <span className="text-sm font-medium truncate">{node.nameAr}</span>
-          <span className="text-xs text-muted-foreground mr-2 truncate">{node.nameEn}</span>
+        <div className="flex-1 min-w-0 flex items-center gap-2">
+          <div className="min-w-0">
+            <span className="text-sm font-medium truncate">{node.nameAr}</span>
+            <span className="text-xs text-muted-foreground mr-2 truncate">{node.nameEn}</span>
+          </div>
+          {isInactive && (
+            <span className="text-[11px] px-2 py-0.5 rounded-full bg-muted text-muted-foreground border shrink-0">
+              معطّل
+            </span>
+          )}
         </div>
 
         {/* مستوى */}
@@ -352,13 +381,24 @@ function TreeNodeItem({
           >
             <Edit2 className="w-3.5 h-3.5" />
           </button>
-          <button
-            onClick={e => { e.stopPropagation(); onDelete(node); }}
-            className="p-1 rounded hover:bg-red-100 hover:text-red-700 transition-colors"
-            title="حذف"
-          >
-            <Trash2 className="w-3.5 h-3.5" />
-          </button>
+          {canDelete && !isInactive && (
+            <button
+              onClick={e => { e.stopPropagation(); onDelete(node); }}
+              className="p-1 rounded hover:bg-red-100 hover:text-red-700 transition-colors"
+              title="تعطيل"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          )}
+          {canDelete && isInactive && (
+            <button
+              onClick={e => { e.stopPropagation(); onReactivate(node); }}
+              className="p-1 rounded hover:bg-green-100 hover:text-green-700 transition-colors"
+              title="إعادة تفعيل"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+            </button>
+          )}
         </div>
       </div>
 
@@ -376,6 +416,8 @@ function TreeNodeItem({
               onAddChild={onAddChild}
               onEdit={onEdit}
               onDelete={onDelete}
+              onReactivate={onReactivate}
+              canDelete={canDelete}
               depth={depth + 1}
             />
           ))}

@@ -6,6 +6,7 @@
 import { useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { printReceiptDocument } from "@/lib/printReceiptDocument";
+import LotLabelsPrintScreen, { type LotLabelItem } from "@/components/inventory/LotLabelsPrintScreen";
 import { useLocation, useSearch } from "wouter";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -27,6 +28,7 @@ export default function InvoiceDraftReview() {
   const receiptId = params.get("id") ? parseInt(params.get("id")!) : null;
 
   const [notes, setNotes] = useState("");
+  const [lotLabels, setLotLabels] = useState<LotLabelItem[]>([]);
   const [editingItem, setEditingItem] = useState<number | null>(null);
   const [editValues, setEditValues] = useState<any>({});
 
@@ -48,7 +50,14 @@ export default function InvoiceDraftReview() {
       try {
         const receipt = await trpcUtils.warehouseReceipts.getForPrint.fetch({ id: data.receiptId });
         await printReceiptDocument(receipt, () => incrementReceiptPrintMut.mutate({ id: data.receiptId }));
-      } catch { /* لو تعذرت الطباعة لا نوقف التنقل */ }
+      } catch { /* لو تعذرت طباعة السند لا نمنع ملصقات الدفعات */ }
+
+      // 2B-8: تأكيد الاستلام يولّد QR تلقائياً. بعد نجاح الاعتماد
+      // نعرض ملصقات الـLots فوراً بدل الانتقال للمخزون مباشرة.
+      if (data.lotLabels?.length) {
+        setLotLabels(data.lotLabels as LotLabelItem[]);
+        return;
+      }
       navigate("/inventory");
     },
     onError: (err: any) => toast.error(err.message),
@@ -61,6 +70,10 @@ export default function InvoiceDraftReview() {
       toast.success("تم تحديث البند");
     },
   });
+
+  if (lotLabels.length > 0) {
+    return <LotLabelsPrintScreen items={lotLabels} onDone={() => navigate("/inventory")} />;
+  }
 
   if (!receiptId) {
     return <div className="p-8 text-center text-muted-foreground">لم يتم تحديد المسودة</div>;

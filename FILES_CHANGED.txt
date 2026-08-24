@@ -1,30 +1,28 @@
-shared/externalMaintenanceWorkflow.ts
-shared/ticketUiRules.ts
-drizzle/schema.ts
-drizzle/migrations/2026_08_04_path_c_external_maintenance_workflow.sql
-server/_core/db/external-maintenance.ts
-server/_core/db/index.ts
-server/routers/external-maintenance/external-maintenance.router.ts
-server/routers/index.ts
-server/routers/tickets/tickets.external.ts
-server/routers/tickets/tickets.workflow.ts
-server/routers/tickets/tickets.approvals.ts
-server/routers/tickets/tickets.closure.ts
-server/routers/purchase/purchase-orders.router.ts
-server/routers/purchase/approvals.router.ts
-server/services/pdf/ticketPdfService.ts
-client/src/lib/printExternalMaintenanceDocument.ts
-client/src/pages/purchase/ExternalMaintenanceWarehouseTab.tsx
-client/src/pages/purchase/PurchaseCycle.tsx
-client/src/pages/assets/GateSecurity.tsx
-client/src/pages/tickets/TicketDetail.tsx
-server/tests/pathCExternalMaintenanceWorkflow.test.ts
-server/tests/ticketUiRules.test.ts
-server/tests/ticketUiIntegrationContract.test.ts
-server/tests/workflow.test.ts
-server/tests/full_cycle.test.ts
-docs/PATH_C_EXTERNAL_MAINTENANCE_WORKFLOW.md
-docs/TEST_REPORT_PATH_C_EXTERNAL_MAINTENANCE_WORKFLOW.md
-docs/INDEX.md
-CHANGELOG_TECHNICAL.md
-DELIVERY_NOTES.md
+CMMS Main Phase 6 / 6.1 — Reports Foundation & Unified Reports Center
+Date: 2026-08-23
+Status after patch extraction: 6.1 IMPLEMENTED / deployed runtime verification pending
+
+New files:
+- client/src/components/reports/ReportToolbar.tsx
+- client/src/components/reports/ReportGeneratedAt.tsx
+- client/src/components/reports/ReportFiltersBar.tsx
+- client/src/lib/reportExport.ts
+- client/src/pages/inventory/InventoryReportsCenter.tsx
+- server/services/reports/reportExportFoundation.ts
+- server/tests/reportExportFoundationPhase6Step1.test.ts
+- docs/CMMS_MAIN_PHASE6_STEP6_1_REPORTS_FOUNDATION_IMPLEMENTATION_2026-08-23.md
+
+Modified files:
+- client/src/App.tsx
+- client/src/components/layout/DashboardLayout.tsx
+- client/src/i18n/ar.ts
+- client/src/i18n/en.ts
+- client/src/i18n/ur.ts
+- docs/inventory/INVENTORY_DEVELOPMENT_PLAN_AND_CHANGE_CONTROL.md
+- docs/PENDING_TASKS.md
+- docs/INDEX.md
+- docs/CHANGELOG_TECHNICAL.md
+- docs/CMMS_MAIN_PHASE6_INVENTORY_ACCOUNTING_REPORTS_APPROVED_SCOPE_2026-08-23.md
+- docs/CMMS_MAIN_PHASE6_UNIFIED_REPORT_TOOLBAR_AND_EXPORT_STANDARD_APPROVED_2026-08-23.md
+
+No .env, SQL, migrations, schema changes, package changes, DB writes, 6.2 report implementation, 6.3 report implementation, or 6.4 analytics implementation are included.

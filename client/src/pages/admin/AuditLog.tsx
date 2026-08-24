@@ -10,6 +10,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useState, useMemo } from "react";
 import { ExportButton } from "@/components/common/ExportButton";
 import { useTranslation, useLanguage } from "@/contexts/LanguageContext";
+import { useAuth } from "@/_core/hooks/useAuth";
 
 const ACTION_COLORS: Record<string, string> = {
   create: "bg-emerald-100 text-emerald-700 border-emerald-200",
@@ -47,9 +48,16 @@ const ENTITY_COLORS: Record<string, string> = {
   site: "bg-purple-50 text-purple-700",
   user: "bg-red-50 text-red-700",
   notification: "bg-cyan-50 text-cyan-700",
+  item: "bg-emerald-50 text-emerald-700",
+  node: "bg-violet-50 text-violet-700",
+  unit: "bg-cyan-50 text-cyan-700",
+  supplier: "bg-amber-50 text-amber-700",
+  catalog_item_candidate: "bg-teal-50 text-teal-700",
+  supplier_candidate: "bg-orange-50 text-orange-700",
 };
 
 export default function AuditLog() {
+  const { user } = useAuth();
   const { t: tr } = useLanguage();
   const { t, language } = useTranslation();
   const locale = language === "ar" ? "ar-SA" : language === "ur" ? "ur-PK" : "en-US";
@@ -61,13 +69,30 @@ export default function AuditLog() {
   const [showFilters, setShowFilters] = useState(false);
   const [detailLog, setDetailLog] = useState<any>(null);
 
-  const { data: logs, isLoading } = trpc.audit.list.useQuery(
-    {
-      ...(actionFilter !== "all" ? { action: actionFilter } : {}),
-      ...(entityFilter !== "all" ? { entityType: entityFilter } : {}),
-    } as any
+  const canViewAudit = user?.role === "owner" || user?.role === "admin";
+  const queryFilters = {
+    ...(actionFilter !== "all" ? { action: actionFilter } : {}),
+    ...(entityFilter !== "all" ? { entityType: entityFilter } : {}),
+  } as any;
+
+  const { data: systemLogs, isLoading: systemLogsLoading } = trpc.audit.list.useQuery(
+    queryFilters,
+    { enabled: canViewAudit }
+  );
+  const { data: catalogLogs, isLoading: catalogLogsLoading } = trpc.catalog.audit.list.useQuery(
+    queryFilters,
+    { enabled: canViewAudit }
   );
   const { data: users } = trpc.users.list.useQuery();
+
+  const logs = useMemo(() => {
+    const system = (systemLogs || []).map((log: any) => ({ ...log, auditSource: "system" }));
+    const catalog = catalogLogs || [];
+    return [...system, ...catalog]
+      .sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      .slice(0, 500);
+  }, [systemLogs, catalogLogs]);
+  const isLoading = systemLogsLoading || catalogLogsLoading;
 
   const getActionLabel = (action: string) => (t.audit as any)[action] || action;
   const getUserName = (userId: number | null) => {
@@ -85,6 +110,12 @@ export default function AuditLog() {
       site: language === "ar" ? "موقع" : language === "ur" ? "سائٹ" : "Site",
       user: language === "ar" ? "مستخدم" : language === "ur" ? "صارف" : "User",
       notification: language === "ar" ? "إشعار" : language === "ur" ? "اطلاع" : "Notification",
+      item: language === "ar" ? "صنف الكتالوج" : language === "ur" ? "کیٹلاگ آئٹم" : "Catalog Item",
+      node: language === "ar" ? "تصنيف الكتالوج" : language === "ur" ? "کیٹلاگ زمرہ" : "Catalog Category",
+      unit: language === "ar" ? "وحدة قياس" : language === "ur" ? "پیمائش یونٹ" : "Catalog Unit",
+      supplier: language === "ar" ? "مورد الكتالوج" : language === "ur" ? "کیٹلاگ سپلائر" : "Catalog Supplier",
+      catalog_item_candidate: language === "ar" ? "مرشح صنف" : language === "ur" ? "آئٹم امیدوار" : "Item Candidate",
+      supplier_candidate: language === "ar" ? "مرشح مورد" : language === "ur" ? "سپلائر امیدوار" : "Supplier Candidate",
     };
     return labels[entityType] || entityType;
   };
@@ -102,7 +133,22 @@ export default function AuditLog() {
     });
   }, [logs, searchQuery, users]);
 
+  const parseMaybeJson = (value: any) => {
+    if (value === null || value === undefined || value === "") return undefined;
+    if (typeof value !== "string") return value;
+    try {
+      return JSON.parse(value);
+    } catch {
+      return value;
+    }
+  };
+
   const parseChanges = (log: any) => {
+    const oldValues = parseMaybeJson(log.oldValues);
+    const newValues = parseMaybeJson(log.newValues);
+    if (oldValues !== undefined || newValues !== undefined) {
+      return { oldValues, newValues };
+    }
     if (!log.details) return null;
     try {
       const details = typeof log.details === "string" ? JSON.parse(log.details) : log.details;
@@ -125,6 +171,19 @@ export default function AuditLog() {
     if (!logs) return [];
     return Array.from(new Set(logs.map((l: any) => l.entityType)));
   }, [logs]);
+
+  if (user && !canViewAudit) {
+    return (
+      <Card>
+        <CardContent className="p-12 text-center">
+          <Shield className="w-12 h-12 mx-auto text-muted-foreground/40 mb-4" />
+          <h3 className="font-semibold text-lg mb-1">
+            {language === "ar" ? "ليس لديك صلاحية لعرض سجل التدقيق" : "You do not have permission to view the audit log"}
+          </h3>
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -207,9 +266,9 @@ export default function AuditLog() {
         <div className="space-y-2">
           {filteredLogs.map((log: any) => {
             const changes = parseChanges(log);
-            const hasDetails = changes && (changes.oldValues || changes.changes || changes.raw);
+            const hasDetails = changes && (changes.oldValues || changes.newValues || changes.changes || changes.raw);
             return (
-              <Card key={log.id} className={`hover:shadow-md transition-all duration-200 ${log.action === "delete" ? "border-l-4 border-l-red-400" : log.action === "update" ? "border-l-4 border-l-blue-400" : log.action === "create" ? "border-l-4 border-l-emerald-400" : ""}`}>
+              <Card key={`${log.auditSource || "system"}:${log.id}`} className={`hover:shadow-md transition-all duration-200 ${log.action === "delete" ? "border-l-4 border-l-red-400" : log.action === "update" ? "border-l-4 border-l-blue-400" : log.action === "create" ? "border-l-4 border-l-emerald-400" : ""}`}>
                 <CardContent className="p-4">
                   <div className="flex items-center justify-between gap-4">
                     <div className="flex items-center gap-3 flex-1 min-w-0">
@@ -222,6 +281,9 @@ export default function AuditLog() {
                           <Badge variant="outline" className={`text-[10px] ${ENTITY_COLORS[log.entityType] || ""}`}>
                             {getEntityLabel(log.entityType)} {log.entityId ? `#${log.entityId}` : ""}
                           </Badge>
+                          {log.auditSource === "catalog" && (
+                            <Badge variant="secondary" className="text-[10px]">Catalog Audit</Badge>
+                          )}
                         </div>
                         <div className="flex items-center gap-3 text-xs text-muted-foreground">
                           <span className="flex items-center gap-1">
@@ -327,6 +389,24 @@ export default function AuditLog() {
                         </tbody>
                       </table>
                     </div>
+                  </div>
+                )}
+
+                {!changes?.oldValues && changes?.newValues && (
+                  <div>
+                    <h4 className="font-semibold text-sm mb-2">{language === "ar" ? "القيم الجديدة" : "New Values"}</h4>
+                    <pre className="bg-muted/50 rounded-lg p-3 text-xs overflow-x-auto whitespace-pre-wrap" dir="ltr">
+                      {typeof changes.newValues === "string" ? changes.newValues : JSON.stringify(changes.newValues, null, 2)}
+                    </pre>
+                  </div>
+                )}
+
+                {changes?.oldValues && !changes?.newValues && (
+                  <div>
+                    <h4 className="font-semibold text-sm mb-2">{language === "ar" ? "القيم السابقة" : "Previous Values"}</h4>
+                    <pre className="bg-muted/50 rounded-lg p-3 text-xs overflow-x-auto whitespace-pre-wrap" dir="ltr">
+                      {typeof changes.oldValues === "string" ? changes.oldValues : JSON.stringify(changes.oldValues, null, 2)}
+                    </pre>
                   </div>
                 )}
 

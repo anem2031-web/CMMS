@@ -23,7 +23,204 @@
 
 ---
 
+## 📍 Phase checkpoint — 2026-08-19
+
+- **2B-10-2A — Catalog Audit Trail:** ✅ COMPLETE / UAT PASSED.
+- **2B-10-2B — Catalog Relationship & Inactive Data Protection:** ✅ COMPLETE / UAT PASSED.
+- **2B-10-2C — Integrity Rules, UAT & Closure:** ⏳ **DEFERRED إلى Final Project Hardening / Closure بقرار صاحب المشروع بتاريخ 2026-08-19.**
+- **2B-10 current status:** implementation complete through 2B-10-2B؛ Final Integrity Closure مؤجل، لذلك لا تُسجَّل 2B-10 كـFinal Closed بعد.
+- لا يبدأ 2B-10-2C تلقائيًا عند العودة له؛ يجب إعادة فحص Live DB، مناقشة نطاقه، ثم موافقة صريحة قبل أي Code/Schema/Workflow change.
+- هذا التأجيل لا ينفذ FK/UNIQUE/Backfill ولا أي إصلاح تاريخي، ولا يبدأ المرحلة التالية تلقائيًا.
+- البنود المؤجلة أدناه، خصوصًا `PR-2026-0378` وحوكمة أرقام PO، لم تُحل ضمن 2B-10-2B وتبقى مؤجلة كما هي.
+- مرجع القرار: `docs/CMMS_2B10_2C_DEFERRAL_DECISION_2026-08-19.md`.
+
+### Main Phase 3 checkpoint — 2026-08-20
+
+- **المرحلة الرئيسية 3 — تطوير الجرد:** ✅ **COMPLETE / RUNTIME UAT PASSED / CLOSED**.
+- Step 1 Opening Snapshot = COMPLETE / UAT PASSED.
+- Step 2 Results & Reports = COMPLETE / UAT PASSED.
+- Step 3 Settlement Cut-off / Lot Freeze = COMPLETE / UAT PASSED.
+- `CNT-2026-60028`: منع الصرف من `Lot 10` قبل Settlement = PASS؛ `ADJ-2026-30006` طبق فرق `+1` كـdelta فوق Current Balance؛ بعد التسوية `inventory.quantity=SUM(lot balances)=4`; ثم `DLV-2026-300182` نجح وبعده بقي التطابق `3=3`.
+- التطوير المحاسبي الأوسع للتسويات يبقى للمرحلة الرئيسية 4 ولا يبدأ تلقائيًا.
+- `2B-10-2C` يبقى مؤجلاً إلى Final Project Hardening / Closure.
+- مرجع الإغلاق: `docs/CMMS_PHASE3_INVENTORY_COUNT_FINAL_CLOSURE_2026-08-20.md`.
+
+### Main Phase 4 checkpoint — 2026-08-22
+
+- **Main Phase 4 — Settlement Development:** ✅ **COMPLETE / RUNTIME UAT PASSED / OFFICIALLY CLOSED**.
+- **Step 1 — Database Foundation:** ✅ COMPLETE / LIVE DB VERIFIED. Live DB fields remain Future-only؛ لا Backfill.
+- **Step 2 — Settlement Valuation & Posting Logic:** ✅ IMPLEMENTED / TARGETED CHECKS PASSED / RUNTIME VALIDATED. Code schema synchronized to existing Live DB fields; Count uses Opening `averageCostSnapshot`; financial audit fields are persisted; supported posting paths use one DB Transaction.
+- **Step 3 — UI + Runtime UAT + Closure:** ✅ COMPLETE / RUNTIME UAT PASSED / CLOSED.
+- Runtime evidence:
+  - `CNT-2026-60030` / `ADJ-2026-30008`: Count Surplus + cost change after opening + Snapshot valuation + freeze/unfreeze + duplicate guard = PASS.
+  - `CNT-2026-60031` / `ADJ-2026-30009`: Count Shortage + financial result + freeze/unfreeze = PASS.
+  - `CNT-2026-60032`: forced in-transaction failure left no partial DB state; test failpoint removed; normal retry `ADJ-2026-30011` = PASS.
+  - Manual Aggregate Settlement button remains disabled with Lots Enabled = PASS under approved workflow boundary.
+- لا Historical Cleanup / Backfill / Revaluation / New Approval Workflow / Manual Lot Workflow ضمن Phase 4 المصغّرة.
+- **Final stop:** Main Phase 4 مغلقة. لا تبدأ Main Phase 5 تلقائيًا.
+- المراجع: `docs/CMMS_PHASE4_SETTLEMENT_THREE_STEP_PLAN_AND_STATUS_2026-08-20.md` + `docs/CMMS_PHASE4_STEP2_SETTLEMENT_VALUATION_POSTING_IMPLEMENTATION_2026-08-22.md` + `docs/CMMS_PHASE4_STEP3_SETTLEMENT_UI_RUNTIME_UAT_2026-08-22.md` + `docs/CMMS_PHASE4_SETTLEMENT_FINAL_CLOSURE_2026-08-22.md`.
+
+
+### Main Phases Roadmap renumbering checkpoint — 2026-08-22
+
+- بقرار صاحب المشروع تم اعتماد إعادة تجميع المراحل المتبقية كالتالي:
+  - **Main Phase 5:** تجمع المراحل القديمة 5 + 6 + 7 + 8: Disposal / Returns / Receipt-Issue-Transfer Review / Inventory Reconciliation.
+  - **Main Phase 6:** المرحلة القديمة 9 — Inventory & Accounting Reports.
+  - **Main Phase 7:** المرحلة القديمة 10 — Inventory Posting Engine.
+  - **Main Phase 8:** المرحلة القديمة 11 — Operational Workflow Development.
+- هذا السطر يسجل **حالة لحظة إعادة الترقيم تاريخيًا**: وقتها لم تكن Main Phase 5 قد بدأت ولم يتم Code/SQL/DB/Workflow change. **لاحقًا في نفس التاريخ بدأت Main Phase 5 وأُغلق 5.1 رسميًا؛ راجع checkpoint التالي.**
+- وثائق Phase 3/4 التاريخية تبقى كما هي ولا يعاد فتح المرحلتين بسبب إعادة الترقيم.
+- `2B-10-2C` يبقى مؤجلًا إلى Final Project Hardening / Closure.
+- المرجع الحالي: `docs/CMMS_INVENTORY_MAIN_PHASES_RENUMBERING_2026-08-22.md` + `docs/inventory/INVENTORY_DEVELOPMENT_PLAN_AND_CHANGE_CONTROL.md`.
+
+
+
+### Main Phase 5 / 5.1 checkpoint — 2026-08-22
+
+- بقرار صاحب المشروع بدأت **Main Phase 5** رسميًا بالجزء **5.1 — Disposal / Write-off**، ثم أُغلق 5.1 رسميًا بعد Runtime UAT ناجح.
+- Gap Analysis أكد أن مسار Lots الحالي يغطي Lot QR + Server Average Cost + Quantity/Value + Disposal transaction داخل Transaction واحدة.
+- تم تقوية Legacy non-Lot path ليصبح أيضًا Atomic: رقم العملية + Header + Items + Inventory quantity/value + Disposal movement في Transaction واحدة، مع `FOR UPDATE` والخصم الشرطي.
+- Runtime UAT على Lots Enabled: `DO-2026-000003` = PASS؛ Live DB أثبت `1.000 @ 1.0000`, Lot/Inventory/SUM Lots `9.000`, Value `9.00`, وحركة `out/disposal` بقيمة `1.00`.
+- Over-quantity UI guard = PASS برسالة `الكمية أكبر من رصيد الدفعة المتاح (9)`.
+- Runtime UAT الثاني: `DO-2026-000004` = PASS؛ Live DB أثبت `4.000 @ 1.0000`, Lot/Inventory/SUM Lots `6.000`, Value `6.00`, وحركة `out/disposal` بقيمة `4.00`.
+- تفاصيل العملية وطباعة `DO-2026-000004` عرضت Lot/quantity/reason/unit cost/value بصورة صحيحة = PASS.
+- Legacy non-Lot runtime لم يُختبر منفصلًا لأن البيئة المنشورة تستخدم Lots Enabled؛ targeted source/regression checks لهذا المسار قُبلت كحد تحقق غير حاجب عند الإغلاق.
+- لم يتم SQL/Migration/Live DB schema change أو Backfill/Cleanup أو Approval/Workflow change.
+- **5.1 = ✅ COMPLETE / TARGETED CHECKS PASSED / RUNTIME UAT PASSED / OFFICIALLY CLOSED**.
+- **Main Phase 5 = IN PROGRESS; 5.1 = CLOSED; 5.2 = CLOSED; 5.3 = CLOSED; 5.4 = NOT STARTED.**
+- المراجع: `docs/CMMS_PHASE5_STEP1_DISPOSAL_IMPLEMENTATION_2026-08-22.md` + `docs/CMMS_PHASE5_STEP1_DISPOSAL_RUNTIME_UAT_CLOSURE_2026-08-22.md`.
+
+### Main Phase 5 / 5.2 checkpoint — 2026-08-22
+
+- بدأ **5.2 — Returns** بموافقة صريحة من صاحب المشروع بعد الإغلاق الرسمي لـ5.1.
+- Gap Analysis: مسار **Supplier Return** موجود فعليًا؛ مع Lots Enabled يبدأ من Warehouse + Lot QR ويحل Receipt/PO/Vendor/Invoice من المصدر، ويدعم partial return ضمن الرصيد المتاح.
+- تم تقوية Supplier Return دون تغيير Workflow: Current Inventory row lock/re-read قبل الترحيل المالي، Server Current Average Cost لحركة return، رقم `RTN-...` عبر نفس transaction writer، وLegacy non-Lot core posting داخل Transaction واحدة.
+- لم يُضف SQL/Migration/Backfill/Cleanup أو Approval/State change.
+- **Fresh Runtime UAT لمرتجع المورد نُفّذ لاحقًا ونجح؛ راجع checkpoint الإغلاق الرسمي لـ5.2 أدناه.**
+- **Recipient-to-Warehouse Return** كان غير موجود كمسار عام مستقل عند هذا checkpoint الأول؛ لاحقًا اعتمد صاحب المشروع سياسة Same Original Lot + Original Issue Cost + Original Issue Link + Partial/Over-return Guards + Atomic Posting وتم تنفيذها واختبارها Runtime.
+- هذا السطر يمثل **checkpoint تنفيذي أولي**؛ لاحقًا أُغلقت 5.2 رسميًا، ثم بدأ 5.3 بموافقة صريحة بتاريخ 2026-08-23.
+- المرجع: `docs/CMMS_PHASE5_STEP2_RETURNS_IMPLEMENTATION_2026-08-22.md`.
+
+### Main Phase 5 / 5.2 Returns Runtime UAT & Official Closure — 2026-08-22
+
+- **5.2 Returns = ✅ COMPLETE / TARGETED CHECKS PASSED / RUNTIME UAT PASSED / OFFICIALLY CLOSED.**
+- Supplier Return fresh UAT: `RTN-2026-60003` from `RCV-2026-420140` / Lot `LOT-2026-AD6712E9`; `1.000 @ 1.0000 = 1.00`; Live DB after posting: Lot remaining/balance/Inventory/SUM Lots = `5.000`, Average Cost `1.0000`, Total Value `5.00`, movement = `out/return`, `transactionReturnId=60003`. PASS.
+- Recipient full return: `RTN-2026-60004` from `DLV-2026-300204`; same Inventory `210253`, same Lot `21`, original issue movement `450501`, original issue cost `1.0000`, return movement `450502 = in/return @ 1.0000`, value `1.00`. PASS.
+- A later resolve attempt against fully-returned `DLV-2026-300204` was rejected with `تم إرجاع كامل الكمية المصروفة في هذا السند مسبقًا`. PASS.
+- Recipient partial/over-return case: `DLV-2026-300205` issued `2`; attempt to return `3` rejected with `الكمية (3) أكبر من المتبقي القابل للإرجاع (2)`; then `RTN-2026-60005` returned `1`. Live DB showed `totalReturned=1`, `remainingReturnable=1`, Lot/Inventory/SUM Lots `4.000`, Total Value `4.00`, and `in/return @ original issue cost 1.0000`. Reopening the Delivery in UI showed issued `2`, previously returned `1`, remaining `1`. PASS.
+- Accepted non-blocking limits: hardened Legacy non-Lot Supplier Return was not separately Runtime-exercised in the Lots-enabled deployed environment; Recipient Return list/print source traceability remains covered by targeted source checks rather than a separate fresh print UAT.
+- No historical backfill, legacy cleanup, broad FK/UNIQUE, Approval/Quarantine Workflow, or unrelated accounting redesign.
+- **Historical stop before 5.3 approval:** Main Phase 5 = IN PROGRESS; 5.1 = CLOSED; 5.2 = CLOSED; 5.3 was NOT STARTED; 5.4 = NOT STARTED. 5.3 was subsequently started by explicit owner approval on 2026-08-23.
+- Closure reference: `docs/CMMS_PHASE5_STEP2_RETURNS_RUNTIME_UAT_CLOSURE_2026-08-22.md`.
+
 ## ⏳ مهام معلَّقة (لم تُنفَّذ بعد)
+
+### 2026-08-24 — Main Phase 7 مؤجلة؛ التنفيذ المستقبلي = Option B Shared Posting Core
+**من طلبها:** صاحب المشروع — بعد مناقشة الحاجة الفعلية إلى Main Phase 7 عقب الإغلاق الرسمي لـMain Phase 6.
+
+**القرار:** تأجيل Main Phase 7 الآن وعدم بدء Coding. عند العودة إليها مستقبلًا، ينفذ الاتجاه المعتمد **Option B — Shared Posting Core صغير ومحافظ** بدل Full Centralized Inventory Posting Engine.
+
+**حدود التنفيذ المستقبلي:**
+- Business Rules وسياسات التكلفة تبقى داخل Workflows المتخصصة.
+- Shared Core يقتصر على primitives مشتركة ذات فائدة واضحة بعد إعادة الفحص وقتها.
+- Batch Transfer يبقى per-item / partial success.
+- Centralized Numbering و`receipt_number_counter` يبقيان مؤجلين وخارج النطاق.
+- لا Historical Cleanup / Backfill / Revaluation / Renumbering.
+- لا Cutover ضمن Main Phase 7.
+- لا Workflow/Accounting behavior change بدون موافقة منفصلة.
+- Live DB هي مصدر الحقيقة؛ وإذا لزم SQL مستقبلًا فيكون أمرًا واحدًا فقط في كل مرة وينفذه صاحب المشروع يدويًا.
+
+**الحالة:** ⏸️ **DEFERRED / NOT STARTED — DO NOT AUTO-IMPLEMENT.**
+
+**المرجع:** `docs/CMMS_MAIN_PHASE7_DEFERRAL_AND_OPTION_B_SHARED_POSTING_CORE_DECISION_2026-08-24.md`.
+
+---
+
+### 2026-08-20 — Main Phase 3 Post-Closure: فحوصات تحقق غير حاجبة
+**من طلبها:** صاحب المشروع — طلب توثيق المعلّقات للعودة إليها لاحقًا بعد الإغلاق الرسمي لـMain Phase 3.
+
+**السياق:** Main Phase 3 تبقى ✅ **COMPLETE / RUNTIME UAT PASSED / CLOSED**. البنود التالية ليست عيوبًا مانعة ولا تعيد فتح المرحلة تلقائيًا؛ هي Spot-checks إضافية يمكن تنفيذها لاحقًا عند الرغبة أو ضمن Final Project Hardening / Closure.
+
+**المتبقي:**
+1. **Duplicate Settlement Runtime Retry:** توجد حماية Backend تمنع تطبيق نفس Count Settlement مرتين، لكن لم يُنفَّذ أثناء جلسة الإغلاق Runtime UAT مستقل يعيد محاولة تطبيق نفس Settlement نفسها مرة ثانية للتأكد من الرفض في البيئة الحية. لاحقًا ضمن Main Phase 4 تم تنفيذ Runtime retry مستقل على `CNT-2026-60030` ورُفضت المحاولة الثانية بنجاح؛ لذلك أصبحت الحماية مثبتة Runtime على مسار Count Settlement الحالي، مع بقاء الـPhase 3 historical case نفسها دون إعادة تشغيل.
+2. **`inventory_lots.remainingQuantity` Final Independent Check:** بعد آخر Delivery (`DLV-2026-300182`) تم التحقق Runtime من أن `inventory.quantity = SUM(inventory_lot_balances.quantity)`، لكن لم يُنفَّذ Query مستقل أخير للتأكد من `inventory_lots.remainingQuantity` لنفس الـLot بعد تلك الحركة.
+
+**الحدود:**
+- لا تعديل Code/Schema/Workflow/DB بسبب هذين البندين دون موافقة صريحة.
+- لا يُعاد فتح Main Phase 3 لمجرد وجودهما.
+- إذا احتاج التحقق Live DB، يُستخدم **أمر SQL واحد فقط في كل مرة**.
+
+**الحالة:** ⏳ **معلَّقة كفحوصات تحقق إضافية غير حاجبة.**
+
+**المرجع:** `docs/CMMS_PHASE3_INVENTORY_COUNT_FINAL_CLOSURE_2026-08-20.md` + Handoff الإغلاق بعد Main Phase 3.
+
+---
+
+### 2026-08-20 — Carry-forward بعد Phase 3: بنود تبقى مؤجلة/خارج النطاق
+**من طلبها:** صاحب المشروع — توثيق المعلّقات للرجوع لها لاحقًا فقط، من دون تنفيذ الآن.
+
+**البنود:**
+- `2B-10-2C — Integrity Rules, UAT & Closure` → مؤجل إلى **Final Project Hardening / Closure**.
+- حوكمة/إصلاح تكرار أرقام Purchase Order → مؤجل.
+- `PR-2026-0378` suspected approval race-condition → مؤجل (وله بند تفصيلي مستقل أدناه).
+- Broad FK rollout → مؤجل، ولا يُنفَّذ تلقائيًا.
+- Broad legacy Inventory cleanup / merge / backfill → مؤجل.
+- FIFO / FEFO → خارج النطاق الحالي.
+- Direct issue without QR → خارج النطاق الحالي.
+- Historical Audit backfill → مؤجل.
+- Orphan inactive Catalog Item cleanup → مؤجل.
+- أي **Settlement approval workflow جديد** → غير معتمد، ولا يُضاف إلا بموافقة صريحة مستقلة.
+
+**ملاحظة Phase 4:** **Main Phase 4 — Settlement Development أُغلقت رسميًا بتاريخ 2026-08-22 بعد نجاح Runtime UAT.** البنود المؤجلة في هذه القائمة، خصوصًا Approval Workflow أو Legacy cleanup، لم تصبح معتمدة بسبب إغلاق Phase 4 ولا تُنفذ دون موافقة مستقلة.
+
+**الحالة:** ⏳ **CARRY-FORWARD / DO NOT AUTO-IMPLEMENT.**
+
+---
+
+### 2026-08-20 — CLOSED: Receipt Inventory Identity Future Guard
+**من طلبها:** صاحب المشروع — وافق على إصلاح الفجوة للمستقبل فقط بعد اكتشاف Duplicate Inventory أثناء Phase 3 Step 1.
+
+**الوصف:** Backend أصبح يعيد استخدام Inventory الوحيد لنفس `Catalog Item + Warehouse` عند الاستلام بدل إنشاء سجل جديد، ويمنع إنشاء سجل ثالث إذا وجد أكثر من Legacy Inventory.
+
+**الحدود:** لا دمج/حذف/Backfill للسجلات القديمة `210200` و`210222` أو أي Legacy duplicates، ولا FK/UNIQUE/Migration، ولا إزالة UI للربط اليدوي ضمن هذه الحزمة.
+
+**UAT المنفذ:** `PR-2026-0389` على Catalog Item `360002` أعاد استخدام Inventory `210211`; quantity `2→3`, averageCost `5→10` بعد استلام `1×20`, مع بقاء `averageCostSnapshot=5.0000` في `CNT-2026-60028`.
+
+**الحالة:** ✅ **IMPLEMENTED / RUNTIME UAT PASSED.**
+
+**المرجع:** `docs/CMMS_RECEIPT_INVENTORY_IDENTITY_FUTURE_GUARD_IMPLEMENTATION_2026-08-20.md`.
+
+---
+
+
+### 2026-08-19 — 2B-10-2C: Final Integrity Rules / UAT / Closure
+**من طلبها:** صاحب المشروع — قرر تأجيلها إلى الإغلاق النهائي للمشروع.
+
+**الوصف:** مراجعة Integrity النهائية بعد استقرار بقية المشروع، مع إعادة فحص Live DB وتحديد الحماية المستقبلية الضرورية فقط، ثم UAT وإغلاق 2B-10 رسميًا.
+
+**سبب التأجيل:** القيود النهائية مثل FK / UNIQUE / hard constraints تكون أدق وأقل مخاطرة بعد اكتمال التصميم والعلاقات النهائية للمشروع.
+
+**حدود واضحة:** لا FK/UNIQUE/Migration/Backfill/cleanup أو تعديل Workflow ضمن قرار التأجيل نفسه.
+
+**الحالة:** ⏳ **DEFERRED — Final Project Hardening / Closure.**
+
+**المرجع:** `docs/CMMS_2B10_2C_DEFERRAL_DECISION_2026-08-19.md`.
+
+---
+
+
+### 2026-08-19 — PR-2026-0378: حالة Parent PO غير متسقة بعد الاعتماد
+**من طلبها:** صاحب المشروع — تم اكتشافها أثناء UAT صلاحيات Catalog وطلب تأجيل إصلاحها.
+
+**الوصف:** الطلب `PR-2026-0378` لديه Pricing Batch = `approved`، وبند الطلب = `approved`، والمندوب معيّن، وحقول اعتماد الإدارة موجودة، بينما `purchase_orders.status` بقي `pending_management`. الطلب المقارن `PR-2026-0379` عبر المسار ووصل إلى `approved` طبيعيًا.
+
+**الفحص المنفذ:** لا يوجد Trigger على جدول `purchase_orders`. المقارنة الزمنية ومسار الكود الحالي يدعمان اشتباه **Race Condition بين اعتماد الحسابات واعتماد الإدارة**.
+
+**سبب التأجيل:** المشكلة تخص Purchase Workflow وليست Catalog Permissions، وصاحب المشروع طلب توثيقها والعودة لها لاحقًا.
+
+**الحالة:** ⏳ **معلَّقة — لا تعديل يدوي لبيانات PR-2026-0378 ولا إصلاح كود ضمن 2B-10-1.**
+
+---
 
 <!--
 القالب:
@@ -428,6 +625,26 @@ React مشترك (`MultiDepartmentTriageFields` مثلًا) يستحق جلسة 
 
 ## ✅ مهام مُنجَزة (تاريخ كامل)
 
+### 2026-08-22 — Main Phase 4 Settlement Development — ✅ أُغلقت في 2026-08-22
+**الوصف:** إكمال Step 1 Database Foundation + Step 2 Settlement Valuation/Posting + Step 3 UI/Runtime UAT/Closure ضمن النطاق المصغّر المعتمد.
+
+**كيف نُفِّذت:** Count Settlement تستخدم Opening `averageCostSnapshot` وتخزن `unitCostUsed`/`adjustmentValue` وتحدّث quantity/value/average cost داخل Transaction. Runtime UAT نجح على `CNT-2026-60030`/`ADJ-2026-30008` (Surplus + تغير Current Average Cost)، و`CNT-2026-60031`/`ADJ-2026-30009` (Shortage)، و`CNT-2026-60032` (forced rollback ثم `ADJ-2026-30011` بعد إزالة failpoint). Manual Aggregate Settlement guard بقي فعالًا مع Lots.
+
+**الحالة:** ✅ **MAIN PHASE 4 COMPLETE / RUNTIME UAT PASSED / OFFICIALLY CLOSED.**
+
+**المرجع:** `docs/CMMS_PHASE4_SETTLEMENT_FINAL_CLOSURE_2026-08-22.md`.
+
+
+### 2026-08-20 — Main Phase 3 / Step 3 Settlement Cut-off Runtime UAT — ✅ أُنجزت في 2026-08-20
+**الوصف:** إكمال Runtime UAT النهائي للـLot freeze والتسوية ثم فك التجميد وإغلاق Main Phase 3.
+
+**كيف نُفِّذت:** على `CNT-2026-60028` تم رفض الصرف من `Lot 10` قبل Settlement، ثم تطبيق `ADJ-2026-30006` بفرق `+1` (`2→3`) مع تطابق Inventory ومجموع Lots=`4`; بعد التسوية نجح `DLV-2026-300182` من نفس Lot، ثم بقي `inventory.quantity=SUM(lot balances)=3`.
+
+**الحالة:** ✅ **MAIN PHASE 3 COMPLETE / RUNTIME UAT PASSED / CLOSED.**
+
+**المرجع:** `docs/CMMS_PHASE3_INVENTORY_COUNT_FINAL_CLOSURE_2026-08-20.md`.
+
+
 <!--
 القالب عند نقل بند من "معلَّقة" إلى هنا:
 ### [تاريخ الإضافة] — [عنوان مختصر] — ✅ أُنجزت في [تاريخ الإنجاز]
@@ -576,3 +793,492 @@ technician ← المسنَد له). **نفس فجوة "القائمة مقيّ�
 `useOfflineUpload` يوفّر presigned URL + طابور offline + fallback. التوحيد يلغي ازدواج منطق الضغط
 ومعالجة الأخطاء، لكنه يمس صفحات كثيرة دفعة واحدة — لذلك أُجّل بعد إصلاح 2026-08-12 الذي عالج التذبذب
 دون تغيير المعمارية.
+
+### Main Phase 5 / 5.2 Recipient → Warehouse checkpoint — 2026-08-22
+
+- وافق صاحب المشروع صراحة على سياسة: **Same Original Lot + Original Issue Cost + Original Issue Link + Partial/Over-return Guards + Atomic Posting**.
+- Live DB inspection أثبت أن `delivery_documents` يحمل `inventoryId + lotId + inventoryTransactionId` بينما `warehouse_returns` لم يكن يملك مرجعًا مباشرًا لسند الصرف.
+- المحاولة الأولى لإضافة العمود+الفهرس معًا فشلت ولم تترك عمودًا جزئيًا؛ تم التحقق من ذلك قبل أي إعادة تنفيذ.
+- أضيف يدويًا إلى Live DB: `warehouse_returns.sourceDeliveryDocumentId INT NULL` ثم تم التحقق منه، وبعدها أضيف `idx_warehouse_returns_source_delivery(sourceDeliveryDocumentId)` بأمر مستقل.
+- لا FK/UNIQUE/Backfill/Legacy cleanup، والسجلات القديمة وSupplier Returns تبقى `sourceDeliveryDocumentId = NULL`.
+- `drizzle/schema.ts` تمت مزامنته مع الإضافة المؤكدة في Live DB؛ لا migration SQL داخل الحزمة حتى لا يعاد تنفيذ التغيير الذي طُبق يدويًا.
+- Recipient Return الجديد يبدأ من رقم سند الصرف الأصلي، ويتحقق من ربط Delivery→Inventory/Lot/Movement، ويرفض السندات القديمة غير المرتبطة بدل تخمين/Backfill التاريخ.
+- التقييم المالي = **Original Issue Movement Cost**، وليس Current Average Cost.
+- partial/over-return guard يحسب مجموع المرتجعات السابقة لنفس `sourceDeliveryDocumentId`، مع قفل سند الصرف `FOR UPDATE` لمنع تجاوز متزامن.
+- الترحيل الذري يزيد نفس original Lot balance + `inventory_lots.remainingQuantity` + Inventory quantity/value، ويعيد حساب Average Cost، ثم يسجل Return header + `in/return` movement + Return document داخل نفس Transaction.
+- UI/Return list/print تعرض مرجع سند الصرف الأصلي للمرتجع من الجهة.
+- **Recipient → Warehouse = IMPLEMENTED / TARGETED CHECKS PASSED / RUNTIME UAT PASSED**.
+- **5.2 = ✅ COMPLETE / TARGETED CHECKS PASSED / RUNTIME UAT PASSED / OFFICIALLY CLOSED**. هذا كان حاجز التوقف التاريخي قبل أن يبدأ 5.3 لاحقًا بموافقة صريحة.
+- المراجع: `docs/CMMS_PHASE5_STEP2_RETURNS_IMPLEMENTATION_2026-08-22.md` + `docs/CMMS_PHASE5_STEP2_RECIPIENT_RETURN_IMPLEMENTATION_2026-08-22.md`.
+
+
+### Main Phase 5 / 5.3 Receipt-Issue-Transfer checkpoint — 2026-08-23
+
+- بدأ **5.3** بموافقة صريحة من صاحب المشروع بعد إغلاق 5.2 رسميًا.
+- Receipt hardening: إزالة `warehouseId = 1` الثابت من submit paths الحالية ومن backend fallback؛ الخادم يحل Warehouse الصريح/Inventory warehouse ثم single active Main warehouse ديناميكيًا، ويرفض الغموض بدل اختيار رقم ثابت.
+- Receipt existing-Inventory valuation أصبح يقرأ الكمية/التكلفة بعد `FOR UPDATE`; مسار invoice-draft legacy حصل على نفس Main-warehouse resolution والقفل بدون Backfill.
+- Delivery: Aggregate Inventory lock قبل قراءة availability/averageCost مع إبقاء Lot/QR + DLV + movement ضمن Transaction الحالية.
+- Transfer: source + existing destination Inventory locks في Lot/legacy paths؛ حركتا `transfer` تحملان نفس `documentUrl = TRF-...`.
+- Transfer batch mixed-success behavior بقي كما هو؛ تحويله إلى all-or-nothing يحتاج Workflow approval منفصل.
+- **Document numbering:** تم الاحتفاظ بآليات الترقيم الحالية. لم يتم إنشاء `receipt_number_counter`. Live DB check: max RCV sequence `420148`, duplicate receipt-number groups `0`, counter table absent.
+- تم توثيق بند مؤجل مستقل: **Centralized Document Numbering Service / Engine** في `docs/CMMS_CENTRALIZED_DOCUMENT_NUMBERING_DEFERRED_2026-08-23.md`. لا يُنفذ تلقائيًا، ولا Historical Renumbering/Backfill، ولا gapless guarantee بدون موافقة مستقلة.
+- لا SQL/Migration/Backfill/Cleanup ضمن 5.3 implementation package الحالي.
+- **5.3 = ✅ COMPLETE / TARGETED CHECKS PASSED / RUNTIME UAT PASSED / OFFICIALLY CLOSED.**
+- مرجع التنفيذ: `docs/CMMS_PHASE5_STEP3_RECEIPT_ISSUE_TRANSFER_IMPLEMENTATION_2026-08-23.md`.
+
+
+### Main Phase 5 / 5.3 Runtime UAT & Official Closure — 2026-08-23
+
+- **5.3 Receipt / Issue / Warehouse Transfer Review = ✅ COMPLETE / TARGETED CHECKS PASSED / RUNTIME UAT PASSED / OFFICIALLY CLOSED.**
+- Receipt `RCV-2026-420150` = PASS: two fresh items posted to `WH-MAIN`; each had quantity `5.000 @ 10.0000`, Inventory/Lot/SUM Lots `5.000`, Total Value `50.00`, and `in/purchase` movement.
+- Delivery `DLV-2026-300213` = PASS: Lot `LOT-2026-224A39C8` decremented from `5` to `4`; Inventory/SUM Lots `4`; Total Value `40.00`; movement `out/delivery 1 @ 10 = 10`.
+- Transfer `TRB-2026-030005` / `TRF-2026-030005` = PASS: `1` unit moved from `WH-MAIN` to `SUB-1`; source Lot/Inventory `3`, destination `1`, company-wide Lot remaining/total balances `4`, source/destination values `30/10`, paired transfer movements verified.
+- Transfer over-quantity guard = PASS: attempt `4` with source balance `3` rejected with `الكمية أكبر من الرصيد المتاح (3 قطعة)`.
+- Existing numbering mechanisms retained. **Centralized Document Numbering Service / Engine remains DOCUMENTED / DEFERRED**; no `receipt_number_counter`, renumbering, backfill, gapless policy or prefix change was introduced.
+- Accepted non-blocking limits: legacy/non-Lot and invoice-draft variants not separately Runtime-exercised; one-item transfer batch used; mixed-success batch semantics preserved without redesign; UI over-quantity evidence was not a backend-bypass failpoint test.
+- No Historical Backfill, Legacy Cleanup, In-Transit, destination approval, batch all-or-nothing workflow redesign, broad FK/UNIQUE rollout, or unrelated Accounting change.
+- Closure reference: `docs/CMMS_PHASE5_STEP3_RECEIPT_ISSUE_TRANSFER_RUNTIME_UAT_CLOSURE_2026-08-23.md`.
+- **Historical stop immediately after 5.3 closure:** Main Phase 5 = IN PROGRESS; 5.1/5.2/5.3 = CLOSED; 5.4 was NOT STARTED at that point. 5.4 was later started by explicit owner instruction on 2026-08-23; see the 5.4.1 checkpoint below.
+
+### Main Phase 5 / 5.4.1 Inventory Integrity Rules — Official Closure — 2026-08-23
+
+- بدأ 5.4 بموافقة صريحة من صاحب المشروع، مع اعتماد أربع خطوات فقط: 5.4.1 Rules → 5.4.2 Read-only Engine → 5.4.3 Exception Report → 5.4.4 Runtime UAT & Closure.
+- صاحب المشروع حسم أن البيانات القديمة/التجريبية **تبقى كما هي ولا تُلمس**؛ التركيز على المستقبل فقط. لا Baseline table ولا Historical Ledger Reconstruction ضمن 5.4.
+- Live DB structure was inspected read-only; actual relation is through `inventory_lot_balances(lotId, inventoryId)`, and Live DB remains authoritative over project Schema.
+- Rules approved: Inventory Qty ↔ Lot balances; global Lot remaining ↔ distributed balances; no negative Inventory/Lot quantities; current value consistency with rounding tolerance; Lot Balance reference/warehouse integrity.
+- Live DB evidence: `quantityLotMismatches=0`; `lotBalanceMismatches=0`; negative Inventory/Lot/remaining rows=`0`; orphan/warehouse/duplicate-lot integrity exceptions=`0`.
+- Two existing value mismatches were observed on old experimental Inventory rows (`180001`, `167`) and deliberately left untouched. They are not a Backfill/Revaluation task and are not blockers for the future-facing rules.
+- No Code/SQL write/Migration/Schema change/Backfill/Cleanup/Revaluation/Numbering/Workflow/Accounting behavior change occurred in 5.4.1.
+- **5.4.1 = ✅ COMPLETE / LIVE DB READ-ONLY DISCOVERY PASSED / RULES APPROVED / OFFICIALLY CLOSED.**
+- **Historical stop at 5.4.1 closure:** Main Phase 5 = IN PROGRESS; 5.4 = IN PROGRESS; 5.4.2 was NOT STARTED then. This checkpoint is superseded by the 5.4.2 implementation entry below.
+- References: `docs/CMMS_PHASE5_STEP4_INVENTORY_RECONCILIATION_APPROVED_SCOPE_2026-08-23.md` + `docs/CMMS_PHASE5_STEP4_1_INVENTORY_INTEGRITY_RULES_CLOSURE_2026-08-23.md`.
+
+### Deferred — Centralized Document Numbering Service / Engine
+
+- **Status:** DOCUMENTED / DEFERRED.
+- الهدف: توحيد allocation policy لاحقًا لكل document families بدل إضافة حلول جزئية لكل Prefix.
+- المطلوب قبل التنفيذ: inventory كامل من then-latest code + Live DB لكل Prefix/Generator/Counter/transaction boundary.
+- لا إعادة ترقيم تاريخي، لا Backfill، ولا تغيير formats/prefixes/gap policy بدون موافقة صريحة.
+- المرجع: `docs/CMMS_CENTRALIZED_DOCUMENT_NUMBERING_DEFERRED_2026-08-23.md`.
+
+
+### Main Phase 5 / 5.4.2 Read-only Reconciliation Engine — Implementation checkpoint — 2026-08-23
+
+- Owner explicitly started 5.4.2 after official closure of 5.4.1.
+- Added a pure evaluator for all five approved integrity rules plus a SELECT-only DB adapter and query-only `inventoryReconciliation.run` endpoint.
+- No repair mutation exists. Historical/experimental non-Lot rows remain outside Inventory quantity/value failure scope.
+- No SQL/Migration/Schema/Data write, Historical Reconstruction, Backfill/Cleanup/Revaluation, Centralized Numbering, Batch Transfer redesign, Workflow or Accounting change.
+- Targeted syntax/transpile + pure evaluator functional harness + read-only source scan = PASS. Full Vitest/full typecheck is not claimed from the uploaded workspace because `node_modules` is absent.
+- Owner confirmed extraction of the 5.4.2 package and server restart.
+- Deployed engine was run directly against Live DB: `readOnly=true`; `historicalReconstructionIncluded=false`; `autoFixIncluded=false`; Inventory=`698`, tracked Inventory=`5`, non-Lot/out-of-scope=`693`, Lots=`4`, Lot Balance rows=`5`; checks=`53`, passed=`53`, exceptions=`0`.
+- **5.4.2 = ✅ COMPLETE / TARGETED CHECKS PASSED / LIVE DB RUNTIME VERIFICATION PASSED / OFFICIALLY CLOSED.**
+- **Current stop:** after 5.4.2 closure and before 5.4.3. Do not start 5.4.3 without explicit owner instruction.
+- References: `docs/CMMS_PHASE5_STEP4_2_READ_ONLY_RECONCILIATION_ENGINE_IMPLEMENTATION_2026-08-23.md` + `docs/CMMS_PHASE5_STEP4_2_READ_ONLY_RECONCILIATION_ENGINE_CLOSURE_2026-08-23.md`.
+
+
+### Main Phase 5 / 5.4.3 Reconciliation Exception Report — Official Closure — 2026-08-23
+
+- Owner explicitly started 5.4.3 after 5.4.2 official closure.
+- Added read-only **تقرير مطابقة المخزون** UI over the existing query-only `inventoryReconciliation.run` engine; no duplicated reconciliation logic and no mutation/repair endpoint.
+- Runtime UI verification after owner extraction/restart matched the deployed engine: total checks=`53`, passed=`53`, exceptions=`0`; tracked Inventory=`5`, total Inventory=`698`, outside Lot-tracked scope=`693`, Lots=`4`, Lot Balance rows=`5`.
+- Search, warehouse filter, exception-type filter, manual refresh, summary cards, scope cards and zero-exception state were visibly present.
+- Added a one-page Arabic PDF **دليل تقرير مطابقة المخزون** explaining the practical benefit of the screen and its own terminology (`إجمالي الفحوص`, `فحوص ناجحة`, `الاستثناءات`, `نطاق الفحص`, `Inventory ضمن Lot Tracking`, `Lots`, `Lot Balances`, `تحديث الفحص`). Owner confirmed the download button works at Runtime.
+- No Exception was deliberately injected into Live DB solely to test an exception row/filter. This is an accepted verification limit; no production/experimental data was corrupted for UAT.
+- No SQL/Migration/Schema/Data write, Auto-fix, Historical Backfill/Cleanup/Revaluation, Centralized Numbering, Workflow/Accounting change, or Batch Transfer semantic change.
+- **5.4.3 = ✅ IMPLEMENTED / TARGETED CHECKS PASSED / RUNTIME UI VERIFICATION PASSED / OFFICIALLY CLOSED.**
+- **Historical stop at 5.4.3 closure:** before 5.4.4; later superseded by explicit owner start and successful 5.4.4 Runtime UAT.
+- References: `docs/CMMS_PHASE5_STEP4_3_RECONCILIATION_EXCEPTION_REPORT_IMPLEMENTATION_2026-08-23.md` + `docs/CMMS_PHASE5_STEP4_3_RECONCILIATION_EXCEPTION_REPORT_CLOSURE_2026-08-23.md`.
+
+### Main Phase 5 / 5.4.4 Runtime UAT & Closure — Approved Plan — 2026-08-23
+
+- Owner approved the 5.4.4 design after official closure of 5.4.3.
+- 5.4.4 is the final deployed Runtime UAT and closure gate for Inventory Reconciliation; it does not add a new reconciliation feature.
+- Use only new supported inventory movements for UAT; do not reconstruct or repair old/experimental history.
+- Re-run **تقرير مطابقة المخزون** after material movements and confirm the five approved 5.4.1 integrity rules remain satisfied.
+- Do not corrupt Live DB merely to manufacture an exception; targeted evaluator/source tests may evidence exception-generation behavior.
+- No Auto-fix, Historical Cleanup/Backfill/Revaluation, Centralized Numbering, Batch Transfer semantic change, Workflow/Accounting redesign, or Production Cutover is part of 5.4.4.
+- **Historical plan status:** 5.4.1 = CLOSED; 5.4.2 = CLOSED; 5.4.3 = CLOSED; 5.4.4 = **SCOPE APPROVED / DOCUMENTED — NOT STARTED**; Main Phase 5.4 = IN PROGRESS.
+- This checkpoint is superseded by the closure entry below: 5.4.4 Runtime UAT later passed and Main Phase 5.4/Main Phase 5 were officially closed.
+- Reference: `docs/CMMS_PHASE5_STEP4_4_RUNTIME_UAT_AND_CLOSURE_APPROVED_PLAN_2026-08-23.md`.
+
+### Main Phase 5 / 5.4.4 Runtime UAT + Main Phase 5.4 / Main Phase 5 Official Closure — 2026-08-23
+
+- Owner explicitly started 5.4.4 after 5.4.3 official closure and approved the representative future-only Runtime UAT sequence.
+- Pre-UAT **تقرير مطابقة المخزون** baseline: checks=`53`, passed=`53`, exceptions=`0`; tracked Inventory=`5`, total Inventory=`702`, outside scope=`697`, Lots=`4`, Lot Balances=`5`.
+- Fresh Receipt UAT: `PR-2026-0397` → `RCV-2026-420151`; two new Lot-aware items were confirmed. Reconciliation after receipt: checks=`75`, passed=`75`, exceptions=`0`; tracked Inventory=`7`, total Inventory=`704`, Lots=`6`, Lot Balances=`7`.
+- Fresh Delivery UAT: `DLV-2026-300215`; reconciliation after delivery: checks=`75`, passed=`75`, exceptions=`0`; tracked Inventory=`7`, total Inventory=`705`, Lots=`6`, Lot Balances=`7`.
+- Fresh Warehouse Transfer UAT: `TRB-2026-030006` (1 item); reconciliation after transfer: checks=`84`, passed=`84`, exceptions=`0`; tracked Inventory=`8`, total Inventory=`706`, Lots=`6`, Lot Balances=`8`.
+- No mismatch was deliberately injected into Live DB. Existing evaluator/source checks remain the accepted evidence for exception-generation behavior; Runtime UAT proves normal supported future movements preserve reconciliation PASS.
+- No Auto-fix, Historical Cleanup/Backfill/Revaluation, Legacy repair, Centralized Numbering/`receipt_number_counter`, historical renumbering, Batch Transfer all-or-nothing redesign, Workflow/Accounting redesign, or Production Cutover was performed or approved.
+- **5.4.4 = ✅ COMPLETE / RUNTIME UAT PASSED / OFFICIALLY CLOSED.**
+- **Main Phase 5.4 — Inventory Reconciliation = ✅ COMPLETE / RUNTIME UAT PASSED / OFFICIALLY CLOSED.**
+- With 5.1 / 5.2 / 5.3 already officially closed and no other approved Main Phase 5 scope open, **Main Phase 5 = ✅ COMPLETE / OFFICIALLY CLOSED.**
+- **Current stop:** after Main Phase 5 official closure and before Main Phase 6 — Inventory / Accounting Reports. Main Phase 6 remains NOT STARTED and must not start automatically.
+- References: `docs/CMMS_PHASE5_STEP4_4_RUNTIME_UAT_CLOSURE_2026-08-23.md` + `docs/CMMS_MAIN_PHASE5_FINAL_CLOSURE_2026-08-23.md`.
+
+
+
+### Main Phase 6 — Inventory / Accounting Reports — Approved Scope / Pre-implementation checkpoint — 2026-08-23
+
+- بعد الإغلاق الرسمي لـMain Phase 5، وافق صاحب المشروع على تصميم Main Phase 6 كتقارير مخزنية/محاسبية ضمن **مركز تقارير مخزنية موحد** بدل تشتيت التقارير على صفحات منفصلة كثيرة.
+- **Main Phase 6 = SCOPE APPROVED / DOCUMENTED — IMPLEMENTATION NOT STARTED.**
+- التقسيم المعتمد: `6.1 Reports Foundation & Unified Reports Center` → `6.2 Stock Balance & Movement Reports` → `6.3 Inventory Valuation & Accounting Reports` → `6.4 Inventory Analytics & Planning Reports` → `6.5 Runtime UAT & Closure`.
+- قرار أولوية صريح: **6.4 التحليل والتخطيط منخفضة الأولوية وتنفذ في الأخير، بعد إنجاز واعتماد 6.1–6.3؛ لا تبدأ الآن.**
+- عند الوصول إلى 6.4 لاحقًا، الاتجاه المعتمد صفحة واحدة **تحليل المخزون** مع Tabs: الحركة البطيئة / المخزون الراكد / ABC / الأعمار / معدل الدوران، وليس خمس صفحات Top-level مشتتة.
+- 6.2 يجمع Stock Balance / Stock Card / Transactions ومشاهد Receipt/Issue/Return/Transfer/Disposal/Adjustments عبر بنية حركة موحدة وفلاتر مشتركة حيث يناسب.
+- 6.3 يجمع Inventory Valuation + Value by Warehouse + Value by Category + Inventory Variance بدون تغيير قواعد Accounting/Posting الحالية.
+- 5.4 Reconciliation يبقى مستقلًا؛ لا تكرار للمحرك ولا Auto-fix داخل التقارير.
+- لا Historical Backfill/Legacy Cleanup/Revaluation، ولا Centralized Numbering، ولا Batch Transfer redesign، ولا Workflow/Accounting redesign، ولا Production Cutover ضمن اعتماد هذا النطاق.
+- **Current stop: before 6.1. Do not start Main Phase 6 implementation automatically.**
+- المرجع: `docs/CMMS_MAIN_PHASE6_INVENTORY_ACCOUNTING_REPORTS_APPROVED_SCOPE_2026-08-23.md` + `docs/inventory/INVENTORY_DEVELOPMENT_PLAN_AND_CHANGE_CONTROL.md`.
+
+## 2026-08-23 — Main Phase 6 — Unified report toolbar / Excel / PDF / Print standard approved
+
+- Owner explicitly approved the shared report actions/export standard as part of **6.1 Reports Foundation & Unified Reports Center**.
+- All Main Phase 6 reports should use a consistent organized toolbar: **تحديث** + **إعادة تعيين الفلاتر** + **طباعة** + grouped **تصدير** menu for **Excel** and **PDF**, rather than scattered per-report buttons.
+- Show **تاريخ ووقت إنشاء التقرير** consistently and carry it to exports/print where practical.
+- Export/print must respect the current report filters/scope.
+- Excel is approved as a true `.xlsx` output where technically feasible, with clean formatting, logical columns, numeric/date typing, useful filter/freeze behavior, and Arabic RTL support while preserving English codes/source data.
+- PDF/Print must use a consistent readable template with active filters, pagination/header handling where needed, and correct Arabic + mixed Arabic/English rendering.
+- Shared export/report infrastructure should be created once in 6.1 and reused; do not duplicate independent export logic inside each report.
+- This is documentation/approval only. **6.1 remains NOT STARTED** until a new explicit owner instruction.
+- Reference: `docs/CMMS_MAIN_PHASE6_UNIFIED_REPORT_TOOLBAR_AND_EXPORT_STANDARD_APPROVED_2026-08-23.md`.
+
+
+## 2026-08-23 — Main Phase 6 / 6.1 Reports Foundation implementation checkpoint
+
+- Owner explicitly started **6.1 — Reports Foundation & Unified Reports Center**.
+- **Main Phase 6 = IN PROGRESS.**
+- Implemented `/inventory/reports` as the unified Inventory Reports Center; sections are Balance/Status, Movements/Tracking, Valuation/Accounting, and Analytics/Planning.
+- **6.4 Analytics/Planning remains deferred / execute last** and is not implemented.
+- Added reusable report UI foundation: unified toolbar (`تحديث` / `إعادة تعيين الفلاتر` / `طباعة` / grouped `تصدير` Excel/PDF), filter shell, and generated-at presentation.
+- Added shared server export foundation using existing `exceljs` + existing Chromium HTML-to-PDF service; no new export dependency.
+- Excel foundation: title/generated time/filter context, typed numeric/date cells, RTL, bounded widths, Auto Filter/freeze, Unicode filename support.
+- PDF/Print foundation: common A4 template, RTL/LTR, mixed Arabic/English isolation, repeated table headers, escaped source values.
+- No report-specific 6.2/6.3 data queries were added; no DB/SQL/migration/data mutation or workflow/accounting change.
+- Targeted TS syntax/transpile + translation-key parity + source checks = PASS. Deployed Runtime verification is still required before 6.1 closure.
+- **6.1 implementation checkpoint التاريخي = IMPLEMENTED / TARGETED CHECKS PASSED / DEPLOYED VERIFICATION PENDING; superseded by official closure below.**
+- **Historical stop at implementation checkpoint: before 6.1 closure / before 6.2. Superseded by official 6.1 closure below.**
+- Reference: `docs/CMMS_MAIN_PHASE6_STEP6_1_REPORTS_FOUNDATION_IMPLEMENTATION_2026-08-23.md`.
+
+
+## 2026-08-23 — Main Phase 6 / 6.1 Reports Foundation official closure
+
+- Initial deployed verification found the Reports Center action labels were visual-only; 6.1 correctly remained open until the defect was fixed.
+- After applying the action fix and restarting, owner confirmed Runtime operation of: **تحديث / إعادة تعيين الفلاتر / طباعة / Excel / PDF**.
+- Targeted test `server/tests/reportExportFoundationPhase6Step1.test.ts` = **4/4 PASS**.
+- Targeted test `server/tests/reportCenterFoundationActionsPhase6Step1.test.ts` = **3/3 PASS**.
+- Generated `.xlsx` and PDF outputs were supplied and opened successfully.
+- No Live DB/SQL/Schema/Migration/data change and no 6.2/6.3/6.4 report business implementation.
+- **6.1 = ✅ COMPLETE / TARGETED TESTS PASSED / RUNTIME VERIFICATION PASSED / OFFICIALLY CLOSED.**
+- **Main Phase 6 = IN PROGRESS.**
+- **Historical stop after 6.1 closure: before 6.2. Superseded when the owner explicitly started 6.2.1.**
+- Reference: `docs/CMMS_MAIN_PHASE6_STEP6_1_REPORTS_FOUNDATION_RUNTIME_UAT_CLOSURE_2026-08-23.md`.
+
+### 2026-08-23 — Main Phase 6 / 6.2 Stock Balance & Movement Reports — approved scope
+
+- **6.1 Reports Foundation & Unified Reports Center = OFFICIALLY CLOSED.**
+- Approved 6.2 execution checkpoints:
+  1. `6.2.1 — Stock Balance & Status`
+  2. `6.2.2 — Stock Card & Unified Movement Report`
+  3. `6.2.3 — Unified Export & Review`
+  4. `6.2.4 — Runtime UAT & Closure`
+- 6.2 stays read-only and future-focused; old/experimental data is not repaired or cleaned.
+- Reuse the closed 6.1 toolbar/filter/export foundation; do not scatter separate export implementations across reports.
+- 6.3 remains NOT STARTED. 6.4 remains DOCUMENTED FOR LATER / EXECUTE LAST.
+- **Historical scope stop: before 6.2.1. Superseded by the 6.2.1 implementation checkpoint below.**
+- Reference: `docs/CMMS_MAIN_PHASE6_STEP6_2_STOCK_BALANCE_MOVEMENT_REPORTS_APPROVED_SCOPE_2026-08-23.md`.
+
+
+### 2026-08-23 — Main Phase 6 / 6.2.1 Stock Balance & Status — implementation checkpoint
+
+- Owner explicitly started 6.2.1.
+- Implemented `/inventory/reports/stock-balance` as the first real report under the unified Reports Center.
+- Read-only current-state columns: item, internal code, warehouse, quantity, unit, average cost, stored inventory value, minimum stock, status.
+- Status filters: All / Normal / Low / Zero / Negative. Zero is separate from Low for an unambiguous operational view.
+- Lot-tracked rows provide collapsed Lot drill-down without duplicating Main Phase 5.4 reconciliation.
+- Reuses 6.1 Refresh / Reset / Print / Excel / PDF foundation and active-filter export behavior.
+- No DB/schema/migration/data write, no historical cleanup/backfill/revaluation, no Accounting/Posting/Numbering/Workflow change.
+- Targeted source syntax/transpile checks = PASS; deployed Runtime verification and targeted Vitest remain pending.
+- **6.2.1 = IMPLEMENTED / TARGETED SOURCE CHECKS PASSED / RUNTIME VERIFICATION PENDING.**
+- **6.2.2 = NOT STARTED.**
+- Reference: `docs/CMMS_MAIN_PHASE6_STEP6_2_1_STOCK_BALANCE_STATUS_IMPLEMENTATION_2026-08-23.md`.
+
+
+### 2026-08-23 — Main Phase 6 / 6.2.1 Runtime verification checkpoint
+
+- 6.2.1 implementation is deployed and the Stock Balance & Status page renders in Runtime.
+- Runtime screenshot evidence: `709` report rows; `141` normal; `0` low; `568` zero; `0` negative; `8` Lot Tracking inventory.
+- Targeted test `stockBalanceReportPhase6Step2_1.test.ts` passed `4/4`.
+- Remaining before official closure: confirm status filter Runtime behavior, Lot drill-down Runtime behavior, and Excel/PDF exports using active filters.
+- **6.2.1 is not officially closed yet. 6.2.2 remains NOT STARTED.**
+
+
+### 2026-08-23 — Main Phase 6 / 6.2.1 official closure
+
+- `6.2.1 — Stock Balance & Status` Runtime acceptance completed.
+- Targeted test: `server/tests/stockBalanceReportPhase6Step2_1.test.ts` = **4/4 PASS**.
+- Runtime page verification = PASS.
+- Stock-status filter = PASS.
+- Filter-aware Excel/PDF exports = PASS.
+- Lot drill-down = PASS.
+- Report behavior remains read-only; no historical data changes were made.
+- **6.2.1 = OFFICIALLY CLOSED.**
+- **6.2.2 = NOT STARTED.**
+- **Current stop: after 6.2.1 closure / before 6.2.2.**
+
+## 2026-08-23 — Main Phase 6 / 6.2.2 Stock Card & Unified Movement Report implemented
+
+- Owner explicitly started 6.2.2 after official closure of 6.2.1.
+- Added one read-only page `/inventory/reports/movements` with two tabs: **جميع الحركات** and **بطاقة الصنف**.
+- Unified filters: item/document/Lot search, warehouse, movement type, direction, date range; Stock Card adds one-item selection.
+- Stock Card shows current stored quantity/value plus recorded transaction history only; no fabricated opening balance and no legacy reconstruction/backfill.
+- Movement rows expose available item, warehouse, type/direction, Lot Code, quantity, unit cost/value, document/reference and reason.
+- Reused 6.1 Refresh/Reset/Print/Excel/PDF foundation; exports use the same filter contract as the screen.
+- Added targeted test `server/tests/inventoryMovementReportPhase6Step2_2.test.ts`.
+- No SQL/schema/migration/data mutation, historical cleanup/backfill/revaluation, workflow/accounting/posting/numbering change, Batch Transfer redesign, or Production Cutover.
+- **6.2.2 = IMPLEMENTED / TARGETED SOURCE CHECKS PASSED / DEPLOYED RUNTIME VERIFICATION PENDING.**
+- **6.2.3 = NOT STARTED.**
+- Reference: `docs/CMMS_MAIN_PHASE6_STEP6_2_2_STOCK_CARD_UNIFIED_MOVEMENT_IMPLEMENTATION_2026-08-23.md`.
+
+
+### 2026-08-23 — Main Phase 6 / 6.2.2 Stock Card & Unified Movement Report — official closure
+
+- `6.2.2 — Stock Card & Unified Movement Report` Runtime acceptance completed.
+- Targeted test: `server/tests/inventoryMovementReportPhase6Step2_2.test.ts` = **4/4 PASS**.
+- Runtime **جميع الحركات** and **بطاقة الصنف** views = PASS.
+- Movement/Stock Card filters = PASS.
+- Filter-aware Excel/PDF exports = PASS.
+- Stock Card remains current-state + recorded-history only; no fabricated Opening Balance or historical reconstruction.
+- Report remains read-only; no historical data changes, Auto-fix, Accounting/Posting/Numbering or Workflow change.
+- **6.2.2 = OFFICIALLY CLOSED.**
+- **6.2.3 = NOT STARTED.**
+- **Current stop: after 6.2.2 closure / before 6.2.3.**
+- Reference: `docs/CMMS_MAIN_PHASE6_STEP6_2_2_STOCK_CARD_UNIFIED_MOVEMENT_RUNTIME_CLOSURE_2026-08-23.md`.
+
+
+### 2026-08-23 — Main Phase 6 / 6.2.3 Unified Export & Review — implementation checkpoint
+
+- 6.2.1 and 6.2.2 remain officially closed.
+- Owner explicitly started 6.2.3.
+- Reviewed the actual 6.2 report export paths against the closed 6.1 common foundation.
+- Added `server/tests/unifiedReportExportReviewPhase6Step2_3.test.ts` for cross-report Export/Print/RTL/filter/generated-at consistency.
+- Hardened movement/Stock Card warehouse filter export metadata to use readable warehouse code/name rather than a raw numeric ID when metadata is available.
+- No new report page, no second export architecture, no DB mutation/SQL/migration/backfill/cleanup/revaluation.
+- **6.2.3 = IMPLEMENTED / TARGETED SOURCE CHECKS PASSED / DEPLOYED RUNTIME VERIFICATION PENDING.**
+- **6.2.4 = NOT STARTED.**
+- **Current stop:** deploy and Runtime-verify 6.2.3. Do not start 6.2.4 automatically.
+- Reference: `docs/CMMS_MAIN_PHASE6_STEP6_2_3_UNIFIED_EXPORT_REVIEW_IMPLEMENTATION_2026-08-23.md`.
+
+
+## 2026-08-23 — Main Phase 6 / 6.2.3 Unified Export & Review — OFFICIALLY CLOSED
+
+- Owner completed deployed Runtime verification for the unified 6.2 export/review step.
+- `server/tests/unifiedReportExportReviewPhase6Step2_3.test.ts` = **4/4 PASS**.
+- Runtime report filters = PASS.
+- Runtime Excel export = PASS.
+- Runtime PDF export = PASS.
+- Runtime Print = PASS.
+- Active-filter-aware export behavior = PASS.
+- 6.2.3 continues to reuse the single closed 6.1 reporting/export foundation; no parallel export architecture was added.
+- Timezone-specific `Asia/Riyadh` enforcement was reviewed but the owner explicitly marked it **not important currently**; it is not a 6.2.3 closure blocker and this closure does not claim a Riyadh-time guarantee.
+- No SQL/schema/migration/data mutation, Historical Backfill/Cleanup/Revaluation, Workflow/Accounting/Posting/Numbering change, Batch Transfer redesign, or Production Cutover.
+- **6.2.3 = COMPLETE / TARGETED TESTS PASSED / RUNTIME EXPORT-PRINT REVIEW PASSED / OFFICIALLY CLOSED.**
+- **6.2.4 = NOT STARTED. Current stop: after 6.2.3 closure / before 6.2.4.**
+- Closure reference: `docs/CMMS_MAIN_PHASE6_STEP6_2_3_UNIFIED_EXPORT_REVIEW_RUNTIME_CLOSURE_2026-08-23.md`.
+
+
+## 2026-08-23 — Main Phase 6 / 6.2.4 Runtime UAT & 6.2 official closure
+
+- Stock Balance report was verified against Live DB for `LOT-2026-191EEB06`: source warehouse quantity `3`, destination warehouse quantity `1`, total Lot remaining `4`, with current values `30.00` and `10.00`.
+- Unified Movement Report was verified against Live DB for the same Lot: Receipt IN `5`, Delivery OUT `1`, Transfer OUT `1`, Transfer IN `1`; references include `DLV-2026-300215` and `TRF-2026-030006`.
+- Stock Card search issue found during UAT was fixed; `server/tests/stockCardSearchPhase6Step2_4.test.ts` = **4/4 PASS** and Runtime re-test passed.
+- Stock Card showed current quantity `4`, current value `40.00`, `2` warehouses and `4` movements; total in `6`, total out `2`.
+- Existing accepted filters / Excel / PDF / Print behavior remained working.
+- Reports remain read-only. No historical reconstruction/backfill/cleanup/revaluation or data mutation was introduced.
+- Riyadh timezone enforcement remains deferred/non-blocking by owner decision; no universal timezone guarantee is claimed.
+- **6.2.4 = OFFICIALLY CLOSED.**
+- **6.2 = COMPLETE / OFFICIALLY CLOSED.**
+- **6.3 = NOT STARTED.**
+- **Current stop: after 6.2 closure / before 6.3. Do not start 6.3 automatically.**
+- Reference: `docs/CMMS_MAIN_PHASE6_STEP6_2_4_RUNTIME_UAT_AND_STEP6_2_CLOSURE_2026-08-23.md`.
+
+
+## 2026-08-23 — Main Phase 6 / 6.3 Inventory Valuation & Accounting Reports — Approved Scope
+
+- **6.1 = OFFICIALLY CLOSED.**
+- **6.2 = COMPLETE / OFFICIALLY CLOSED.**
+- Owner approved/documented 6.3 before implementation.
+- Approved breakdown: `6.3.1 Inventory Valuation Report` → `6.3.2 Value by Warehouse / Category` → `6.3.3 Inventory Variance & Accounting Review` → `6.3.4 Runtime UAT & Closure`.
+- 6.3 is read-only reporting over current accepted quantity/cost/value state; no revaluation, posting, historical reconstruction, backfill or cleanup.
+- 6.3.3 may present/reuse relevant read-only 5.4 reconciliation evidence but must not duplicate/fork the 5.4 engine or add Auto-fix.
+- Reuse the 6.1/6.2 report foundation for filters / generated-at / Print / Excel / PDF / RTL/mixed-language output.
+- Riyadh timezone enforcement remains deferred/non-blocking by current owner decision.
+- **6.3 = SCOPE APPROVED / DOCUMENTED — IMPLEMENTATION NOT STARTED.**
+- **6.3.1 = NOT STARTED.**
+- **Current stop:** before 6.3.1. Do not start 6.3.1 automatically from documentation alone.
+- Reference: `docs/CMMS_MAIN_PHASE6_STEP6_3_INVENTORY_VALUATION_ACCOUNTING_REPORTS_APPROVED_SCOPE_2026-08-23.md`.
+
+
+## 2026-08-24 — Main Phase 6 / 6.3.1 Inventory Valuation Report — OFFICIALLY CLOSED
+
+- Owner explicitly started 6.3.1 after the 6.3 scope was approved/documented.
+- Inventory Valuation report is implemented and deployed as a **read-only** report over current stored inventory values.
+- It displays current `quantity`, `averageCost`, and stored `totalCostValue`; it does not recalculate/revalue inventory for posting.
+- Runtime UI: search, warehouse filter, and value-status filter verified working.
+- Runtime export/print: Excel / PDF / Print verified working.
+- Targeted Vitest: `inventoryValuationReportPhase6Step3_1.test.ts` = **4/4 PASS**.
+- No DB/SQL/migration/data mutation, no Revaluation, no historical backfill/cleanup, and no accounting/posting behavior change.
+- **6.3 = IN PROGRESS.**
+- **6.3.1 = COMPLETE / TARGETED TESTS PASSED / RUNTIME UAT PASSED / OFFICIALLY CLOSED.**
+- **6.3.2 = NOT STARTED.**
+- **Current stop:** after 6.3.1 closure / before 6.3.2 Value by Warehouse / Category.
+- Reference: `docs/CMMS_MAIN_PHASE6_STEP6_3_1_INVENTORY_VALUATION_REPORT_RUNTIME_CLOSURE_2026-08-24.md`.
+
+
+## 2026-08-24 — Main Phase 6 / 6.3.2 Value by Warehouse / Category — Implemented in Code
+
+- Owner explicitly approved implementing 6.3.2 completely in one delivery.
+- Added grouped read-only views inside `/inventory/reports/valuation`: **By Warehouse** and **By Category**, while preserving the closed 6.3.1 detail view.
+- Grouped values reuse the 6.3.1 stored `totalCostValue` basis; no Revaluation or `averageCost`/`totalCostValue` mutation.
+- Category grouping reuses the accepted 2B-9 `Inventory → Catalog Item → Catalog Taxonomy` read layer; unmapped rows remain visibly `Uncategorized / غير مصنف` with no Backfill/Cleanup.
+- Mixed quantity units are kept separate as quantity context instead of being summed into a misleading cross-unit total.
+- Share % is based on the active filtered total and is suppressed when that denominator is zero/negative.
+- Added filter-aware Excel/PDF/Print endpoints for both grouped views using the shared 6.1 reporting foundation.
+- Added targeted test `server/tests/inventoryValueDistributionReportPhase6Step3_2.test.ts` (5 tests prepared).
+- Packaging environment checks: TypeScript syntax transpilation PASS + isolated exact grouping logic harness PASS. Project Vitest is not claimed because uploaded project dependencies are not installed in this environment.
+- No SQL/migration/DB mutation, Auto-fix, Historical Backfill/Cleanup, Revaluation, Accounting/Posting/Workflow/Numbering change, Batch Transfer redesign, 6.4 work, or Cutover.
+- **6.3 = IN PROGRESS.**
+- **6.3.1 = OFFICIALLY CLOSED.**
+- **6.3.2 = IMPLEMENTED IN CODE / TARGETED VITEST + DEPLOYED RUNTIME UAT PENDING.**
+- **6.3.3 = NOT STARTED. Do not start automatically before 6.3.2 verification/closure.**
+- Reference: `docs/CMMS_MAIN_PHASE6_STEP6_3_2_VALUE_BY_WAREHOUSE_CATEGORY_IMPLEMENTATION_2026-08-24.md`.
+
+
+## 2026-08-24 — Main Phase 6 / 6.3.2 Value by Warehouse / Category — OFFICIALLY CLOSED
+
+- Owner executed `pnpm exec vitest run server/tests/inventoryValueDistributionReportPhase6Step3_2.test.ts` → **1 test file passed / 5 tests passed**.
+- Runtime evidence confirmed the three valuation-area tabs render after deployment: 6.3.1 detail, **Value by Warehouse**, and **Value by Category**.
+- Runtime warehouse view showed **717** source inventory rows and **3** grouped results; category view showed **717** source rows, **16** category groups, and **688** rows visibly unmapped/uncategorized.
+- Owner confirmed the report works correctly and **Excel / PDF / Print** work in Runtime.
+- Stored `totalCostValue` remains the valuation basis; no Revaluation and no `averageCost`/`totalCostValue` mutation.
+- Category gaps remain visible as `غير مصنف / Uncategorized`; no Backfill/Cleanup was performed.
+- No SQL/migration/DB mutation, Auto-fix, Historical Backfill/Cleanup, Accounting/Posting/Workflow/Numbering change, Batch Transfer redesign, 6.4 work, or Cutover.
+- **6.3 = IN PROGRESS.**
+- **6.3.1 = OFFICIALLY CLOSED.**
+- **6.3.2 = COMPLETE / TARGETED TESTS PASSED / RUNTIME UAT ACCEPTED / OFFICIALLY CLOSED.**
+- **6.3.3 = NOT STARTED.**
+- **Current stop:** after 6.3.2 official closure / before 6.3.3 Inventory Variance & Accounting Review. Do not start 6.3.3 automatically.
+- Closure reference: `docs/CMMS_MAIN_PHASE6_STEP6_3_2_VALUE_BY_WAREHOUSE_CATEGORY_RUNTIME_CLOSURE_2026-08-24.md`.
+
+
+## 2026-08-24 — Main Phase 6 / 6.3 reorganized into two checkpoints; Current 6.3.2 implemented
+
+- Owner explicitly approved merging the previous four 6.3 checkpoints into two current checkpoints only.
+- **Current 6.3.1 — Inventory Valuation & Value Distribution = former 6.3.1 + former 6.3.2 = OFFICIALLY CLOSED.**
+- **Current 6.3.2 — Inventory Variance, Accounting Review & Runtime Closure = former 6.3.3 + former 6.3.4 = IMPLEMENTED IN CODE / VERIFICATION PENDING.**
+- Historical implementation/test/closure documents retain their old numbering and are not renamed.
+- Accounting Review reuses `loadInventoryValuationReport()` + `runInventoryReconciliation()` + accepted Catalog taxonomy; no second reconciliation engine was created.
+- No Auto-fix, Revaluation, Historical Backfill, Legacy Cleanup, Posting redesign, Centralized Numbering, Batch Transfer semantic change, or 6.4 Analytics work was introduced.
+- Targeted test to run: `pnpm exec vitest run server/tests/inventoryAccountingReviewReportPhase6Step3_2Merged.test.ts`.
+- **Current stop:** after code implementation of current 6.3.2; before final 6.3 closure. Runtime UAT remains required.
+
+
+## 2026-08-24 — Current Main Phase 6 / 6.3.2 + Main Phase 6.3 — OFFICIALLY CLOSED
+
+- Owner confirmed all Accounting Review runtime filters work: search, warehouse, stored-value status, category, and review status.
+- Owner also confirmed Excel/PDF/Print work in Runtime.
+- Targeted test `server/tests/inventoryAccountingReviewReportPhase6Step3_2Merged.test.ts` = **6/6 PASS**.
+- **Current 6.3.1 — Inventory Valuation & Value Distribution = OFFICIALLY CLOSED.**
+- **Current 6.3.2 — Inventory Variance, Accounting Review & Runtime Closure = COMPLETE / TARGETED TESTS PASSED / RUNTIME UAT PASSED / OFFICIALLY CLOSED.**
+- **Main Phase 6.3 — Inventory Valuation & Accounting Reports = COMPLETE / OFFICIALLY CLOSED.**
+- No SQL/migration/DB mutation, Revaluation, Auto-fix, Historical Backfill, Legacy Cleanup, Accounting/Posting/Workflow/Numbering change, Batch Transfer all-or-nothing change, 6.4 work, or Cutover was part of this closure.
+- **6.4 Inventory Analytics & Planning Reports = DOCUMENTED FOR LATER / EXECUTE LAST / NOT STARTED.**
+- **6.5 Runtime UAT & Main Phase 6 Closure = NOT STARTED.**
+- **Current stop:** after Main Phase 6.3 official closure. Do not start 6.4 or 6.5 automatically.
+- Closure reference: `docs/CMMS_MAIN_PHASE6_MERGED_STEP6_3_2_RUNTIME_UAT_AND_PHASE6_3_CLOSURE_2026-08-24.md`.
+
+## 2026-08-24 — Main Phase 6.4 Inventory Analytics & Planning — implementation checkpoint
+
+- Owner explicitly resumed and approved execution of 6.4 after Main Phase 6.3 closure.
+- Implemented one unified `/inventory/reports/analytics` page with five Tabs: Slow Moving / Dead Moving / ABC / Aging / Turnover.
+- Read-only implementation only; no SQL/Migration/DB mutation, Auto-fix, Historical Backfill, Legacy Cleanup, Revaluation, accounting/workflow/numbering change, Batch Transfer semantic change, or Cutover.
+- Slow/Dead uses recorded outbound history only with configurable thresholds (defaults 90/180 days); missing outbound history stays explicitly unassessed rather than being invented as slow/dead.
+- ABC uses positive stored current value only and does not revalue inventory.
+- Aging uses current positive `inventory_lot_balances` joined to `inventory_lots.createdAt`; uncovered positive inventory is reported as unavailable aging coverage without historical reconstruction.
+- Turnover is explicitly a planning indicator based on recorded outbound value / current stored value; it is not claimed as accounting COGS/Average Inventory turnover.
+- Shared filters/export foundation reused; Excel/PDF/Print are wired per active tab and active filters.
+- Targeted test prepared: `server/tests/inventoryAnalyticsReportPhase6Step4.test.ts`.
+- **6.4 current status = IMPLEMENTED IN CODE / TARGETED TEST + RUNTIME UAT PENDING.**
+- **6.5 = NOT STARTED.** Do not start 6.5 automatically.
+
+## 2026-08-24 — Main Phase 6.4 Inventory Analytics & Planning — OFFICIALLY CLOSED
+
+- Owner executed `pnpm exec vitest run server/tests/inventoryAnalyticsReportPhase6Step4.test.ts` → **1 test file passed / 8 tests passed**.
+- Owner accepted Runtime behavior of 6.4 and confirmed **filters + export + Print** work correctly.
+- Unified `/inventory/reports/analytics` remains the single analytics page with Slow Moving / Dead Moving / ABC / Aging / Turnover tabs.
+- Turnover remains explicitly a **planning indicator** (`recorded outbound value / current stored value`) and is not claimed as accounting `COGS / Average Inventory` turnover.
+- Read-only boundaries remain intact: no SQL/Migration/DB mutation, Auto-fix, Historical Backfill, Legacy Cleanup, Revaluation, `averageCost`/`totalCostValue` mutation, accounting/posting/workflow/numbering change, Batch Transfer semantic change, or Cutover.
+- **6.4 = COMPLETE / TARGETED TESTS PASSED / RUNTIME UAT ACCEPTED / OFFICIALLY CLOSED.**
+- **6.5 = NOT STARTED. Do not start automatically.**
+- **Current stop:** after Main Phase 6.4 official closure / before Main Phase 6.5.
+- Closure reference: `docs/CMMS_MAIN_PHASE6_STEP6_4_INVENTORY_ANALYTICS_PLANNING_RUNTIME_UAT_CLOSURE_2026-08-24.md`.
+
+
+## 2026-08-24 — Main Phase 6.5 Final Runtime UAT & Closure — IN PROGRESS
+
+- Owner explicitly approved executing 6.5 as one final closure pass after 6.4 official closure.
+- Added `server/tests/mainPhase6FinalClosurePhase6Step5.test.ts` as the final regression/closure gate across 6.1–6.4 contracts.
+- Added `docs/CMMS_MAIN_PHASE6_STEP6_5_FINAL_RUNTIME_UAT_CLOSURE_GATE_2026-08-24.md` with the final owner Runtime checklist and explicit exclusions.
+- No new report/business feature, SQL, migration, DB mutation, backfill, cleanup, revaluation, numbering change, Batch Transfer semantic change, or accounting/workflow redesign is introduced by 6.5.
+- **Status:** 6.5 = IN PROGRESS / FINAL REGRESSION + OWNER RUNTIME ACCEPTANCE PENDING. Main Phase 6 is not officially closed until both pass.
+
+
+## 2026-08-24 — Main Phase 6.5 + Main Phase 6 — OFFICIALLY CLOSED
+
+- Owner executed the corrected final regression gate `server/tests/mainPhase6FinalClosurePhase6Step5.test.ts` → **1 test file passed / 9 tests passed**.
+- Final gate confirmed unified routes/Reports Center, shared report foundation, read-only DB-facing report services, stored `totalCostValue` valuation behavior, single-page five-tab 6.4 analytics, no project `receipt_number_counter`, and Batch Transfer per-item/partial-result semantics.
+- Owner accepted the cleaned `/inventory/reports` Runtime UX and confirmed all five report-center cards open correctly and work.
+- Previously accepted report Runtime evidence for filters / Excel / PDF / Print remains valid.
+- No SQL/Migration/DB mutation, Revaluation, Auto-fix, Historical Backfill, Legacy Cleanup, historical renumbering, Centralized Numbering, accounting/workflow redesign, Batch Transfer all-or-nothing change, or Cutover was part of 6.5.
+- **6.5 = COMPLETE / FINAL REGRESSION PASSED / RUNTIME UAT PASSED / OFFICIALLY CLOSED.**
+- **Main Phase 6 = COMPLETE / RUNTIME UAT PASSED / OFFICIALLY CLOSED.**
+- **Main Phase 7 — Inventory Posting Engine = NOT STARTED.**
+- **Current stop:** after Main Phase 6 official closure / before Main Phase 7. Do not start Main Phase 7 automatically.
+- Closure reference: `docs/CMMS_MAIN_PHASE6_FINAL_RUNTIME_UAT_AND_OFFICIAL_CLOSURE_2026-08-24.md`.
+
+
+## 2026-08-24 — Main Phase 7 deferred; future implementation direction = Option B
+
+- صاحب المشروع قرر **تأجيل Main Phase 7** بعد مراجعة الحاجة الفعلية للمحرك؛ لم يبدأ أي Coding.
+- عند العودة إلى Main Phase 7 مستقبلًا، الاتجاه المعتمد هو **Option B — Shared Posting Core صغير ومحافظ**، وليس Full Centralized Inventory Posting Engine.
+- تبقى Workflow-specific business/costing rules داخل الخدمات المتخصصة؛ يتم توحيد primitives المشتركة فقط بعد إعادة الفحص والموافقة.
+- Batch Transfer يبقى per-item/partial success؛ Centralized Numbering و`receipt_number_counter` يبقيان DEFERRED؛ لا Historical Cleanup/Backfill/Revaluation/Renumbering ولا Cutover ولا تغيير Workflow/Accounting behavior ضمن القرار.
+- **Main Phase 7 = DEFERRED / NOT STARTED. Main Phase 8 = NOT STARTED / DO NOT AUTO-START.**
+- المرجع: `docs/CMMS_MAIN_PHASE7_DEFERRAL_AND_OPTION_B_SHARED_POSTING_CORE_DECISION_2026-08-24.md`.
+
+## 2026-08-24 — Main Phase 8 converted to Optional Operational Enhancements
+
+- صاحب المشروع قرر **عدم تنفيذ Main Phase 8 كمرحلة كاملة إلزامية**؛ لم يبدأ أي Coding.
+- Main Phase 8 تبقى **DEFERRED / OPTIONAL / NOT STARTED** وتتحول إلى قائمة تحسينات تشغيلية اختيارية.
+- كل Candidate مثل Settlement/Disposal Approvals، Maker/Checker، Transfer In-Transit/Destination Receipt، repeated partial receive/issue، Rack/Bin/Location، Min/Max، Safety Stock، Reorder Point وغيرها يحتاج `Need / Don't Need` + تحليل أثر + موافقة صريحة منفصلة قبل التنفيذ.
+- بقاء عنصر في القائمة لا يعني أنه Requirement معتمد أو نقصًا في النظام الحالي، ولا يجب تنفيذ جميع العناصر قبل Final Project Hardening / Closure.
+- الـWorkflow الحالي يبقى كما هو ما لم يعتمد المالك تغييرًا محددًا.
+- لا Batch Transfer all-or-nothing، ولا Centralized Numbering/`receipt_number_counter`، ولا Historical Cleanup/Backfill/Revaluation/Renumbering، ولا Cutover، ولا Accounting behavior change تلقائيًا.
+- **Main Phase 7 = DEFERRED / NOT STARTED — future Option B only.**
+- **Main Phase 8 = DEFERRED / OPTIONAL / NOT STARTED — no full-phase auto-execution.**
+- المرجع: `docs/CMMS_MAIN_PHASE8_OPTIONAL_OPERATIONAL_ENHANCEMENTS_DECISION_2026-08-24.md`.
+
+
+
+## 2026-08-24 — Inventory Module Development & Modernization current approved scope officially closed
+
+- صاحب المشروع اعتمد إعلان انتهاء **بناء وتحديث وحدة المخزون ضمن النطاق الحالي المعتمد**.
+- **Inventory Module Development & Modernization = COMPLETE / CURRENT APPROVED SCOPE CLOSED.**
+- Main Phase 3 / 4 / 5 / 6 تبقى مغلقة حسب إغلاقاتها الرسمية السابقة.
+- **Main Phase 7 = DEFERRED / NOT STARTED**؛ وإذا استؤنفت مستقبلًا فالقرار هو Option B — Shared Posting Core صغير ومحافظ بعد موافقة جديدة.
+- **Main Phase 8 = DEFERRED / OPTIONAL / NOT STARTED**؛ ليست Gate إلزامية، وكل Candidate يحتاج Need/Don't Need + موافقة مستقلة.
+- هذا الإغلاق لا يعني Final Project Hardening / Closure ولا Production/Inventory Cutover. `2B-10-2C` يبقى مؤجلًا إلى Final Hardening، والـCutover يبقى خطوة مستقلة لاحقة.
+- لا Code/SQL/Schema/Live DB/Workflow/Accounting change، ولا Historical Cleanup/Backfill/Revaluation/Renumbering ضمن هذا القرار.
+- **Official stop:** current approved inventory-development scope closed; do not auto-start Phase 7, Phase 8, Final Hardening, or Cutover.
+- المرجع: `docs/CMMS_INVENTORY_MODULE_DEVELOPMENT_MODERNIZATION_CURRENT_SCOPE_OFFICIAL_CLOSURE_2026-08-24.md`.

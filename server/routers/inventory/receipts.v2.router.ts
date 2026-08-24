@@ -5,6 +5,8 @@
 
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
+import { and, eq, inArray, sql } from "drizzle-orm";
+import { catalogItems, catalogSuppliers, catalogSupplierAliases, catalogSupplierItemAliases, catalogSupplierCandidates, warehouseReceipts, warehouses } from "../../../drizzle/schema";
 import { router, inventoryReadProcedure, warehouseProcedure } from "../_shared/procedures";
 import * as db from "../../_core/db";
 import { analyzeInvoiceFromUrl, analyzeInvoiceFromBase64 } from "../../services/ocr/invoiceOcr.service";
@@ -15,6 +17,11 @@ import {
   calculateMovementTotal,
   calculateMovingWeightedAverage,
 } from "../../_core/inventory-costing";
+import { normalizeSupplierName } from "../../_core/catalog-supplier-matching";
+import { extractNormalizedMeasurements, normalizeCatalogItemText, normalizeSupplierItemCode } from "../../_core/catalog-item-matching";
+import { validateCatalogItemDecision } from "../../_core/catalog-item-decision";
+import { ensurePendingCatalogItemCandidate } from "../../_core/catalog-item-candidate";
+import { createReceiptInventoryLot, isInventoryLotsEnabled } from "../../_core/inventory-lots";
 
 // ─── مخطط الصنف المستلم ─────────────────────────────────────
 const receivedItemSchema = z.object({
@@ -24,11 +31,15 @@ const receivedItemSchema = z.object({
   purchaseOrderItemId:  z.number().optional(),
   inventoryId:          z.number().optional(),
   linkedItemId:         z.number().optional(),
+  // 2B-3: كود/SKU المورد كما يظهر على الفاتورة؛ لا يغيّر هوية Catalog Item.
+  supplierItemCode:     z.string().optional(),
+  // 2B-4: قرار Master Data صريح؛ لا ينشئ Catalog Item في هذه المرحلة.
+  isNewCatalogItem:     z.boolean().default(false),
   itemName:             z.string().min(1),
   itemName_ar:          z.string().optional(),
   itemName_en:          z.string().optional(),
   itemType:             z.enum(["spare_part", "consumable", "tool", "food"]).default("consumable"),
-  receivedQuantity:     z.number().positive(),
+  receivedQuantity:     z.number().min(0.001, "الكمية يجب أن تكون 0.001 أو أكثر"),
   expectedQuantity:     z.number().optional(),
   purchaseUnit:         z.string().min(1),
   issueUnit:            z.string().optional(),
@@ -41,7 +52,7 @@ const receivedItemSchema = z.object({
   manufacturerBarcode:  z.string().optional(),
   expiryDate:           z.string().optional(),
   assetId:              z.number().optional(),
-  warehouseId:          z.number().default(1),
+  warehouseId:          z.number().optional(),
   ocrExtracted:         z.boolean().default(false),
   manuallyEdited:       z.boolean().default(false),
 });
@@ -206,6 +217,7 @@ export const receiptsV2Router = router({
         }
       }
 
+      const lotsEnabled = isInventoryLotsEnabled();
       const { receiptId, receiptNumber, processedItems } = await db.withTransaction(async (tx) => {
         const receiptNumber = await db.getNextReceiptNumber(tx);
 
@@ -244,17 +256,21 @@ export const receiptsV2Router = router({
             receiptNumber,
             performedById: ctx.user.id,
             tx,
+            deferTransaction: lotsEnabled,
             // لا purchaseOrderId ولا poNumber — استلام مستقل
           });
           processedItems.push(processed);
 
-          await db.createWarehouseReceiptItem({
+          const receiptItemId = await db.createWarehouseReceiptItem({
             receiptId: receiptId!,
             inventoryId: processed.inventoryId,
             // بلا purchaseOrderItemId — لا يوجد بند طلب أصلاً
+            // 2B-7: إذا حُسم Catalog Item أثناء المراجعة نحفظ هويته مباشرة.
+            catalogItemId: item.linkedItemId,
             itemName: item.itemName,
             itemNameAr: item.itemName_ar,
             itemNameEn: item.itemName_en,
+            isNewCatalogItem: item.isNewCatalogItem,
             receivedQuantity: item.receivedQuantity.toString(),
             purchaseUnit: item.purchaseUnit,
             unitCost: item.unitCost,
@@ -264,6 +280,63 @@ export const receiptsV2Router = router({
             ocrExtracted: item.ocrExtracted,
             manuallyEdited: item.manuallyEdited,
           }, tx);
+
+          if (lotsEnabled) {
+            if (!receiptItemId) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر إنشاء سطر الاستلام قبل إنشاء الدفعة" });
+            const lot = await createReceiptInventoryLot({
+              tx,
+              catalogItemId: item.linkedItemId ?? null,
+              inventoryId: processed.inventoryId,
+              receiptId: receiptId!,
+              receiptItemId: Number(receiptItemId),
+              issueQuantity: processed.issueQuantity,
+              purchaseUnit: item.purchaseUnit,
+              issueUnit: item.issueUnit || item.purchaseUnit,
+              conversionFactor: item.conversionFactor,
+              purchaseUnitCost: processed.purchaseUnitCost,
+              issueUnitCost: processed.issueUnitCost,
+              supplierItemName: item.itemName,
+              supplierItemCode: item.supplierItemCode,
+              expiryDate: item.expiryDate,
+              createdById: ctx.user.id,
+            });
+            processed.lotId = lot.lotId;
+            processed.lotCode = lot.lotCode;
+            processed.trackingToken = lot.trackingToken;
+
+            await db.addInventoryTransactionV2({
+              inventoryId: processed.inventoryId,
+              lotId: lot.lotId,
+              type: "in",
+              quantity: processed.issueQuantity,
+              unitCost: processed.issueUnitCost.toFixed(4),
+              totalCost: calculateMovementTotal(processed.issueQuantity, processed.issueUnitCost).toFixed(2),
+              reason: processed.transactionReason,
+              performedById: ctx.user.id,
+              transactionType: "purchase",
+              receiptId: receiptId!,
+            }, tx);
+          }
+
+          // 2B-5: "صنف جديد" لا ينتظر اعتماد Catalog Master. بعد دخول الكمية
+          // للمخزون ننشئ مهمة Master Data مرتبطة بنفس inventoryId وسطر الاستلام.
+          if (item.isNewCatalogItem && receiptItemId) {
+            const candidate = await ensurePendingCatalogItemCandidate(tx, {
+              inventoryId: processed.inventoryId,
+              sourceReceiptId: receiptId!,
+              sourceReceiptItemId: Number(receiptItemId),
+              invoiceNumber: input.invoiceNumber,
+              itemName: item.itemName,
+              itemNameAr: item.itemName_ar,
+              itemNameEn: item.itemName_en,
+              supplierItemCode: item.supplierItemCode,
+              purchaseUnit: item.purchaseUnit,
+              manufacturerBarcode: item.manufacturerBarcode,
+              createdById: ctx.user.id,
+            });
+            processed.catalogItemCandidateId = candidate.id;
+            processed.catalogItemCandidateCreated = candidate.created;
+          }
         }
 
         return { receiptId, receiptNumber, processedItems };
@@ -293,6 +366,8 @@ export const receiptsV2Router = router({
           receiptNumber,
           totalItems:      input.items.length,
           vendorName:      input.vendorName,
+          catalogSupplierId: input.catalogSupplierId,
+          isNewSupplier:    input.isNewSupplier,
           invoiceNumber:   input.invoiceNumber,
           grandTotal:      input.grandTotal,
           hasDiscrepancy:  input.hasDiscrepancy,
@@ -314,10 +389,25 @@ export const receiptsV2Router = router({
         })
       );
 
+      const lotLabels = processedItems.flatMap((p: ProcessedItem, index: number) =>
+        p.lotId && p.trackingToken && p.lotCode ? [{
+          lotId: p.lotId,
+          lotCode: p.lotCode,
+          trackingToken: p.trackingToken,
+          itemName: input.items[index]?.itemName || `Inventory #${p.inventoryId}`,
+          quantity: p.issueQuantity,
+          unit: input.items[index]?.issueUnit || input.items[index]?.purchaseUnit || "",
+          sourceType: "receipt" as const,
+          receiptNumber,
+        }] : []
+      );
+
       return {
         receiptId,
         receiptNumber,
         inventoryItems: inventoryItems.filter(Boolean),
+        inventoryLotsEnabled: lotsEnabled,
+        lotLabels,
         hasDiscrepancy: input.hasDiscrepancy,
       };
     }),
@@ -328,6 +418,9 @@ export const receiptsV2Router = router({
       vendorName:       z.string().optional(),
       vendorNameEn:     z.string().optional(),
       vendorTaxNumber:  z.string().optional(),
+      // 2B-2: إما مورد Master موجود أو "مورد جديد" يتحول إلى Candidate.
+      catalogSupplierId: z.number().optional(),
+      isNewSupplier:     z.boolean().default(false),
       invoiceNumber:    z.string().optional(),
       invoiceDate:      z.string().optional(),
       subtotal:         z.number().optional(),
@@ -344,6 +437,29 @@ export const receiptsV2Router = router({
     .mutation(async ({ input, ctx }) => {
       const po = await db.getPurchaseOrderById(input.purchaseOrderId);
       if (!po) throw new TRPCError({ code: "NOT_FOUND", message: "طلب الشراء غير موجود" });
+
+      if (input.catalogSupplierId && input.isNewSupplier) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "اختر مورداً موجوداً أو حدد مورد جديد، وليس الاثنين معاً" });
+      }
+      if (!input.catalogSupplierId && !input.isNewSupplier) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "يجب تأكيد المورد الموجود أو تحديد أن المورد جديد" });
+      }
+      if (input.isNewSupplier && !input.vendorName?.trim()) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "اسم المورد مطلوب عند تحديد مورد جديد" });
+      }
+
+      let selectedCatalogSupplier: any = null;
+      if (input.catalogSupplierId) {
+        const coreDb = await db.getDb();
+        if (!coreDb) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر الاتصال بقاعدة البيانات" });
+        const supplierRows = await coreDb.select().from(catalogSuppliers)
+          .where(and(eq(catalogSuppliers.id, input.catalogSupplierId), eq(catalogSuppliers.isActive, true)))
+          .limit(1);
+        selectedCatalogSupplier = supplierRows[0];
+        if (!selectedCatalogSupplier) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "المورد المركزي المختار غير موجود أو غير نشط" });
+        }
+      }
 
       // ── حاجز أمان: نمنع كتابة أي بيانات على بند لا ينتمي فعلاً لهذا الطلب
       //   أو ليس بحالة "توريد للمستودع" — لكن فقط للأصناف التي اختار
@@ -363,6 +479,51 @@ export const receiptsV2Router = router({
         });
       }
 
+      // 2B-4: لا نقبل سطراً غامضاً أو قراراً متناقضاً.
+      // Catalog-linked PO أقوى من أي Checkbox قادم من الواجهة.
+      const poCatalogByItemId = new Map<number, number | null>(
+        poItemsAll.map((i: any) => [Number(i.id), i.catalogItemId ? Number(i.catalogItemId) : null])
+      );
+      for (const item of input.items) {
+        const poCatalogItemId = item.purchaseOrderItemId
+          ? poCatalogByItemId.get(Number(item.purchaseOrderItemId))
+          : null;
+        const decision = validateCatalogItemDecision(item, poCatalogItemId);
+        if (!decision.ok) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: decision.message || "قرار صنف الكتالوج غير صالح" });
+        }
+      }
+
+      // 2B-10-2B: أي ربط Catalog جديد أثناء الاستلام يجب أن يشير إلى صنف نشط.
+      // الاستثناء الوحيد هو استمرار نفس هوية Catalog المحفوظة مسبقاً على بند PO:
+      // إذا تعطّل الـMaster Item بعد إنشاء الطلب، لا نكسر الاستلام التاريخي بسببه.
+      const linkedCatalogIds = [...new Set(input.items
+        .map(item => item.linkedItemId)
+        .filter((id): id is number => typeof id === "number"))];
+      if (linkedCatalogIds.length > 0) {
+        const coreDb = await db.getDb();
+        if (!coreDb) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر الاتصال بقاعدة البيانات" });
+        const catalogRows = await coreDb.select({ id: catalogItems.id, isActive: catalogItems.isActive })
+          .from(catalogItems)
+          .where(inArray(catalogItems.id, linkedCatalogIds));
+        const catalogStateById = new Map((catalogRows as any[]).map(row => [Number(row.id), Number(row.isActive) === 1]));
+
+        for (const item of input.items) {
+          if (!item.linkedItemId) continue;
+          const linkedId = Number(item.linkedItemId);
+          if (!catalogStateById.has(linkedId)) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: `صنف الكتالوج ${linkedId} غير موجود` });
+          }
+          const inheritedPoCatalogItemId = item.purchaseOrderItemId
+            ? poCatalogByItemId.get(Number(item.purchaseOrderItemId))
+            : null;
+          const isHistoricalContinuation = inheritedPoCatalogItemId === linkedId;
+          if (!isHistoricalContinuation && !catalogStateById.get(linkedId)) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: `لا يمكن إنشاء رابط استلام جديد إلى صنف كتالوج غير نشط (${linkedId})` });
+          }
+        }
+      }
+
       if (input.invoiceNumber) {
         const duplicate = await db.checkDuplicateInvoice({
           invoiceNumber: input.invoiceNumber,
@@ -379,6 +540,7 @@ export const receiptsV2Router = router({
       // ── الجزء الحرج محاسبياً (الإيصال + بنوده + تحديث المخزون + حالة
       //   بنود الطلب) يُنفَّذ كمعاملة واحدة: إما ينجح بالكامل أو يُلغى
       //   بالكامل (rollback) — لا حالة وسطى ممزقة عند أي فشل جزئي.
+      const lotsEnabled = isInventoryLotsEnabled();
       const { receiptId, receiptNumber, processedItems } = await db.withTransaction(async (tx) => {
         const receiptNumber = await db.getNextReceiptNumber(tx);
 
@@ -392,6 +554,7 @@ export const receiptsV2Router = router({
           vendorName:       input.vendorName,
           vendorNameEn:     input.vendorNameEn,
           vendorTaxNumber:  input.vendorTaxNumber,
+          catalogSupplierId: input.catalogSupplierId,
           invoiceNumber:    input.invoiceNumber,
           invoiceDate:      input.invoiceDate ? new Date(input.invoiceDate) : undefined,
           subtotal:         input.subtotal?.toString(),
@@ -402,6 +565,49 @@ export const receiptsV2Router = router({
           hasDiscrepancy:   input.hasDiscrepancy,
           discrepancyNotes: input.discrepancyNotes,
         }, tx);
+
+        let supplierCandidateId: number | undefined;
+
+        if (input.isNewSupplier) {
+          const candidateResult = await tx.insert(catalogSupplierCandidates).values({
+            receiptId: receiptId!,
+            purchaseOrderId: input.purchaseOrderId,
+            invoiceNumber: input.invoiceNumber || null,
+            invoicePhotoUrl: input.invoicePhotoUrl || null,
+            extractedName: input.vendorName!.trim(),
+            extractedNameEn: input.vendorNameEn?.trim() || null,
+            taxNumber: input.vendorTaxNumber?.trim() || null,
+            status: "pending",
+            createdById: ctx.user.id,
+          } as any);
+          supplierCandidateId = Number((candidateResult as any)[0]?.insertId || 0) || undefined;
+          if (supplierCandidateId) {
+            await tx.update(warehouseReceipts).set({ supplierCandidateId } as any)
+              .where(eq(warehouseReceipts.id, receiptId!));
+          }
+        } else if (selectedCatalogSupplier && input.vendorName?.trim()) {
+          const aliasName = input.vendorName.trim();
+          const normalizedAlias = normalizeSupplierName(aliasName);
+          const masterNames = [selectedCatalogSupplier.nameAr, selectedCatalogSupplier.nameEn]
+            .map((v: string | null) => normalizeSupplierName(v));
+          if (normalizedAlias && !masterNames.includes(normalizedAlias)) {
+            const existingAlias = await tx.select({ id: catalogSupplierAliases.id })
+              .from(catalogSupplierAliases)
+              .where(and(
+                eq(catalogSupplierAliases.supplierId, selectedCatalogSupplier.id),
+                eq(catalogSupplierAliases.normalizedAlias, normalizedAlias),
+              )).limit(1);
+            if (existingAlias.length === 0) {
+              await tx.insert(catalogSupplierAliases).values({
+                supplierId: selectedCatalogSupplier.id,
+                aliasName,
+                normalizedAlias,
+                source: "invoice",
+                createdById: ctx.user.id,
+              } as any);
+            }
+          }
+        }
 
         const processedItems: any[] = [];
 
@@ -414,16 +620,21 @@ export const receiptsV2Router = router({
             receiptNumber,
             performedById: ctx.user.id,
             tx,
+            deferTransaction: lotsEnabled,
           });
           processedItems.push(processed);
 
-          await db.createWarehouseReceiptItem({
+          const receiptItemId = await db.createWarehouseReceiptItem({
             receiptId: receiptId!,
             inventoryId: processed.inventoryId,
             purchaseOrderItemId: item.purchaseOrderItemId,
+            // 2B-7: سطر الاستلام/الفاتورة يحمل Catalog identity مباشرة.
+            // للصنف الجديد تبقى NULL حتى يحسم Catalog Candidate لاحقاً.
+            catalogItemId: item.linkedItemId,
             itemName: item.itemName,
             itemNameAr: item.itemName_ar,
             itemNameEn: item.itemName_en,
+            isNewCatalogItem: item.isNewCatalogItem,
             receivedQuantity: item.receivedQuantity.toString(),
             purchaseUnit: item.purchaseUnit,
             unitCost: item.unitCost,
@@ -442,6 +653,90 @@ export const receiptsV2Router = router({
             manuallyEdited: item.manuallyEdited,
           }, tx);
 
+          if (lotsEnabled) {
+            if (!receiptItemId) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر إنشاء سطر الاستلام قبل إنشاء الدفعة" });
+            const lot = await createReceiptInventoryLot({
+              tx,
+              catalogItemId: item.linkedItemId ?? null,
+              inventoryId: processed.inventoryId,
+              receiptId: receiptId!,
+              receiptItemId: Number(receiptItemId),
+              purchaseOrderId: input.purchaseOrderId,
+              purchaseOrderItemId: item.purchaseOrderItemId ?? null,
+              catalogSupplierId: selectedCatalogSupplier?.id ?? null,
+              supplierCandidateId: supplierCandidateId ?? null,
+              issueQuantity: processed.issueQuantity,
+              purchaseUnit: item.purchaseUnit,
+              issueUnit: item.issueUnit || item.purchaseUnit,
+              conversionFactor: item.conversionFactor,
+              purchaseUnitCost: processed.purchaseUnitCost,
+              issueUnitCost: processed.issueUnitCost,
+              supplierItemName: item.itemName,
+              supplierItemCode: item.supplierItemCode,
+              expiryDate: item.expiryDate,
+              createdById: ctx.user.id,
+            });
+            processed.lotId = lot.lotId;
+            processed.lotCode = lot.lotCode;
+            processed.trackingToken = lot.trackingToken;
+
+            await db.addInventoryTransactionV2({
+              inventoryId: processed.inventoryId,
+              lotId: lot.lotId,
+              type: "in",
+              quantity: processed.issueQuantity,
+              unitCost: processed.issueUnitCost.toFixed(4),
+              totalCost: calculateMovementTotal(processed.issueQuantity, processed.issueUnitCost).toFixed(2),
+              reason: processed.transactionReason,
+              purchaseOrderItemId: item.purchaseOrderItemId,
+              performedById: ctx.user.id,
+              transactionType: "purchase",
+              receiptId: receiptId!,
+            }, tx);
+          }
+
+          // 2B-5: إنشاء/إعادة استخدام Catalog Item Candidate للصنف الجديد
+          // داخل نفس transaction، بدون انتظار أي اعتماد من مسؤول الكتالوج.
+          if (item.isNewCatalogItem && receiptItemId) {
+            const candidate = await ensurePendingCatalogItemCandidate(tx, {
+              inventoryId: processed.inventoryId,
+              sourceReceiptId: receiptId!,
+              sourceReceiptItemId: Number(receiptItemId),
+              purchaseOrderId: input.purchaseOrderId,
+              purchaseOrderItemId: item.purchaseOrderItemId,
+              catalogSupplierId: selectedCatalogSupplier?.id,
+              supplierCandidateId,
+              invoiceNumber: input.invoiceNumber,
+              itemName: item.itemName,
+              itemNameAr: item.itemName_ar,
+              itemNameEn: item.itemName_en,
+              supplierItemCode: item.supplierItemCode,
+              purchaseUnit: item.purchaseUnit,
+              manufacturerBarcode: item.manufacturerBarcode,
+              createdById: ctx.user.id,
+            });
+            processed.catalogItemCandidateId = candidate.id;
+            processed.catalogItemCandidateCreated = candidate.created;
+          }
+
+          // 2B-3: بعد تأكيد المستخدم لـ Catalog Item نحفظ اسم/SKU المورد
+          // كذاكرة تعلم مستقبلية. لا نغيّر السعر ولا ننشئ Catalog Item جديداً هنا.
+          if (selectedCatalogSupplier && item.linkedItemId) {
+            const inheritedPoCatalogItemId = item.purchaseOrderItemId
+              ? poCatalogByItemId.get(Number(item.purchaseOrderItemId))
+              : null;
+            await rememberSupplierItemAlias({
+              tx,
+              supplierId: selectedCatalogSupplier.id,
+              catalogItemId: item.linkedItemId,
+              supplierItemName: item.itemName,
+              supplierItemCode: item.supplierItemCode,
+              unit: item.purchaseUnit,
+              createdById: ctx.user.id,
+              allowInactiveCatalogItem: inheritedPoCatalogItemId === Number(item.linkedItemId),
+            });
+          }
+
           // تحديث بند الطلب فقط للأصناف المربوطة فعلياً ببند حقيقي — الأصناف
           // الزائدة عن الطلب (بلا purchaseOrderItemId) تُستلم للمخزون فقط
           // دون أي أثر على بنود الطلب أو حالته
@@ -455,6 +750,7 @@ export const receiptsV2Router = router({
               actualUnitCost:    item.unitCost,
               actualTotalCost:   item.lineTotal,
               warehousePhotoUrl: input.goodsPhotoUrl,
+              ...(item.linkedItemId ? { catalogItemId: item.linkedItemId } : {}),
             }, tx);
           }
         }
@@ -523,10 +819,25 @@ export const receiptsV2Router = router({
       );
 
 
+      const lotLabels = processedItems.flatMap((p: ProcessedItem, index: number) =>
+        p.lotId && p.trackingToken && p.lotCode ? [{
+          lotId: p.lotId,
+          lotCode: p.lotCode,
+          trackingToken: p.trackingToken,
+          itemName: input.items[index]?.itemName || `Inventory #${p.inventoryId}`,
+          quantity: p.issueQuantity,
+          unit: input.items[index]?.issueUnit || input.items[index]?.purchaseUnit || "",
+          sourceType: "receipt" as const,
+          receiptNumber,
+        }] : []
+      );
+
       return {
         receiptId,
         receiptNumber,
         processedItems,
+        inventoryLotsEnabled: lotsEnabled,
+        lotLabels,
         hasDiscrepancy:  input.hasDiscrepancy,
         inventoryItems:  inventoryItems.filter(Boolean),
       };
@@ -583,6 +894,131 @@ interface ProcessedItem {
   isNew:          boolean;
   internalCode:   string;
   newAverageCost: number;
+  // 2B-8: movement values are returned so the caller can create Receipt Item + Lot
+  // first, then persist the purchase transaction with the exact lotId in the same DB tx.
+  issueQuantity:   number;
+  purchaseUnitCost: number;
+  issueUnitCost:   number;
+  transactionReason: string;
+  lotId?:          number;
+  lotCode?:        string;
+  trackingToken?:  string;
+  // 2B-5: present only when this operational inventory identity is awaiting Catalog review.
+  catalogItemCandidateId?: number;
+  catalogItemCandidateCreated?: boolean;
+}
+
+async function rememberSupplierItemAlias(params: {
+  tx: any;
+  supplierId: number;
+  catalogItemId: number;
+  supplierItemName: string;
+  supplierItemCode?: string;
+  unit?: string;
+  createdById: number;
+  allowInactiveCatalogItem?: boolean;
+}): Promise<void> {
+  const { tx, supplierId, catalogItemId, supplierItemName, supplierItemCode, unit, createdById, allowInactiveCatalogItem } = params;
+
+  const catalogRows = await tx.select({ id: catalogItems.id, isActive: catalogItems.isActive })
+    .from(catalogItems)
+    .where(eq(catalogItems.id, catalogItemId))
+    .limit(1);
+  const catalogRow = catalogRows[0] as any;
+  if (!catalogRow) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: `صنف الكتالوج ${catalogItemId} غير موجود` });
+  }
+  if (!catalogRow.isActive) {
+    if (allowInactiveCatalogItem) {
+      // استمرار تاريخي مسموح، لكن لا ننشئ/نعيد تنشيط Supplier Alias جديداً
+      // إلى Master Item معطّل؛ هذا يمنع علاقة مستقبلية جديدة مع الحفاظ على الاستلام.
+      return;
+    }
+    throw new TRPCError({ code: "BAD_REQUEST", message: `صنف الكتالوج ${catalogItemId} غير نشط` });
+  }
+
+  const normalizedName = normalizeCatalogItemText(supplierItemName);
+  if (!normalizedName) return;
+  const normalizedItemCode = normalizeSupplierItemCode(supplierItemCode) || null;
+  const measurements = extractNormalizedMeasurements([supplierItemName, unit].filter(Boolean).join(" "));
+
+  const sameNameRows = await tx.select({
+    id: catalogSupplierItemAliases.id,
+    confirmationCount: catalogSupplierItemAliases.confirmationCount,
+    normalizedItemCode: catalogSupplierItemAliases.normalizedItemCode,
+  }).from(catalogSupplierItemAliases).where(and(
+    eq(catalogSupplierItemAliases.supplierId, supplierId),
+    eq(catalogSupplierItemAliases.catalogItemId, catalogItemId),
+    eq(catalogSupplierItemAliases.normalizedName, normalizedName),
+  ));
+
+  // نفس الاسم قد يملك أكثر من SKU تاريخياً عند المورد نفسه؛ لا نستبدل كوداً
+  // مختلفاً. نزيد التأكيد فقط عندما يتطابق الاسم والكود المنظف معاً.
+  const existing = (sameNameRows as any[]).find(row =>
+    (row.normalizedItemCode || null) === normalizedItemCode
+  );
+
+  if (existing) {
+    await tx.update(catalogSupplierItemAliases).set({
+      supplierItemName: supplierItemName.trim(),
+      supplierItemCode: supplierItemCode?.trim() || null,
+      normalizedItemCode,
+      normalizedMeasurements: measurements as any,
+      confirmationCount: Number(existing.confirmationCount || 1) + 1,
+      lastConfirmedAt: new Date(),
+      isActive: 1,
+    } as any).where(eq(catalogSupplierItemAliases.id, existing.id));
+    return;
+  }
+
+  await tx.insert(catalogSupplierItemAliases).values({
+    supplierId,
+    catalogItemId,
+    supplierItemName: supplierItemName.trim(),
+    normalizedName,
+    supplierItemCode: supplierItemCode?.trim() || null,
+    normalizedItemCode,
+    normalizedMeasurements: measurements as any,
+    source: "invoice",
+    confirmationCount: 1,
+    lastConfirmedAt: new Date(),
+    createdById,
+    isActive: 1,
+  } as any);
+}
+
+async function resolveReceiptWarehouseId(item: z.infer<typeof receivedItemSchema>, tx: any): Promise<number> {
+  const explicitWarehouseId = Number(item.warehouseId || 0);
+  if (explicitWarehouseId > 0) {
+    const rows = await tx.select({ id: warehouses.id, isActive: warehouses.isActive })
+      .from(warehouses)
+      .where(eq(warehouses.id, explicitWarehouseId))
+      .limit(1);
+    if (!rows[0]) throw new TRPCError({ code: "BAD_REQUEST", message: "المستودع المحدد للاستلام غير موجود" });
+    if (!rows[0].isActive) throw new TRPCError({ code: "BAD_REQUEST", message: "المستودع المحدد للاستلام غير مفعّل" });
+    return explicitWarehouseId;
+  }
+
+  // Existing Inventory identity is stronger than any historical implicit main-warehouse fallback.
+  if (item.inventoryId) {
+    const existing = await db.getInventoryItemById(Number(item.inventoryId), tx);
+    const existingWarehouseId = Number((existing as any)?.warehouseId || 0);
+    if (existingWarehouseId > 0) return existingWarehouseId;
+  }
+
+  // No hard-coded warehouse id: resolve the single active Main warehouse dynamically.
+  const mainRows = await tx.select({ id: warehouses.id })
+    .from(warehouses)
+    .where(and(eq(warehouses.type, "main"), eq(warehouses.isActive, 1)))
+    .orderBy(warehouses.id)
+    .limit(2);
+  if (mainRows.length === 0) {
+    throw new TRPCError({ code: "PRECONDITION_FAILED", message: "لا يوجد مستودع رئيسي مفعّل يمكن استخدامه للاستلام" });
+  }
+  if (mainRows.length > 1) {
+    throw new TRPCError({ code: "PRECONDITION_FAILED", message: "يوجد أكثر من مستودع رئيسي مفعّل؛ يجب تحديد المستودع صراحة قبل الاستلام" });
+  }
+  return Number(mainRows[0].id);
 }
 
 async function processReceiptItem(params: {
@@ -593,27 +1029,63 @@ async function processReceiptItem(params: {
   receiptNumber:   string;
   performedById:   number;
   tx:              any;
+  // 2B-8: عند تفعيل Lots نؤجل حركة الشراء حتى إنشاء receipt item والـLot،
+  // ثم تُسجل الحركة مع lotId داخل نفس transaction.
+  deferTransaction?: boolean;
 }): Promise<ProcessedItem> {
   const { item, receiptId, poNumber, receiptNumber, performedById, tx } = params;
   const sourceLabel = poNumber ? `طلب شراء ${poNumber}` : "استلام مستقل (بلا طلب شراء)";
+  const receiptWarehouseId = await resolveReceiptWarehouseId(item, tx);
   let inventoryId = item.inventoryId;
+
+  // Phase 2 deferred identity decision — future-facing protection only:
+  // Catalog Item is the master identity. If the client did not explicitly supply an
+  // Inventory row, reuse the single existing stock row for the same Catalog Item +
+  // Warehouse. Legacy duplicates are left untouched; ambiguity is blocked instead of
+  // silently creating a third row or choosing one arbitrarily.
+  if (!inventoryId && item.linkedItemId) {
+    const matches = await db.getInventoryMatchesByCatalogItemAndWarehouse(
+      Number(item.linkedItemId),
+      receiptWarehouseId,
+      tx,
+    );
+
+    if (matches.length > 1) {
+      throw new TRPCError({
+        code: "CONFLICT",
+        message: "يوجد أكثر من سجل مخزون قديم لنفس صنف الكتالوج داخل المستودع. لن ينشئ النظام سجلًا جديدًا؛ يجب معالجة التكرار القديم بشكل مستقل.",
+      });
+    }
+
+    if (matches[0]) {
+      inventoryId = Number(matches[0].id);
+    }
+  }
+
   let isNew = false;
   let internalCode = "";
 
   // تكلفة الفاتورة تكون بوحدة الشراء، بينما رصيد المخزون محفوظ بوحدة الصرف.
-  // لذلك نحول الكمية والتكلفة معاً حتى لا تتضاعف قيمة المخزون عند كرتون/قطعة ونحوها.
   const purchaseUnitCost = parseFloat(item.unitCost);
   const issueQuantity = calculateIssueQuantity(item.receivedQuantity, item.conversionFactor);
   const issueUnitCost = calculateIssueUnitCost(purchaseUnitCost, item.conversionFactor);
 
+  let newAverageCost = issueUnitCost;
+  let transactionReason = `استلام أول - ${sourceLabel} - فاتورة ${receiptNumber}`;
+
   if (inventoryId) {
+    await tx.execute(sql`SELECT id FROM inventory WHERE id = ${inventoryId} FOR UPDATE`);
     const existing = await db.getInventoryItemById(inventoryId, tx);
     if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: `الصنف ${inventoryId} غير موجود` });
+    const existingWarehouseId = Number((existing as any).warehouseId || 0);
+    if (existingWarehouseId > 0 && existingWarehouseId !== receiptWarehouseId) {
+      throw new TRPCError({ code: "CONFLICT", message: "سجل المخزون المحدد لا ينتمي إلى مستودع الاستلام" });
+    }
 
-    const oldQty     = existing.quantity || 0;
+    const oldQty     = Number(existing.quantity || 0);
     const oldAvgCost = parseFloat((existing as any).averageCost || "0");
     const newQty     = oldQty + issueQuantity;
-    const newAvgCost = calculateMovingWeightedAverage({
+    newAverageCost = calculateMovingWeightedAverage({
       currentQuantity: oldQty,
       currentAverageCost: oldAvgCost,
       incomingQuantity: issueQuantity,
@@ -622,75 +1094,70 @@ async function processReceiptItem(params: {
 
     await db.updateInventoryItemV2(inventoryId, {
       lastRestockedAt: new Date(),
-      averageCost:     newAvgCost.toFixed(4),
-      totalCostValue:  calculateInventoryValue(newQty, newAvgCost).toFixed(2),
+      averageCost:     newAverageCost.toFixed(4),
+      totalCostValue:  calculateInventoryValue(newQty, newAverageCost).toFixed(2),
       ...(item.linkedItemId ? { linkedItemId: item.linkedItemId } : {}),
-      // نحفظ الباركود المولَّد أثناء إدخال الفاتورة فقط إذا كان الصنف
-      // الموجود لا يملك باركوداً أصلاً — حتى لا نستبدل باركوداً صحيحاً
-      // مطبوعاً ومستخدماً فعلياً على الرفوف
       ...(!((existing as any).manufacturerBarcode) && item.manufacturerBarcode
         ? { manufacturerBarcode: item.manufacturerBarcode }
         : {}),
     }, tx);
 
     internalCode = (existing as any).internalCode || "";
-
-    await db.addInventoryTransactionV2({
-      inventoryId,
-      type:                "in",
-      quantity:            issueQuantity,
-      unitCost:            issueUnitCost.toFixed(4),
-      totalCost:           calculateMovementTotal(issueQuantity, issueUnitCost).toFixed(2),
-      reason:              `استلام من ${sourceLabel} - فاتورة ${receiptNumber}`,
-      purchaseOrderItemId: item.purchaseOrderItemId,
-      performedById,
-      transactionType:     "purchase",
-      receiptId,
-    }, tx);
-
-    return { inventoryId, isNew: false, internalCode, newAverageCost: newAvgCost };
-
+    transactionReason = `استلام من ${sourceLabel} - فاتورة ${receiptNumber}`;
   } else {
     isNew = true;
     internalCode = await db.getNextInventoryCode(tx);
 
     inventoryId = await db.createInventoryItemV2({
-      itemName:            item.itemName,
-      itemNameAr:         item.itemName_ar,
-      itemNameEn:         item.itemName_en,
-      itemType:            item.itemType,
-      quantity:            0,
-      unit:                item.issueUnit || item.purchaseUnit,
-      purchaseUnit:        item.purchaseUnit,
-      issueUnit:           item.issueUnit,
-      conversionFactor:    item.conversionFactor.toString(),
-      minQuantity:         0,
-      averageCost:         issueUnitCost.toFixed(4),
-      totalCostValue:      "0",
+      itemName:             item.itemName,
+      itemNameAr:           item.itemName_ar,
+      itemNameEn:           item.itemName_en,
+      itemType:             item.itemType,
+      quantity:             0,
+      unit:                 item.issueUnit || item.purchaseUnit,
+      purchaseUnit:         item.purchaseUnit,
+      issueUnit:            item.issueUnit,
+      conversionFactor:     item.conversionFactor.toString(),
+      minQuantity:          0,
+      averageCost:          issueUnitCost.toFixed(4),
+      totalCostValue:       "0",
       internalCode,
-      manufacturerBarcode: item.manufacturerBarcode,
-      expiryDate:          item.expiryDate ? new Date(item.expiryDate) : undefined,
-      linkedItemId:        item.linkedItemId,
-      assetId:             item.assetId,
-      warehouseId:         item.warehouseId || 1,
+      manufacturerBarcode:  item.manufacturerBarcode,
+      expiryDate:           item.expiryDate ? new Date(item.expiryDate) : undefined,
+      linkedItemId:         item.linkedItemId,
+      assetId:              item.assetId,
+      warehouseId:          receiptWarehouseId,
       receiptId,
     }, tx) as number;
+  }
 
+  const processed: ProcessedItem = {
+    inventoryId: Number(inventoryId),
+    isNew,
+    internalCode,
+    newAverageCost,
+    issueQuantity,
+    purchaseUnitCost,
+    issueUnitCost,
+    transactionReason,
+  };
+
+  if (!params.deferTransaction) {
     await db.addInventoryTransactionV2({
-      inventoryId,
+      inventoryId: processed.inventoryId,
       type:                "in",
       quantity:            issueQuantity,
       unitCost:            issueUnitCost.toFixed(4),
       totalCost:           calculateMovementTotal(issueQuantity, issueUnitCost).toFixed(2),
-      reason:              `استلام أول - ${sourceLabel} - فاتورة ${receiptNumber}`,
+      reason:              transactionReason,
       purchaseOrderItemId: item.purchaseOrderItemId,
       performedById,
       transactionType:     "purchase",
       receiptId,
     }, tx);
-
-    return { inventoryId, isNew, internalCode, newAverageCost: issueUnitCost };
   }
+
+  return processed;
 }
 
 async function enrichItemsWithInventoryData(items: any[] = []): Promise<any[]> {

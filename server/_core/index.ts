@@ -32,6 +32,50 @@ import { assertTicketReadable } from "../routers/tickets/tickets.access";
 import { canDownloadTicketArchive, canPrintTicketTask } from "@shared/ticketUiRules";
 import { htmlToPdf } from "../services/pdf/htmlToPdfService";
 import { sdk } from "./sdk";
+import {
+  buildReportsCenterPreviewExcel,
+  buildReportsCenterPreviewPdf,
+  buildReportsCenterPreviewPrintHtml,
+} from "../services/reports/reportsCenterFoundationPreview";
+import {
+  buildInventoryStockBalanceExcel,
+  buildInventoryStockBalancePdf,
+  buildInventoryStockBalancePrintHtml,
+  type StockBalanceFilters,
+} from "../services/reports/inventoryStockBalanceReport";
+import {
+  buildInventoryMovementExcel,
+  buildInventoryMovementPdf,
+  buildInventoryMovementPrintHtml,
+  type InventoryMovementFilters,
+} from "../services/reports/inventoryMovementReport";
+import {
+  buildInventoryValuationExcel,
+  buildInventoryValuationPdf,
+  buildInventoryValuationPrintHtml,
+  type InventoryValuationFilters,
+} from "../services/reports/inventoryValuationReport";
+import {
+  buildInventoryValueByWarehouseExcel,
+  buildInventoryValueByWarehousePdf,
+  buildInventoryValueByWarehousePrintHtml,
+  buildInventoryValueByCategoryExcel,
+  buildInventoryValueByCategoryPdf,
+  buildInventoryValueByCategoryPrintHtml,
+} from "../services/reports/inventoryValueDistributionReport";
+import {
+  buildInventoryAccountingReviewExcel,
+  buildInventoryAccountingReviewPdf,
+  buildInventoryAccountingReviewPrintHtml,
+  type InventoryAccountingReviewFilters,
+} from "../services/reports/inventoryAccountingReviewReport";
+import {
+  buildInventoryAnalyticsExcel,
+  buildInventoryAnalyticsPdf,
+  buildInventoryAnalyticsPrintHtml,
+  type InventoryAnalyticsFilters,
+  type InventoryAnalyticsView,
+} from "../services/reports/inventoryAnalyticsReport";
 
 // ============================================================
 // AUTH MIDDLEWARE — C-01 & C-02 FIX
@@ -430,6 +474,377 @@ async function startServer() {
   // ============================================================
   // C-01 FIX: تأمين جميع Export endpoints بمصادقة + صلاحية
   // ============================================================
+
+  // ============================================================
+  // Main Phase 6.1 — Inventory Reports Center foundation preview
+  // Real endpoints used to runtime-verify the shared Print / Excel / PDF stack
+  // before report-specific data views are introduced in 6.2+.
+  // ============================================================
+  app.get("/api/reports/inventory/foundation-preview.xlsx", requireInventoryExportRole, async (req: any, res: any) => {
+    try {
+      const { buffer, contentDisposition } = await buildReportsCenterPreviewExcel(req.query.lang);
+      res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+      res.setHeader("Content-Disposition", contentDisposition);
+      res.send(buffer);
+    } catch (e: any) {
+      console.error("[Reports Foundation Excel]", e);
+      res.status(500).json({ error: e.message || "تعذر إنشاء ملف Excel" });
+    }
+  });
+
+  app.get("/api/reports/inventory/foundation-preview.pdf", requireInventoryExportRole, async (req: any, res: any) => {
+    try {
+      const { buffer, contentDisposition } = await buildReportsCenterPreviewPdf(req.query.lang);
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", contentDisposition);
+      res.send(buffer);
+    } catch (e: any) {
+      console.error("[Reports Foundation PDF]", e);
+      res.status(500).json({ error: e.message || "تعذر إنشاء ملف PDF" });
+    }
+  });
+
+  app.get("/api/reports/inventory/foundation-preview/print", requireInventoryExportRole, async (req: any, res: any) => {
+    try {
+      const html = buildReportsCenterPreviewPrintHtml(req.query.lang);
+      res.setHeader("Content-Type", "text/html; charset=utf-8");
+      res.setHeader("Cache-Control", "no-store");
+      res.send(html);
+    } catch (e: any) {
+      console.error("[Reports Foundation Print]", e);
+      res.status(500).send("تعذر تجهيز معاينة الطباعة");
+    }
+  });
+
+  // ============================================================
+  // Main Phase 6.2.1 — Stock Balance & Status report exports.
+  // These endpoints are read-only and honor the same filters as the UI query.
+  // ============================================================
+  const stockBalanceFiltersFromRequest = (req: any): StockBalanceFilters => ({
+    search: typeof req.query.search === "string" ? req.query.search : undefined,
+    warehouseId: Number(req.query.warehouseId || 0) > 0 ? Number(req.query.warehouseId) : undefined,
+    status: ["all", "normal", "low", "zero", "negative"].includes(String(req.query.status || "all"))
+      ? String(req.query.status || "all") as StockBalanceFilters["status"]
+      : "all",
+  });
+
+  app.get("/api/reports/inventory/stock-balance.xlsx", requireInventoryExportRole, async (req: any, res: any) => {
+    try {
+      const { buffer, contentDisposition } = await buildInventoryStockBalanceExcel(stockBalanceFiltersFromRequest(req), req.query.lang);
+      res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+      res.setHeader("Content-Disposition", contentDisposition);
+      res.send(buffer);
+    } catch (e: any) {
+      console.error("[Stock Balance Excel]", e);
+      res.status(500).json({ error: e.message || "تعذر إنشاء ملف Excel" });
+    }
+  });
+
+  app.get("/api/reports/inventory/stock-balance.pdf", requireInventoryExportRole, async (req: any, res: any) => {
+    try {
+      const { buffer, contentDisposition } = await buildInventoryStockBalancePdf(stockBalanceFiltersFromRequest(req), req.query.lang);
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", contentDisposition);
+      res.send(buffer);
+    } catch (e: any) {
+      console.error("[Stock Balance PDF]", e);
+      res.status(500).json({ error: e.message || "تعذر إنشاء ملف PDF" });
+    }
+  });
+
+  app.get("/api/reports/inventory/stock-balance/print", requireInventoryExportRole, async (req: any, res: any) => {
+    try {
+      const html = await buildInventoryStockBalancePrintHtml(stockBalanceFiltersFromRequest(req), req.query.lang);
+      res.setHeader("Content-Type", "text/html; charset=utf-8");
+      res.setHeader("Cache-Control", "no-store");
+      res.send(html);
+    } catch (e: any) {
+      console.error("[Stock Balance Print]", e);
+      res.status(500).send("تعذر تجهيز معاينة الطباعة");
+    }
+  });
+
+
+  // ============================================================
+  // Main Phase 6.2.2 — Stock Card & Unified Movement Report exports.
+  // Read-only; the export routes reuse the exact same filters/service as the UI.
+  // ============================================================
+  const inventoryMovementFiltersFromRequest = (req: any): InventoryMovementFilters => ({
+    search: typeof req.query.search === "string" ? req.query.search : undefined,
+    warehouseId: Number(req.query.warehouseId || 0) > 0 ? Number(req.query.warehouseId) : undefined,
+    movementType: ["all", "purchase", "return", "delivery", "adjustment", "disposal", "transfer"].includes(String(req.query.movementType || "all"))
+      ? String(req.query.movementType || "all") as InventoryMovementFilters["movementType"]
+      : "all",
+    direction: ["all", "in", "out"].includes(String(req.query.direction || "all"))
+      ? String(req.query.direction || "all") as InventoryMovementFilters["direction"]
+      : "all",
+    dateFrom: typeof req.query.dateFrom === "string" ? req.query.dateFrom : undefined,
+    dateTo: typeof req.query.dateTo === "string" ? req.query.dateTo : undefined,
+    itemKey: typeof req.query.itemKey === "string" ? req.query.itemKey : undefined,
+  });
+
+  app.get("/api/reports/inventory/movements.xlsx", requireInventoryExportRole, async (req: any, res: any) => {
+    try {
+      const { buffer, contentDisposition } = await buildInventoryMovementExcel(inventoryMovementFiltersFromRequest(req), req.query.lang);
+      res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+      res.setHeader("Content-Disposition", contentDisposition);
+      res.send(buffer);
+    } catch (e: any) {
+      console.error("[Inventory Movements Excel]", e);
+      res.status(500).json({ error: e.message || "تعذر إنشاء ملف Excel" });
+    }
+  });
+
+  app.get("/api/reports/inventory/movements.pdf", requireInventoryExportRole, async (req: any, res: any) => {
+    try {
+      const { buffer, contentDisposition } = await buildInventoryMovementPdf(inventoryMovementFiltersFromRequest(req), req.query.lang);
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", contentDisposition);
+      res.send(buffer);
+    } catch (e: any) {
+      console.error("[Inventory Movements PDF]", e);
+      res.status(500).json({ error: e.message || "تعذر إنشاء ملف PDF" });
+    }
+  });
+
+  app.get("/api/reports/inventory/movements/print", requireInventoryExportRole, async (req: any, res: any) => {
+    try {
+      const html = await buildInventoryMovementPrintHtml(inventoryMovementFiltersFromRequest(req), req.query.lang);
+      res.setHeader("Content-Type", "text/html; charset=utf-8");
+      res.setHeader("Cache-Control", "no-store");
+      res.send(html);
+    } catch (e: any) {
+      console.error("[Inventory Movements Print]", e);
+      res.status(500).send("تعذر تجهيز معاينة الطباعة");
+    }
+  });
+
+
+  // ============================================================
+  // Main Phase 6.3.1 — Inventory Valuation report exports.
+  // Read-only; uses stored inventory.totalCostValue as the valuation basis.
+  // ============================================================
+  const inventoryValuationFiltersFromRequest = (req: any): InventoryValuationFilters => ({
+    search: typeof req.query.search === "string" ? req.query.search : undefined,
+    warehouseId: Number(req.query.warehouseId || 0) > 0 ? Number(req.query.warehouseId) : undefined,
+    status: ["all", "positive", "zero", "negative"].includes(String(req.query.status || "all"))
+      ? String(req.query.status || "all") as InventoryValuationFilters["status"]
+      : "all",
+  });
+
+  app.get("/api/reports/inventory/valuation.xlsx", requireInventoryExportRole, async (req: any, res: any) => {
+    try {
+      const { buffer, contentDisposition } = await buildInventoryValuationExcel(inventoryValuationFiltersFromRequest(req), req.query.lang);
+      res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+      res.setHeader("Content-Disposition", contentDisposition);
+      res.send(buffer);
+    } catch (e: any) {
+      console.error("[Inventory Valuation Excel]", e);
+      res.status(500).json({ error: e.message || "تعذر إنشاء ملف Excel" });
+    }
+  });
+
+  app.get("/api/reports/inventory/valuation.pdf", requireInventoryExportRole, async (req: any, res: any) => {
+    try {
+      const { buffer, contentDisposition } = await buildInventoryValuationPdf(inventoryValuationFiltersFromRequest(req), req.query.lang);
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", contentDisposition);
+      res.send(buffer);
+    } catch (e: any) {
+      console.error("[Inventory Valuation PDF]", e);
+      res.status(500).json({ error: e.message || "تعذر إنشاء ملف PDF" });
+    }
+  });
+
+  app.get("/api/reports/inventory/valuation/print", requireInventoryExportRole, async (req: any, res: any) => {
+    try {
+      const html = await buildInventoryValuationPrintHtml(inventoryValuationFiltersFromRequest(req), req.query.lang);
+      res.setHeader("Content-Type", "text/html; charset=utf-8");
+      res.setHeader("Cache-Control", "no-store");
+      res.send(html);
+    } catch (e: any) {
+      console.error("[Inventory Valuation Print]", e);
+      res.status(500).send("تعذر تجهيز معاينة الطباعة");
+    }
+  });
+
+  // ============================================================
+  // Former 6.3.2 / current merged 6.3.1 — Value by Warehouse / Category exports.
+  // Read-only; grouped from the same stored totalCostValue rows used by 6.3.1.
+  // ============================================================
+  app.get("/api/reports/inventory/valuation/by-warehouse.xlsx", requireInventoryExportRole, async (req: any, res: any) => {
+    try {
+      const { buffer, contentDisposition } = await buildInventoryValueByWarehouseExcel(inventoryValuationFiltersFromRequest(req), req.query.lang);
+      res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+      res.setHeader("Content-Disposition", contentDisposition);
+      res.send(buffer);
+    } catch (e: any) {
+      console.error("[Inventory Value by Warehouse Excel]", e);
+      res.status(500).json({ error: e.message || "تعذر إنشاء ملف Excel" });
+    }
+  });
+
+  app.get("/api/reports/inventory/valuation/by-warehouse.pdf", requireInventoryExportRole, async (req: any, res: any) => {
+    try {
+      const { buffer, contentDisposition } = await buildInventoryValueByWarehousePdf(inventoryValuationFiltersFromRequest(req), req.query.lang);
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", contentDisposition);
+      res.send(buffer);
+    } catch (e: any) {
+      console.error("[Inventory Value by Warehouse PDF]", e);
+      res.status(500).json({ error: e.message || "تعذر إنشاء ملف PDF" });
+    }
+  });
+
+  app.get("/api/reports/inventory/valuation/by-warehouse/print", requireInventoryExportRole, async (req: any, res: any) => {
+    try {
+      const html = await buildInventoryValueByWarehousePrintHtml(inventoryValuationFiltersFromRequest(req), req.query.lang);
+      res.setHeader("Content-Type", "text/html; charset=utf-8");
+      res.setHeader("Cache-Control", "no-store");
+      res.send(html);
+    } catch (e: any) {
+      console.error("[Inventory Value by Warehouse Print]", e);
+      res.status(500).send("تعذر تجهيز معاينة الطباعة");
+    }
+  });
+
+  app.get("/api/reports/inventory/valuation/by-category.xlsx", requireInventoryExportRole, async (req: any, res: any) => {
+    try {
+      const { buffer, contentDisposition } = await buildInventoryValueByCategoryExcel(inventoryValuationFiltersFromRequest(req), req.query.lang);
+      res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+      res.setHeader("Content-Disposition", contentDisposition);
+      res.send(buffer);
+    } catch (e: any) {
+      console.error("[Inventory Value by Category Excel]", e);
+      res.status(500).json({ error: e.message || "تعذر إنشاء ملف Excel" });
+    }
+  });
+
+  app.get("/api/reports/inventory/valuation/by-category.pdf", requireInventoryExportRole, async (req: any, res: any) => {
+    try {
+      const { buffer, contentDisposition } = await buildInventoryValueByCategoryPdf(inventoryValuationFiltersFromRequest(req), req.query.lang);
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", contentDisposition);
+      res.send(buffer);
+    } catch (e: any) {
+      console.error("[Inventory Value by Category PDF]", e);
+      res.status(500).json({ error: e.message || "تعذر إنشاء ملف PDF" });
+    }
+  });
+
+  app.get("/api/reports/inventory/valuation/by-category/print", requireInventoryExportRole, async (req: any, res: any) => {
+    try {
+      const html = await buildInventoryValueByCategoryPrintHtml(inventoryValuationFiltersFromRequest(req), req.query.lang);
+      res.setHeader("Content-Type", "text/html; charset=utf-8");
+      res.setHeader("Cache-Control", "no-store");
+      res.send(html);
+    } catch (e: any) {
+      console.error("[Inventory Value by Category Print]", e);
+      res.status(500).send("تعذر تجهيز معاينة الطباعة");
+    }
+  });
+
+  // ============================================================
+  // Merged Main Phase 6.3.2 — Inventory Variance & Accounting Review exports.
+  // Read-only; reuses 6.3.1 stored values and Main Phase 5.4 reconciliation evidence.
+  // ============================================================
+  const inventoryAccountingReviewFiltersFromRequest = (req: any): InventoryAccountingReviewFilters => ({
+    ...inventoryValuationFiltersFromRequest(req),
+    category: typeof req.query.category === "string" ? req.query.category : "all",
+    condition: ["all", "value_mismatch", "negative_stored_value", "negative_quantity", "reconciliation_exception"].includes(String(req.query.condition || "all"))
+      ? String(req.query.condition || "all") as InventoryAccountingReviewFilters["condition"]
+      : "all",
+  });
+
+  app.get("/api/reports/inventory/valuation/accounting-review.xlsx", requireInventoryExportRole, async (req: any, res: any) => {
+    try {
+      const { buffer, contentDisposition } = await buildInventoryAccountingReviewExcel(inventoryAccountingReviewFiltersFromRequest(req), req.query.lang);
+      res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+      res.setHeader("Content-Disposition", contentDisposition);
+      res.send(buffer);
+    } catch (e: any) {
+      console.error("[Inventory Accounting Review Excel]", e);
+      res.status(500).json({ error: e.message || "تعذر إنشاء ملف Excel" });
+    }
+  });
+
+  app.get("/api/reports/inventory/valuation/accounting-review.pdf", requireInventoryExportRole, async (req: any, res: any) => {
+    try {
+      const { buffer, contentDisposition } = await buildInventoryAccountingReviewPdf(inventoryAccountingReviewFiltersFromRequest(req), req.query.lang);
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", contentDisposition);
+      res.send(buffer);
+    } catch (e: any) {
+      console.error("[Inventory Accounting Review PDF]", e);
+      res.status(500).json({ error: e.message || "تعذر إنشاء ملف PDF" });
+    }
+  });
+
+  app.get("/api/reports/inventory/valuation/accounting-review/print", requireInventoryExportRole, async (req: any, res: any) => {
+    try {
+      const html = await buildInventoryAccountingReviewPrintHtml(inventoryAccountingReviewFiltersFromRequest(req), req.query.lang);
+      res.setHeader("Content-Type", "text/html; charset=utf-8");
+      res.setHeader("Cache-Control", "no-store");
+      res.send(html);
+    } catch (e: any) {
+      console.error("[Inventory Accounting Review Print]", e);
+      res.status(500).send("تعذر تجهيز معاينة الطباعة");
+    }
+  });
+
+  // ============================================================
+  // Main Phase 6.4 — Inventory Analytics & Planning exports.
+  // Read-only; current stored values + recorded movements/lots only.
+  // ============================================================
+  const inventoryAnalyticsFiltersFromRequest = (req: any): InventoryAnalyticsFilters => ({
+    search: typeof req.query.search === "string" ? req.query.search : undefined,
+    warehouseId: Number(req.query.warehouseId || 0) > 0 ? Number(req.query.warehouseId) : undefined,
+    category: typeof req.query.category === "string" ? req.query.category : "all",
+    slowDays: Number(req.query.slowDays || 90),
+    deadDays: Number(req.query.deadDays || 180),
+    turnoverDays: Number(req.query.turnoverDays || 365),
+  });
+  const inventoryAnalyticsViewFromRequest = (req: any): InventoryAnalyticsView => {
+    const view = String(req.query.view || "slow");
+    return ["slow", "dead", "abc", "aging", "turnover"].includes(view) ? view as InventoryAnalyticsView : "slow";
+  };
+
+  app.get("/api/reports/inventory/analytics.xlsx", requireInventoryExportRole, async (req: any, res: any) => {
+    try {
+      const { buffer, contentDisposition } = await buildInventoryAnalyticsExcel(inventoryAnalyticsFiltersFromRequest(req), inventoryAnalyticsViewFromRequest(req), req.query.lang);
+      res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+      res.setHeader("Content-Disposition", contentDisposition);
+      res.send(buffer);
+    } catch (e: any) {
+      console.error("[Inventory Analytics Excel]", e);
+      res.status(500).json({ error: e.message || "تعذر إنشاء ملف Excel" });
+    }
+  });
+
+  app.get("/api/reports/inventory/analytics.pdf", requireInventoryExportRole, async (req: any, res: any) => {
+    try {
+      const { buffer, contentDisposition } = await buildInventoryAnalyticsPdf(inventoryAnalyticsFiltersFromRequest(req), inventoryAnalyticsViewFromRequest(req), req.query.lang);
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", contentDisposition);
+      res.send(buffer);
+    } catch (e: any) {
+      console.error("[Inventory Analytics PDF]", e);
+      res.status(500).json({ error: e.message || "تعذر إنشاء ملف PDF" });
+    }
+  });
+
+  app.get("/api/reports/inventory/analytics/print", requireInventoryExportRole, async (req: any, res: any) => {
+    try {
+      const html = await buildInventoryAnalyticsPrintHtml(inventoryAnalyticsFiltersFromRequest(req), inventoryAnalyticsViewFromRequest(req), req.query.lang);
+      res.setHeader("Content-Type", "text/html; charset=utf-8");
+      res.setHeader("Cache-Control", "no-store");
+      res.send(html);
+    } catch (e: any) {
+      console.error("[Inventory Analytics Print]", e);
+      res.status(500).send("تعذر تجهيز معاينة الطباعة");
+    }
+  });
+
   app.get("/api/export/tickets", requireTicketExportRole, async (_req: any, res: any) => {
     try {
       const buffer = await exportTicketsToExcel();

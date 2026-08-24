@@ -197,8 +197,11 @@ export default function InventoryStandaloneReceive() {
         description: data.hasDiscrepancy ? "⚠️ تم تسجيل الفروقات" : "تم تحديث المخزون",
       });
       setSavedReceiptId(data.receiptId ?? null);
-      // عرض شاشة طباعة الباركود
-      if (data.inventoryItems && data.inventoryItems.length > 0) {
+      // 2B-8: عند تفعيل Lots نطبع QR الدفعة لكل عملية استلام؛ وإلا نبقي باركود Inventory التاريخي.
+      if (data.lotLabels && data.lotLabels.length > 0) {
+        setPrintItems(data.lotLabels);
+        setShowPrint(true);
+      } else if (data.inventoryItems && data.inventoryItems.length > 0) {
         setPrintItems(data.inventoryItems);
         setShowPrint(true);
       } else if (data.receiptId) {
@@ -329,7 +332,6 @@ export default function InventoryStandaloneReceive() {
         lineTotal:           i.lineTotal,
         manufacturerBarcode: i.manufacturerBarcode,
         expiryDate:          i.expiryDate,
-        warehouseId:         1,
         ocrExtracted:        i.ocrExtracted,
         manuallyEdited:      i.manuallyEdited,
       })),
@@ -1004,7 +1006,7 @@ function BarcodesPrintScreen({ items, onDone, onPrintReceipt }: { items: any[]; 
     <div className="min-h-screen bg-gray-100 p-4" dir="rtl">
       {/* شريط العنوان */}
       <div className="print-hidden max-w-2xl mx-auto mb-4 flex items-center justify-between flex-wrap gap-2">
-        <h1 className="text-lg font-bold">طباعة باركودات الأصناف</h1>
+        <h1 className="text-lg font-bold">{items.some((i: any) => i.trackingToken) ? "طباعة QR دفعات الاستلام" : "طباعة باركودات الأصناف"}</h1>
         <div className="flex gap-2 flex-wrap">
           {onPrintReceipt && (
             <button
@@ -1019,7 +1021,7 @@ function BarcodesPrintScreen({ items, onDone, onPrintReceipt }: { items: any[]; 
               onClick={handlePrint}
               className="bg-primary text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-primary/90"
             >
-              🖨️ طباعة الباركودات
+              {items.some((i: any) => i.trackingToken) ? "🖨️ طباعة QR الدفعات" : "🖨️ طباعة الباركودات"}
             </button>
           )}
           <button
@@ -1053,16 +1055,21 @@ function BarcodesPrintScreen({ items, onDone, onPrintReceipt }: { items: any[]; 
           >
             {/* QR Code على اليسار */}
             <div style={{ flexShrink: 0 }}>
-              <QRCodeCanvas value={item.manufacturerBarcode || item.internalCode || String(idx)} size={110} />
+              <QRCodeCanvas value={item.trackingToken || item.manufacturerBarcode || item.internalCode || String(idx)} size={110} />
             </div>
             {/* الرقم + اسم الصنف على اليمين */}
             <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "flex-end", justifyContent: "center", overflow: "hidden", paddingRight: "2px", gap: "3px" }}>
               <span style={{ fontFamily: "monospace", fontWeight: "bold", fontSize: "13px", color: "#000", textAlign: "right", direction: "ltr" }}>
-                {item.manufacturerBarcode || item.internalCode}
+                {item.lotCode || item.manufacturerBarcode || item.internalCode}
               </span>
               <span style={{ fontSize: "10px", color: "#222", textAlign: "right", direction: "rtl", lineHeight: "1.3", wordBreak: "break-word", maxWidth: "100%" }}>
                 {item.itemName}
               </span>
+              {item.trackingToken && (
+                <span style={{ fontSize: "8px", color: "#555", textAlign: "right", direction: "rtl" }}>
+                  دفعة استلام — {item.quantity} {item.unit || ""}
+                </span>
+              )}
             </div>
           </div>
         ))}

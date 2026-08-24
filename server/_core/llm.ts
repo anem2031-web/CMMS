@@ -210,22 +210,24 @@ const normalizeToolChoice = (
 };
 
 const resolveApiBaseUrl = () => {
-  if (!ENV.forgeApiUrl || ENV.forgeApiUrl.trim().length === 0) {
-    throw new Error("BUILT_IN_FORGE_API_URL is not configured in .env");
+  if (!ENV.deepSeekApiUrl || ENV.deepSeekApiUrl.trim().length === 0) {
+    throw new Error("DEEPSEEK_API_URL is not configured");
   }
 
-  const normalizedUrl = ENV.forgeApiUrl.trim().replace(/\/+$/, "");
+  const normalizedUrl = ENV.deepSeekApiUrl.trim().replace(/\/+$/, "");
   return normalizedUrl.endsWith("/v1")
     ? normalizedUrl.slice(0, -3)
     : normalizedUrl;
 };
 
-const resolveApiUrl = () => `${resolveApiBaseUrl()}/v1/chat/completions`;
+const resolveApiUrl = () => `${resolveApiBaseUrl()}/chat/completions`;
 const resolveModelsUrl = () => `${resolveApiBaseUrl()}/models`;
 
 const assertApiKey = () => {
-  if (!ENV.forgeApiKey) {
-    throw new Error("BUILT_IN_FORGE_API_KEY is not configured");
+  if (!ENV.deepSeekApiKey) {
+    throw new Error(
+      "DEEPSEEK_API_KEY is not configured (legacy BUILT_IN_FORGE_API_KEY fallback is also empty)"
+    );
   }
 };
 
@@ -255,12 +257,10 @@ const selectDeepSeekModel = (models: string[]): string => {
     throw new Error("DeepSeek did not return any available models");
   }
 
-  // Preserve the previous deepseek-chat behavior by preferring the fast model.
+  // Prefer the current DeepSeek V4 production models.
   const exactPreference = [
     "deepseek-v4-flash",
-    "deepseek-chat",
     "deepseek-v4-pro",
-    "deepseek-reasoner",
   ];
 
   for (const preferredModel of exactPreference) {
@@ -270,7 +270,7 @@ const selectDeepSeekModel = (models: string[]): string => {
     if (match) return match;
   }
 
-  const patternPreference = [/flash/i, /chat/i, /pro/i, /reasoner/i];
+  const patternPreference = [/flash/i, /pro/i, /deepseek/i];
   for (const pattern of patternPreference) {
     const match = availableModels.find(model => pattern.test(model));
     if (match) return match;
@@ -285,7 +285,7 @@ const fetchAvailableDeepSeekModel = async (): Promise<string> => {
   const response = await fetch(resolveModelsUrl(), {
     method: "GET",
     headers: {
-      authorization: `Bearer ${ENV.forgeApiKey}`,
+      authorization: `Bearer ${ENV.deepSeekApiKey}`,
     },
   });
 
@@ -367,7 +367,7 @@ const sendDeepSeekRequest = async (
     method: "POST",
     headers: {
       "content-type": "application/json",
-      authorization: `Bearer ${ENV.forgeApiKey}`,
+      authorization: `Bearer ${ENV.deepSeekApiKey}`,
     },
     body: JSON.stringify(payload),
   });

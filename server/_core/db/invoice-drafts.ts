@@ -2,7 +2,7 @@
 // db/invoice-drafts.ts — مسودات الفواتير واعتمادها
 // (مُقسَّم من db.ts الأصلي حسب المجال الوظيفي)
 // ============================================================
-import { eq, desc, asc, and, sql, count, sum, inArray, notInArray, like, or, gte, lte, lt, isNull, isNotNull, ne } from "drizzle-orm";
+import { eq, desc, asc, and, sql, count, sum, inArray, notInArray, like, or, gte, lte, lt, isNull } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import { alias } from "drizzle-orm/mysql-core";
 import mysql from "mysql2/promise";
@@ -38,11 +38,16 @@ import {
   type InsertPOPricingBatch,
   inventoryCountOperations,
   inventoryCountItems,
+  inventoryCountSnapshots,
   warehouses,
   inventorySettlements,
   inventorySettlementItems,
   inventoryCountNumberCounter,
   inventorySettlementNumberCounter,
+  catalogItems,
+  catalogNodes,
+  inventoryLots,
+  inventoryLotBalances,
 } from "../../../drizzle/schema";
 import { ENV } from '../env';
 
@@ -51,10 +56,20 @@ import { getDb } from "./client";
 import { getInventoryItemById, getUserById } from "./deletes";
 import { getNextInventoryCode, getNextItemBarcode } from "./warehouse-receipts";
 import { createInventoryItemV2 } from "./warehouse-returns";
+import { getInventoryMatchesByCatalogItemAndWarehouse } from "./inventory";
+import {
+  applyInventoryLotCountAdjustment,
+  createReceiptInventoryLot,
+  createOpeningBalanceInventoryLot,
+  isInventoryLotsEnabled,
+  resolveInventoryLotForCount,
+} from "../inventory-lots";
 import {
   calculateInventoryValue,
   calculateMovementTotal,
   calculateMovingWeightedAverage,
+  normalizeInventoryQuantity,
+  roundTo,
 } from "../inventory-costing";
 
 export async function createWarehouseReceiptDraft(data: {
@@ -271,78 +286,179 @@ export async function processApprovedReceiptItems(
   const receipt = await getWarehouseReceiptDraft(receiptId);
   if (!receipt) throw new Error("الفاتورة غير موجودة");
 
-  for (const item of (receipt as any).items || []) {
-    const qty       = parseFloat(item.receivedQuantity || "1");
-    const unitCost  = parseFloat(item.unitCost || "0");
+  const lotsEnabled = isInventoryLotsEnabled();
+  const lotLabels: Array<{
+    lotId: number;
+    lotCode: string;
+    trackingToken: string;
+    itemName: string;
+    quantity: number;
+    unit: string;
+    sourceType: "receipt";
+    receiptNumber: string;
+  }> = [];
 
-    if (item.inventoryId) {
-      // صنف موجود — تحديث الرصيد ومتوسط التكلفة
-      const existing = await getInventoryItemById(item.inventoryId);
-      if (existing) {
-        const oldQty     = existing.quantity || 0;
-        const oldCost    = parseFloat((existing as any).averageCost || "0");
-        const newQty     = oldQty + qty;
-        // المسار القديم لا يخزن conversionFactor، لذلك يعامل الكمية كوحدة
-        // المخزون كما كان دائماً، لكن يستخدم نفس قاعدة المتوسط والقيمة المركزية.
-        const newAvgCost = calculateMovingWeightedAverage({
-          currentQuantity: oldQty,
-          currentAverageCost: oldCost,
-          incomingQuantity: qty,
-          incomingUnitCost: unitCost,
-        });
+  const applyApprovedReceipt = async (writer: any) => {
+    let receiptWarehouseId: number | null = null;
+    const getReceiptWarehouseId = async () => {
+      if (receiptWarehouseId) return receiptWarehouseId;
+      const mainRows = await writer.select({ id: warehouses.id })
+        .from(warehouses)
+        .where(and(eq(warehouses.type, "main"), eq(warehouses.isActive, 1)))
+        .orderBy(warehouses.id)
+        .limit(2);
+      if (mainRows.length === 0) throw new Error("لا يوجد مستودع رئيسي مفعّل يمكن استخدامه للاستلام");
+      if (mainRows.length > 1) throw new Error("يوجد أكثر من مستودع رئيسي مفعّل؛ يجب تحديد المستودع صراحة قبل الاستلام");
+      receiptWarehouseId = Number(mainRows[0].id);
+      return receiptWarehouseId;
+    };
 
-        await db.update(inventory).set({
-          quantity:       newQty,
-          averageCost:    newAvgCost.toFixed(4),
-          totalCostValue: calculateInventoryValue(newQty, newAvgCost).toFixed(2),
-          lastRestockedAt: new Date(),
-        } as any).where(eq(inventory.id, item.inventoryId));
+    for (const item of (receipt as any).items || []) {
+      const qty      = normalizeInventoryQuantity(parseFloat(item.receivedQuantity || "1"));
+      const unitCost = parseFloat(item.unitCost || "0");
+      if (qty < 0.001) throw new Error(`كمية الاستلام للصنف "${item.itemName}" يجب أن تكون 0.001 أو أكثر`);
+
+      // Same future-facing protection as receipts.v2. This legacy draft path has no
+      // warehouseId on warehouse_receipts, so resolve the single active Main warehouse
+      // dynamically instead of relying on a fixed numeric id.
+      if (!item.inventoryId && item.catalogItemId) {
+        const matches = await getInventoryMatchesByCatalogItemAndWarehouse(
+          Number(item.catalogItemId),
+          await getReceiptWarehouseId(),
+          writer,
+        );
+        if (matches.length > 1) {
+          throw new Error("يوجد أكثر من سجل مخزون قديم لنفس صنف الكتالوج داخل المستودع. لن ينشئ النظام سجلًا جديدًا؛ يجب معالجة التكرار القديم بشكل مستقل.");
+        }
+        if (matches[0]) {
+          item.inventoryId = Number(matches[0].id);
+          await writer.update(warehouseReceiptItems).set({
+            inventoryId: item.inventoryId,
+          } as any).where(eq(warehouseReceiptItems.id, item.id));
+        }
       }
-    } else {
-      // صنف جديد — إنشاء في المخزون
-      const internalCode = await getNextInventoryCode();
-      const result = await db.insert(inventory).values({
-        itemName:        item.itemName,
-        itemNameAr:      item.itemName_ar,
-        itemNameEn:      item.itemName_en,
-        itemType:        item.itemType || "consumable",
-        quantity:        0,
-        unit:            item.purchaseUnit || "قطعة",
-        purchaseUnit:    item.purchaseUnit,
-        averageCost:     unitCost.toFixed(4),
-        totalCostValue:  "0",
-        internalCode,
+
+      if (item.inventoryId) {
+        await writer.execute(sql`SELECT id FROM inventory WHERE id = ${item.inventoryId} FOR UPDATE`);
+        const existing = await getInventoryItemById(item.inventoryId, writer);
+        if (existing) {
+          const oldQty     = Number(existing.quantity || 0);
+          const oldCost    = parseFloat((existing as any).averageCost || "0");
+          const newQty     = normalizeInventoryQuantity(oldQty + qty);
+          const newAvgCost = calculateMovingWeightedAverage({
+            currentQuantity: oldQty,
+            currentAverageCost: oldCost,
+            incomingQuantity: qty,
+            incomingUnitCost: unitCost,
+          });
+
+          await writer.update(inventory).set({
+            quantity:       newQty,
+            averageCost:    newAvgCost.toFixed(4),
+            totalCostValue: calculateInventoryValue(newQty, newAvgCost).toFixed(2),
+            lastRestockedAt: new Date(),
+          } as any).where(eq(inventory.id, item.inventoryId));
+        }
+      } else {
+        const internalCode = await getNextInventoryCode(writer);
+        const result = await writer.insert(inventory).values({
+          itemName:        item.itemName,
+          itemNameAr:      item.itemName_ar,
+          itemNameEn:      item.itemName_en,
+          itemType:        item.itemType || "consumable",
+          // Legacy behavior remains unchanged while the lot rollout is gated off.
+          // Once lot tracking is explicitly enabled, the approved receipt must have
+          // aggregate Inventory equal to its initial Lot balance from the same tx.
+          quantity:        lotsEnabled ? qty : 0,
+          unit:            item.purchaseUnit || "قطعة",
+          purchaseUnit:    item.purchaseUnit,
+          issueUnit:       item.purchaseUnit,
+          conversionFactor: "1.0000",
+          averageCost:     unitCost.toFixed(4),
+          totalCostValue:  lotsEnabled ? calculateInventoryValue(qty, unitCost).toFixed(2) : "0",
+          internalCode,
+          receiptId,
+          linkedItemId:    item.catalogItemId || undefined,
+          warehouseId:     await getReceiptWarehouseId(),
+        } as any);
+        item.inventoryId = Number((result as any)[0]?.insertId || 0);
+        if (!item.inventoryId) throw new Error(`تعذر إنشاء Inventory للصنف "${item.itemName}"`);
+
+        await writer.update(warehouseReceiptItems).set({
+          inventoryId: item.inventoryId,
+        } as any).where(eq(warehouseReceiptItems.id, item.id));
+      }
+
+      let lotId: number | undefined;
+      if (lotsEnabled) {
+        const lot = await createReceiptInventoryLot({
+          tx: writer,
+          catalogItemId: item.catalogItemId ?? null,
+          inventoryId: Number(item.inventoryId),
+          receiptId,
+          receiptItemId: Number(item.id),
+          purchaseOrderId: (receipt as any).purchaseOrderId ?? null,
+          purchaseOrderItemId: item.purchaseOrderItemId ?? null,
+          catalogSupplierId: (receipt as any).catalogSupplierId ?? null,
+          supplierCandidateId: (receipt as any).supplierCandidateId ?? null,
+          issueQuantity: qty,
+          purchaseUnit: item.purchaseUnit || "قطعة",
+          issueUnit: item.purchaseUnit || "قطعة",
+          conversionFactor: 1,
+          purchaseUnitCost: unitCost,
+          issueUnitCost: unitCost,
+          supplierItemName: item.itemName,
+          expiryDate: item.expiryDate ?? null,
+          createdById: performedById,
+        });
+        lotId = lot.lotId;
+        lotLabels.push({
+          lotId: lot.lotId,
+          lotCode: lot.lotCode,
+          trackingToken: lot.trackingToken,
+          itemName: item.itemName,
+          quantity: qty,
+          unit: item.purchaseUnit || "قطعة",
+          sourceType: "receipt",
+          receiptNumber: (receipt as any).receiptNumber || String(receiptId),
+        });
+      }
+
+      await writer.insert(inventoryTransactions).values({
+        inventoryId:         item.inventoryId,
+        lotId,
+        type:                "in",
+        quantity:            normalizeInventoryQuantity(qty),
+        unitCost:            unitCost.toFixed(4),
+        totalCost:           calculateMovementTotal(qty, unitCost).toFixed(2),
+        reason:              `اعتماد فاتورة ${(receipt as any).receiptNumber || receiptId}`,
+        purchaseOrderItemId: item.purchaseOrderItemId,
+        performedById,
+        transactionType:     "purchase",
         receiptId,
       } as any);
-      item.inventoryId = result[0].insertId;
+
+      if (item.purchaseOrderItemId) {
+        await writer.update(purchaseOrderItems)
+          .set({ status: "delivered_to_warehouse", receivedAt: new Date(), receivedById: performedById } as any)
+          .where(eq(purchaseOrderItems.id, item.purchaseOrderItemId));
+      }
     }
 
-    // تسجيل حركة الدخول
-    await db.insert(inventoryTransactions).values({
-      inventoryId:         item.inventoryId,
-      type:                "in",
-      quantity:            Math.round(qty),
-      unitCost:            unitCost.toFixed(4),
-      totalCost:           calculateMovementTotal(qty, unitCost).toFixed(2),
-      reason:              `اعتماد فاتورة ${(receipt as any).receiptNumber || receiptId}`,
-      purchaseOrderItemId: item.purchaseOrderItemId,
-      performedById,
-      transactionType:     "purchase",
-      receiptId,
-    } as any);
+    await writer.update(warehouseReceipts)
+      .set({ status: "confirmed", isDraft: false } as any)
+      .where(eq(warehouseReceipts.id, receiptId));
+  };
 
-    // تحديث حالة بند طلب الشراء
-    if (item.purchaseOrderItemId) {
-      await db.update(purchaseOrderItems)
-        .set({ status: "delivered_to_warehouse", receivedAt: new Date(), receivedById: performedById } as any)
-        .where(eq(purchaseOrderItems.id, item.purchaseOrderItemId));
-    }
+  if (lotsEnabled) {
+    // 2B-8: receipt + aggregate inventory + lot balance + movement must commit together.
+    await db.transaction(async (tx) => applyApprovedReceipt(tx));
+    return { inventoryLotsEnabled: true, lotLabels };
   }
 
-  // تحديث حالة الفاتورة
-  await db.update(warehouseReceipts)
-    .set({ status: "confirmed", isDraft: false } as any)
-    .where(eq(warehouseReceipts.id, receiptId));
+  // Preserve the pre-2B-8 execution path until the feature is explicitly activated.
+  await applyApprovedReceipt(db);
+  return { inventoryLotsEnabled: false, lotLabels: [] as typeof lotLabels };
 }
 
 export async function updateWarehouseReceiptItem(id: number, data: {
@@ -398,13 +514,18 @@ export async function generateCountNumber(): Promise<string> {
   return `CNT-${year}-${String(seq).padStart(4, "0")}`;
 }
 
+async function generateSettlementNumberWith(writer: any): Promise<string> {
+  const year = new Date().getFullYear();
+  const [result] = await writer.insert(inventorySettlementNumberCounter).values({ year });
+  const seq = (result as any).insertId as number;
+  return `ADJ-${year}-${String(seq).padStart(4, "0")}`;
+}
+
 export async function generateSettlementNumber(): Promise<string> {
   const db = await getDb();
   const year = new Date().getFullYear();
   if (!db) return `ADJ-${year}-0001`;
-  const [result] = await db.insert(inventorySettlementNumberCounter).values({ year });
-  const seq = (result as any).insertId as number;
-  return `ADJ-${year}-${String(seq).padStart(4, "0")}`;
+  return generateSettlementNumberWith(db);
 }
 
 // ── حساب تاريخ/يوم/وقت الرياض من ساعة الخادم نفسها (مو من جهاز/هاتف المستخدم) ──
@@ -421,10 +542,70 @@ function getRiyadhNow() {
 // تماماً (وضع "يدوي/باركود")، وتُضاف الأصناف لاحقاً تباعاً عبر scanCountItem.
 // التاريخ/اليوم/الوقت تُحسب دائماً من ساعة الخادم بتوقيت الرياض — غير قابلة للتعديل
 // ولا تُستقبل من المستخدم إطلاقاً (حماية من تلاعب توقيت الجهاز/الهاتف).
+// 2B-9 — رمز ثابت لاختراق نطاق التصنيف. الواجهة تترجمه حسب لغة المستخدم
+// بدل الاعتماد على نص Backend عربي ثابت.
+export const COUNT_LOT_OUTSIDE_CATEGORY_SCOPE = "COUNT_LOT_OUTSIDE_CATEGORY_SCOPE";
+export const COUNT_LOT_NOT_IN_OPENING_SNAPSHOT = "COUNT_LOT_NOT_IN_OPENING_SNAPSHOT";
+export const COUNT_ITEM_NOT_IN_OPENING_SNAPSHOT = "COUNT_ITEM_NOT_IN_OPENING_SNAPSHOT";
+
+async function getCatalogSubtreeNodeIds(db: any, rootNodeId: number): Promise<number[]> {
+  const nodes = await db.select({
+    id: catalogNodes.id,
+    parentId: catalogNodes.parentId,
+  }).from(catalogNodes);
+
+  const rootExists = (nodes as any[]).some((node: any) => Number(node.id) === Number(rootNodeId));
+  if (!rootExists) throw new Error("التصنيف المحدد للجرد غير موجود في الكتالوج");
+
+  const childrenByParent = new Map<number, number[]>();
+  for (const node of nodes as any[]) {
+    if (node.parentId == null) continue;
+    const parentId = Number(node.parentId);
+    const list = childrenByParent.get(parentId) || [];
+    list.push(Number(node.id));
+    childrenByParent.set(parentId, list);
+  }
+
+  const result: number[] = [];
+  const queue = [Number(rootNodeId)];
+  const visited = new Set<number>();
+  while (queue.length) {
+    const nodeId = queue.shift()!;
+    if (visited.has(nodeId)) continue;
+    visited.add(nodeId);
+    result.push(nodeId);
+    for (const childId of childrenByParent.get(nodeId) || []) queue.push(childId);
+  }
+  return result;
+}
+
+async function assertInventoryMatchesOperationCatalogScope(
+  db: any,
+  catalogNodeId: number | null | undefined,
+  linkedCatalogItemId: number | null | undefined,
+) {
+  if (!catalogNodeId) return;
+  if (!linkedCatalogItemId) throw new Error(COUNT_LOT_OUTSIDE_CATEGORY_SCOPE);
+
+  const catalogRows = await db.select({ nodeId: catalogItems.nodeId })
+    .from(catalogItems)
+    .where(eq(catalogItems.id, Number(linkedCatalogItemId)))
+    .limit(1);
+  const itemNodeId = Number(catalogRows[0]?.nodeId || 0);
+  if (!itemNodeId) throw new Error(COUNT_LOT_OUTSIDE_CATEGORY_SCOPE);
+
+  const subtreeNodeIds = await getCatalogSubtreeNodeIds(db, Number(catalogNodeId));
+  if (!subtreeNodeIds.includes(itemNodeId)) {
+    throw new Error(COUNT_LOT_OUTSIDE_CATEGORY_SCOPE);
+  }
+}
+
 export async function createCountOperation(params: {
   operationTitle?: string;
   scope: "full" | "partial";
-  warehouseId?: number;      // NULL = يغطي كل المخازن
+  countType?: "periodic" | "opening_balance";
+  catalogNodeId?: number;   // 2B-9: NULL = كل المخزن/جرد يدوي غير مصنف؛ قيمة = Catalog subtree
+  warehouseId?: number;      // NULL = يغطي كل المخازن (periodic only)
   itemIds?: number[];        // مطلوبة لو scope = "partial" (إلا لو allowEmpty)
   allowEmpty?: boolean;
   createdById: number;
@@ -432,9 +613,44 @@ export async function createCountOperation(params: {
   const db = await getDb();
   if (!db) throw new Error("تعذر الاتصال بقاعدة البيانات");
 
+  const countType = params.countType || "periodic";
+  if (countType === "opening_balance") {
+    if (!isInventoryLotsEnabled()) {
+      throw new Error("الرصيد الافتتاحي بنظام الدفعات غير مفعّل بعد. أكمل تفعيل 2B-8 أولاً");
+    }
+    if (!params.warehouseId) {
+      throw new Error("الرصيد الافتتاحي يتطلب تحديد المستودع");
+    }
+    if (params.catalogNodeId) {
+      throw new Error("نطاق التصنيف مخصص للجرد الدوري وليس للرصد الافتتاحي");
+    }
+  }
+  if (params.catalogNodeId && !params.warehouseId) {
+    throw new Error("الجرد حسب التصنيف يتطلب تحديد المستودع");
+  }
+  if (params.catalogNodeId && !isInventoryLotsEnabled()) {
+    throw new Error("الجرد حسب التصنيف في 2B-9 يتطلب تفعيل نظام Lot/QR");
+  }
+
+  let catalogSubtreeNodeIds: number[] | null = null;
+  let scopedCatalogItemIds: number[] | null = null;
+  if (params.catalogNodeId) {
+    catalogSubtreeNodeIds = await getCatalogSubtreeNodeIds(db, Number(params.catalogNodeId));
+    const catalogRows = await db.select({ id: catalogItems.id })
+      .from(catalogItems)
+      .where(inArray(catalogItems.nodeId, catalogSubtreeNodeIds));
+    scopedCatalogItemIds = (catalogRows as any[]).map((row: any) => Number(row.id));
+  }
+
   const operationNumber = await generateCountNumber();
   const { riyadhDate, riyadhDayName, riyadhStartTime } = getRiyadhNow();
-  const title = params.operationTitle?.trim() || `جرد يوم ${riyadhDayName} بتاريخ ${riyadhDate}`;
+  const defaultTitle = countType === "opening_balance"
+    ? `رصيد افتتاحي ${riyadhDate}`
+    : `جرد يوم ${riyadhDayName} بتاريخ ${riyadhDate}`;
+  const title = params.operationTitle?.trim() || defaultTitle;
+  const effectiveScope: "full" | "partial" = countType === "opening_balance"
+    ? "partial"
+    : params.catalogNodeId ? "partial" : params.scope;
 
   const [opResult] = await db.insert(inventoryCountOperations).values({
     operationNumber,
@@ -442,22 +658,105 @@ export async function createCountOperation(params: {
     operationDate: new Date(riyadhDate),
     riyadhDayName,
     riyadhStartTime,
-    scope: params.scope,
+    scope: effectiveScope,
+    countType,
+    catalogNodeId: params.catalogNodeId ?? null,
     warehouseId: params.warehouseId,
     status: "in_progress",
     createdById: params.createdById,
-  });
+  } as any);
   const operationId = (opResult as any).insertId as number;
 
-  // وضع يدوي/باركود: نبدأ الجرد فاضي تماماً بدون أي أصناف مسبقة
-  if (params.scope === "partial" && params.allowEmpty && !params.itemIds?.length) {
-    return { operationId, operationNumber, operationTitle: title, itemCount: 0 };
+  // Opening balance starts empty by design. Items are selected from Master Catalog
+  // and do not affect Inventory until the settlement is applied.
+  if (countType === "opening_balance") {
+    return { operationId, operationNumber, operationTitle: title, itemCount: 0, countType };
   }
 
-  // جلب الأصناف المستهدفة: حسب المخزن و/أو قائمة محددة (جزئي)
+  // 2B-8: بعد تفعيل Lots يصبح الجرد الدوري على مستوى Lot/QR داخل مستودع محدد.
+  // في الوضع التلقائي نلتقط Snapshot لكل Lot Balance موجب؛ في الوضع اليدوي
+  // الجزئي نبدأ فارغاً وتضاف الدفعات فقط بمسح trackingToken.
+  if (isInventoryLotsEnabled()) {
+    if (!params.warehouseId) {
+      throw new Error("الجرد الدوري بنظام الدفعات يتطلب تحديد المستودع");
+    }
+
+    // الجرد الجزئي اليدوي بلا تصنيف سيبقى فارغاً في واجهة العد، لكننا نلتقط
+    // Snapshot افتتاحياً لكل Lots الموجودة في المستودع قبل السماح بأي مسح لاحق.
+    // أما catalogNodeId فيقصر الـSnapshot على Catalog subtree المختار.
+
+    const lotConditions: any[] = [
+      eq(inventory.warehouseId, params.warehouseId),
+    ];
+    if (params.catalogNodeId) {
+      if (!scopedCatalogItemIds?.length) {
+        await db.delete(inventoryCountOperations).where(eq(inventoryCountOperations.id, operationId));
+        throw new Error("لا توجد أصناف مرتبطة بالتصنيف المحدد للجرد");
+      }
+      lotConditions.push(inArray(inventory.linkedItemId, scopedCatalogItemIds));
+    }
+
+    // Main Phase 3 / Step 1: snapshot every existing Lot balance row in the warehouse,
+    // including zero balances. A known QR with system balance zero may later reveal a
+    // positive physical discrepancy, so it must retain its opening-state identity.
+    // averageCostSnapshot is the Inventory moving weighted average at operation opening.
+    const openingSnapshots = await db.select({
+      inventoryId: inventory.id,
+      lotId: inventoryLots.id,
+      systemQuantity: inventoryLotBalances.quantity,
+      averageCostSnapshot: inventory.averageCost,
+      expiryDate: inventoryLots.expiryDate,
+    })
+      .from(inventoryLotBalances)
+      .innerJoin(inventoryLots, eq(inventoryLots.id, inventoryLotBalances.lotId))
+      .innerJoin(inventory, eq(inventory.id, inventoryLotBalances.inventoryId))
+      .where(and(...lotConditions));
+
+    if (openingSnapshots.length > 0) {
+      await db.insert(inventoryCountSnapshots).values(openingSnapshots.map((row: any) => ({
+        operationId,
+        inventoryId: Number(row.inventoryId),
+        lotId: Number(row.lotId),
+        systemQuantity: Number(row.systemQuantity || 0).toFixed(3),
+        averageCostSnapshot: Number(row.averageCostSnapshot || 0).toFixed(4),
+        expiryDate: row.expiryDate ?? null,
+      })) as any);
+    }
+
+    // Manual partial QR count keeps the UI/workflow empty, but the immutable opening
+    // snapshot already exists. Scanning later selects from this snapshot instead of
+    // reading a newer quantity/cost from Inventory/Lot balances.
+    if (effectiveScope === "partial" && !params.catalogNodeId) {
+      return { operationId, operationNumber, operationTitle: title, itemCount: 0, countType };
+    }
+
+    const countTargets = openingSnapshots.filter((row: any) => Number(row.systemQuantity || 0) > 0);
+    if (countTargets.length === 0) {
+      // لا نترك رأس عملية فارغاً إذا لم يوجد أي Lot موجب يطابق نطاق الجرد الشامل/المصنّف.
+      await db.delete(inventoryCountSnapshots).where(eq(inventoryCountSnapshots.operationId, operationId));
+      await db.delete(inventoryCountOperations).where(eq(inventoryCountOperations.id, operationId));
+      throw new Error("لا توجد دفعات ذات رصيد مطابق لنطاق الجرد المحدد");
+    }
+
+    for (const row of countTargets) {
+      await db.insert(inventoryCountItems).values({
+        operationId,
+        inventoryId: row.inventoryId,
+        lotId: row.lotId,
+        systemQuantity: Number(row.systemQuantity || 0).toFixed(3),
+        expiryDate: row.expiryDate ?? null,
+      } as any);
+    }
+
+    return { operationId, operationNumber, operationTitle: title, itemCount: countTargets.length, countType };
+  }
+
+  // Legacy pre-Lot path: capture the opening state before an empty/manual barcode
+  // workflow can add an Inventory row later. This preserves the same Phase 3 rule even
+  // when the Lot feature flag is off.
   const conditions = [];
   if (params.warehouseId) conditions.push(eq(inventory.warehouseId, params.warehouseId));
-  if (params.scope === "partial" && params.itemIds?.length) {
+  if (effectiveScope === "partial" && params.itemIds?.length) {
     conditions.push(inArray(inventory.id, params.itemIds));
   }
 
@@ -466,22 +765,39 @@ export async function createCountOperation(params: {
     .from(inventory)
     .where(conditions.length ? and(...conditions) : undefined);
 
+  if (targetItems.length > 0) {
+    await db.insert(inventoryCountSnapshots).values(targetItems.map((item: any) => ({
+      operationId,
+      inventoryId: Number(item.id),
+      lotId: null,
+      systemQuantity: Number(item.quantity || 0).toFixed(3),
+      averageCostSnapshot: Number(item.averageCost || 0).toFixed(4),
+      expiryDate: item.expiryDate ?? null,
+    })) as any);
+  }
+
+  // وضع يدوي/باركود: واجهة الجرد تبدأ فارغة، لكن Snapshot الافتتاحي محفوظ.
+  if (effectiveScope === "partial" && params.allowEmpty && !params.itemIds?.length) {
+    return { operationId, operationNumber, operationTitle: title, itemCount: 0, countType };
+  }
+
   if (targetItems.length === 0) {
+    await db.delete(inventoryCountOperations).where(eq(inventoryCountOperations.id, operationId));
     throw new Error("لا توجد أصناف مطابقة لنطاق الجرد المحدد");
   }
 
-  // إنشاء سطر جرد فارغ (بانتظار العد) لكل صنف، مع صورة لحظية من كمية النظام
+  // إنشاء سطر جرد فارغ لكل صنف من نفس Snapshot الافتتاحي.
   for (const item of targetItems) {
     await db.insert(inventoryCountItems).values({
       operationId,
       inventoryId: item.id,
-      systemQuantity: String(item.quantity),
+      systemQuantity: Number(item.quantity || 0).toFixed(3),
       lotNumber: null,
       expiryDate: item.expiryDate ?? null,
     });
   }
 
-  return { operationId, operationNumber, operationTitle: title, itemCount: targetItems.length };
+  return { operationId, operationNumber, operationTitle: title, itemCount: targetItems.length, countType };
 }
 
 // ── 1ب) إضافة/زيادة صنف بجرد جارٍ عبر مسح باركود أو اختيار مباشر ──
@@ -507,6 +823,29 @@ async function assertItemMatchesOperationWarehouse(
   throw new Error("هذا الصنف لا ينتمي لمخزن عملية الجرد الحالية");
 }
 
+async function getCountOpeningSnapshotForInventory(db: any, operationId: number, inventoryId: number) {
+  const rows = await db.select().from(inventoryCountSnapshots).where(and(
+    eq(inventoryCountSnapshots.operationId, operationId),
+    eq(inventoryCountSnapshots.inventoryId, inventoryId),
+    isNull(inventoryCountSnapshots.lotId),
+  )).limit(2);
+  if (rows.length > 1) {
+    throw new Error("يوجد أكثر من Snapshot افتتاحي لنفس الصنف في عملية الجرد");
+  }
+  return rows[0] || null;
+}
+
+async function getCountOpeningSnapshotForLot(db: any, operationId: number, lotId: number) {
+  const rows = await db.select().from(inventoryCountSnapshots).where(and(
+    eq(inventoryCountSnapshots.operationId, operationId),
+    eq(inventoryCountSnapshots.lotId, lotId),
+  )).limit(2);
+  if (rows.length > 1) {
+    throw new Error("يوجد أكثر من Snapshot افتتاحي لنفس Lot في عملية الجرد");
+  }
+  return rows[0] || null;
+}
+
 export async function scanCountItem(params: {
   operationId: number;
   inventoryId: number;
@@ -522,6 +861,12 @@ export async function scanCountItem(params: {
   const op = opRows[0];
   if (op?.status === "completed") {
     throw new Error("هذا الجرد محفوظ نهائياً ولا يمكن التعديل عليه");
+  }
+  if ((op as any)?.countType === "opening_balance") {
+    throw new Error("الرصيد الافتتاحي يُضاف من Master Catalog وليس من مسح Inventory القديم");
+  }
+  if (isInventoryLotsEnabled()) {
+    throw new Error("الجرد الدوري بعد تفعيل الدفعات يتطلب مسح QR للـLot وليس باركود Inventory");
   }
 
   const increment = params.incrementBy ?? 1;
@@ -550,19 +895,110 @@ export async function scanCountItem(params: {
   if (!inv) throw new Error("الصنف غير موجود بالمخزون");
   await assertItemMatchesOperationWarehouse(db, op?.warehouseId, inv.warehouseId);
 
-  const diff = increment - inv.quantity;
+  const openingSnapshot = await getCountOpeningSnapshotForInventory(db, params.operationId, params.inventoryId);
+  if (!openingSnapshot) throw new Error(COUNT_ITEM_NOT_IN_OPENING_SNAPSHOT);
+  const openingSystemQuantity = Number(openingSnapshot.systemQuantity || 0);
+  const diff = increment - openingSystemQuantity;
   const [result] = await db.insert(inventoryCountItems).values({
     operationId: params.operationId,
     inventoryId: params.inventoryId,
-    systemQuantity: String(inv.quantity),
+    systemQuantity: openingSystemQuantity.toFixed(3),
     countedQuantity: String(increment),
     diffQuantity: String(diff),
-    expiryDate: inv.expiryDate ?? null,
+    expiryDate: openingSnapshot.expiryDate ?? null,
     countedById: params.countedById,
     countedAt: new Date(),
   });
   const countItemId = (result as any).insertId as number;
   return { countItemId, countedQuantity: increment, diffQuantity: diff, isNew: true };
+}
+
+// ── 1ب-Lot) مسح QR دفعة أثناء الجرد الدوري ──
+// المسح لا يغيّر أي رصيد. يحدد Lot + Inventory داخل مستودع عملية الجرد،
+// ويعيد/ينشئ سطر الجرد الخاص بهذه الدفعة ثم تُسجّل الكمية الفعلية عبر recordCountItem.
+export async function scanCountLot(params: {
+  operationId: number;
+  trackingToken: string;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("تعذر الاتصال بقاعدة البيانات");
+  if (!isInventoryLotsEnabled()) throw new Error("نظام الدفعات غير مفعّل");
+
+  const opRows = await db.select().from(inventoryCountOperations)
+    .where(eq(inventoryCountOperations.id, params.operationId)).limit(1);
+  const op = opRows[0];
+  if (!op) throw new Error("عملية الجرد غير موجودة");
+  if (op.status === "completed") throw new Error("هذا الجرد محفوظ نهائياً ولا يمكن التعديل عليه");
+  if ((op as any).countType !== "periodic") throw new Error("مسح Lot متاح للجرد الدوري فقط");
+  if (!op.warehouseId) throw new Error("الجرد الدوري بالدفعات يتطلب مستودعاً محدداً");
+
+  const lot = await resolveInventoryLotForCount({
+    tx: db,
+    trackingToken: params.trackingToken,
+    warehouseId: Number(op.warehouseId),
+  });
+
+  const invRows = await db.select().from(inventory).where(eq(inventory.id, lot.inventoryId)).limit(1);
+  const inv = invRows[0];
+  if (!inv) throw new Error("سجل المخزون المرتبط بالدفعة غير موجود");
+
+  // 2B-9 — التحقق Server-side إلزامي. فلتر الواجهة وحده غير كافٍ لأن QR قد
+  // يُمسح مباشرة. الصنف يجب أن ينتمي للتصنيف المختار أو أحد أبنائه.
+  await assertInventoryMatchesOperationCatalogScope(
+    db,
+    Number((op as any).catalogNodeId || 0) || null,
+    Number((inv as any).linkedItemId || 0) || null,
+  );
+
+  // Phase 3 opening-time rule: a QR scanned later must resolve to the immutable
+  // snapshot captured when this operation was opened. A Lot that entered the
+  // warehouse after opening is outside this count's historical state.
+  const openingSnapshot = await getCountOpeningSnapshotForLot(db, params.operationId, lot.lotId);
+  if (!openingSnapshot) throw new Error(COUNT_LOT_NOT_IN_OPENING_SNAPSHOT);
+  if (Number(openingSnapshot.inventoryId) !== lot.inventoryId) {
+    throw new Error("Snapshot افتتاح الجرد للدفعة لا يطابق سجل المخزون الحالي");
+  }
+
+  const existingRows = await db.select().from(inventoryCountItems).where(and(
+    eq(inventoryCountItems.operationId, params.operationId),
+    eq(inventoryCountItems.lotId, lot.lotId),
+  )).limit(2);
+  if (existingRows.length > 1) {
+    throw new Error("يوجد أكثر من سطر جرد لنفس Lot في العملية الحالية؛ راجع بيانات الجرد");
+  }
+
+  let row = existingRows[0] as any;
+  if (!row) {
+    const [result] = await db.insert(inventoryCountItems).values({
+      operationId: params.operationId,
+      inventoryId: lot.inventoryId,
+      lotId: lot.lotId,
+      systemQuantity: Number(openingSnapshot.systemQuantity || 0).toFixed(3),
+      expiryDate: openingSnapshot.expiryDate ?? null,
+    } as any);
+    const id = Number((result as any).insertId);
+    const rows = await db.select().from(inventoryCountItems)
+      .where(eq(inventoryCountItems.id, id)).limit(1);
+    row = rows[0];
+  }
+
+  if (Number(row.inventoryId) !== lot.inventoryId) {
+    throw new Error("سطر الجرد المحفوظ للدفعة لا يطابق سجل المخزون الحالي");
+  }
+
+  return {
+    countItemId: Number(row.id),
+    inventoryId: lot.inventoryId,
+    lotId: lot.lotId,
+    lotCode: lot.lotCode,
+    trackingToken: lot.trackingToken,
+    itemName: inv.itemName,
+    unit: (inv as any).issueUnit || inv.unit,
+    systemQuantity: Number(row.systemQuantity || 0),
+    averageCostSnapshot: Number(openingSnapshot.averageCostSnapshot || 0),
+    countedQuantity: row.countedQuantity !== null ? Number(row.countedQuantity) : null,
+    notes: row.notes ?? null,
+  };
 }
 
 // ── 1ج) إضافة صنف لعملية جرد جارية بدون تحديد كمية (يظهر بالجدول بانتظار العدّ) ──
@@ -581,6 +1017,12 @@ export async function addItemToCount(params: {
   if (!opRows[0]) throw new Error("عملية الجرد غير موجودة");
   if (opRows[0].status === "completed") {
     throw new Error("هذا الجرد محفوظ نهائياً ولا يمكن التعديل عليه");
+  }
+  if ((opRows[0] as any).countType === "opening_balance") {
+    throw new Error("الرصيد الافتتاحي يُضاف من Master Catalog وليس من قائمة Inventory القديمة");
+  }
+  if (isInventoryLotsEnabled()) {
+    throw new Error("الجرد الدوري بعد تفعيل الدفعات يتطلب مسح QR للـLot");
   }
 
   const existingRows = await db.select().from(inventoryCountItems)
@@ -612,11 +1054,14 @@ export async function addItemToCount(params: {
     };
   }
 
+  const openingSnapshot = await getCountOpeningSnapshotForInventory(db, params.operationId, params.inventoryId);
+  if (!openingSnapshot) throw new Error(COUNT_ITEM_NOT_IN_OPENING_SNAPSHOT);
+
   const [result] = await db.insert(inventoryCountItems).values({
     operationId: params.operationId,
     inventoryId: params.inventoryId,
-    systemQuantity: String(inv.quantity),
-    expiryDate: inv.expiryDate ?? null,
+    systemQuantity: Number(openingSnapshot.systemQuantity || 0).toFixed(3),
+    expiryDate: openingSnapshot.expiryDate ?? null,
   });
   const countItemId = (result as any).insertId as number;
 
@@ -624,7 +1069,7 @@ export async function addItemToCount(params: {
     countItemId,
     itemName: inv.itemName,
     unit: inv.unit,
-    systemQuantity: inv.quantity,
+    systemQuantity: Number(openingSnapshot.systemQuantity || 0),
     countedQuantity: null,
     lotNumber: null,
     expiryDate: inv.expiryDate ?? null,
@@ -640,8 +1085,9 @@ export async function addItemToCount(params: {
 // فوراً بالكمية المُدخلة (بعكس الفروقات العادية اللي تنتظر مرحلة التسوية).
 export async function addNewItemDuringCount(params: {
   operationId: number;
-  itemName: string;
-  unit: string;
+  catalogItemId?: number;
+  itemName?: string;
+  unit?: string;
   quantity: number;
   cost?: number;           // التكلفة اختيارية دائماً
   createdById: number;
@@ -657,17 +1103,126 @@ export async function addNewItemDuringCount(params: {
     throw new Error("هذا الجرد محفوظ نهائياً ولا يمكن الإضافة عليه");
   }
 
-  // توليد نفس معرّفَي أي صنف عادي — لضمان التطابق الكامل مع باقي المخزون بالتقارير
+  const cost = Number(params.cost ?? 0);
+  const quantity = normalizeInventoryQuantity(params.quantity);
+  if (!(quantity > 0)) throw new Error("الكمية يجب أن تكون أكبر من صفر");
+
+  // 2B-8: الرصيد الافتتاحي لا ينشئ Master Item من اسم حر. يجب أن يبدأ من Catalog Item
+  // معتمد، ويظل Inventory = 0 حتى تطبيق التسوية التي تنشئ Opening Balance Lot + QR.
+  if ((op as any).countType === "opening_balance") {
+    if (!isInventoryLotsEnabled()) {
+      throw new Error("الرصيد الافتتاحي بنظام الدفعات غير مفعّل بعد");
+    }
+    if (!op.warehouseId) throw new Error("عملية الرصيد الافتتاحي يجب أن تكون مرتبطة بمستودع");
+    if (!params.catalogItemId) throw new Error("اختيار صنف من الكتالوج إلزامي للرصد الافتتاحي");
+
+    const catalogRows = await db.select().from(catalogItems)
+      .where(and(eq(catalogItems.id, params.catalogItemId), eq(catalogItems.isActive, 1)))
+      .limit(1);
+    const catalog = catalogRows[0];
+    if (!catalog) throw new Error("صنف الكتالوج غير موجود أو غير نشط");
+
+    const matchingInventory = await db.select().from(inventory).where(and(
+      eq(inventory.linkedItemId, catalog.id),
+      eq(inventory.warehouseId, op.warehouseId),
+    ));
+    if (matchingInventory.length > 1) {
+      throw new Error(`يوجد أكثر من سجل Inventory لنفس صنف الكتالوج داخل المستودع. أصلح التكرار قبل الرصيد الافتتاحي`);
+    }
+
+    let inventoryId: number;
+    let internalCode: string;
+    if (matchingInventory[0]) {
+      const existing = matchingInventory[0];
+      if (normalizeInventoryQuantity(Number(existing.quantity || 0)) !== 0) {
+        throw new Error("هذا الصنف لديه رصيد قائم في المستودع. الرصيد الافتتاحي مخصص للتأسيس على رصيد صفري");
+      }
+      inventoryId = existing.id;
+      internalCode = (existing as any).internalCode || "";
+      await db.update(inventory).set({
+        linkedItemId: catalog.id,
+        itemName: catalog.nameAr,
+        itemNameAr: catalog.nameAr,
+        itemNameEn: catalog.nameEn,
+        unit: catalog.unit || (existing as any).unit || "قطعة",
+        purchaseUnit: catalog.unit || (existing as any).purchaseUnit || (existing as any).unit || "قطعة",
+        issueUnit: catalog.unit || (existing as any).issueUnit || (existing as any).unit || "قطعة",
+        averageCost: cost.toFixed(4),
+        totalCostValue: "0.00",
+        updatedAt: new Date(),
+      } as any).where(eq(inventory.id, inventoryId));
+    } else {
+      internalCode = await getNextInventoryCode(db);
+      inventoryId = Number(await createInventoryItemV2({
+        itemName:            catalog.nameAr,
+        itemNameAr:          catalog.nameAr,
+        itemNameEn:          catalog.nameEn,
+        quantity:            0,
+        unit:                catalog.unit || "قطعة",
+        purchaseUnit:        catalog.unit || "قطعة",
+        issueUnit:           catalog.unit || "قطعة",
+        conversionFactor:    "1.0000",
+        internalCode,
+        averageCost:         cost.toFixed(4),
+        totalCostValue:      "0.00",
+        linkedItemId:        catalog.id,
+        warehouseId:         op.warehouseId,
+      }, db));
+      if (!inventoryId) throw new Error("تعذر إنشاء سجل المخزون للرصد الافتتاحي");
+    }
+
+    const duplicateRows = await db.select().from(inventoryCountItems).where(and(
+      eq(inventoryCountItems.operationId, params.operationId),
+      eq(inventoryCountItems.inventoryId, inventoryId),
+    )).limit(1);
+    if (duplicateRows[0]) {
+      throw new Error("هذا الصنف مضاف بالفعل إلى عملية الرصيد الافتتاحي الحالية");
+    }
+
+    const [countItemResult] = await db.insert(inventoryCountItems).values({
+      operationId: params.operationId,
+      inventoryId,
+      systemQuantity: "0.000",
+      countedQuantity: quantity.toFixed(3),
+      diffQuantity: quantity.toFixed(3),
+      countedById: params.createdById,
+      countedAt: new Date(),
+      notes: "رصيد افتتاحي من Master Catalog — بانتظار تطبيق التسوية وإنشاء QR للدفعة",
+    } as any);
+    const countItemId = Number((countItemResult as any).insertId);
+
+    return {
+      countItemId,
+      inventoryId,
+      catalogItemId: catalog.id,
+      itemName: catalog.nameAr,
+      itemNameEn: catalog.nameEn,
+      unit: catalog.unit || "قطعة",
+      quantity,
+      internalCode,
+      openingBalancePending: true,
+    };
+  }
+
+  // بعد تفعيل Lots لا يسمح الجرد الدوري بإنشاء Aggregate Inventory من اسم حر،
+  // لأن أي كمية جديدة يجب أن يكون لها مصدر/دفعة معروفة. هذا المسار التاريخي يبقى فقط والـGate مغلق.
+  if (isInventoryLotsEnabled()) {
+    throw new Error("لا يمكن إنشاء صنف حر أثناء الجرد الدوري بعد تفعيل الدفعات؛ استخدم QR لدفعة معروفة أو مسار الرصيد الافتتاحي المعتمد");
+  }
+
+  const itemName = params.itemName?.trim();
+  const unit = params.unit?.trim();
+  if (!itemName) throw new Error("اسم الصنف مطلوب");
+  if (!unit) throw new Error("الوحدة مطلوبة");
+
   const internalCode = await getNextInventoryCode();
   const manufacturerBarcode = await getNextItemBarcode();
-
-  const cost = params.cost ?? 0;
-  const totalCostValue = calculateInventoryValue(params.quantity, cost);
+  const totalCostValue = calculateInventoryValue(quantity, cost);
 
   const inventoryId = await createInventoryItemV2({
-    itemName:            params.itemName,
-    quantity:             params.quantity,
-    unit:                 params.unit,
+    itemName,
+    quantity,
+    unit,
     internalCode,
     manufacturerBarcode,
     averageCost:          String(cost),
@@ -675,26 +1230,23 @@ export async function addNewItemDuringCount(params: {
     warehouseId:          op.warehouseId ?? undefined,
   }, db);
 
-  // دخول فوري للمخزون (بعكس فروقات الجرد العادية) — يوثَّق كحركة "in" من نوع تسوية
   await db.insert(inventoryTransactions).values({
     inventoryId,
     type:            "in",
-    quantity:        Math.round(params.quantity),
+    quantity,
     unitCost:        cost.toFixed(4),
-    totalCost:       calculateMovementTotal(params.quantity, cost).toFixed(2),
+    totalCost:       calculateMovementTotal(quantity, cost).toFixed(2),
     reason:          `صنف جديد أُضيف أثناء عملية الجرد ${op.operationNumber}`,
     performedById:   params.createdById,
     transactionType: "adjustment",
     documentUrl:     op.operationNumber,
   });
 
-  // سطر توثيقي بجدول الجرد — systemQuantity = countedQuantity لأن الرصيد
-  // حُدّث بنفس اللحظة، فلا يبقى فرق فعلي يحتاج تسوية لاحقة لهذا الصنف تحديداً.
   const [countItemResult] = await db.insert(inventoryCountItems).values({
     operationId:    params.operationId,
     inventoryId,
-    systemQuantity: String(params.quantity),
-    countedQuantity: String(params.quantity),
+    systemQuantity: String(quantity),
+    countedQuantity: String(quantity),
     diffQuantity:    "0",
     countedById:     params.createdById,
     countedAt:       new Date(),
@@ -705,9 +1257,9 @@ export async function addNewItemDuringCount(params: {
   return {
     countItemId,
     inventoryId,
-    itemName: params.itemName,
-    unit: params.unit,
-    quantity: params.quantity,
+    itemName,
+    unit,
+    quantity,
     internalCode,
     manufacturerBarcode,
   };
@@ -717,6 +1269,8 @@ export async function addNewItemDuringCount(params: {
 export async function recordCountItem(params: {
   countItemId: number;
   countedQuantity: number;
+  entryMode?: "qr" | "manual";
+  trackingToken?: string;
   lotNumber?: string;
   expiryDate?: string;
   notes?: string;
@@ -737,19 +1291,84 @@ export async function recordCountItem(params: {
     throw new Error("هذا الجرد محفوظ نهائياً ولا يمكن التعديل عليه");
   }
 
-  const diff = params.countedQuantity - parseFloat(row.systemQuantity);
+  const isPeriodicLotCount = isInventoryLotsEnabled() && (opRows[0] as any)?.countType === "periodic";
+  let lotCode: string | undefined;
+  if (isPeriodicLotCount) {
+    if (!row.lotId) throw new Error("سطر الجرد لا يحتوي Lot؛ أعد تحديد الدفعة");
+    if (!opRows[0]?.warehouseId) throw new Error("عملية الجرد لا تحتوي مستودعاً محدداً");
+
+    const entryMode = params.entryMode === "manual" ? "manual" : "qr";
+    if (entryMode === "manual") {
+      // 2B-9: الإدخال اليدوي لا يعني Aggregate-only. المستخدم يعد سطر Lot محدداً
+      // موجوداً أصلاً داخل عملية الجرد. نعيد التحقق Server-side من المخزن، هوية
+      // الـLot، ونطاق Catalog قبل قبول الكمية، حتى لا يكون زر الواجهة طريقاً
+      // لتجاوز QR أو نطاق التصنيف.
+      const invRows = await db.select().from(inventory)
+        .where(eq(inventory.id, Number(row.inventoryId))).limit(1);
+      const inv = invRows[0];
+      if (!inv) throw new Error("سجل المخزون المرتبط بسطر الجرد غير موجود");
+
+      await assertItemMatchesOperationWarehouse(db, opRows[0].warehouseId, inv.warehouseId);
+      await assertInventoryMatchesOperationCatalogScope(
+        db,
+        Number((opRows[0] as any).catalogNodeId || 0) || null,
+        Number((inv as any).linkedItemId || 0) || null,
+      );
+
+      const lotRows = await db.select({
+        id: inventoryLots.id,
+        lotCode: inventoryLots.lotCode,
+        catalogItemId: inventoryLots.catalogItemId,
+      }).from(inventoryLots)
+        .where(eq(inventoryLots.id, Number(row.lotId))).limit(1);
+      const storedLot = lotRows[0];
+      if (!storedLot) throw new Error("الدفعة المرتبطة بسطر الجرد غير موجودة");
+      if (storedLot.catalogItemId && (inv as any).linkedItemId && Number(storedLot.catalogItemId) !== Number((inv as any).linkedItemId)) {
+        throw new Error("هوية Catalog للدفعة لا تطابق سجل المخزون في سطر الجرد");
+      }
+
+      const balanceRows = await db.select({ quantity: inventoryLotBalances.quantity })
+        .from(inventoryLotBalances)
+        .where(and(
+          eq(inventoryLotBalances.lotId, Number(row.lotId)),
+          eq(inventoryLotBalances.inventoryId, Number(row.inventoryId)),
+        )).limit(1);
+      if (!balanceRows[0]) {
+        throw new Error("الدفعة لم تعد مرتبطة بسجل المخزون الخاص بعملية الجرد");
+      }
+      lotCode = storedLot.lotCode;
+    } else {
+      if (!params.trackingToken?.trim()) throw new Error("يجب مسح QR للدفعة قبل حفظ الكمية المعدودة");
+
+      const lot = await resolveInventoryLotForCount({
+        tx: db,
+        trackingToken: params.trackingToken,
+        warehouseId: Number(opRows[0].warehouseId),
+      });
+      if (lot.lotId !== Number(row.lotId) || lot.inventoryId !== Number(row.inventoryId)) {
+        throw new Error("QR الممسوح لا يطابق الدفعة المحددة في سطر الجرد");
+      }
+      lotCode = lot.lotCode;
+    }
+  }
+
+  const countedQuantity = normalizeInventoryQuantity(params.countedQuantity);
+  if (countedQuantity < 0) throw new Error("الكمية المعدودة لا يمكن أن تكون سالبة");
+  const diff = normalizeInventoryQuantity(countedQuantity - parseFloat(row.systemQuantity));
 
   await db.update(inventoryCountItems).set({
-    countedQuantity: String(params.countedQuantity),
-    diffQuantity: String(diff),
-    lotNumber: params.lotNumber ?? row.lotNumber,
-    expiryDate: params.expiryDate ? new Date(params.expiryDate) : row.expiryDate,
+    countedQuantity: countedQuantity.toFixed(3),
+    diffQuantity: diff.toFixed(3),
+    ...(isPeriodicLotCount ? {} : {
+      lotNumber: params.lotNumber ?? row.lotNumber,
+      expiryDate: params.expiryDate ? new Date(params.expiryDate) : row.expiryDate,
+    }),
     notes: params.notes,
     countedById: params.countedById,
     countedAt: new Date(),
-  }).where(eq(inventoryCountItems.id, params.countItemId));
+  } as any).where(eq(inventoryCountItems.id, params.countItemId));
 
-  return { diffQuantity: diff };
+  return { diffQuantity: diff, lotCode };
 }
 
 // ── 3) إنهاء عملية الجرد (تسجيل فقط — لا يمس المخزون) ──
@@ -768,6 +1387,16 @@ export async function completeCountOperation(operationId: number) {
 
   const counted = items.filter(i => i.countedQuantity !== null);
   const discrepancies = counted.filter(i => parseFloat(i.diffQuantity || "0") !== 0);
+
+  if (isInventoryLotsEnabled() && (opRows[0] as any)?.countType === "periodic") {
+    const uncountedLots = items.filter(i => i.lotId && i.countedQuantity === null);
+    if (uncountedLots.length > 0) {
+      throw new Error(`لا يمكن إنهاء الجرد: توجد ${uncountedLots.length} دفعة لم يتم عدّها بعد. امسح QR لكل دفعة وسجل الكمية`);
+    }
+    if (counted.length === 0) {
+      throw new Error("لا يمكن إنهاء جرد دفعات بدون عدّ أي Lot");
+    }
+  }
 
   await db.update(inventoryCountOperations).set({
     status: "completed",
@@ -792,6 +1421,7 @@ export async function deleteCountOperation(operationId: number) {
   }
 
   await db.delete(inventoryCountItems).where(eq(inventoryCountItems.operationId, operationId));
+  await db.delete(inventoryCountSnapshots).where(eq(inventoryCountSnapshots.operationId, operationId));
   await db.delete(inventoryCountOperations).where(eq(inventoryCountOperations.id, operationId));
 
   return { success: true };
@@ -804,16 +1434,63 @@ export async function getUncountedItems(operationId: number) {
   return db.select({
     countItemId: inventoryCountItems.id,
     inventoryId: inventoryCountItems.inventoryId,
+    lotId: inventoryCountItems.lotId,
+    lotCode: inventoryLots.lotCode,
+    catalogItemId: inventory.linkedItemId,
     itemName: inventory.itemName,
     unit: inventory.unit,
     systemQuantity: inventoryCountItems.systemQuantity,
   })
     .from(inventoryCountItems)
     .innerJoin(inventory, eq(inventory.id, inventoryCountItems.inventoryId))
+    .leftJoin(inventoryLots, eq(inventoryLots.id, inventoryCountItems.lotId))
     .where(and(
       eq(inventoryCountItems.operationId, operationId),
       isNull(inventoryCountItems.countedQuantity),
     ));
+}
+
+// ── Main Phase 3 / Step 2: ربط نتائج الجرد بتكلفة Snapshot الافتتاحية ──
+function countSnapshotKey(inventoryId: number, lotId: number | null | undefined) {
+  return `${Number(inventoryId)}:${lotId == null ? "legacy" : Number(lotId)}`;
+}
+
+async function attachCountOpeningValuation(db: any, operationId: number, rows: any[]) {
+  const snapshots = await db.select().from(inventoryCountSnapshots)
+    .where(eq(inventoryCountSnapshots.operationId, operationId));
+
+  const byKey = new Map<string, any>();
+  for (const snapshot of snapshots as any[]) {
+    const key = countSnapshotKey(Number(snapshot.inventoryId), snapshot.lotId == null ? null : Number(snapshot.lotId));
+    if (byKey.has(key)) {
+      throw new Error("يوجد أكثر من Snapshot افتتاحي لنفس بند الجرد");
+    }
+    byKey.set(key, snapshot);
+  }
+
+  return (rows as any[]).map((row: any) => {
+    const key = countSnapshotKey(Number(row.inventoryId), row.lotId == null ? null : Number(row.lotId));
+    const snapshot = byKey.get(key);
+    const snapshotCost = snapshot ? Number(snapshot.averageCostSnapshot || 0) : null;
+    const systemQuantity = Number(row.systemQuantity || 0);
+    const countedQuantity = row.countedQuantity == null ? null : Number(row.countedQuantity);
+    const diffQuantity = row.diffQuantity == null ? null : Number(row.diffQuantity);
+
+    return {
+      ...row,
+      // Do not fall back to current Inventory.averageCost for historical valuation.
+      // Old operations without an opening snapshot remain explicitly unvalued.
+      averageCostSnapshot: snapshot ? Number(snapshot.averageCostSnapshot || 0).toFixed(4) : null,
+      systemValueSnapshot: snapshotCost == null ? null : (systemQuantity * snapshotCost).toFixed(2),
+      countedValueAtSnapshotCost: countedQuantity == null || snapshotCost == null
+        ? null
+        : (countedQuantity * snapshotCost).toFixed(2),
+      diffValue: diffQuantity == null || snapshotCost == null
+        ? null
+        : (diffQuantity * snapshotCost).toFixed(2),
+      hasOpeningCostSnapshot: Boolean(snapshot),
+    };
+  });
 }
 
 // ── 5) تفاصيل عملية جرد كاملة (لعرض الشاشة) ──
@@ -826,58 +1503,99 @@ export async function getCountOperationDetails(operationId: number) {
   if (!op[0]) return null;
 
   const creator = await getUserById(op[0].createdById);
+  let catalogScopeNode: any = null;
+  if ((op[0] as any).catalogNodeId) {
+    const nodeRows = await db.select({
+      id: catalogNodes.id,
+      nameAr: catalogNodes.nameAr,
+      nameEn: catalogNodes.nameEn,
+      code: catalogNodes.code,
+    }).from(catalogNodes).where(eq(catalogNodes.id, Number((op[0] as any).catalogNodeId))).limit(1);
+    catalogScopeNode = nodeRows[0] || null;
+  }
 
-  const items = await db.select({
+  const rawItems = await db.select({
     countItemId: inventoryCountItems.id,
     inventoryId: inventoryCountItems.inventoryId,
+    lotId: inventoryCountItems.lotId,
+    lotCode: inventoryLots.lotCode,
+    sourceType: inventoryLots.sourceType,
     itemName: inventory.itemName,
     unit: inventory.unit,
+    // Current cost remains exposed only for operational compatibility; Step 2 valuation
+    // uses averageCostSnapshot exclusively and never this changing value.
     averageCost: inventory.averageCost,
     systemQuantity: inventoryCountItems.systemQuantity,
     countedQuantity: inventoryCountItems.countedQuantity,
     diffQuantity: inventoryCountItems.diffQuantity,
     lotNumber: inventoryCountItems.lotNumber,
+    batchNumber: inventoryLots.batchNumber,
     expiryDate: inventoryCountItems.expiryDate,
+    lotExpiryDate: inventoryLots.expiryDate,
     notes: inventoryCountItems.notes,
     countedAt: inventoryCountItems.countedAt,
   })
     .from(inventoryCountItems)
     .innerJoin(inventory, eq(inventory.id, inventoryCountItems.inventoryId))
+    .leftJoin(inventoryLots, eq(inventoryLots.id, inventoryCountItems.lotId))
     .where(eq(inventoryCountItems.operationId, operationId));
 
-  return { operation: { ...op[0], creatorName: (creator as any)?.name || "—" }, items };
+  const items = await attachCountOpeningValuation(db, operationId, rawItems);
+
+  return {
+    operation: {
+      ...op[0],
+      creatorName: (creator as any)?.name || "—",
+      catalogNodeNameAr: catalogScopeNode?.nameAr ?? null,
+      catalogNodeNameEn: catalogScopeNode?.nameEn ?? null,
+      catalogNodeCode: catalogScopeNode?.code ?? null,
+    },
+    items,
+  };
 }
 
 // ── 6) قائمة عمليات الجرد (للأرشيف) ──
 export async function listCountOperations() {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(inventoryCountOperations)
+  const operations = await db.select().from(inventoryCountOperations)
     .orderBy(desc(inventoryCountOperations.createdAt));
+
+  const nodeIds = Array.from(new Set(
+    (operations as any[])
+      .map((op: any) => Number(op.catalogNodeId || 0))
+      .filter((id: number) => id > 0),
+  ));
+  if (nodeIds.length === 0) return operations;
+
+  const nodes = await db.select({
+    id: catalogNodes.id,
+    nameAr: catalogNodes.nameAr,
+    nameEn: catalogNodes.nameEn,
+    code: catalogNodes.code,
+  }).from(catalogNodes).where(inArray(catalogNodes.id, nodeIds));
+  const nodeById = new Map<number, any>((nodes as any[]).map((node: any) => [Number(node.id), node]));
+
+  return (operations as any[]).map((op: any) => {
+    const node = nodeById.get(Number(op.catalogNodeId || 0));
+    return {
+      ...op,
+      catalogNodeNameAr: node?.nameAr ?? null,
+      catalogNodeNameEn: node?.nameEn ?? null,
+      catalogNodeCode: node?.code ?? null,
+    };
+  });
 }
 
 // ── 7) فروقات جرد مكتمل (تُستخدم لتعبئة شاشة التسوية تلقائياً) ──
 export async function getCountDiscrepancies(operationId: number) {
-  const db = await getDb();
-  if (!db) return [];
-  return db.select({
-    countItemId: inventoryCountItems.id,
-    inventoryId: inventoryCountItems.inventoryId,
-    itemName: inventory.itemName,
-    unit: inventory.unit,
-    systemQuantity: inventoryCountItems.systemQuantity,
-    countedQuantity: inventoryCountItems.countedQuantity,
-    diffQuantity: inventoryCountItems.diffQuantity,
-    lotNumber: inventoryCountItems.lotNumber,
-    expiryDate: inventoryCountItems.expiryDate,
-  })
-    .from(inventoryCountItems)
-    .innerJoin(inventory, eq(inventory.id, inventoryCountItems.inventoryId))
-    .where(and(
-      eq(inventoryCountItems.operationId, operationId),
-      isNotNull(inventoryCountItems.countedQuantity),
-      ne(inventoryCountItems.diffQuantity, "0"),
-    ));
+  const details = await getCountOperationDetails(operationId);
+  if (!details) return [];
+  return (details.items as any[]).filter((item: any) =>
+    item.countedQuantity !== null
+    && item.countedQuantity !== undefined
+    && Number(item.diffQuantity || 0) !== 0
+  );
 }
 
 // ── 8) تطبيق تسوية المخزون فعلياً (التطبيق الوحيد المسموح على الكميات) ──
@@ -885,10 +1603,12 @@ export async function applySettlement(params: {
   sourceType: "from_count" | "manual";
   sourceCountOperationId?: number;
   reason: string;               // إلزامي دائماً
+  reference?: string;           // optional external/document/business reference
   appliedById: number;
   items: Array<{
     inventoryId: number;
-    afterQuantity: number;      // الكمية النهائية بعد التسوية (قابلة للتعديل اليدوي حتى لو من جرد)
+    lotId?: number;
+    afterQuantity: number;      // legacy: Inventory النهائي / Lot-mode: رصيد الـLot النهائي
     lotNumber?: string;
     expiryDate?: string;
   }>;
@@ -903,67 +1623,430 @@ export async function applySettlement(params: {
     throw new Error("لا توجد أصناف للتسوية");
   }
 
-  const settlementNumber = await generateSettlementNumber();
-
-  const [settlementResult] = await db.insert(inventorySettlements).values({
-    settlementNumber,
-    sourceType: params.sourceType,
-    sourceCountOperationId: params.sourceCountOperationId,
-    status: "applied",
-    reason: params.reason,
-    appliedById: params.appliedById,
-  });
-  const settlementId = (settlementResult as any).insertId as number;
-
-  for (const item of params.items) {
-    const invRows = await db.select().from(inventory)
-      .where(eq(inventory.id, item.inventoryId)).limit(1);
-    const inv = invRows[0];
-    if (!inv) throw new Error(`الصنف رقم ${item.inventoryId} غير موجود بالمخزون`);
-
-    const before = inv.quantity;
-    const after = item.afterQuantity;
-    const diff = after - before;
-
-    // 1) تسجيل تفاصيل سطر التسوية
-    await db.insert(inventorySettlementItems).values({
-      settlementId,
-      inventoryId: item.inventoryId,
-      beforeQuantity: String(before),
-      afterQuantity: String(after),
-      diffQuantity: String(diff),
-      lotNumber: item.lotNumber,
-      expiryDate: item.expiryDate ? new Date(item.expiryDate) : null,
-    });
-
-    const averageCost = parseFloat((inv as any).averageCost || "0");
-
-    // 2) التطبيق الفعلي على المخزون — الكمية والقيمة تتحركان معاً.
-    await db.update(inventory).set({
-      quantity: after,
-      totalCostValue: calculateInventoryValue(after, averageCost).toFixed(2),
-      expiryDate: item.expiryDate ? new Date(item.expiryDate) : inv.expiryDate,
-      updatedAt: new Date(),
-    } as any).where(eq(inventory.id, item.inventoryId));
-
-    // 3) تسجيل حركة تظهر تلقائياً بصفحة "تتبع صنف" (نوع adjustment)
-    if (diff !== 0) {
-      const movementQuantity = Math.abs(diff);
-      await db.insert(inventoryTransactions).values({
-        inventoryId:     item.inventoryId,
-        type:            diff > 0 ? "in" : "out",
-        quantity:        Math.abs(Math.round(diff)),
-        unitCost:        averageCost.toFixed(4),
-        totalCost:       calculateMovementTotal(movementQuantity, averageCost).toFixed(2),
-        reason:          params.reason,
-        performedById:   params.appliedById,
-        transactionType: "adjustment",
-        documentUrl:     settlementNumber,
-      });
-    }
+  let sourceCountOperation: any = null;
+  if (params.sourceType === "from_count" && params.sourceCountOperationId) {
+    const rows = await db.select().from(inventoryCountOperations)
+      .where(eq(inventoryCountOperations.id, params.sourceCountOperationId)).limit(1);
+    sourceCountOperation = rows[0] || null;
+    if (!sourceCountOperation) throw new Error("عملية الجرد المصدر غير موجودة");
   }
 
-  return { settlementId, settlementNumber };
+  const lotsEnabled = isInventoryLotsEnabled();
+  const isOpeningBalance = sourceCountOperation?.countType === "opening_balance";
+  const isPeriodicLotSettlement = lotsEnabled
+    && params.sourceType === "from_count"
+    && sourceCountOperation?.countType === "periodic";
+
+  if (isOpeningBalance && !lotsEnabled) {
+    throw new Error("لا يمكن تطبيق الرصيد الافتتاحي قبل تفعيل نظام الدفعات 2B-8");
+  }
+  if (lotsEnabled && !isOpeningBalance && !isPeriodicLotSettlement) {
+    // التسوية اليدوية Aggregate-only تبقى موقوفة بعد تفعيل Lots حتى يتم اعتماد
+    // Workflow مستقل لها. التسوية من الجرد الدوري أصبحت Lot-aware في 2B-8.
+    throw new Error("التسوية اليدوية القديمة موقوفة عند تفعيل Lots؛ استخدم الجرد الدوري بالـQR أو Workflow معتمد للدفعات");
+  }
+  if ((isOpeningBalance || isPeriodicLotSettlement) && sourceCountOperation?.status !== "completed") {
+    throw new Error("يجب إنهاء عملية الجرد وحفظها نهائياً قبل تطبيق التسوية");
+  }
+
+  const lotLabels: Array<{
+    lotId: number;
+    lotCode: string;
+    trackingToken: string;
+    itemName: string;
+    quantity: number;
+    unit: string;
+    sourceType: "opening_balance";
+    settlementNumber: string;
+  }> = [];
+
+  const readCountSnapshotCost = async (writer: any, inventoryId: number, lotId?: number | null) => {
+    if (!params.sourceCountOperationId) {
+      throw new Error("التسوية من الجرد تتطلب عملية جرد مصدر");
+    }
+
+    const lotCondition = lotId == null
+      ? isNull(inventoryCountSnapshots.lotId)
+      : eq(inventoryCountSnapshots.lotId, lotId);
+    const snapshotRows = await writer.select({
+      systemQuantity: inventoryCountSnapshots.systemQuantity,
+      averageCostSnapshot: inventoryCountSnapshots.averageCostSnapshot,
+    }).from(inventoryCountSnapshots).where(and(
+      eq(inventoryCountSnapshots.operationId, params.sourceCountOperationId),
+      eq(inventoryCountSnapshots.inventoryId, inventoryId),
+      lotCondition,
+    )).limit(2);
+
+    if (snapshotRows.length !== 1) {
+      throw new Error(`تعذر تحديد Opening Snapshot موثوق للصنف Inventory #${inventoryId}${lotId == null ? "" : ` / Lot #${lotId}`}`);
+    }
+
+    const unitCostUsed = roundTo(Number(snapshotRows[0].averageCostSnapshot || 0), 4);
+    if (unitCostUsed < 0) {
+      throw new Error(`Opening Snapshot للصنف Inventory #${inventoryId} يحتوي تكلفة غير صالحة`);
+    }
+
+    return {
+      systemQuantity: normalizeInventoryQuantity(Number(snapshotRows[0].systemQuantity || 0)),
+      unitCostUsed,
+    };
+  };
+
+  const applyWith = async (writer: any) => {
+    // Main Phase 4 / 4.2.3: every supported posting path executes inside one DB
+    // transaction. Count-based posting also locks and re-validates the source
+    // operation in that same transaction before duplicate/discrepancy checks.
+    if (params.sourceType === "from_count" && params.sourceCountOperationId) {
+      await writer.execute(sql`SELECT id FROM inventory_count_operations WHERE id = ${params.sourceCountOperationId} FOR UPDATE`);
+      const lockedCountRows = await writer.select({
+        id: inventoryCountOperations.id,
+        status: inventoryCountOperations.status,
+        countType: inventoryCountOperations.countType,
+      }).from(inventoryCountOperations)
+        .where(eq(inventoryCountOperations.id, params.sourceCountOperationId))
+        .limit(1);
+      const lockedCount = lockedCountRows[0];
+      if (!lockedCount) throw new Error("عملية الجرد المصدر غير موجودة");
+      if (lockedCount.status !== "completed") {
+        throw new Error("يجب إنهاء عملية الجرد وحفظها نهائياً قبل تطبيق التسوية");
+      }
+      if (sourceCountOperation && lockedCount.countType !== sourceCountOperation.countType) {
+        throw new Error("تغير نوع عملية الجرد أثناء تطبيق التسوية؛ أعد المحاولة بعد تحديث البيانات");
+      }
+
+      const alreadyApplied = await writer.select({ id: inventorySettlements.id })
+        .from(inventorySettlements)
+        .where(and(
+          eq(inventorySettlements.sourceCountOperationId, params.sourceCountOperationId),
+          eq(inventorySettlements.status, "applied"),
+        ))
+        .limit(1);
+      if (alreadyApplied[0]) {
+        throw new Error("تم تطبيق تسوية لهذا الجرد مسبقاً؛ لا يمكن تطبيق فرق الجرد مرتين");
+      }
+    }
+
+    // A periodic Lot count is settled as one frozen discrepancy set. The client
+    // may not omit a discrepancy or inject an unrelated Lot.
+    if (isPeriodicLotSettlement && params.sourceCountOperationId) {
+      const sourceRows = await writer.select({
+        inventoryId: inventoryCountItems.inventoryId,
+        lotId: inventoryCountItems.lotId,
+        countedQuantity: inventoryCountItems.countedQuantity,
+        diffQuantity: inventoryCountItems.diffQuantity,
+      }).from(inventoryCountItems)
+        .where(eq(inventoryCountItems.operationId, params.sourceCountOperationId));
+
+      const sourceDiscrepancies = (sourceRows as any[]).filter((row: any) =>
+        row.countedQuantity != null && normalizeInventoryQuantity(Number(row.diffQuantity || 0)) !== 0
+      );
+      const expectedKeys = new Set(sourceDiscrepancies.map((row: any) => `${Number(row.inventoryId)}:${Number(row.lotId || 0)}`));
+      const submittedKeys = new Set(params.items.map((row: any) => `${Number(row.inventoryId)}:${Number(row.lotId || 0)}`));
+      if (
+        expectedKeys.size !== submittedKeys.size ||
+        [...expectedKeys].some((key) => !submittedKeys.has(key))
+      ) {
+        throw new Error("يجب تطبيق التسوية على جميع فروقات الجرد المحفوظة معاً دون حذف أو إضافة دفعات");
+      }
+    }
+
+    // Allocate/persist the settlement counter row through the same transaction
+    // writer as the posting. MySQL AUTO_INCREMENT may still consume an id on
+    // rollback; this change does not alter the DB numbering schema or guarantee gapless numbers.
+    const settlementNumber = await generateSettlementNumberWith(writer);
+
+    const [settlementResult] = await writer.insert(inventorySettlements).values({
+      settlementNumber,
+      sourceType: params.sourceType,
+      sourceCountOperationId: params.sourceCountOperationId,
+      status: "applied",
+      reason: params.reason,
+      reference: params.reference?.trim() || null,
+      appliedById: params.appliedById,
+    });
+    const settlementId = Number((settlementResult as any).insertId);
+    if (!settlementId) throw new Error("تعذر إنشاء التسوية");
+
+    for (const item of params.items) {
+      const invRows = await writer.select().from(inventory)
+        .where(eq(inventory.id, item.inventoryId)).limit(1);
+      const inv = invRows[0];
+      if (!inv) throw new Error(`الصنف رقم ${item.inventoryId} غير موجود بالمخزون`);
+      const averageCost = parseFloat((inv as any).averageCost || "0");
+
+      // ─────────────────────────────────────────────────────────────
+      // Opening Balance: ينشئ Lot جديداً من Catalog Item كما تم اعتماده.
+      // ─────────────────────────────────────────────────────────────
+      if (isOpeningBalance) {
+        const before = normalizeInventoryQuantity(Number(inv.quantity || 0));
+        const after = normalizeInventoryQuantity(item.afterQuantity);
+        const diff = normalizeInventoryQuantity(after - before);
+
+        if (!params.sourceCountOperationId) throw new Error("الرصيد الافتتاحي يتطلب عملية جرد مصدر");
+        if (!inv.linkedItemId) throw new Error(`Inventory #${item.inventoryId} غير مربوط بصنف Catalog`);
+        if (before !== 0) throw new Error(`Inventory #${item.inventoryId} ليس صفرياً؛ لا يمكن تأسيس رصيد افتتاحي فوق رصيد قائم`);
+        if (!(after > 0)) throw new Error("كمية الرصيد الافتتاحي يجب أن تكون أكبر من صفر");
+        if (sourceCountOperation?.warehouseId && inv.warehouseId !== sourceCountOperation.warehouseId) {
+          throw new Error(`Inventory #${item.inventoryId} لا ينتمي لمستودع عملية الرصيد الافتتاحي`);
+        }
+
+        const countRows = await writer.select().from(inventoryCountItems).where(and(
+          eq(inventoryCountItems.operationId, params.sourceCountOperationId),
+          eq(inventoryCountItems.inventoryId, item.inventoryId),
+        )).limit(2);
+        if (countRows.length !== 1) {
+          throw new Error(`يجب أن يوجد سطر رصيد افتتاحي واحد فقط للصنف Inventory #${item.inventoryId}`);
+        }
+        const countItem = countRows[0];
+        if (countItem.lotId) throw new Error(`تم إنشاء Lot مسبقاً لسطر الرصيد الافتتاحي #${countItem.id}`);
+
+        const openingBalanceAdjustmentValue = roundTo(diff * averageCost, 2);
+        const [settlementItemResult] = await writer.insert(inventorySettlementItems).values({
+          settlementId,
+          inventoryId: item.inventoryId,
+          beforeQuantity: before.toFixed(3),
+          afterQuantity: after.toFixed(3),
+          diffQuantity: diff.toFixed(3),
+          // Opening Balance has no inventory_count_snapshots row by design. Preserve its
+          // established cost basis and only record the valuation fields added in Phase 4.
+          unitCostUsed: averageCost.toFixed(4),
+          adjustmentValue: openingBalanceAdjustmentValue.toFixed(2),
+          lotNumber: item.lotNumber,
+          expiryDate: item.expiryDate ? new Date(item.expiryDate) : null,
+        } as any);
+        const settlementItemId = Number((settlementItemResult as any).insertId);
+
+        const lot = await createOpeningBalanceInventoryLot({
+          tx: writer,
+          catalogItemId: Number(inv.linkedItemId),
+          inventoryId: item.inventoryId,
+          sourceCountOperationId: Number(params.sourceCountOperationId),
+          sourceSettlementId: settlementId,
+          sourceSettlementItemId: settlementItemId,
+          quantity: after,
+          unit: (inv as any).issueUnit || inv.unit,
+          unitCost: averageCost,
+          expiryDate: item.expiryDate || countItem?.expiryDate || null,
+          createdById: params.appliedById,
+        });
+
+        await writer.update(inventorySettlementItems).set({ lotId: lot.lotId } as any)
+          .where(eq(inventorySettlementItems.id, settlementItemId));
+        await writer.update(inventoryCountItems).set({ lotId: lot.lotId } as any)
+          .where(eq(inventoryCountItems.id, countItem.id));
+
+        lotLabels.push({
+          lotId: lot.lotId,
+          lotCode: lot.lotCode,
+          trackingToken: lot.trackingToken,
+          itemName: inv.itemName,
+          quantity: after,
+          unit: (inv as any).issueUnit || inv.unit || "",
+          sourceType: "opening_balance",
+          settlementNumber,
+        });
+
+        await writer.update(inventory).set({
+          quantity: after,
+          totalCostValue: calculateInventoryValue(after, averageCost).toFixed(2),
+          expiryDate: item.expiryDate ? new Date(item.expiryDate) : inv.expiryDate,
+          updatedAt: new Date(),
+        } as any).where(eq(inventory.id, item.inventoryId));
+
+        if (diff !== 0) {
+          const movementQuantity = Math.abs(diff);
+          await writer.insert(inventoryTransactions).values({
+            inventoryId: item.inventoryId,
+            lotId: lot.lotId,
+            type: diff > 0 ? "in" : "out",
+            quantity: normalizeInventoryQuantity(movementQuantity),
+            unitCost: averageCost.toFixed(4),
+            totalCost: calculateMovementTotal(movementQuantity, averageCost).toFixed(2),
+            reason: params.reason,
+            performedById: params.appliedById,
+            transactionType: "adjustment",
+            documentUrl: settlementNumber,
+          } as any);
+        }
+        continue;
+      }
+
+      // ─────────────────────────────────────────────────────────────
+      // 2B-8 periodic Lot count: afterQuantity = الكمية المعدودة لنفس Lot.
+      // لا نضبط Inventory إلى رقم Count؛ نضيف الفرق فقط حتى لا نمس Lots أخرى.
+      // ─────────────────────────────────────────────────────────────
+      if (isPeriodicLotSettlement) {
+        if (!params.sourceCountOperationId) throw new Error("التسوية الدورية تتطلب عملية جرد مصدر");
+        if (!item.lotId) throw new Error(`سطر التسوية للصنف Inventory #${item.inventoryId} لا يحتوي Lot`);
+
+        const countRows = await writer.select().from(inventoryCountItems).where(and(
+          eq(inventoryCountItems.operationId, params.sourceCountOperationId),
+          eq(inventoryCountItems.inventoryId, item.inventoryId),
+          eq(inventoryCountItems.lotId, item.lotId),
+        )).limit(2);
+        if (countRows.length !== 1) {
+          throw new Error(`تعذر تحديد سطر الجرد للـLot #${item.lotId} بشكل فريد`);
+        }
+        const countItem = countRows[0];
+        if (countItem.countedQuantity == null) {
+          throw new Error(`Lot #${item.lotId} لم تُسجل له كمية معدودة`);
+        }
+
+        const expectedBalance = normalizeInventoryQuantity(Number(countItem.systemQuantity || 0));
+        // Count settlement is immutable after final save: never trust an editable
+        // client afterQuantity. The frozen counted quantity is the only source.
+        const countedAfter = normalizeInventoryQuantity(Number(countItem.countedQuantity || 0));
+        const frozenDiff = normalizeInventoryQuantity(Number(countItem.diffQuantity || 0));
+        if (frozenDiff !== normalizeInventoryQuantity(countedAfter - expectedBalance)) {
+          throw new Error(`بيانات فرق الجرد للـLot #${item.lotId} غير متسقة؛ أوقف التسوية وراجع عملية الجرد`);
+        }
+
+        // Main Phase 4 / 4.2.2: Count valuation is frozen at count opening.
+        // Never substitute the current Inventory average cost here.
+        const snapshot = await readCountSnapshotCost(writer, item.inventoryId, Number(item.lotId));
+        if (snapshot.systemQuantity !== expectedBalance) {
+          throw new Error(`Opening Snapshot للـLot #${item.lotId} لا يطابق رصيد افتتاح الجرد المحفوظ`);
+        }
+        const unitCostUsed = snapshot.unitCostUsed;
+
+        const adjustment = await applyInventoryLotCountAdjustment({
+          tx: writer,
+          lotId: Number(item.lotId),
+          inventoryId: item.inventoryId,
+          expectedBalanceQuantity: expectedBalance,
+          countedQuantity: countedAfter,
+        });
+        const adjustmentValue = roundTo(adjustment.diffQuantity * unitCostUsed, 2);
+        const currentTotalCostValue = Number((inv as any).totalCostValue || 0);
+        // Preserve the established zero-quantity convention: zero stock carries zero
+        // total value while averageCost itself is left unchanged. Otherwise derive the
+        // resulting average from current value + the historical count adjustment.
+        const newTotalCostValue = adjustment.afterInventoryQuantity === 0
+          ? 0
+          : roundTo(currentTotalCostValue + adjustmentValue, 2);
+        const newAverageCost = adjustment.afterInventoryQuantity === 0
+          ? averageCost
+          : roundTo(newTotalCostValue / adjustment.afterInventoryQuantity, 4);
+
+        await writer.insert(inventorySettlementItems).values({
+          settlementId,
+          inventoryId: item.inventoryId,
+          lotId: Number(item.lotId),
+          beforeQuantity: adjustment.beforeLotQuantity.toFixed(3),
+          afterQuantity: adjustment.afterLotQuantity.toFixed(3),
+          diffQuantity: adjustment.diffQuantity.toFixed(3),
+          unitCostUsed: unitCostUsed.toFixed(4),
+          adjustmentValue: adjustmentValue.toFixed(2),
+          lotNumber: item.lotNumber,
+          expiryDate: item.expiryDate ? new Date(item.expiryDate) : null,
+        } as any);
+
+        // quantity عُدّلت داخل helper بنفس Transaction؛ هنا نحدّث القيمة ومتوسط التكلفة.
+        await writer.update(inventory).set({
+          totalCostValue: newTotalCostValue.toFixed(2),
+          averageCost: newAverageCost.toFixed(4),
+          updatedAt: new Date(),
+        } as any).where(eq(inventory.id, item.inventoryId));
+
+        if (adjustment.diffQuantity !== 0) {
+          const movementQuantity = Math.abs(adjustment.diffQuantity);
+          await writer.insert(inventoryTransactions).values({
+            inventoryId: item.inventoryId,
+            lotId: Number(item.lotId),
+            type: adjustment.diffQuantity > 0 ? "in" : "out",
+            quantity: normalizeInventoryQuantity(movementQuantity),
+            unitCost: unitCostUsed.toFixed(4),
+            totalCost: calculateMovementTotal(movementQuantity, unitCostUsed).toFixed(2),
+            reason: params.reason,
+            performedById: params.appliedById,
+            transactionType: "adjustment",
+            documentUrl: settlementNumber,
+          } as any);
+        }
+
+        continue;
+      }
+
+      // ─────────────────────────────────────────────────────────────
+      // Legacy non-Lot path (Feature Gate OFF): نحافظ على Workflow الكمية، مع تطبيق تقييم Phase 4.
+      // ─────────────────────────────────────────────────────────────
+      const before = normalizeInventoryQuantity(Number(inv.quantity || 0));
+      const after = normalizeInventoryQuantity(item.afterQuantity);
+      const diff = normalizeInventoryQuantity(after - before);
+      const currentTotalCostValue = Number((inv as any).totalCostValue || 0);
+
+      let unitCostUsed = averageCost;
+      let adjustmentValue = roundTo(diff * unitCostUsed, 2);
+      let newAverageCost = averageCost;
+
+      if (params.sourceType === "from_count") {
+        // Feature Gate OFF still uses the same Phase 4 Count valuation rule. The
+        // legacy Snapshot has lotId=NULL, so match operation + inventory + NULL Lot.
+        const snapshot = await readCountSnapshotCost(writer, item.inventoryId, null);
+        unitCostUsed = snapshot.unitCostUsed;
+        adjustmentValue = roundTo(diff * unitCostUsed, 2);
+        const newTotalForAverage = after === 0
+          ? 0
+          : roundTo(currentTotalCostValue + adjustmentValue, 2);
+        newAverageCost = after === 0
+          ? averageCost
+          : roundTo(newTotalForAverage / after, 4);
+      }
+
+      // Manual Settlement uses Current Average Cost. Count Settlement uses the
+      // Opening Snapshot above. Do not recompute legacy current value from scratch:
+      // future postings move the current value only by this settlement adjustment.
+      const newTotalCostValue = after === 0
+        ? 0
+        : roundTo(currentTotalCostValue + adjustmentValue, 2);
+
+      await writer.insert(inventorySettlementItems).values({
+        settlementId,
+        inventoryId: item.inventoryId,
+        beforeQuantity: before.toFixed(3),
+        afterQuantity: after.toFixed(3),
+        diffQuantity: diff.toFixed(3),
+        unitCostUsed: unitCostUsed.toFixed(4),
+        adjustmentValue: adjustmentValue.toFixed(2),
+        lotNumber: item.lotNumber,
+        expiryDate: item.expiryDate ? new Date(item.expiryDate) : null,
+      } as any);
+
+      await writer.update(inventory).set({
+        quantity: after,
+        totalCostValue: newTotalCostValue.toFixed(2),
+        averageCost: newAverageCost.toFixed(4),
+        expiryDate: item.expiryDate ? new Date(item.expiryDate) : inv.expiryDate,
+        updatedAt: new Date(),
+      } as any).where(eq(inventory.id, item.inventoryId));
+
+      if (diff !== 0) {
+        const movementQuantity = Math.abs(diff);
+        await writer.insert(inventoryTransactions).values({
+          inventoryId: item.inventoryId,
+          type: diff > 0 ? "in" : "out",
+          quantity: normalizeInventoryQuantity(movementQuantity),
+          unitCost: unitCostUsed.toFixed(4),
+          totalCost: calculateMovementTotal(movementQuantity, unitCostUsed).toFixed(2),
+          reason: params.reason,
+          performedById: params.appliedById,
+          transactionType: "adjustment",
+          documentUrl: settlementNumber,
+        } as any);
+      }
+    }
+
+    return { settlementId, settlementNumber };
+  };
+
+  // Main Phase 4 / 4.2.3: all supported Settlement posting paths are atomic,
+  // including legacy non-Lot Count/Manual paths. Validation without DB effects
+  // may happen before this point; all persistent posting effects use this tx.
+  const result = await db.transaction(async (tx) => applyWith(tx));
+  if (isOpeningBalance || isPeriodicLotSettlement) {
+    return { ...result, inventoryLotsEnabled: true, lotLabels };
+  }
+  return { ...result, inventoryLotsEnabled: false, lotLabels: [] as typeof lotLabels };
 }
 
 // ── 9) قائمة التسويات (للأرشيف) ──
@@ -984,21 +2067,45 @@ export async function getSettlementDetails(settlementId: number) {
   if (!header[0]) return null;
 
   const appliedBy = await getUserById(header[0].appliedById);
+  let sourceCountType: string | null = null;
+  if (header[0].sourceCountOperationId) {
+    const sourceCountRows = await db.select({ countType: inventoryCountOperations.countType })
+      .from(inventoryCountOperations)
+      .where(eq(inventoryCountOperations.id, Number(header[0].sourceCountOperationId)))
+      .limit(1);
+    sourceCountType = sourceCountRows[0]?.countType ?? null;
+  }
 
   const items = await db.select({
     id: inventorySettlementItems.id,
     inventoryId: inventorySettlementItems.inventoryId,
+    lotId: inventorySettlementItems.lotId,
+    lotCode: inventoryLots.lotCode,
+    sourceType: inventoryLots.sourceType,
+    batchNumber: inventoryLots.batchNumber,
+    lotExpiryDate: inventoryLots.expiryDate,
+    catalogItemId: inventory.linkedItemId,
     itemName: inventory.itemName,
     unit: inventory.unit,
     beforeQuantity: inventorySettlementItems.beforeQuantity,
     afterQuantity: inventorySettlementItems.afterQuantity,
     diffQuantity: inventorySettlementItems.diffQuantity,
+    unitCostUsed: inventorySettlementItems.unitCostUsed,
+    adjustmentValue: inventorySettlementItems.adjustmentValue,
     lotNumber: inventorySettlementItems.lotNumber,
     expiryDate: inventorySettlementItems.expiryDate,
   })
     .from(inventorySettlementItems)
     .innerJoin(inventory, eq(inventory.id, inventorySettlementItems.inventoryId))
+    .leftJoin(inventoryLots, eq(inventoryLots.id, inventorySettlementItems.lotId))
     .where(eq(inventorySettlementItems.settlementId, settlementId));
 
-  return { settlement: { ...header[0], appliedByName: (appliedBy as any)?.name || "—" }, items };
+  return {
+    settlement: {
+      ...header[0],
+      sourceCountType,
+      appliedByName: (appliedBy as any)?.name || "—",
+    },
+    items,
+  };
 }

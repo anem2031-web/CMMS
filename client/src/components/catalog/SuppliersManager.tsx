@@ -3,6 +3,7 @@ import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import {
   Dialog,
   DialogContent,
@@ -23,6 +24,8 @@ import {
   CheckCircle2,
   XCircle,
   Building2,
+  Link2,
+  Inbox,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -36,10 +39,28 @@ interface Supplier {
   phone: string | null;
   email: string | null;
   address: string | null;
+  taxNumber: string | null;
+  commercialRegistration: string | null;
   country: string | null;
   notes: string | null;
   isManufacturer: boolean;
   isActive: boolean;
+}
+
+interface SupplierCandidate {
+  id: number;
+  receiptId: number | null;
+  purchaseOrderId: number | null;
+  invoiceNumber: string | null;
+  invoicePhotoUrl: string | null;
+  extractedName: string;
+  extractedNameEn: string | null;
+  taxNumber: string | null;
+  commercialRegistration: string | null;
+  phone: string | null;
+  email: string | null;
+  address: string | null;
+  createdAt: string;
 }
 
 interface FormState {
@@ -49,6 +70,8 @@ interface FormState {
   phone: string;
   email: string;
   address: string;
+  taxNumber: string;
+  commercialRegistration: string;
   country: string;
   notes: string;
   isManufacturer: boolean;
@@ -61,6 +84,8 @@ const EMPTY_FORM: FormState = {
   phone: "",
   email: "",
   address: "",
+  taxNumber: "",
+  commercialRegistration: "",
   country: "",
   notes: "",
   isManufacturer: false,
@@ -68,8 +93,11 @@ const EMPTY_FORM: FormState = {
 
 // ── Main Component ─────────────────────────────────────────────────────────
 export default function SuppliersManager() {
-  const [dialogMode, setDialogMode] = useState<"add" | "edit" | null>(null);
+  const [dialogMode, setDialogMode] = useState<"add" | "edit" | "candidate" | null>(null);
   const [selected, setSelected] = useState<Supplier | null>(null);
+  const [selectedCandidate, setSelectedCandidate] = useState<SupplierCandidate | null>(null);
+  const [linkCandidate, setLinkCandidate] = useState<SupplierCandidate | null>(null);
+  const [linkSearch, setLinkSearch] = useState("");
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [searchQuery, setSearchQuery] = useState("");
   const [filterManufacturer, setFilterManufacturer] = useState<boolean | null>(null);
@@ -79,6 +107,11 @@ export default function SuppliersManager() {
     isLoading,
     refetch,
   } = trpc.catalog.suppliers.list.useQuery({ activeOnly: false });
+
+  const {
+    data: supplierCandidates = [],
+    refetch: refetchCandidates,
+  } = trpc.catalog.suppliers.candidates.listPending.useQuery();
 
   const createMut = trpc.catalog.suppliers.create.useMutation({
     onSuccess: () => {
@@ -94,6 +127,27 @@ export default function SuppliersManager() {
       refetch();
       closeDialog();
       toast.success("تم تعديل المورد");
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const linkCandidateMut = trpc.catalog.suppliers.candidates.linkExisting.useMutation({
+    onSuccess: () => {
+      refetchCandidates();
+      refetch();
+      setLinkCandidate(null);
+      setLinkSearch("");
+      toast.success("تم ربط المورد المقترح بمورد موجود");
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const approveCandidateMut = trpc.catalog.suppliers.candidates.approveNew.useMutation({
+    onSuccess: () => {
+      refetchCandidates();
+      refetch();
+      closeDialog();
+      toast.success("تم اعتماد المورد الجديد وربطه بالفاتورة");
     },
     onError: (e) => toast.error(e.message),
   });
@@ -123,6 +177,8 @@ export default function SuppliersManager() {
         !q ||
         s.nameAr.toLowerCase().includes(q) ||
         s.nameEn.toLowerCase().includes(q) ||
+        s.taxNumber?.toLowerCase().includes(q) ||
+        s.commercialRegistration?.toLowerCase().includes(q) ||
         s.phone?.toLowerCase().includes(q) ||
         s.contactName?.toLowerCase().includes(q) ||
       s.country?.toLowerCase().includes(q) ||
@@ -141,6 +197,7 @@ export default function SuppliersManager() {
   const closeDialog = () => {
     setDialogMode(null);
     setSelected(null);
+    setSelectedCandidate(null);
     setForm(EMPTY_FORM);
   };
 
@@ -158,11 +215,29 @@ export default function SuppliersManager() {
       phone:          s.phone          ?? "",
       email:          s.email          ?? "",
       address:        s.address        ?? "",
+      taxNumber:      s.taxNumber      ?? "",
+      commercialRegistration: s.commercialRegistration ?? "",
       country:        s.country        ?? "",
       notes:          s.notes          ?? "",
-      isManufacturer: s.isManufacturer,
+      isManufacturer: Boolean(s.isManufacturer),
     });
     setDialogMode("edit");
+  };
+
+  const openCandidateApproval = (candidate: SupplierCandidate) => {
+    setSelectedCandidate(candidate);
+    setForm({
+      ...EMPTY_FORM,
+      nameAr: candidate.extractedName || "",
+      nameEn: candidate.extractedNameEn || candidate.extractedName || "",
+      taxNumber: candidate.taxNumber || "",
+      commercialRegistration: candidate.commercialRegistration || "",
+      phone: candidate.phone || "",
+      email: candidate.email || "",
+      address: candidate.address || "",
+      notes: candidate.invoiceNumber ? `مرشح من فاتورة ${candidate.invoiceNumber}` : "مرشح من استلام مشتريات",
+    });
+    setDialogMode("candidate");
   };
 
   const handleSubmit = async () => {
@@ -178,6 +253,8 @@ export default function SuppliersManager() {
       phone:          form.phone.trim()        || undefined,
       email:          form.email.trim()        || undefined,
       address:        form.address.trim()      || undefined,
+      taxNumber:      form.taxNumber.trim()    || undefined,
+      commercialRegistration: form.commercialRegistration.trim() || undefined,
       country:        form.country.trim()      || undefined,
       notes:          form.notes.trim()        || undefined,
       isManufacturer: form.isManufacturer,
@@ -185,6 +262,8 @@ export default function SuppliersManager() {
 
     if (dialogMode === "edit" && selected) {
       await updateMut.mutateAsync({ id: selected.id, ...payload });
+    } else if (dialogMode === "candidate" && selectedCandidate) {
+      await approveCandidateMut.mutateAsync({ candidateId: selectedCandidate.id, ...payload });
     } else {
       await createMut.mutateAsync(payload);
     }
@@ -200,7 +279,7 @@ export default function SuppliersManager() {
     toggleActiveMut.mutate({ id: s.id, isActive: !s.isActive });
   };
 
-  const isPending = createMut.isPending || updateMut.isPending;
+  const isPending = createMut.isPending || updateMut.isPending || approveCandidateMut.isPending;
 
   // ── Stats ─────────────────────────────────────────────────
   const total        = suppliers?.length ?? 0;
@@ -226,12 +305,52 @@ export default function SuppliersManager() {
         </Button>
       </div>
 
+      {/* 2B-2 — الموردون الجدد لا يوقفون الاستلام؛ يصلون هنا للمراجعة لاحقاً. */}
+      {supplierCandidates.length > 0 && (
+        <Card className="border-amber-200 bg-amber-50/40">
+          <CardContent className="p-4 space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <h4 className="font-semibold flex items-center gap-2">
+                  <Inbox className="w-4 h-4 text-amber-700" />
+                  إدخال الموردين الجدد
+                </h4>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  موردون تم تعليمهم «مورد جديد» أثناء إدخال الفواتير.
+                </p>
+              </div>
+              <Badge variant="outline">{supplierCandidates.length} بانتظار المراجعة</Badge>
+            </div>
+
+            <div className="space-y-2">
+              {(supplierCandidates as SupplierCandidate[]).map(candidate => (
+                <div key={candidate.id} className="rounded-md border bg-background p-3 flex flex-col sm:flex-row sm:items-center gap-3">
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium truncate">{candidate.extractedName}</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      {candidate.invoiceNumber ? `فاتورة ${candidate.invoiceNumber}` : "فاتورة بدون رقم"}
+                      {candidate.taxNumber ? ` · ضريبي ${candidate.taxNumber}` : ""}
+                    </p>
+                  </div>
+                  <div className="flex gap-2 shrink-0">
+                    <Button size="sm" variant="outline" className="gap-1" onClick={() => { setLinkCandidate(candidate); setLinkSearch(candidate.extractedName); }}>
+                      <Link2 className="w-3.5 h-3.5" /> ربط بموجود
+                    </Button>
+                    <Button size="sm" onClick={() => openCandidateApproval(candidate)}>اعتماد جديد</Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Search + Filter Bar */}
       <div className="flex flex-col sm:flex-row gap-2">
         <div className="relative flex-1">
           <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <Input
-            placeholder="ابحث بالاسم، الجوال، المسؤول، الدولة..."
+            placeholder="ابحث بالاسم، الرقم الضريبي، السجل، الجوال..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="pr-9"
@@ -305,6 +424,8 @@ export default function SuppliersManager() {
             <DialogTitle className="flex items-center gap-2">
               {dialogMode === "edit" ? (
                 <><Edit2 className="w-4 h-4" /> تعديل المورد</>
+              ) : dialogMode === "candidate" ? (
+                <><CheckCircle2 className="w-4 h-4" /> اعتماد المورد المقترح</>
               ) : (
                 <><Plus className="w-4 h-4" /> إضافة مورد جديد</>
               )}
@@ -356,6 +477,27 @@ export default function SuppliersManager() {
                   )}
                 />
               </button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <label className="text-sm font-medium">الرقم الضريبي</label>
+                <Input
+                  value={form.taxNumber}
+                  onChange={(e) => setForm({ ...form, taxNumber: e.target.value })}
+                  placeholder="3xxxxxxxxxxxxxx"
+                  dir="ltr"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-sm font-medium">السجل التجاري</label>
+                <Input
+                  value={form.commercialRegistration}
+                  onChange={(e) => setForm({ ...form, commercialRegistration: e.target.value })}
+                  placeholder="رقم السجل التجاري"
+                  dir="ltr"
+                />
+              </div>
             </div>
 
             {/* معلومات التواصل */}
@@ -434,11 +576,47 @@ export default function SuppliersManager() {
                 className="flex-1"
               >
                 {isPending && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
-                {isPending ? "جاري الحفظ..." : dialogMode === "edit" ? "تحديث المورد" : "إضافة المورد"}
+                {isPending ? "جاري الحفظ..." : dialogMode === "edit" ? "تحديث المورد" : dialogMode === "candidate" ? "اعتماد المورد الجديد" : "إضافة المورد"}
               </Button>
               <Button variant="outline" onClick={closeDialog} disabled={isPending}>
                 إلغاء
               </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!linkCandidate} onOpenChange={(open) => { if (!open) { setLinkCandidate(null); setLinkSearch(""); } }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>ربط المورد المقترح بمورد موجود</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              المورد الوارد في الفاتورة: <strong className="text-foreground">{linkCandidate?.extractedName}</strong>
+            </p>
+            <Input value={linkSearch} onChange={e => setLinkSearch(e.target.value)} placeholder="ابحث في الموردين الحاليين..." />
+            <div className="max-h-72 overflow-y-auto space-y-1.5">
+              {(suppliers || [])
+                .filter((supplier: Supplier) => supplier.isActive && (
+                  !linkSearch.trim() ||
+                  supplier.nameAr.toLowerCase().includes(linkSearch.trim().toLowerCase()) ||
+                  supplier.nameEn.toLowerCase().includes(linkSearch.trim().toLowerCase()) ||
+                  supplier.taxNumber?.includes(linkSearch.trim())
+                ))
+                .slice(0, 20)
+                .map((supplier: Supplier) => (
+                  <button
+                    key={supplier.id}
+                    type="button"
+                    disabled={linkCandidateMut.isPending}
+                    onClick={() => linkCandidate && linkCandidateMut.mutate({ candidateId: linkCandidate.id, supplierId: supplier.id })}
+                    className="w-full text-right rounded-md border p-2.5 hover:bg-muted transition-colors"
+                  >
+                    <p className="text-sm font-medium">{supplier.nameAr}</p>
+                    <p className="text-xs text-muted-foreground">{supplier.nameEn}{supplier.taxNumber ? ` · ${supplier.taxNumber}` : ""}</p>
+                  </button>
+                ))}
             </div>
           </div>
         </DialogContent>

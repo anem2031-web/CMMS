@@ -1,8 +1,8 @@
 // ============================================================
 // قوالب طباعة مستندات عمليات المخزون (جرد / تسوية / استبعاد)
-// مصدر واحد مشترك بين صفحة عمليات المخزون ومركز المستندات —
-// انتُزعت حرفيًا من client/src/pages/inventory/InventoryOperations.tsx
-// بلا أي تعديل على المنطق أو التصميم.
+// مصدر واحد مشترك بين صفحة عمليات المخزون ومركز المستندات.
+// يدعم بيانات Lot/QR في وثائق الجرد والتسوية عند تفعيل 2B-8،
+// مع الحفاظ على عرض الحقول التاريخية عندما لا يوجد lotCode.
 // ============================================================
 
 export function fmtDate(d: any) {
@@ -23,19 +23,40 @@ export function buildCountHtml(data: { operation: any; items: any[] }): string {
         : diff === 0
           ? `<span style="color:#059669;font-weight:700">مطابق</span>`
           : `<span style="color:${diff > 0 ? "#2563eb" : "#dc2626"};font-weight:700">${diff > 0 ? `+${diff}` : diff}</span>`;
+      const snapshotCost = it.averageCostSnapshot !== null && it.averageCostSnapshot !== undefined
+        ? parseFloat(it.averageCostSnapshot)
+        : null;
+      const diffValue = it.diffValue !== null && it.diffValue !== undefined
+        ? parseFloat(it.diffValue)
+        : null;
+      const costCell = snapshotCost === null ? "—" : snapshotCost.toLocaleString(undefined, { minimumFractionDigits: 4, maximumFractionDigits: 4 });
+      const diffValueCell = diffValue === null
+        ? "—"
+        : `<span style="color:${diffValue > 0 ? "#059669" : diffValue < 0 ? "#dc2626" : "#555"};font-weight:700">${diffValue > 0 ? "+" : ""}${diffValue.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>`;
       return `
       <tr>
         <td>${it.itemName}</td>
         <td style="text-align:center;font-family:monospace">${parseFloat(it.systemQuantity).toLocaleString()} ${it.unit || ""}</td>
         <td style="text-align:center;font-family:monospace">${it.countedQuantity !== null && it.countedQuantity !== undefined ? parseFloat(it.countedQuantity).toLocaleString() + " " + (it.unit || "") : "—"}</td>
         <td style="text-align:center">${diffCell}</td>
-        <td style="text-align:center;font-size:11px">${it.lotNumber || "—"}${it.expiryDate ? ` / ${fmtDate(it.expiryDate)}` : ""}</td>
+        <td style="text-align:center;font-family:monospace">${costCell}</td>
+        <td style="text-align:center">${diffValueCell}</td>
+        <td style="text-align:center;font-size:11px">${it.lotCode || it.lotNumber || "—"}${(it.lotExpiryDate || it.expiryDate) ? ` / ${fmtDate(it.lotExpiryDate || it.expiryDate)}` : ""}</td>
         <td style="font-size:11px;color:#555">${it.notes || "—"}</td>
       </tr>`;
     }).join("");
 
     const countedItems = (data.items || []).filter((it: any) => it.countedQuantity !== null && it.countedQuantity !== undefined);
     const discrepancies = countedItems.filter((it: any) => parseFloat(it.diffQuantity || "0") !== 0);
+    const valuatedDiscrepancies = discrepancies.filter((it: any) => it.diffValue !== null && it.diffValue !== undefined);
+    const shortageValue = valuatedDiscrepancies
+      .filter((it: any) => parseFloat(it.diffQuantity || "0") < 0)
+      .reduce((sum: number, it: any) => sum + Math.abs(parseFloat(it.diffValue || "0")), 0);
+    const surplusValue = valuatedDiscrepancies
+      .filter((it: any) => parseFloat(it.diffQuantity || "0") > 0)
+      .reduce((sum: number, it: any) => sum + parseFloat(it.diffValue || "0"), 0);
+    const netValue = surplusValue - shortageValue;
+    const unvaluatedCount = discrepancies.length - valuatedDiscrepancies.length;
     const isFinal = op.status === "completed";
     const themeColor = "#0f766e"; // teal — يميّز وثيقة الجرد عن وثيقة الاستبعاد (أحمر)
 
@@ -56,6 +77,10 @@ body{font-family:'Cairo',Arial,sans-serif;background:#fff;color:#1a1a1a;padding:
 .info-label{font-size:10px;color:#888;margin-bottom:3px}
 .info-value{font-size:13px;font-weight:700;color:#111}
 .section-title{font-size:12px;font-weight:700;color:${themeColor};background:#f0fdfa;padding:6px 12px;border-radius:6px;margin-bottom:12px;border-right:4px solid ${themeColor}}
+.financial-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:12px 0 16px}
+.financial-box{border:1px solid #d1fae5;border-radius:7px;padding:9px 12px;background:#f8fffd;text-align:center}
+.financial-label{font-size:10px;color:#64748b}.financial-value{font-size:15px;font-weight:800;margin-top:2px}
+.warning-box{border:1px solid #fcd34d;background:#fffbeb;color:#92400e;border-radius:6px;padding:8px 10px;font-size:11px;margin-bottom:12px}
 table{width:100%;border-collapse:collapse;margin-bottom:16px;font-size:12px}
 thead tr{background:${themeColor};color:#fff}
 thead th{padding:8px 10px;text-align:right;font-weight:600}
@@ -94,6 +119,8 @@ tbody td{padding:8px 10px;border-bottom:1px solid #f3f4f6}
     <th style="text-align:center">كمية النظام</th>
     <th style="text-align:center">الكمية المعدودة</th>
     <th style="text-align:center">الفرق</th>
+    <th style="text-align:center">متوسط التكلفة وقت الفتح</th>
+    <th style="text-align:center">قيمة الفرق</th>
     <th style="text-align:center">دفعة/صلاحية</th>
     <th>ملاحظة</th>
   </tr></thead>
@@ -104,10 +131,18 @@ tbody td{padding:8px 10px;border-bottom:1px solid #f3f4f6}
       <td style="text-align:center">${data.items?.length || 0} صنف</td>
       <td style="text-align:center">${countedItems.length} معدود</td>
       <td style="text-align:center">${discrepancies.length} فرق</td>
-      <td></td><td></td>
+      <td></td><td></td><td></td><td></td>
     </tr>
   </tbody>
 </table>
+${valuatedDiscrepancies.length > 0 ? `
+<div class="section-title">التقييم المالي للفروقات — تكلفة Snapshot وقت فتح الجرد</div>
+<div class="financial-grid">
+  <div class="financial-box"><div class="financial-label">إجمالي قيمة النقص</div><div class="financial-value" style="color:#dc2626">-${shortageValue.toLocaleString(undefined,{maximumFractionDigits:2})}</div></div>
+  <div class="financial-box"><div class="financial-label">إجمالي قيمة الزيادة</div><div class="financial-value" style="color:#059669">+${surplusValue.toLocaleString(undefined,{maximumFractionDigits:2})}</div></div>
+  <div class="financial-box"><div class="financial-label">صافي الأثر المالي</div><div class="financial-value" style="color:${netValue < 0 ? "#dc2626" : "#2563eb"}">${netValue > 0 ? "+" : ""}${netValue.toLocaleString(undefined,{maximumFractionDigits:2})}</div></div>
+</div>` : ""}
+${unvaluatedCount > 0 ? `<div class="warning-box">${unvaluatedCount} بند/بنود لها فرق كمية بدون Snapshot تكلفة افتتاحية، لذلك لم تدخل في الإجمالي المالي.</div>` : ""}
 <div class="sig-section">
   <div class="sig-box"><div>توقيع المنفذ</div><div class="sig-name">${op.creatorName || "—"}</div></div>
   <div class="sig-box"><div>اعتماد المسؤول</div><div class="sig-name">&nbsp;</div></div>
@@ -136,16 +171,31 @@ export function buildSettlementHtml(data: { settlement: any; items: any[] }): st
       const diffCell = diff === 0
         ? `<span style="color:#059669;font-weight:700">لا يوجد فرق</span>`
         : `<span style="color:${diff > 0 ? "#2563eb" : "#dc2626"};font-weight:700">${diff > 0 ? `+${diff}` : diff}</span>`;
+      const unitCostUsed = it.unitCostUsed == null
+        ? "—"
+        : parseFloat(it.unitCostUsed).toLocaleString(undefined, { minimumFractionDigits: 4, maximumFractionDigits: 4 });
+      const adjustmentValue = it.adjustmentValue == null
+        ? "—"
+        : `${Number(it.adjustmentValue) > 0 ? "+" : ""}${parseFloat(it.adjustmentValue).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
       return `
       <tr>
         <td>${it.itemName}</td>
         <td style="text-align:center;font-family:monospace">${parseFloat(it.beforeQuantity).toLocaleString()} ${it.unit || ""}</td>
         <td style="text-align:center;font-family:monospace">${parseFloat(it.afterQuantity).toLocaleString()} ${it.unit || ""}</td>
         <td style="text-align:center">${diffCell}</td>
-        <td style="text-align:center;font-size:11px">${it.lotNumber || "—"}${it.expiryDate ? ` / ${fmtDate(it.expiryDate)}` : ""}</td>
+        <td style="text-align:center;font-family:monospace">${unitCostUsed}</td>
+        <td style="text-align:center;font-family:monospace">${adjustmentValue}</td>
+        <td style="text-align:center;font-size:11px">${it.lotCode || it.lotNumber || "—"}${(it.lotExpiryDate || it.expiryDate) ? ` / ${fmtDate(it.lotExpiryDate || it.expiryDate)}` : ""}</td>
       </tr>`;
     }).join("");
     const themeColor = "#7e22ce"; // بنفسجي — يميّز وثيقة التسوية
+    const valuationBasis = s.sourceType === "manual"
+      ? "متوسط التكلفة الحالي وقت الترحيل"
+      : s.sourceCountType === "periodic"
+        ? "متوسط التكلفة المثبت عند فتح الجرد (Opening Snapshot)"
+        : s.sourceCountType === "opening_balance"
+          ? "تكلفة الرصيد الافتتاحي المعتمدة"
+          : "حسب مصدر التسوية المحفوظ";
 
     const html = `<!DOCTYPE html><html dir="rtl" lang="ar"><head>
 <meta charset="UTF-8"/><title>وثيقة تسوية ${s.settlementNumber}</title>
@@ -192,7 +242,7 @@ tbody td{padding:8px 10px;border-bottom:1px solid #f3f4f6}
   <div class="info-box"><div class="info-label">المسؤول</div><div class="info-value">${s.appliedByName || "—"}</div></div>
   <div class="info-box"><div class="info-label">عدد الأصناف</div><div class="info-value">${data.items?.length || 0} صنف</div></div>
 </div>
-<div class="notes-box">📝 <strong>سبب التسوية:</strong> ${s.reason}</div>
+<div class="notes-box">📝 <strong>سبب التسوية:</strong> ${s.reason}${s.reference ? `<br/>🔖 <strong>المرجع:</strong> ${s.reference}` : ""}<br/>💰 <strong>أساس التقييم:</strong> ${valuationBasis}</div>
 <div class="section-title">تفاصيل الأصناف المسوّاة</div>
 <table>
   <thead><tr>
@@ -200,6 +250,8 @@ tbody td{padding:8px 10px;border-bottom:1px solid #f3f4f6}
     <th style="text-align:center">الكمية قبل</th>
     <th style="text-align:center">الكمية بعد</th>
     <th style="text-align:center">الفرق</th>
+    <th style="text-align:center">تكلفة الوحدة المستخدمة</th>
+    <th style="text-align:center">قيمة التسوية</th>
     <th style="text-align:center">دفعة/صلاحية</th>
   </tr></thead>
   <tbody>${itemsRows}</tbody>
@@ -232,7 +284,7 @@ export function buildDisposalHtml(op: any): string {
     };
     const itemsRows = (op.items || []).map((item: any) => `
       <tr>
-        <td>${item.itemName}</td>
+        <td>${item.itemName}${item.lotCode ? `<div style="font-size:10px;color:#666;margin-top:2px">الدفعة: <span style="font-family:monospace">${item.lotCode}</span></div>` : ""}</td>
         <td style="text-align:center">${parseFloat(item.quantity).toLocaleString()} ${item.unit || ""}</td>
         <td style="text-align:center">${REASON_AR[item.reason] || item.reason}</td>
         <td style="text-align:left;font-family:monospace">${parseFloat(item.unitCost || 0) > 0 ? parseFloat(item.unitCost).toLocaleString() + " ر.س" : "—"}</td>

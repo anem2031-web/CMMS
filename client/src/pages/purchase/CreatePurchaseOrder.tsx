@@ -17,6 +17,8 @@ import { cn } from "@/lib/utils";
 
 type ItemForm = {
   sourceType: "catalog" | "manual";
+  // 2B-1: رابط Master Item؛ يبقى مخفيًا عن العرض ويُحفظ مع بند الطلب.
+  catalogItemId: number | null;
 
   itemName: string;
   description: string;
@@ -30,6 +32,7 @@ type ItemForm = {
 
 const emptyItem = (defaultUnit = ""): ItemForm => ({
   sourceType: "manual",
+  catalogItemId: null,
 
   itemName: "",
   description: "",
@@ -59,6 +62,7 @@ function CatalogPickerDialog({
   open: boolean;
   onClose: () => void;
 onSelect: (item: {
+  id: number;
   nameAr: string;
   nameEn: string;
   primaryImageUrl?: string;
@@ -240,6 +244,7 @@ onSelect: (item: {
                     key={item.id}
                     onClick={() => {
                         onSelect({
+                          id: item.id,
                           nameAr: item.nameAr,
                           nameEn: item.nameEn,
                           primaryImageUrl: item.primaryImageUrl || "",
@@ -421,7 +426,7 @@ export default function CreatePurchaseOrder() {
   });
 
   const [draftLoaded, setDraftLoaded] = useState(false);
-  const [items, setItems] = useState<ItemForm[]>([emptyItem(t.purchaseOrders.defaultUnit)]);
+  const [items, setItems] = useState<ItemForm[]>([emptyItem()]);
 
   // تحميل أصناف المسودة عند فتح صفحة التعديل
   useEffect(() => {
@@ -429,7 +434,8 @@ export default function CreatePurchaseOrder() {
       setNotes(draftPO.notes || "");
       if (draftPO.items && draftPO.items.length > 0) {
         setItems(draftPO.items.map((i: any) => ({
-          sourceType: "manual" as const,
+          sourceType: i.catalogItemId ? "catalog" as const : "manual" as const,
+          catalogItemId: i.catalogItemId ?? null,
           itemName: i.itemName || "",
           description: i.description || "",
           quantity: i.quantity || 1,
@@ -485,11 +491,18 @@ const handleCatalogSelect = (catalogItem: any) => {
         ? {
             ...item,
             sourceType: "catalog",
+            catalogItemId: catalogItem.id,
 
             itemName: catalogItem.nameAr || "",
             description: catalogItem.nameEn || "",
-            // ✅ سحب وحدة الصنف من الكاتلوج تلقائياً — "قطعة" كافتراضي إذا لم تكن محددة
-            unit: catalogItem.unit?.trim() || t.purchaseOrders.defaultUnit,
+            // 2B-10-2B: لا ننقل وحدة معطّلة إلى طلب شراء جديد حتى لو بقيت
+            // كنص تاريخي على Master Item قديم. نستخدم فقط وحدة Catalog نشطة.
+            unit: (() => {
+              const catalogUnit = (catalogUnits || []).find((u: any) =>
+                u.nameAr === catalogItem.unit?.trim() || u.nameEn === catalogItem.unit?.trim()
+              );
+              return catalogUnit?.nameAr || "";
+            })(),
 
             photoUrls: catalogItem.primaryImageUrl ? [catalogItem.primaryImageUrl] : [],
           }
@@ -500,6 +513,7 @@ const handleCatalogSelect = (catalogItem: any) => {
 
   const buildItemsPayload = () =>
     items.filter(i => i.itemName.trim()).map(i => ({
+      catalogItemId: i.catalogItemId,
       itemName:    i.itemName,
       description: i.description || undefined,
       quantity:    i.quantity,
@@ -521,6 +535,7 @@ const handleCatalogSelect = (catalogItem: any) => {
       notes: notes || undefined,
       items: (items as any[]).map(i => ({
         id: i._existingId || undefined,
+        catalogItemId: i.catalogItemId ?? null,
         itemName: i.itemName,
         description: i.description || undefined,
         quantity: i.quantity,
@@ -633,7 +648,17 @@ const handleCatalogSelect = (catalogItem: any) => {
           onChange={(e) => {
             const value = e.target.value as "catalog" | "manual";
 
-            updateItem(idx, "sourceType", value);
+            setItems(prev => prev.map((current, i) =>
+              i === idx
+                ? {
+                    ...current,
+                    sourceType: value,
+                    // الرجوع للإدخال اليدوي يفصل الرابط فعليًا حتى لا يبقى
+                    // بند يدوي مرتبطًا بصنف كتالوج قديم بالخطأ.
+                    catalogItemId: value === "manual" ? null : current.catalogItemId,
+                  }
+                : current
+            ));
 
             if (value === "catalog") {
               setCatalogTargetIndex(idx);
@@ -730,9 +755,9 @@ const handleCatalogSelect = (catalogItem: any) => {
                     : u.nameAr}
                 </SelectItem>
               ))}
-              {/* في حال القيمة الحالية غير موجودة ضمن وحدات الكاتلوج (بيانات قديمة) */}
-              {item.unit && !(catalogUnits || []).some((u: any) => u.nameAr === item.unit) && (
-                <SelectItem value={item.unit}>{item.unit}</SelectItem>
+              {/* مسودة تاريخية فقط: نُظهر الوحدة القديمة كقيمة محفوظة غير قابلة للاختيار من جديد. */}
+              {(item as any)._existingId && item.unit && !(catalogUnits || []).some((u: any) => u.nameAr === item.unit || u.nameEn === item.unit) && (
+                <SelectItem value={item.unit} disabled>{item.unit} (تاريخية/معطّلة)</SelectItem>
               )}
             </SelectContent>
           </Select>
@@ -863,7 +888,7 @@ const handleCatalogSelect = (catalogItem: any) => {
 {/* زر إضافة صنف */}
 <Button
   variant="outline"
-  onClick={() => setItems(prev => [...prev, emptyItem(t.purchaseOrders.defaultUnit)])}
+  onClick={() => setItems(prev => [...prev, emptyItem()])}
   className="w-full gap-2 border-dashed h-12"
 >
   <Plus className="w-4 h-4" /> {t.common.add}

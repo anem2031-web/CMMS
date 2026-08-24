@@ -30,7 +30,7 @@ import {
   ChevronDown, Search, X, Building2, UserCog, Download, Smartphone, DollarSign,
   RotateCcw, BookOpen, Lightbulb, FileText, Inbox, FileStack
 ,
-  HardHat, FolderKanban, Warehouse, ArrowLeftRight} from "lucide-react";
+  HardHat, FolderKanban, Warehouse, ArrowLeftRight, ShieldCheck} from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState, useMemo, useCallback } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -113,6 +113,10 @@ const NAV_SECTIONS: NavSection[] = [
         roles: ["warehouse","maintenance_manager","owner","admin"] },
       { icon: ClipboardList, labelKey: "nav.inventoryOperations", path: "/inventory-operations",
         roles: ["warehouse","owner","admin"] },
+      { icon: ShieldCheck, labelKey: "nav.inventoryReconciliation", path: "/inventory/reconciliation",
+        roles: ["warehouse","maintenance_manager","owner","admin"] },
+      { icon: BarChart3, labelKey: "nav.inventoryReportsCenter", path: "/inventory/reports",
+        roles: ["warehouse","accountant","senior_management","executive_director","maintenance_manager","food_warehouse_manager","food_warehouse_assistant","owner","admin"] },
       // ⛔ مُعطّلة مؤقتاً (قيد الاختبار قبل الحذف النهائي) — استُبدلت بـ WarehouseReceiveV2
       // { icon: Package,      labelKey: "nav.warehouseReceive", path: "/warehouse/receive",
       //   roles: ["warehouse","owner","admin"] },
@@ -184,10 +188,10 @@ const NAV_SECTIONS: NavSection[] = [
     id: "catalog",
     labelKey: "nav.sections.catalog",
     icon: BookOpen,
-    roles: ["owner", "admin", "maintenance_manager", "construction_procurement_manager", "purchase_manager", "purchase_requester", "warehouse", "food_warehouse_manager", "food_warehouse_assistant"],
+    roles: ["owner", "admin", "construction_procurement_manager"],
     items: [
       { icon: BookOpen, labelKey: "nav.catalog", path: "/catalog",
-        roles: ["owner", "admin", "maintenance_manager", "construction_procurement_manager", "purchase_manager", "purchase_requester", "warehouse", "food_warehouse_manager", "food_warehouse_assistant"] },
+        roles: ["owner", "admin", "construction_procurement_manager"] },
     ],
   },
   // 7. وحدة التحليل AI

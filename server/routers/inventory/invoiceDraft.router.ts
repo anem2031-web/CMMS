@@ -218,8 +218,8 @@ export const invoiceDraftRouter = router({
         throw new TRPCError({ code: "BAD_REQUEST", message: "هذه الفاتورة تم اعتمادها مسبقاً" });
       }
 
-      // إدخال المخزون فعلياً
-      await db.processApprovedReceiptItems(input.receiptId, ctx.user.id);
+      // إدخال المخزون فعلياً + توليد Lot/QR تلقائياً عند تفعيل 2B-8
+      const processingResult = await db.processApprovedReceiptItems(input.receiptId, ctx.user.id);
 
       // اعتماد الفاتورة
       await db.approveWarehouseReceipt(input.receiptId, ctx.user.id);
@@ -238,6 +238,8 @@ export const invoiceDraftRouter = router({
         receiptId:     input.receiptId,
         receiptNumber: (draft as any).receiptNumber,
         itemsProcessed: (draft as any).items?.length || 0,
+        inventoryLotsEnabled: processingResult?.inventoryLotsEnabled ?? false,
+        lotLabels: processingResult?.lotLabels ?? [],
       };
     }),
 
