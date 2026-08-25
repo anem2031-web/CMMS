@@ -370,6 +370,16 @@ export default function ExternalMaintenanceWarehouseTab() {
                     <div className="text-xs text-muted-foreground mt-0.5">{ticket.itemDescription}</div>
                   )}
                   <div className="text-xs text-muted-foreground mt-1">الأصل: {ticket.assetName || "غير مسجل"} · الفني المسند: {ticket.assignedTechnicianName || "غير مسند"}</div>
+                  {ticket.ticketBeforePhotoUrl && (
+                    <div className="mt-3">
+                      <div className="text-xs font-medium mb-1">صورة البلاغ عند الإنشاء</div>
+                      <img
+                        src={mediaUrl(ticket.ticketBeforePhotoUrl)}
+                        alt="صورة البلاغ عند الإنشاء"
+                        className="h-24 w-32 rounded-md border object-contain bg-background"
+                      />
+                    </div>
+                  )}
                 </div>
                 <Button onClick={() => {
                   setPrepareTicket(ticket);
@@ -456,6 +466,18 @@ export default function ExternalMaintenanceWarehouseTab() {
         <DialogContent className="max-w-lg">
           <DialogHeader><DialogTitle>تجهيز الأصل للصيانة الخارجية</DialogTitle></DialogHeader>
           <div className="space-y-3">
+            <div>
+              <Label>صورة البلاغ عند الإنشاء</Label>
+              {prepareTicket?.ticketBeforePhotoUrl ? (
+                <img
+                  src={mediaUrl(prepareTicket.ticketBeforePhotoUrl)}
+                  alt="صورة البلاغ عند الإنشاء"
+                  className="mt-2 max-h-64 w-full rounded-lg border object-contain bg-background"
+                />
+              ) : (
+                <div className="mt-2 rounded-md border border-dashed p-3 text-xs text-muted-foreground">لا توجد صورة مرفوعة مع البلاغ عند الإنشاء.</div>
+              )}
+            </div>
             <div><Label>اسم الأصل *</Label><Input value={prepareForm.assetName} onChange={e => setPrepareForm(f => ({ ...f, assetName: e.target.value }))}/></div>
             <div><Label>حالة الأصل قبل الخروج *</Label><Textarea value={prepareForm.assetBeforeCondition} onChange={e => setPrepareForm(f => ({ ...f, assetBeforeCondition: e.target.value }))}/></div>
             <div><Label>المندوب المسؤول *</Label><select className="w-full border rounded-md h-10 px-3 bg-background" value={prepareForm.delegateId} onChange={e => setPrepareForm(f => ({ ...f, delegateId: e.target.value }))}><option value="">اختر المندوب</option>{delegates.map((u: any) => <option key={u.id} value={u.id}>{u.name}</option>)}</select></div>

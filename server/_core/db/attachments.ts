@@ -102,6 +102,9 @@ export async function getFinancialBatchAttachmentsWithDelegate() {
       createdAt: attachments.createdAt,
       delegateId: poPricingBatches.submittedById,
       delegateName: users.name,
+      // الإجمالي الكلي للدفعة كما هو محفوظ على رأس دفعة التسعير.
+      // هذا هو إجمالي أسعار أصناف الدفعة، وليس مبلغ العهدة المصروف للمندوب.
+      totalEstimatedCost: poPricingBatches.totalEstimatedCost,
     })
     .from(attachments)
     .leftJoin(poPricingBatches, eq(attachments.entityId, poPricingBatches.id))

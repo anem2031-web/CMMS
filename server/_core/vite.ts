@@ -55,6 +55,18 @@ export function serveStatic(app: Express) {
     );
   }
 
+  // ملفات التحكم في تحديث الـ PWA يجب ألا تُخزّن مؤقتًا، وإلا قد يبقى
+  // المستخدم على نسخة قديمة رغم وجود نشر جديد.
+  const sendNoCacheStaticFile = (fileName: string) => (_req: any, res: any) => {
+    res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+    res.setHeader("Pragma", "no-cache");
+    res.setHeader("Expires", "0");
+    res.sendFile(path.join(distPath, fileName));
+  };
+
+  app.get("/sw.js", sendNoCacheStaticFile("sw.js"));
+  app.get("/build-version.json", sendNoCacheStaticFile("build-version.json"));
+
   // ملفات الـ assets (JS/CSS) لها hash بالاسم — تكيّش لسنة كاملة (immutable)
   // لأن أي تغيير ينتج اسم جديد كلياً، فالاسم القديم لن يُطلب مرة ثانية
   app.use("/assets", express.static(path.join(distPath, "assets"), {

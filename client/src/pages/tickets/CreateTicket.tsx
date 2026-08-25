@@ -288,10 +288,13 @@ if (f.size > maxSize) {
 
   const handleSubmit = () => {
     if (!form.title.trim()) { toast.error(t.tickets.ticketTitle); return; }
+    if (!form.siteId || !form.sectionId) { toast.error("يرجى اختيار الموقع والقسم"); return; }
     const uploading = fileEntries.some(e => e.status === "uploading" || e.status === "pending");
     if (uploading) { toast.error(at.uploading || "الرجاء انتظار اكتمال رفع الملفات"); return; }
-    // Read beforePhotoUrl directly from fileEntries to avoid stale React state closure
+    // Read beforePhotoUrl directly from fileEntries to avoid stale React state closure.
+    // At least one successfully uploaded image is required before a ticket can be created.
     const freshBeforePhotoUrl = fileEntries.find(e => e.status === "done" && e.url && e.file.type.startsWith("image/"))?.url || "";
+    if (!freshBeforePhotoUrl) { toast.error("يرجى إضافة صورة واحدة على الأقل للبلاغ"); return; }
     createMut.mutate({ ...form, beforePhotoUrl: freshBeforePhotoUrl, siteId: form.siteId ? parseInt(form.siteId) : undefined, sectionId: form.sectionId ? parseInt(form.sectionId) : undefined, assetId: form.assetId ? parseInt(form.assetId) : undefined });
   };
 
@@ -352,9 +355,9 @@ if (f.size > maxSize) {
 
           {/* Site + Asset */}
           <div className="space-y-2">
-            <Label>{t.tickets.site}</Label>
+            <Label>{t.tickets.site} *</Label>
             <Select value={form.siteId} onValueChange={v => setForm(f => ({ ...f, siteId: v, sectionId: "" }))}>
-              <SelectTrigger><SelectValue placeholder={t.tickets.site} /></SelectTrigger>
+              <SelectTrigger><SelectValue placeholder="اختر الموقع" /></SelectTrigger>
               <SelectContent>
                 {sites?.map(s => <SelectItem key={s.id} value={String(s.id)}>{getLocalizedName(s, language)}</SelectItem>)}
               </SelectContent>
@@ -364,11 +367,10 @@ if (f.size > maxSize) {
           {/* Section */}
           {form.siteId && (
             <div className="space-y-2">
-              <Label>القسم</Label>
-              <Select value={form.sectionId || "none"} onValueChange={v => setForm(f => ({ ...f, sectionId: v === "none" ? "" : v }))}>
-                <SelectTrigger><SelectValue placeholder="اختر القسم (اختياري)" /></SelectTrigger>
+              <Label>القسم *</Label>
+              <Select value={form.sectionId} onValueChange={v => setForm(f => ({ ...f, sectionId: v }))}>
+                <SelectTrigger><SelectValue placeholder="اختر القسم" /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="none">بدون قسم</SelectItem>
                   {(sections || []).map(s => <SelectItem key={s.id} value={String(s.id)}>{getLocalizedName(s, language)}</SelectItem>)}
                 </SelectContent>
               </Select>
@@ -394,7 +396,10 @@ if (f.size > maxSize) {
           {/* ───── Attachments Section ───── */}
           <div className="space-y-3">
             <div className="flex items-center justify-between">
-              <Label>{at.title || "المرفقات"}</Label>
+              <Label>
+                {at.title || "المرفقات"} <span className="text-destructive">*</span>
+                <span className="mr-2 text-xs font-normal text-muted-foreground">صورة واحدة على الأقل مطلوبة</span>
+              </Label>
               {fileEntries.length > 0 && (
                 <span className="text-xs text-muted-foreground">
                   {doneCount}/{fileEntries.length} {at.uploaded || "مرفوع"}

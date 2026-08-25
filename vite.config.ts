@@ -12,6 +12,12 @@ import { vitePluginManusRuntime } from "vite-plugin-manus-runtime";
 // =============================================================================
 
 const PROJECT_ROOT = import.meta.dirname;
+const APP_BUILD_ID =
+  process.env.RAILWAY_DEPLOYMENT_ID ||
+  process.env.VERCEL_GIT_COMMIT_SHA ||
+  process.env.GIT_COMMIT ||
+  `${Date.now()}`;
+const APP_BUILT_AT = new Date().toISOString();
 const LOG_DIR = path.join(PROJECT_ROOT, ".manus-logs");
 const MAX_LOG_SIZE_BYTES = 1 * 1024 * 1024; // 1MB per log file
 const TRIM_TARGET_BYTES = Math.floor(MAX_LOG_SIZE_BYTES * 0.6); // Trim to 60% to avoid constant re-trimming
@@ -150,12 +156,35 @@ function vitePluginManusDebugCollector(): Plugin {
   };
 }
 
-const plugins = [react(), tailwindcss(), jsxLocPlugin(), vitePluginManusRuntime(), vitePluginManusDebugCollector()];
+
+function vitePluginBuildVersion(): Plugin {
+  return {
+    name: "cmms-build-version",
+    generateBundle() {
+      this.emitFile({
+        type: "asset",
+        fileName: "build-version.json",
+        source: JSON.stringify(
+          {
+            buildId: APP_BUILD_ID,
+            version: process.env.npm_package_version || "unknown",
+            builtAt: APP_BUILT_AT,
+          },
+          null,
+          2,
+        ),
+      });
+    },
+  };
+}
+
+const plugins = [react(), tailwindcss(), jsxLocPlugin(), vitePluginManusRuntime(), vitePluginManusDebugCollector(), vitePluginBuildVersion()];
 
 export default defineConfig({
   plugins,
   define: {
     __APP_VERSION__: JSON.stringify(process.env.npm_package_version),
+    __APP_BUILD_ID__: JSON.stringify(APP_BUILD_ID),
   },
   resolve: {
     alias: {

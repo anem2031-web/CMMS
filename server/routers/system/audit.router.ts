@@ -3,6 +3,36 @@ import { router, protectedProcedure } from "../_shared/procedures";
 import * as db from "../../_core/db";
 
 export const auditRouter = router({
+
+  recordPwaUpdateDecision: protectedProcedure
+    .input(z.object({
+      action: z.enum(["pwa_update_now", "pwa_update_deferred", "pwa_update_forced"]),
+      fromBuildId: z.string().min(1).max(200),
+      toBuildId: z.string().min(1).max(200),
+      deferredUntil: z.string().datetime().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const forwardedFor = ctx.req.headers["x-forwarded-for"];
+      const ipAddress = Array.isArray(forwardedFor)
+        ? forwardedFor[0]
+        : forwardedFor?.split(",")[0]?.trim() || ctx.req.ip;
+
+      await db.createAuditLog({
+        userId: ctx.user.id,
+        action: input.action,
+        entityType: "application_update",
+        newValues: {
+          fromBuildId: input.fromBuildId,
+          toBuildId: input.toBuildId,
+          deferredUntil: input.deferredUntil ?? null,
+          source: "pwa_update_banner",
+        },
+        ipAddress,
+        userAgent: ctx.req.headers["user-agent"],
+      });
+
+      return { success: true };
+    }),
   list: protectedProcedure.input(z.object({
     entityType: z.string().optional(),
     entityId: z.number().optional(),

@@ -426,6 +426,9 @@ async function startServer() {
       if (isImage) {
         try {
           fileBuffer = await sharp(req.file.buffer)
+            // Normalize EXIF Orientation first so mobile photos keep the same
+            // visual direction they had when captured/selected by the user.
+            .rotate()
             .resize(1920, 1920, { fit: "inside", withoutEnlargement: true })
             .webp({ quality: 75, effort: 2 })
             .toBuffer();

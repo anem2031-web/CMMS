@@ -196,7 +196,7 @@ const COPY: Record<SupportedLanguage, {
   allWarehouses: string;
 }> = {
   ar: {
-    locale: "ar-SA",
+    locale: "ar-SA-u-nu-latn",
     direction: "rtl",
     title: "تقرير تقييم المخزون",
     sheetName: "تقييم المخزون",
@@ -234,7 +234,7 @@ const COPY: Record<SupportedLanguage, {
     allWarehouses: "All warehouses",
   },
   ur: {
-    locale: "ur-PK",
+    locale: "ur-PK-u-nu-latn",
     direction: "rtl",
     title: "انوینٹری ویلیوایشن رپورٹ",
     sheetName: "انوینٹری ویلیو",

@@ -103,7 +103,7 @@ export default function InventoryValuationReport() {
   const safePage = Math.min(page, totalPages);
   const visibleRows = sourceRows.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
 
-  const locale = language === "ar" ? "ar-SA" : language === "ur" ? "ur-PK" : "en-US";
+  const locale = language === "ar" ? "ar-SA-u-nu-latn" : language === "ur" ? "ur-PK-u-nu-latn" : "en-US";
   const quantityFormat = useMemo(() => new Intl.NumberFormat(locale, { maximumFractionDigits: 3 }), [locale]);
   const costFormat = useMemo(() => new Intl.NumberFormat(locale, { minimumFractionDigits: 2, maximumFractionDigits: 4 }), [locale]);
   const valueFormat = useMemo(() => new Intl.NumberFormat(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 }), [locale]);

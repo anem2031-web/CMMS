@@ -1,5 +1,6 @@
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import AppUpdateBanner from "@/components/system/AppUpdateBanner";
 import NotFound from "@/pages/NotFound";
 import CatalogDashboard from "@/pages/catalog/CatalogDashboard";
 import { Route, Switch } from "wouter";
@@ -173,6 +174,7 @@ function App() {
         <LanguageProvider>
           <TooltipProvider>
             <Toaster position="top-center" richColors />
+            <AppUpdateBanner />
             <Router />
           </TooltipProvider>
         </LanguageProvider>

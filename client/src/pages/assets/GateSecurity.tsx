@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { trpc } from "@/lib/trpc";
+import { mediaUrl } from "@/lib/mediaUrl";
 import { printExternalMaintenanceDocument } from "@/lib/printExternalMaintenanceDocument";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -92,6 +93,16 @@ export default function GateSecurity() {
             {row.job.exitDocumentNumber && <span>وثيقة الخروج: {row.job.exitDocumentNumber}</span>}
             {row.poNumber && <span>الدورة المالية: {row.poNumber}</span>}
           </div>
+          {action === "exit" && row.job.assetBeforePhotoUrl && (
+            <div className="pt-1">
+              <div className="text-xs font-medium mb-1">صورة الأصل المرفوعة من المستودع</div>
+              <img
+                src={mediaUrl(row.job.assetBeforePhotoUrl)}
+                alt="صورة الأصل قبل الخروج"
+                className="h-28 w-36 rounded-md border object-contain bg-background"
+              />
+            </div>
+          )}
         </div>
         <div className="flex flex-wrap gap-2">
           {row.job.exitDocumentNumber && (
@@ -149,6 +160,16 @@ export default function GateSecurity() {
           <DialogHeader><DialogTitle>{dialog?.action === "exit" ? "توثيق موافقة خروج الأصل" : "توثيق موافقة دخول الأصل"}</DialogTitle></DialogHeader>
           {dialog && <div className="space-y-4">
             <div className="rounded-lg bg-muted p-3 text-sm"><div className="font-semibold">{dialog.row.ticketNumber} — {dialog.row.job.assetName}</div><div className="text-xs text-muted-foreground">{dialog.row.job.exitDocumentNumber}</div></div>
+            {dialog.action === "exit" && dialog.row.job.assetBeforePhotoUrl && (
+              <div>
+                <Label>صورة الأصل المرفوعة من المستودع قبل الخروج</Label>
+                <img
+                  src={mediaUrl(dialog.row.job.assetBeforePhotoUrl)}
+                  alt="صورة الأصل قبل الخروج"
+                  className="mt-2 max-h-72 w-full rounded-lg border object-contain bg-background"
+                />
+              </div>
+            )}
             <div><Label>{dialog.action === "exit" ? "اسم الشخص الذي أخرج الأصل فعليًا *" : "اسم الشخص الذي أعاد الأصل فعليًا *"}</Label><Input value={carrierName} onChange={e => setCarrierName(e.target.value)} placeholder="الاسم الكامل"/></div>
             <div><Label>ملاحظات الحراسة</Label><Textarea value={notes} onChange={e => setNotes(e.target.value)} rows={3}/></div>
             <div className="text-xs text-muted-foreground border rounded p-3">سيُحفظ اسم الحارس تلقائيًا من حساب الدخول، مع التاريخ والوقت الفعليين داخل النظام.</div>

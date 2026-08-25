@@ -143,10 +143,28 @@ describe("ticket — أصبح مقيَّدًا بعد إغلاق tickets.getById
   });
 });
 
-describe("catalog_item — بلا فحص ملكية (مطابقة مقصودة لوحدته)", () => {
-  it("أي مستخدم مسجّل دخول مسموح له (بيانات مرجعية مشتركة)", async () => {
+describe("catalog_item — قراءة مشتركة وكتابة لمديري الكتالوج", () => {
+  it("أي مستخدم مسجّل دخول يستطيع القراءة كبيانات مرجعية مشتركة", async () => {
     await expect(
       assertCanAccessAttachments({ id: 55, role: "technician" }, "catalog_item", 1)
     ).resolves.toBeUndefined();
+  });
+
+  it("يسمح للمديرين الثلاثة بإضافة/تعديل مرفقات الصنف", async () => {
+    for (const role of [
+      "maintenance_manager",
+      "general_maintenance_manager",
+      "construction_procurement_manager",
+    ]) {
+      await expect(
+        assertCanAccessAttachments({ id: 55, role }, "catalog_item", 1, "write")
+      ).resolves.toBeUndefined();
+    }
+  });
+
+  it("يبقي كتابة مرفقات الصنف محجوبة عن الأدوار المرجعية الأخرى", async () => {
+    await expect(
+      assertCanAccessAttachments({ id: 55, role: "technician" }, "catalog_item", 1, "write")
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
   });
 });

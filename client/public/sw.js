@@ -1,5 +1,5 @@
-// CMMS Service Worker - PWA v3
-const CACHE_NAME = 'cmms-v3';
+// CMMS Service Worker - PWA v4 — controlled application updates
+const CACHE_NAME = 'cmms-v4';
 const STATIC_ASSETS = ['/', '/manifest.json', '/favicon.ico'];
 
 // ─── Install: cache static assets ───────────────────────────────────────────
@@ -29,6 +29,7 @@ self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
   if (url.pathname.startsWith('/api/')) return;
   if (url.pathname.startsWith('/trpc/')) return;
+  if (url.pathname === '/build-version.json') return;
 
   if (event.request.mode === 'navigate') {
     event.respondWith(

@@ -43,6 +43,7 @@ type DocRow = {
   referenceLabel: string;
   printCount: number | null;
   delegateId?: number | null; // فقط لنوع po_financial_batch — الجزء 2 (2026-08-10)
+  totalEstimatedCost?: string | number | null; // الإجمالي الكلي لدفعة التسعير — ليس مبلغ العهدة على المندوب
 };
 
 const TYPE_META: Record<DocType, { label: string; icon: any; color: string }> = {
@@ -61,6 +62,14 @@ const TYPE_META: Record<DocType, { label: string; icon: any; color: string }> = 
 function relativeOrDate(d: any) {
   if (!d) return "—";
   return new Date(d).toLocaleDateString("ar-SA", { year: "numeric", month: "short", day: "numeric" });
+}
+
+function formatFinancialGrandTotal(value: string | number | null | undefined) {
+  if (value == null || value === "") return "—";
+  const amount = Number(value);
+  if (!Number.isFinite(amount)) return "—";
+  // تنسيق مالي موحد: فاصلة آلاف + خانتان عشريتان.
+  return `${amount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ر.س.`;
 }
 
 export default function DocumentsCenter() {
@@ -166,6 +175,7 @@ export default function DocumentsCenter() {
         type: "po_financial_batch", id: doc.id, documentNumber: doc.fileName,
         date: doc.createdAt, referenceLabel: doc.delegateName || "بلا مندوب", printCount: null,
         delegateId: doc.delegateId ?? null,
+        totalEstimatedCost: doc.totalEstimatedCost ?? null,
       }));
     }
     return out;
@@ -481,6 +491,9 @@ export default function DocumentsCenter() {
               <TableRow>
                 <TableHead className="text-start">النوع</TableHead>
                 <TableHead className="text-start">رقم المستند</TableHead>
+                {typeFilter === "po_financial_batch" && (
+                  <TableHead className="text-start whitespace-nowrap">الإجمالي الكلي</TableHead>
+                )}
                 <TableHead className="text-start">التاريخ</TableHead>
                 <TableHead className="text-start">المرجع</TableHead>
                 <TableHead className="text-start">مرات الطباعة</TableHead>
@@ -501,6 +514,11 @@ export default function DocumentsCenter() {
                       </Badge>
                     </TableCell>
                     <TableCell className="font-mono text-sm">{row.documentNumber}</TableCell>
+                    {typeFilter === "po_financial_batch" && (
+                      <TableCell className="font-mono text-sm font-semibold whitespace-nowrap">
+                        {formatFinancialGrandTotal(row.totalEstimatedCost)}
+                      </TableCell>
+                    )}
                     <TableCell className="text-sm text-muted-foreground whitespace-nowrap">{relativeOrDate(row.date)}</TableCell>
                     <TableCell className="text-sm max-w-[220px] truncate">{row.referenceLabel}</TableCell>
                     <TableCell className="text-sm text-muted-foreground">{row.printCount ?? "—"}</TableCell>

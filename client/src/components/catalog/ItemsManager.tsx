@@ -27,10 +27,17 @@ import {
   Pencil,
   RotateCcw,
   Search,
+  X,
+  FolderTree,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { SupplierPickerSection } from "@/components/catalog/SupplierPicker";
+import CatalogTreeFilter, {
+  getCatalogNodePathLabel,
+  getCatalogSubtreeNodeIds,
+  type CatalogTreeNode,
+} from "@/components/catalog/CatalogTreeFilter";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 interface CatalogNode {
@@ -154,12 +161,14 @@ function NodeSelector({
 export default function ItemsManager() {
   const { user } = useAuth();
   const isCatalogAdmin = isCatalogAdminRole(user?.role);
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
 
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [viewItem, setViewItem] = useState<any | null>(null);
+  const [previewImage, setPreviewImage] = useState<{ url: string; alt: string } | null>(null);
   const [editingItem, setEditingItem] = useState<any | null>(null);
-  const [searchQuery, setSearchQuery] = useState("");  // ← جديد
+  const [searchQuery, setSearchQuery] = useState("");
+  const [catalogFilterNodeId, setCatalogFilterNodeId] = useState<number | null>(null);
 
   const [selectedNode, setSelectedNode] =
     useState<CatalogNode | null>(null);
@@ -222,8 +231,23 @@ export default function ItemsManager() {
   };
 
   const { data: units } = trpc.catalog.units.list.useQuery();
+  const { data: catalogNodes = [] } = trpc.catalog.nodes.list.useQuery({ isActive: true });
 
-  // ── Pagination حقيقي (صفحات) + بحث من السيرفر ──────────────────────────
+  const catalogTreeNodes = catalogNodes as CatalogTreeNode[];
+  const catalogFilterNodeIds = useMemo(
+    () => catalogFilterNodeId ? getCatalogSubtreeNodeIds(catalogTreeNodes, catalogFilterNodeId) : [],
+    [catalogTreeNodes, catalogFilterNodeId],
+  );
+  const catalogFilterPath = useMemo(
+    () => getCatalogNodePathLabel(catalogTreeNodes, catalogFilterNodeId, language),
+    [catalogTreeNodes, catalogFilterNodeId, language],
+  );
+  const catalogFilterHasChildren = useMemo(
+    () => catalogFilterNodeId !== null && catalogTreeNodes.some(node => Number(node.parentId) === catalogFilterNodeId),
+    [catalogTreeNodes, catalogFilterNodeId],
+  );
+
+  // ── Pagination حقيقي (صفحات) + بحث من السيرفر + فلترة شجرة الأصناف ─────
   const PAGE_SIZE = 20;
   const [page, setPage] = useState(0);
   const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -237,6 +261,10 @@ export default function ItemsManager() {
     return () => clearTimeout(timer);
   }, [searchQuery]);
 
+  useEffect(() => {
+    setPage(0);
+  }, [catalogFilterNodeId]);
+
   const { data: items, isLoading, isFetching, refetch } =
     trpc.catalog.items.list.useQuery({
       limit: PAGE_SIZE,
@@ -244,11 +272,20 @@ export default function ItemsManager() {
       isActive: true,
       includeInactive: isCatalogAdmin || undefined,
       search: debouncedSearch || undefined,
+      nodeIds: catalogFilterNodeId !== null ? catalogFilterNodeIds : undefined,
     });
 
   const pageItems = items ?? [];
   const hasNextPage = pageItems.length === PAGE_SIZE;
   const hasPrevPage = page > 0;
+  const hasActiveFilters = !!searchQuery.trim() || catalogFilterNodeId !== null;
+
+  const clearItemFilters = () => {
+    setSearchQuery("");
+    setDebouncedSearch("");
+    setCatalogFilterNodeId(null);
+    setPage(0);
+  };
 
   // إعادة التحميل من الصفحة الأولى (تُستخدم بعد إضافة/تعديل/حذف صنف)
   const reloadFromStart = () => {
@@ -394,11 +431,26 @@ export default function ItemsManager() {
     <div className="space-y-4">
 
       {/* Header */}
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <h3 className="text-lg font-semibold shrink-0">{t.catalog.items.title}</h3>
 
-        {/* شريط البحث */}
-        <div className="relative flex-1 max-w-sm">
+        <div className="flex items-center gap-2 shrink-0">
+          {isCatalogAdmin && <CatalogExportButton />}
+          {isCatalogAdmin && <CatalogImportButton />}
+          <Button
+            size="sm"
+            className="gap-2"
+            onClick={() => setIsDialogOpen(true)}
+          >
+            <Plus className="w-4 h-4" />
+            {t.catalog.items.addNew}
+          </Button>
+        </div>
+      </div>
+
+      {/* البحث النصي + فلتر شجرة الأصناف */}
+      <div className="grid grid-cols-1 gap-2 lg:grid-cols-[minmax(0,1fr)_minmax(280px,420px)_auto]">
+        <div className="relative">
           <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <Input
             value={searchQuery}
@@ -409,32 +461,44 @@ export default function ItemsManager() {
           />
         </div>
 
-<div className="flex items-center gap-2 shrink-0">
+        <CatalogTreeFilter
+          nodes={catalogTreeNodes}
+          value={catalogFilterNodeId}
+          onChange={setCatalogFilterNodeId}
+          language={language}
+        />
 
-  {isCatalogAdmin && <CatalogExportButton />}
+        <Button
+          type="button"
+          variant="outline"
+          className="gap-2"
+          disabled={!hasActiveFilters}
+          onClick={clearItemFilters}
+        >
+          <X className="w-4 h-4" />
+          مسح الفلاتر
+        </Button>
+      </div>
 
-  {isCatalogAdmin && <CatalogImportButton />}
-
-
-  <Button
-    size="sm"
-    className="gap-2"
-    onClick={() => setIsDialogOpen(true)}
-  >
-    <Plus className="w-4 h-4" />
-    {t.catalog.items.addNew}
-  </Button>
-
-</div>
-
-</div>
+      {catalogFilterNodeId !== null && (
+        <div className="flex items-start gap-2 rounded-md border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+          <FolderTree className="mt-0.5 h-4 w-4 shrink-0" />
+          <div className="min-w-0">
+            <span className="font-medium text-foreground">التصنيف: </span>
+            <span>{catalogFilterPath || `#${catalogFilterNodeId}`}</span>
+            {catalogFilterHasChildren && (
+              <span className="me-1"> — يشمل جميع الفروع التابعة</span>
+            )}
+          </div>
+        </div>
+      )}
 
 {/* عداد الصفحة الحالية */}
 
       {!isLoading && (
         <p className="text-xs text-muted-foreground">
-          {searchQuery
-            ? `صفحة ${page + 1} — ${pageItems.length} نتيجة للبحث عن "${searchQuery}"`
+          {hasActiveFilters
+            ? `صفحة ${page + 1} — ${pageItems.length} صنف مطابق للفلاتر الحالية`
             : `صفحة ${page + 1} — ${pageItems.length} صنف`}
         </p>
       )}
@@ -445,12 +509,18 @@ export default function ItemsManager() {
           <Loader2 className="w-6 h-6 animate-spin" />
         </div>
       ) : pageItems.length > 0 ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           {pageItems.map((item: any) => (
             <ItemCard
               key={item.id}
               item={item}
+              categoryPath={getCatalogNodePathLabel(catalogTreeNodes, item.nodeId, language)}
               onView={(item) => setViewItem(item)}
+              onImagePreview={(item) => {
+                if (item.primaryImageUrl) {
+                  setPreviewImage({ url: item.primaryImageUrl, alt: item.nameAr || "صورة الصنف" });
+                }
+              }}
               onEdit={(item) => {
                 setSelectedNode({
                   id: item.nodeId,
@@ -490,8 +560,8 @@ export default function ItemsManager() {
       ) : (
         <Card>
           <CardContent className="py-12 text-center text-muted-foreground">
-            {searchQuery
-              ? `لا توجد نتائج للبحث عن "${searchQuery}"`
+            {hasActiveFilters
+              ? "لا توجد أصناف مطابقة للفلاتر الحالية"
               : t.catalog.items.empty}
           </CardContent>
         </Card>
@@ -533,13 +603,23 @@ export default function ItemsManager() {
           {viewItem && (
             <div className="space-y-4 pt-2">
 
-              <div className="w-full h-52 bg-muted rounded-lg overflow-hidden flex items-center justify-center">
+              <div className="w-full h-52 rounded-lg overflow-hidden flex items-center justify-center">
                 {viewItem.primaryImageUrl ? (
-                  <img
-                    src={viewItem.primaryImageUrl}
-                    alt={viewItem.nameAr}
-                    className="w-full h-full object-cover"
-                  />
+                  <button
+                    type="button"
+                    className="flex h-full w-full cursor-zoom-in items-center justify-center rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                    onClick={() => setPreviewImage({
+                      url: viewItem.primaryImageUrl,
+                      alt: viewItem.nameAr || "صورة الصنف",
+                    })}
+                    title="اضغط لعرض الصورة بالحجم الكامل"
+                  >
+                    <img
+                      src={viewItem.primaryImageUrl}
+                      alt={viewItem.nameAr}
+                      className="max-h-full max-w-full object-contain p-2"
+                    />
+                  </button>
                 ) : (
                   <ImageIcon className="w-12 h-12 text-muted-foreground/30" />
                 )}
@@ -559,6 +639,16 @@ export default function ItemsManager() {
                 <div>
                   <p className="text-sm text-muted-foreground">الكود</p>
                   <p className="font-mono">{viewItem.code}</p>
+                </div>
+              )}
+
+              {viewItem.nodeId && getCatalogNodePathLabel(catalogTreeNodes, viewItem.nodeId, language) && (
+                <div>
+                  <p className="text-sm text-muted-foreground">التصنيف</p>
+                  <p className="flex items-start gap-1.5 text-sm">
+                    <FolderTree className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                    <span>{getCatalogNodePathLabel(catalogTreeNodes, viewItem.nodeId, language)}</span>
+                  </p>
                 </div>
               )}
 
@@ -589,6 +679,32 @@ export default function ItemsManager() {
       </Dialog>
 
       {/* Add / Edit Dialog */}
+      {/* Full-size item image preview */}
+      <Dialog
+        open={!!previewImage}
+        onOpenChange={(open) => { if (!open) setPreviewImage(null); }}
+      >
+        <DialogContent className="max-w-5xl p-4 sm:max-w-5xl">
+          <DialogHeader>
+            <DialogTitle>{previewImage?.alt || "صورة الصنف"}</DialogTitle>
+          </DialogHeader>
+          {previewImage && (
+            <div className="flex max-h-[78vh] min-h-[240px] items-center justify-center overflow-auto rounded-lg">
+              <img
+                src={previewImage.url}
+                alt={previewImage.alt}
+                className="max-h-[78vh] max-w-full object-contain"
+              />
+            </div>
+          )}
+          <div className="flex justify-end">
+            <Button variant="outline" onClick={() => setPreviewImage(null)}>
+              إغلاق
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={isDialogOpen} onOpenChange={open => { if (!open) resetForm(); setIsDialogOpen(open); }}>
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
@@ -738,30 +854,47 @@ export default function ItemsManager() {
 // ── Item Card ──────────────────────────────────────────────────────────────
 function ItemCard({
   item,
+  categoryPath,
   canDelete,
   canReactivate,
   onDelete,
   onReactivate,
   onView,
+  onImagePreview,
   onEdit,
 }: {
   item: any;
+  categoryPath?: string;
   canDelete: boolean;
   canReactivate: boolean;
   onDelete: (id: number) => void;
   onReactivate: (id: number) => void;
   onView: (item: any) => void;
+  onImagePreview: (item: any) => void;
   onEdit: (item: any) => void;
 }) {
   const { t } = useTranslation();
   return (
     <Card className={cn("hover:shadow-md transition-shadow", Number(item.isActive) !== 1 && "opacity-80 border-dashed")}>
       <CardContent className="p-4">
-        <div className="mb-3 w-full h-28 bg-muted rounded-lg flex items-center justify-center">
-          {item.primaryImageUrl
-            ? <img src={item.primaryImageUrl} alt={item.nameAr} className="w-full h-full object-cover rounded-lg" />
-            : <ImageIcon className="w-8 h-8 text-muted-foreground/30" />}
-        </div>
+        {item.primaryImageUrl ? (
+          <button
+            type="button"
+            className="mb-3 flex h-28 w-full cursor-zoom-in items-center justify-center overflow-hidden rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            onClick={() => onImagePreview(item)}
+            title="اضغط لعرض الصورة بالحجم الكامل"
+          >
+            <img
+              src={item.primaryImageUrl}
+              alt={item.nameAr}
+              className="max-h-full max-w-full object-contain"
+            />
+          </button>
+        ) : (
+          <div className="mb-3 flex h-28 w-full items-center justify-center rounded-lg border border-dashed border-muted-foreground/20">
+            <ImageIcon className="w-8 h-8 text-muted-foreground/30" />
+          </div>
+        )}
         <div className="space-y-2">
           <div className="flex items-center gap-2">
             <p className="font-semibold text-sm">{item.nameAr}</p>
@@ -780,6 +913,12 @@ function ItemCard({
           </div>
           {item.manufacturer && (
             <p className="text-xs text-muted-foreground">{t.catalog.fields.manufacturer}: {item.manufacturer}</p>
+          )}
+          {categoryPath && (
+            <p className="flex items-start gap-1.5 text-xs text-muted-foreground" title={categoryPath}>
+              <FolderTree className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              <span className="line-clamp-2">{categoryPath}</span>
+            </p>
           )}
         </div>
 

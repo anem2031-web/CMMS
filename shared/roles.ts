@@ -34,6 +34,8 @@ export type AppRole = (typeof APP_ROLE)[keyof typeof APP_ROLE];
 export const CATALOG_MODULE_ROLES = [
   APP_ROLE.OWNER,
   APP_ROLE.ADMIN,
+  APP_ROLE.MAINTENANCE_MANAGER,
+  APP_ROLE.GENERAL_MAINTENANCE_MANAGER,
   APP_ROLE.CONSTRUCTION_PROCUREMENT_MANAGER,
 ] as const;
 
@@ -125,7 +127,6 @@ const GENERAL_MANAGER_DENIED_PREFIXES = [
   "/warehouse",
   "/documents",
   "/item-tracker",
-  "/catalog",
   "/construction",
   "/purchase-cycle",
   "/external-maintenance",

@@ -154,6 +154,7 @@ export async function listPathCTicketsWaitingWarehousePreparation() {
     ticketNumber: tickets.ticketNumber,
     ticketTitle: tickets.title,
     ticketStatus: tickets.status,
+    ticketBeforePhotoUrl: tickets.beforePhotoUrl,
     itemDescription: ticketItems.description,
     assetId: tickets.assetId,
     assetName: assets.name,

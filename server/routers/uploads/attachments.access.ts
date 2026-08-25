@@ -16,7 +16,7 @@
  *
  * `catalog_item` بيانات مرجعية مشتركة للقراءة داخل بعض الـworkflows، لكن الكتابة
  * على مرفقاته تعتبر إدارة Master Data. وفق سياسة 2B-10 لا يسمح بالكتابة إلا
- * للمالك/الأدمن/مدير الإنشاءات والمشتريات؛ بقية الأدوار قد تستهلك صورة الصنف
+ * للمالك/الأدمن/مدير الصيانة/مدير الصيانة العامة/مدير الإنشاءات والمشتريات؛ بقية الأدوار قد تستهلك صورة الصنف
  * كمرجع تشغيلي لكنها لا تستطيع إضافة/حذف مرفقاته.
  *
  * `improvement_idea` و`ticket` على النقيض: وحدتاهما تفرضان فعليًا قيود ملكية
@@ -85,6 +85,8 @@ export async function assertCanAccessAttachments(
     const catalogManagers = [
       APP_ROLE.OWNER,
       APP_ROLE.ADMIN,
+      APP_ROLE.MAINTENANCE_MANAGER,
+      APP_ROLE.GENERAL_MAINTENANCE_MANAGER,
       APP_ROLE.CONSTRUCTION_PROCUREMENT_MANAGER,
     ];
     if (!catalogManagers.includes(user.role as any)) {

@@ -321,7 +321,7 @@ const COPY: Record<SupportedLanguage, {
   columns: Record<"item" | "code" | "warehouse" | "category" | "quantity" | "unit" | "averageCost" | "storedValue" | "condition" | "expected" | "difference" | "tolerance" | "evidence", string>;
 }> = {
   ar: {
-    locale: "ar-SA", direction: "rtl", title: "فروقات المخزون والمراجعة المحاسبية", sheetName: "المراجعة المحاسبية",
+    locale: "ar-SA-u-nu-latn", direction: "rtl", title: "فروقات المخزون والمراجعة المحاسبية", sheetName: "المراجعة المحاسبية",
     filters: { search: "البحث", warehouse: "المخزن", status: "حالة القيمة", category: "التصنيف", condition: "حالة المراجعة" },
     allWarehouses: "كل المخازن", allCategories: "كل التصنيفات", uncategorized: "غير مصنف",
     statuses: { all: "كل القيم", positive: "قيمة موجبة", zero: "قيمة صفرية", negative: "قيمة سالبة" },
@@ -337,7 +337,7 @@ const COPY: Record<SupportedLanguage, {
     columns: { item: "Item", code: "Code", warehouse: "Warehouse", category: "Category", quantity: "Quantity", unit: "Unit", averageCost: "Average Cost", storedValue: "Stored Value", condition: "Review Condition", expected: "Reference Value", difference: "Difference", tolerance: "Tolerance", evidence: "Reconciliation Evidence" },
   },
   ur: {
-    locale: "ur-PK", direction: "rtl", title: "انوینٹری فرق اور اکاؤنٹنگ جائزہ", sheetName: "اکاؤنٹنگ جائزہ",
+    locale: "ur-PK-u-nu-latn", direction: "rtl", title: "انوینٹری فرق اور اکاؤنٹنگ جائزہ", sheetName: "اکاؤنٹنگ جائزہ",
     filters: { search: "تلاش", warehouse: "گودام", status: "ویلیو حالت", category: "زمرہ", condition: "جائزہ حالت" },
     allWarehouses: "تمام گودام", allCategories: "تمام زمرے", uncategorized: "غیر درجہ بند",
     statuses: { all: "تمام ویلیوز", positive: "مثبت ویلیو", zero: "صفر ویلیو", negative: "منفی ویلیو" },

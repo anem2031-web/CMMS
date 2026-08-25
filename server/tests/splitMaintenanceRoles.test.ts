@@ -67,15 +67,20 @@ describe("split maintenance roles — purchase permissions copied from maintenan
   }
 });
 
-describe("2B-10 — standalone Catalog module roles", () => {
-  it("allows only owner/admin/construction manager into the Catalog module", () => {
-    expect(canRoleAccessCatalogModule("owner")).toBe(true);
-    expect(canRoleAccessCatalogModule("admin")).toBe(true);
-    expect(canRoleAccessCatalogModule("construction_procurement_manager")).toBe(true);
-
+describe("Catalog module roles — manager access with admin-only overview", () => {
+  it("allows owner/admin and the three maintenance-manager roles into the Catalog module", () => {
     for (const role of [
+      "owner",
+      "admin",
       "maintenance_manager",
       "general_maintenance_manager",
+      "construction_procurement_manager",
+    ]) {
+      expect(canRoleAccessCatalogModule(role)).toBe(true);
+      expect(canRoleAccessPath(role, "/catalog")).toBe(true);
+    }
+
+    for (const role of [
       "purchase_manager",
       "purchase_requester",
       "warehouse",
@@ -95,14 +100,15 @@ describe("2B-10 — standalone Catalog module roles", () => {
 });
 
 describe("split maintenance roles — module exclusions", () => {
-  it("general maintenance manager keeps ticket/scan access but loses warehouse, catalog and construction", () => {
+  it("general maintenance manager keeps ticket/scan and Catalog access but loses warehouse and construction", () => {
     const role = "general_maintenance_manager";
     expect(canRoleAccessPath(role, "/tickets")).toBe(true);
     expect(canRoleAccessPath(role, "/triage")).toBe(true);
     expect(canRoleAccessPath(role, "/scan-asset")).toBe(true);
-    for (const path of ["/inventory", "/inventory-operations", "/warehouse/return", "/documents", "/item-tracker", "/catalog", "/construction"]) {
+    for (const path of ["/inventory", "/inventory-operations", "/warehouse/return", "/documents", "/item-tracker", "/construction"]) {
       expect(canRoleAccessPath(role, path)).toBe(false);
     }
+    expect(canRoleAccessPath(role, "/catalog")).toBe(true);
     expect(isRoleDeniedFromTickets(role)).toBe(false);
     expect(isTicketVisible({ id: 1, role }, { reportedById: 2, assignedToId: null })).toBe(true);
   });

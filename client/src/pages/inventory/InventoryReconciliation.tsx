@@ -46,7 +46,7 @@ const EXCEPTION_LABELS: Record<string, string> = {
 
 function formatNumber(value: number | null | undefined) {
   if (value == null || !Number.isFinite(Number(value))) return "—";
-  return Number(value).toLocaleString("ar-SA", { maximumFractionDigits: 4 });
+  return Number(value).toLocaleString("ar-SA-u-nu-latn", { maximumFractionDigits: 4 });
 }
 
 export default function InventoryReconciliation() {
@@ -278,7 +278,7 @@ export default function InventoryReconciliation() {
 
       <div className="flex items-center gap-2 text-xs text-muted-foreground">
         <Database className="h-4 w-4" />
-        آخر فحص: {new Date(result.generatedAt).toLocaleString("ar-SA")} · Read-only: نعم · Auto-fix: غير مفعّل
+        آخر فحص: {new Date(result.generatedAt).toLocaleString("ar-SA-u-nu-latn")} · Read-only: نعم · Auto-fix: غير مفعّل
       </div>
     </div>
   );

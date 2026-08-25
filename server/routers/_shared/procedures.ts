@@ -148,7 +148,8 @@ export const catalogReadProcedure = roleMiddleware([
 /**
  * Standalone Catalog management policy (2B-10):
  * - owner/admin: always allowed by roleMiddleware
- * - construction/procurement manager: day-to-day Catalog management
+ * - maintenance manager / general maintenance manager / construction-procurement manager:
+ *   day-to-day Catalog management
  * - all other roles: no Catalog management mutations
  *
  * Broad catalogReadProcedure remains intentionally unchanged because purchase,
@@ -156,6 +157,8 @@ export const catalogReadProcedure = roleMiddleware([
  * data. That operational read access is not access to the standalone Catalog UI.
  */
 export const catalogProcedure = roleMiddleware([
+  APP_ROLE.MAINTENANCE_MANAGER,
+  APP_ROLE.GENERAL_MAINTENANCE_MANAGER,
   APP_ROLE.CONSTRUCTION_PROCUREMENT_MANAGER,
 ]);
 

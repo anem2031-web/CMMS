@@ -268,7 +268,7 @@ const COPY: Record<SupportedLanguage, {
   category: { title: string; sheetName: string; columns: { category: string; itemCount: string; inventoryRows: string; quantityContext: string; value: string; share: string } };
 }> = {
   ar: {
-    locale: "ar-SA", direction: "rtl",
+    locale: "ar-SA-u-nu-latn", direction: "rtl",
     filters: { search: "البحث", warehouse: "المخزن", status: "حالة القيمة" },
     statuses: { all: "كل القيم", positive: "قيمة موجبة", zero: "قيمة صفرية", negative: "قيمة سالبة" },
     allWarehouses: "كل المخازن", uncategorized: "غير مصنف", noWarehouse: "بدون مخزن محدد", noUnit: "بدون وحدة",
@@ -284,7 +284,7 @@ const COPY: Record<SupportedLanguage, {
     category: { title: "Inventory Value by Category", sheetName: "Value by Category", columns: { category: "Category", itemCount: "Item count", inventoryRows: "Inventory rows", quantityContext: "Quantity context by unit", value: "Current inventory value", share: "Share of total" } },
   },
   ur: {
-    locale: "ur-PK", direction: "rtl",
+    locale: "ur-PK-u-nu-latn", direction: "rtl",
     filters: { search: "تلاش", warehouse: "گودام", status: "ویلیو حالت" },
     statuses: { all: "تمام ویلیوز", positive: "مثبت ویلیو", zero: "صفر ویلیو", negative: "منفی ویلیو" },
     allWarehouses: "تمام گودام", uncategorized: "غیر درجہ بند", noWarehouse: "گودام متعین نہیں", noUnit: "یونٹ متعین نہیں",

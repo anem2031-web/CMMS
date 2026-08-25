@@ -431,7 +431,7 @@ export async function loadInventoryAnalyticsReport(filtersInput: InventoryAnalyt
 type SupportedLanguage = "ar" | "en" | "ur";
 const COPY: Record<SupportedLanguage, any> = {
   ar: {
-    locale: "ar-SA", direction: "rtl", allWarehouses: "كل المخازن", allCategories: "كل التصنيفات", uncategorized: "غير مصنف",
+    locale: "ar-SA-u-nu-latn", direction: "rtl", allWarehouses: "كل المخازن", allCategories: "كل التصنيفات", uncategorized: "غير مصنف",
     filters: { search: "البحث", warehouse: "المخزن", category: "التصنيف", slowDays: "حد الحركة البطيئة (يوم)", deadDays: "حد المخزون الراكد (يوم)", turnoverDays: "فترة مؤشر الدوران (يوم)" },
     titles: { slow: "تحليل المخزون — الحركة البطيئة", dead: "تحليل المخزون — المخزون الراكد", abc: "تحليل المخزون — ABC حسب القيمة الحالية", aging: "تحليل المخزون — أعمار الدفعات الحالية", turnover: "تحليل المخزون — مؤشر الدوران التخطيطي" },
     columns: { item: "الصنف", code: "الكود", warehouse: "المخزن", category: "التصنيف", quantity: "الكمية الحالية", unit: "الوحدة", currentValue: "القيمة الحالية المخزنة", lastOutbound: "آخر خروج مسجل", days: "الأيام", itemRows: "سجلات المخزون", warehouses: "عدد المخازن", share: "النسبة %", cumulative: "التراكمي %", abc: "فئة ABC", lot: "Lot Code", lotQty: "رصيد الدفعة", lotCreated: "تاريخ إنشاء الدفعة", bucket: "شريحة العمر", expiry: "الانتهاء", outboundValue: "قيمة الخروج المسجلة", valuedMovements: "حركات خروج بقيمة", unvaluedMovements: "حركات خروج بلا قيمة", turnover: "مؤشر الدوران" },
@@ -443,7 +443,7 @@ const COPY: Record<SupportedLanguage, any> = {
     columns: { item: "Item", code: "Code", warehouse: "Warehouse", category: "Category", quantity: "Current Quantity", unit: "Unit", currentValue: "Current Stored Value", lastOutbound: "Last Recorded Outbound", days: "Days", itemRows: "Inventory Rows", warehouses: "Warehouses", share: "Share %", cumulative: "Cumulative %", abc: "ABC Class", lot: "Lot Code", lotQty: "Lot Balance", lotCreated: "Lot Created At", bucket: "Age Bucket", expiry: "Expiry", outboundValue: "Recorded Outbound Value", valuedMovements: "Valued Outbound Movements", unvaluedMovements: "Unvalued Outbound Movements", turnover: "Turnover Indicator" },
   },
   ur: {
-    locale: "ur-PK", direction: "rtl", allWarehouses: "تمام گودام", allCategories: "تمام زمرے", uncategorized: "غیر درجہ بند",
+    locale: "ur-PK-u-nu-latn", direction: "rtl", allWarehouses: "تمام گودام", allCategories: "تمام زمرے", uncategorized: "غیر درجہ بند",
     filters: { search: "تلاش", warehouse: "گودام", category: "زمرہ", slowDays: "سست حرکت کی حد (دن)", deadDays: "ڈیڈ اسٹاک حد (دن)", turnoverDays: "ٹرن اوور اشاریہ مدت (دن)" },
     titles: { slow: "انوینٹری تجزیہ — سست حرکت", dead: "انوینٹری تجزیہ — ڈیڈ اسٹاک", abc: "انوینٹری تجزیہ — موجودہ قدر کے لحاظ سے ABC", aging: "انوینٹری تجزیہ — موجودہ لاٹ عمر", turnover: "انوینٹری تجزیہ — منصوبہ بندی ٹرن اوور اشاریہ" },
     columns: { item: "آئٹم", code: "کوڈ", warehouse: "گودام", category: "زمرہ", quantity: "موجودہ مقدار", unit: "یونٹ", currentValue: "موجودہ محفوظ قدر", lastOutbound: "آخری ریکارڈ شدہ اخراج", days: "دن", itemRows: "انوینٹری قطاریں", warehouses: "گودام", share: "حصہ %", cumulative: "مجموعی %", abc: "ABC کلاس", lot: "Lot Code", lotQty: "لاٹ بیلنس", lotCreated: "لاٹ بننے کی تاریخ", bucket: "عمر گروپ", expiry: "میعاد", outboundValue: "ریکارڈ شدہ اخراج قدر", valuedMovements: "قدر والی اخراج حرکات", unvaluedMovements: "بغیر قدر اخراج حرکات", turnover: "ٹرن اوور اشاریہ" },

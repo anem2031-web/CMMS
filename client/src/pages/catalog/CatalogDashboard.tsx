@@ -1,5 +1,5 @@
 import SuppliersManager from "@/components/catalog/SuppliersManager";
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useEffect } from "react";
 import { useTranslation } from "@/contexts/LanguageContext";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
@@ -28,10 +28,19 @@ import SmartSearch from "@/components/catalog/SmartSearch";
 
 export default function CatalogDashboard() {
   const { t } = useTranslation();
-  const { user } = useAuth();
+  const { user, loading } = useAuth();
   const isCatalogAdmin = isCatalogAdminRole(user?.role);
   const [activeTab, setActiveTab] = useState("overview");
   const [searchQuery, setSearchQuery] = useState("");
+
+  // Overview is intentionally limited to System Admin / Owner.
+  // Once auth is resolved, other Catalog roles land on Items instead of
+  // remaining on a hidden overview tab.
+  useEffect(() => {
+    if (!loading && !isCatalogAdmin && activeTab === "overview") {
+      setActiveTab("items");
+    }
+  }, [activeTab, isCatalogAdmin, loading]);
 
   const { data: nodes } = trpc.catalog.nodes.list.useQuery({
     isActive: true,
@@ -96,7 +105,9 @@ export default function CatalogDashboard() {
       {/* Main Content */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
         <TabsList className="flex w-full flex-row h-auto mb-6 gap-1 p-1">
-          <TabsTrigger value="overview" className="flex-1">{t.catalog.tabs.overview}</TabsTrigger>
+          {isCatalogAdmin && (
+            <TabsTrigger value="overview" className="flex-1">{t.catalog.tabs.overview}</TabsTrigger>
+          )}
           <TabsTrigger value="taxonomy" className="flex-1">{t.catalog.tabs.taxonomy}</TabsTrigger>
           <TabsTrigger value="items" className="flex-1">{t.catalog.tabs.items}</TabsTrigger>
           <TabsTrigger value="units" className="flex-1 gap-1">
@@ -115,33 +126,35 @@ export default function CatalogDashboard() {
           )}
         </TabsList>
 
-        {/* Overview Tab */}
-        <TabsContent value="overview" className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Search className="w-5 h-5" />
-                {t.catalog.search.title}
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <SmartSearch />
-            </CardContent>
-          </Card>
+        {/* Overview Tab — System Admin / Owner only */}
+        {isCatalogAdmin && (
+          <TabsContent value="overview" className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Search className="w-5 h-5" />
+                  {t.catalog.search.title}
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <SmartSearch />
+              </CardContent>
+            </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>
-                {t.catalog.overview.recentItems}
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-center py-8 text-slate-500">
-                {t.catalog.overview.noItems}
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
+            <Card>
+              <CardHeader>
+                <CardTitle>
+                  {t.catalog.overview.recentItems}
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-center py-8 text-slate-500">
+                  {t.catalog.overview.noItems}
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+        )}
 
         {/* Taxonomy Tab */}
         <TabsContent value="taxonomy">

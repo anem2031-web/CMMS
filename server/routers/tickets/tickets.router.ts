@@ -159,6 +159,13 @@ export const ticketsRouter = router({
     locationDetail: z.string().optional(),
     beforePhotoUrl: z.string().optional(),
   })).mutation(async ({ input, ctx }) => {
+    if (!input.siteId || !input.sectionId) {
+      throw new TRPCError({ code: "BAD_REQUEST", message: "يرجى اختيار الموقع والقسم" });
+    }
+    if (!input.beforePhotoUrl?.trim()) {
+      throw new TRPCError({ code: "BAD_REQUEST", message: "يرجى إضافة صورة واحدة على الأقل للبلاغ" });
+    }
+
     const ticketNumber = await db.getNextTicketNumber();
 
     // كشف اللغة فقط — الترجمة تحدث في الخلفية

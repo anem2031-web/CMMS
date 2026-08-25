@@ -24,6 +24,9 @@ const ACTION_COLORS: Record<string, string> = {
   purchase: "bg-cyan-100 text-cyan-700 border-cyan-200",
   receive: "bg-lime-100 text-lime-700 border-lime-200",
   deliver: "bg-indigo-100 text-indigo-700 border-indigo-200",
+  pwa_update_now: "bg-blue-100 text-blue-700 border-blue-200",
+  pwa_update_deferred: "bg-amber-100 text-amber-700 border-amber-200",
+  pwa_update_forced: "bg-red-100 text-red-700 border-red-200",
 };
 
 const ACTION_ICONS: Record<string, string> = {
@@ -38,6 +41,9 @@ const ACTION_ICONS: Record<string, string> = {
   purchase: "🛒",
   receive: "📦",
   deliver: "🚚",
+  pwa_update_now: "🔄",
+  pwa_update_deferred: "⏳",
+  pwa_update_forced: "⚠️",
 };
 
 const ENTITY_COLORS: Record<string, string> = {
@@ -54,6 +60,7 @@ const ENTITY_COLORS: Record<string, string> = {
   supplier: "bg-amber-50 text-amber-700",
   catalog_item_candidate: "bg-teal-50 text-teal-700",
   supplier_candidate: "bg-orange-50 text-orange-700",
+  application_update: "bg-blue-50 text-blue-700",
 };
 
 export default function AuditLog() {
@@ -94,7 +101,26 @@ export default function AuditLog() {
   }, [systemLogs, catalogLogs]);
   const isLoading = systemLogsLoading || catalogLogsLoading;
 
-  const getActionLabel = (action: string) => (t.audit as any)[action] || action;
+  const getActionLabel = (action: string) => {
+    const pwaLabels: Record<string, Record<string, string>> = {
+      ar: {
+        pwa_update_now: "اختار تحديث الآن",
+        pwa_update_deferred: "اختار لاحقًا",
+        pwa_update_forced: "تحديث إجباري",
+      },
+      en: {
+        pwa_update_now: "Chose update now",
+        pwa_update_deferred: "Chose later",
+        pwa_update_forced: "Forced update",
+      },
+      ur: {
+        pwa_update_now: "ابھی اپ ڈیٹ منتخب کیا",
+        pwa_update_deferred: "بعد میں منتخب کیا",
+        pwa_update_forced: "لازمی اپ ڈیٹ",
+      },
+    };
+    return pwaLabels[language]?.[action] || (t.audit as any)[action] || action;
+  };
   const getUserName = (userId: number | null) => {
     if (!userId) return t.common.all;
     const u = users?.find(u => u.id === userId);
@@ -116,6 +142,7 @@ export default function AuditLog() {
       supplier: language === "ar" ? "مورد الكتالوج" : language === "ur" ? "کیٹلاگ سپلائر" : "Catalog Supplier",
       catalog_item_candidate: language === "ar" ? "مرشح صنف" : language === "ur" ? "آئٹم امیدوار" : "Item Candidate",
       supplier_candidate: language === "ar" ? "مرشح مورد" : language === "ur" ? "سپلائر امیدوار" : "Supplier Candidate",
+      application_update: language === "ar" ? "تحديث التطبيق" : language === "ur" ? "ایپ اپ ڈیٹ" : "Application Update",
     };
     return labels[entityType] || entityType;
   };
@@ -349,7 +376,7 @@ export default function AuditLog() {
                   </div>
                   <div className="bg-muted/50 rounded-lg p-3">
                     <span className="text-muted-foreground text-xs block mb-1">{language === "ar" ? "الكيان" : "Entity"}</span>
-                    <span className="font-medium">{getEntityLabel(detailLog.entityType)} #{detailLog.entityId}</span>
+                    <span className="font-medium">{getEntityLabel(detailLog.entityType)}{detailLog.entityId ? ` #${detailLog.entityId}` : ""}</span>
                   </div>
                   <div className="bg-muted/50 rounded-lg p-3">
                     <span className="text-muted-foreground text-xs block mb-1">{language === "ar" ? "المستخدم" : "User"}</span>

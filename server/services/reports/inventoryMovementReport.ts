@@ -378,7 +378,7 @@ type SupportedLanguage = "ar" | "en" | "ur";
 
 const COPY: Record<SupportedLanguage, any> = {
   ar: {
-    locale: "ar-SA", direction: "rtl", movementsTitle: "تقرير حركات المخزون", cardTitle: "بطاقة الصنف", sheetMovements: "حركات المخزون", sheetCard: "بطاقة الصنف",
+    locale: "ar-SA-u-nu-latn", direction: "rtl", movementsTitle: "تقرير حركات المخزون", cardTitle: "بطاقة الصنف", sheetMovements: "حركات المخزون", sheetCard: "بطاقة الصنف",
     filters: { search: "البحث", warehouse: "المخزن", movementType: "نوع الحركة", direction: "الاتجاه", dateFrom: "من تاريخ", dateTo: "إلى تاريخ", item: "الصنف", currentQuantity: "الرصيد الحالي" },
     allWarehouses: "كل المخازن", allTypes: "كل الحركات", allDirections: "وارد وصادر",
     types: { purchase: "استلام", delivery: "صرف / تسليم", return: "مرتجع", transfer: "تحويل", disposal: "استبعاد", adjustment: "تسوية / تعديل" },
@@ -394,7 +394,7 @@ const COPY: Record<SupportedLanguage, any> = {
     columns: { date: "Date & time", item: "Item", code: "Code", warehouse: "Warehouse", type: "Movement type", direction: "Direction", lot: "Lot Code", quantity: "Quantity", unit: "Unit", unitCost: "Unit cost", totalCost: "Movement value", reference: "Document / Reference", performer: "Performed by", reason: "Reason / Notes" },
   },
   ur: {
-    locale: "ur-PK", direction: "rtl", movementsTitle: "انوینٹری موومنٹ رپورٹ", cardTitle: "اسٹاک کارڈ", sheetMovements: "انوینٹری موومنٹس", sheetCard: "اسٹاک کارڈ",
+    locale: "ur-PK-u-nu-latn", direction: "rtl", movementsTitle: "انوینٹری موومنٹ رپورٹ", cardTitle: "اسٹاک کارڈ", sheetMovements: "انوینٹری موومنٹس", sheetCard: "اسٹاک کارڈ",
     filters: { search: "تلاش", warehouse: "گودام", movementType: "حرکت کی قسم", direction: "سمت", dateFrom: "تاریخ سے", dateTo: "تاریخ تک", item: "آئٹم", currentQuantity: "موجودہ بیلنس" },
     allWarehouses: "تمام گودام", allTypes: "تمام حرکات", allDirections: "ان اور آؤٹ",
     types: { purchase: "وصولی", delivery: "اجراء / حوالگی", return: "واپسی", transfer: "منتقلی", disposal: "اخراج", adjustment: "ایڈجسٹمنٹ / سیٹلمنٹ" },

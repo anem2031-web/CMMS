@@ -4,7 +4,10 @@ import { UNAUTHED_ERR_MSG } from '@shared/const';
 // تسجيل Service Worker لـ PWA
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js').catch(() => {});
+    navigator.serviceWorker
+      .register('/sw.js', { updateViaCache: 'none' })
+      .then((registration) => registration.update().catch(() => {}))
+      .catch(() => {});
   });
 }
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
