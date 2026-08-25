@@ -1,9 +1,9 @@
 import { catalogImportExportRouter } from "./catalogImportExport.router";
 import { attachments } from "../../../drizzle/schema";
 import { matchSuppliers, normalizeSupplierName } from "../../_core/catalog-supplier-matching";
-import { applyAiSemanticDiscovery, extractNormalizedMeasurements, normalizeCatalogItemText, normalizeSupplierItemCode, rankCatalogItemMatches } from "../../_core/catalog-item-matching";
+import { applyAiSemanticDiscovery, extractNormalizedMeasurements, normalizeCatalogItemText, normalizeSupplierItemCode, rankCatalogItemMatches, type CatalogAiUsageEvent } from "../../_core/catalog-item-matching";
 import { candidateReviewDisplayName, decidedPeerIds, findExactCatalogDuplicate, findExactPendingCandidateDuplicate, normalizeCandidatePair, sameItemGroupIds, sameItemPrimaryForCandidate } from "../../_core/catalog-item-candidate-review";
-import { nextCatalogItemCode } from "../../_core/catalog-item-code";
+import { isCatalogItemCodeForNode, nextCatalogItemCode } from "../../_core/catalog-item-code";
 import { publishResolvedCatalogIdentity } from "../../_core/catalog-item-identity-publication";
 import { catalogAuditJson, pickAuditValues } from "../../_core/catalog-audit";
 import { findCatalogUnitByName, getActiveCatalogUnitCanonicalName } from "../../_core/catalog-unit-governance";
@@ -772,6 +772,24 @@ return itemsWithImages;
       }),
 
     /**
+     * Preview the next automatic Catalog Item code for the selected category.
+     * The backend is authoritative; create() allocates again inside its DB transaction.
+     */
+    previewNextCode: catalogProcedure
+      .input(z.object({ nodeId: z.number() }))
+      .query(async ({ input }) => {
+        const db = await getDb();
+        if (!db) throw new Error("Database unavailable");
+        const state = await getLeafCategoryCodeState(db, input.nodeId, false);
+        return {
+          code: state.code,
+          nodeId: state.node.id,
+          nodeCode: state.node.code,
+          nodeNameAr: state.node.nameAr,
+        };
+      }),
+
+    /**
      * Create a new catalog item
      */
 // بعد التعديل
@@ -786,37 +804,56 @@ create: catalogProcedure
       descriptionUr: z.string().optional(),
       code: z.string().optional(),
       nodeId: z.number(),
-      unit: z.string().optional(),         // تمت الإضافة
-      manufacturer: z.string().optional(), // تمت الإضافة
+      unit: z.string().optional(),
+      manufacturer: z.string().optional(),
     })
   )
   .mutation(async ({ input, ctx }) => {
     const db = await getDb();
     if (!db) throw new Error("Database unavailable");
 
-    // 2B-10-2B: أي Catalog Item جديد يجب أن يرتبط بتصنيف نشط على كامل المسار.
-    // لا نغيّر nodeId للأصناف القديمة ولا نصلح التاريخ تلقائياً.
-    await assertActiveCatalogNodePath(db, input.nodeId);
     const activeUnitName = await assertActiveCatalogMasterUnit(db, input.unit);
-
-    // بناء كائن البيانات ديناميكياً
-    const insertData: any = {
-      nameAr: input.nameAr,
-      nameEn: input.nameEn,
-      nodeId: input.nodeId,
-      isActive: 1,
-    };
-
-    if (input.nameUr) insertData.nameUr = input.nameUr;
-    if (input.descriptionAr) insertData.descriptionAr = input.descriptionAr;
-    if (input.descriptionEn) insertData.descriptionEn = input.descriptionEn;
-    if (input.descriptionUr) insertData.descriptionUr = input.descriptionUr;
-    if (input.code) insertData.code = input.code;
-    if (activeUnitName) insertData.unit = activeUnitName;
-    if (input.manufacturer) insertData.manufacturer = input.manufacturer;
+    const requestedCode = input.code?.trim() || "";
 
     let insertId = 0;
     await (db as any).transaction(async (tx: any) => {
+      // Allocate/validate the code under the category row lock so automatic
+      // numbering stays safe when two users create items concurrently.
+      const categoryState = await getLeafCategoryCodeState(tx, input.nodeId, true);
+      const categoryCode = String(categoryState.node.code || "").trim();
+      const finalCode = requestedCode || categoryState.code;
+
+      if (requestedCode && !isCatalogItemCodeForNode(requestedCode, categoryCode)) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `كود الصنف يجب أن يكون بصيغة ${categoryCode}-001 (كود التصنيف-تسلسل رقمي)`,
+        });
+      }
+
+      const codeCollision = await tx.select({ id: catalogItems.id }).from(catalogItems)
+        .where(eq(catalogItems.code, finalCode)).limit(1);
+      if (codeCollision.length > 0) {
+        throw new TRPCError({
+          code: "CONFLICT",
+          message: `كود الصنف ${finalCode} مستخدم مسبقاً`,
+        });
+      }
+
+      const insertData: any = {
+        nameAr: input.nameAr,
+        nameEn: input.nameEn,
+        nodeId: input.nodeId,
+        code: finalCode,
+        isActive: 1,
+      };
+
+      if (input.nameUr) insertData.nameUr = input.nameUr;
+      if (input.descriptionAr) insertData.descriptionAr = input.descriptionAr;
+      if (input.descriptionEn) insertData.descriptionEn = input.descriptionEn;
+      if (input.descriptionUr) insertData.descriptionUr = input.descriptionUr;
+      if (activeUnitName) insertData.unit = activeUnitName;
+      if (input.manufacturer) insertData.manufacturer = input.manufacturer;
+
       const result = await tx.insert(catalogItems).values(insertData);
       insertId = Number((result as any)[0]?.insertId || 0);
       if (!insertId) throw new Error("تعذر تحديد رقم صنف الكتالوج الجديد");
@@ -837,24 +874,22 @@ create: catalogProcedure
      * Update a catalog item
      */
     update: catalogProcedure
-.input(
-  z.object({
-    id: z.number(),
-    nameAr: z.string().optional(),
-    nameEn: z.string().optional(),
-    nameUr: z.string().optional(),
-    descriptionAr: z.string().optional(),
-    descriptionEn: z.string().optional(),
-    descriptionUr: z.string().optional(),
-    code: z.string().optional(),
-
-    unit: z.string().optional(),
-    manufacturer: z.string().optional(),
-
-    isActive: z.boolean().optional(),
-  })
-)
-
+      .input(
+        z.object({
+          id: z.number(),
+          nameAr: z.string().optional(),
+          nameEn: z.string().optional(),
+          nameUr: z.string().optional(),
+          descriptionAr: z.string().optional(),
+          descriptionEn: z.string().optional(),
+          descriptionUr: z.string().optional(),
+          code: z.string().optional(),
+          nodeId: z.number().optional(),
+          unit: z.string().optional(),
+          manufacturer: z.string().optional(),
+          isActive: z.boolean().optional(),
+        })
+      )
       .mutation(async ({ input, ctx }) => {
         const db = await getDb();
         if (!db) throw new Error("Database unavailable");
@@ -867,6 +902,56 @@ create: catalogProcedure
         const existingRows = await db.select().from(catalogItems).where(eq(catalogItems.id, id)).limit(1);
         const existing = existingRows[0] as any;
         if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "صنف الكتالوج غير موجود" });
+
+        const existingNodeId = Number(existing.nodeId);
+        const targetNodeId = updateData.nodeId !== undefined ? Number(updateData.nodeId) : existingNodeId;
+        const nodeChanged = targetNodeId !== existingNodeId;
+        const submittedCode = updateData.code !== undefined ? String(updateData.code || "").trim() : undefined;
+        const existingCode = String(existing.code || "").trim();
+        const codeChanged = submittedCode !== undefined && submittedCode !== existingCode;
+
+        // The edit dialog allows moving an item to another leaf category. Validate
+        // the code against the category selected by the user, not the item's old
+        // category. This keeps codes such as 94-015 valid when moving to node 94.
+        if (nodeChanged || codeChanged) {
+          const targetCategory = await getLeafCategoryCodeState(db, targetNodeId, false);
+          const targetNodeCode = String(targetCategory.node.code || "").trim();
+
+          if (nodeChanged && !submittedCode) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: `عند تغيير التصنيف يجب أن يكون كود الصنف بصيغة ${targetNodeCode || "11"}-001 (كود التصنيف-تسلسل رقمي)`,
+            });
+          }
+
+          if (submittedCode && !isCatalogItemCodeForNode(submittedCode, targetNodeCode)) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: `كود الصنف يجب أن يبدأ بكود التصنيف المختار ${targetNodeCode}- ثم تسلسل رقمي (مثال ${targetNodeCode}-001)`,
+            });
+          }
+        }
+
+        if (updateData.code !== undefined) {
+          if (!submittedCode) {
+            delete (updateData as any).code;
+          } else if (submittedCode !== existingCode) {
+            const codeCollision = await db.select({ id: catalogItems.id }).from(catalogItems)
+              .where(and(eq(catalogItems.code, submittedCode), ne(catalogItems.id, id))).limit(1);
+            if (codeCollision.length > 0) {
+              throw new TRPCError({
+                code: "CONFLICT",
+                message: `كود الصنف ${submittedCode} مستخدم مسبقاً`,
+              });
+            }
+
+            (updateData as any).code = submittedCode;
+          } else {
+            // Historical no-hyphen codes remain untouched when the user edits
+            // other fields; no historical renumbering is performed.
+            (updateData as any).code = existingCode;
+          }
+        }
 
         if (updateData.unit !== undefined) {
           const submittedUnit = (updateData.unit || "").trim();
@@ -2152,7 +2237,7 @@ create: catalogProcedure
         limitPerItem: z.number().min(1).max(8).default(5),
         useAiFallback: z.boolean().default(true),
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         const db = await getDb();
         if (!db) throw new Error("Database unavailable");
 
@@ -2183,6 +2268,10 @@ create: catalogProcedure
           : [];
 
         const results = [];
+        const aiUsageEvents: CatalogAiUsageEvent[] = [];
+        let deterministicBypassCount = 0;
+        let aiEligibleCount = 0;
+        let aiBudgetSkippedCount = 0;
         // حد تكلفة: AI fallback للحالات الملتبسة فقط وبحد أقصى 5 أسطر في الفاتورة الواحدة.
         // بقية الأسطر تبقى على نتيجة الخوارزمية ويمكن للمستخدم تأكيدها يدوياً.
         let aiFallbackBudget = 5;
@@ -2205,6 +2294,9 @@ create: catalogProcedure
           // إذا كانت إشارة البحث المحلي شبه معدومة، يسمح بطلب صغير إضافي لتوليد
           // مرادفات بحث ثم يعيد بناء الـShortlist؛ لا يتم إرسال الكتالوج على دفعات.
           const needsAiSemanticDiscovery = !strongDeterministic;
+          if (strongDeterministic) deterministicBypassCount++;
+          if (needsAiSemanticDiscovery) aiEligibleCount++;
+
           if (input.useAiFallback && aiFallbackBudget > 0 && needsAiSemanticDiscovery) {
             aiFallbackBudget--;
             matches = await applyAiSemanticDiscovery({
@@ -2212,7 +2304,10 @@ create: catalogProcedure
               catalogItems: catalogRows as any[],
               deterministicCandidates: matches,
               limit: input.limitPerItem,
+              reportUsage: event => aiUsageEvents.push(event),
             });
+          } else if (input.useAiFallback && needsAiSemanticDiscovery && aiFallbackBudget <= 0) {
+            aiBudgetSkippedCount++;
           }
 
           results.push({
@@ -2220,6 +2315,53 @@ create: catalogProcedure
             matches,
             autoSelectedCatalogItemId: matches.find(match => match.autoSelect)?.catalogItemId ?? null,
           });
+        }
+
+        // Zero-quality-loss instrumentation: one compact Catalog audit row per matching
+        // request, not one row per DeepSeek call. This keeps the audit table usable while
+        // still preserving exact per-call token/cache details in newValues.events.
+        try {
+          const deepSeekCalls = aiUsageEvents.filter(event => event.source === "deepseek");
+          const memoryCacheHits = aiUsageEvents.filter(event => event.source === "memory_cache").length;
+          const persistentCacheHits = aiUsageEvents.filter(event => event.source === "persistent_cache").length;
+          const inFlightDedupeHits = aiUsageEvents.filter(event => event.source === "inflight_dedupe").length;
+          const totals = deepSeekCalls.reduce((sum, event) => ({
+            promptTokens: sum.promptTokens + event.promptTokens,
+            completionTokens: sum.completionTokens + event.completionTokens,
+            totalTokens: sum.totalTokens + event.totalTokens,
+            promptCacheHitTokens: sum.promptCacheHitTokens + event.promptCacheHitTokens,
+            promptCacheMissTokens: sum.promptCacheMissTokens + event.promptCacheMissTokens,
+            durationMs: sum.durationMs + event.durationMs,
+          }), {
+            promptTokens: 0,
+            completionTokens: 0,
+            totalTokens: 0,
+            promptCacheHitTokens: 0,
+            promptCacheMissTokens: 0,
+            durationMs: 0,
+          });
+
+          await db.insert(catalogAuditLogs).values({
+            userId: ctx.user.id,
+            action: "ai_catalog_match_usage",
+            entityType: "catalog_ai_matching",
+            newValues: catalogAuditJson({
+              feature: "catalog_invoice_matching",
+              itemCount: input.items.length,
+              deterministicBypassCount,
+              aiEligibleCount,
+              aiBudgetSkippedCount,
+              deepSeekCallCount: deepSeekCalls.length,
+              memoryCacheHits,
+              persistentCacheHits,
+              inFlightDedupeHits,
+              ...totals,
+              events: aiUsageEvents,
+            }),
+          } as any);
+        } catch (error) {
+          // Usage telemetry must never break invoice matching.
+          console.warn("[CatalogItemMatch] Could not persist AI usage telemetry", error);
         }
 
         return results;

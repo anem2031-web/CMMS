@@ -4,6 +4,12 @@ import { warehouseProcedure, inventoryReadProcedure, router } from "../_shared/p
 import * as db from "../../_core/db";
 import { isInventoryLotsEnabled } from "../../_core/inventory-lots";
 import { findKnownInactiveCatalogUnitNames } from "../../_core/catalog-unit-governance";
+import {
+  createOpeningBalanceTemplate,
+  previewOpeningBalanceImport,
+  commitOpeningBalanceImport,
+  exportOpeningBalanceOperation,
+} from "../../services/inventory/openingBalanceBulkExcel.service";
 
 export const inventoryCountRouter = router({
 
@@ -152,6 +158,45 @@ export const inventoryCountRouter = router({
         cost: input.cost,
         createdById: ctx.user.id,
       });
+    }),
+
+  // ── Bulk Opening Stock Excel: قالب / معاينة / اعتماد / تصدير ──
+  openingBalanceTemplate: inventoryReadProcedure
+    .mutation(async () => {
+      const buffer = await createOpeningBalanceTemplate();
+      return {
+        fileName: `opening-stock-template-${new Date().toISOString().slice(0, 10)}.xlsx`,
+        buffer: buffer.toString("base64"),
+      };
+    }),
+
+  openingBalanceImportPreview: warehouseProcedure
+    .input(z.object({
+      operationId: z.number().int().positive(),
+      fileBase64: z.string().min(1).max(15_000_000),
+    }))
+    .mutation(async ({ input }) => {
+      return previewOpeningBalanceImport(input.operationId, input.fileBase64);
+    }),
+
+  openingBalanceImportCommit: warehouseProcedure
+    .input(z.object({
+      operationId: z.number().int().positive(),
+      fileBase64: z.string().min(1).max(15_000_000),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      return commitOpeningBalanceImport(input.operationId, input.fileBase64, ctx.user.id);
+    }),
+
+  openingBalanceExport: inventoryReadProcedure
+    .input(z.object({ operationId: z.number().int().positive() }))
+    .mutation(async ({ input }) => {
+      const result = await exportOpeningBalanceOperation(input.operationId);
+      return {
+        fileName: result.fileName,
+        rowCount: result.rowCount,
+        buffer: result.buffer.toString("base64"),
+      };
     }),
 
   // ── حذف مسودة جرد بالكامل (المسودات فقط، قبل الحفظ النهائي) ──

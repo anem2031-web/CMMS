@@ -80,11 +80,34 @@ export function isInventoryLotsEnabled(): boolean {
   return raw === "1" || raw === "true" || raw === "yes" || raw === "on";
 }
 
-function generateLotIdentity(): { lotCode: string; trackingToken: string } {
-  const uuid = randomUUID();
+async function generateLotIdentity(tx: any): Promise<{ lotCode: string; trackingToken: string }> {
   const year = new Date().getFullYear();
+
+  // LOT numbering is intentionally independent from document numbering.
+  // The per-year counter row is incremented inside the caller's DB transaction,
+  // so concurrent LOT creation cannot receive the same sequence number.
+  await tx.execute(sql`
+    INSERT INTO inventory_lot_number_counter (year, lastNumber)
+    VALUES (${year}, 1)
+    ON DUPLICATE KEY UPDATE lastNumber = lastNumber + 1
+  `);
+
+  const [rows] = await tx.execute(sql`
+    SELECT lastNumber
+    FROM inventory_lot_number_counter
+    WHERE year = ${year}
+  `);
+  const sequence = Number((rows as any[])?.[0]?.lastNumber ?? 0);
+  if (!Number.isInteger(sequence) || sequence < 1) {
+    throw new Error("تعذر توليد الرقم التسلسلي لدفعة المخزون");
+  }
+  if (sequence > 99999) {
+    throw new Error(`تم استنفاد نطاق أرقام LOT للسنة ${year}`);
+  }
+
+  const uuid = randomUUID();
   return {
-    lotCode: `LOT-${year}-${uuid.slice(0, 8).toUpperCase()}`,
+    lotCode: `LOT-${year}-${String(sequence).padStart(5, "0")}`,
     trackingToken: `CMMS-LOT-${uuid}`,
   };
 }
@@ -118,7 +141,7 @@ async function insertLotWithInitialBalance(params: {
   const quantity = normalizeInventoryQuantity(params.originalQuantity);
   if (!(quantity > 0)) throw new Error("كمية الدفعة يجب أن تكون أكبر من صفر");
 
-  const { lotCode, trackingToken } = generateLotIdentity();
+  const { lotCode, trackingToken } = await generateLotIdentity(params.tx);
   const [result] = await params.tx.insert(inventoryLots).values({
     lotCode,
     trackingToken,

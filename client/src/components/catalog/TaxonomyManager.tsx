@@ -12,7 +12,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Plus, Edit2, Trash2, ChevronRight, Loader2, FolderPlus, RotateCcw } from "lucide-react";
+import { Plus, Edit2, Trash2, ChevronRight, Loader2, FolderPlus, RotateCcw, Download } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
@@ -69,6 +69,23 @@ export default function TaxonomyManager() {
     onSuccess: () => { refetch(); setSelectedNode(null); toast.success("تمت إعادة تفعيل التصنيف"); },
     onError: (e) => toast.error(e.message),
   });
+
+  const exportTreeMut = trpc.catalog.importExport.exportTaxonomyTreeExcel.useMutation();
+
+  const handleExportTree = async () => {
+    try {
+      const result = await exportTreeMut.mutateAsync({ includeInactive: isCatalogAdmin });
+      const link = document.createElement("a");
+      link.href = `data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,${result.buffer}`;
+      link.download = result.fileName;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      toast.success("تم تصدير شجرة الكتالوج بنجاح");
+    } catch (e: any) {
+      toast.error(e.message ?? "حدث خطأ أثناء تصدير شجرة الكتالوج");
+    }
+  };
 
   // ── Helpers ───────────────────────────────────────────────────────────────
   const closeDialog = () => {
@@ -171,12 +188,29 @@ export default function TaxonomyManager() {
   return (
     <div className="space-y-4">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="text-lg font-semibold">{t.catalog.taxonomy.title}</h3>
-        <Button size="sm" className="gap-2" onClick={openAddRoot}>
-          <Plus className="w-4 h-4" />
-          {t.catalog.taxonomy.addRoot}
-        </Button>
+        <div className="flex items-center gap-2">
+          {isCatalogAdmin && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="gap-2"
+              onClick={handleExportTree}
+              disabled={exportTreeMut.isPending}
+            >
+              {exportTreeMut.isPending
+                ? <Loader2 className="w-4 h-4 animate-spin" />
+                : <Download className="w-4 h-4" />}
+              تصدير الشجرة إلى Excel
+            </Button>
+          )}
+          <Button size="sm" className="gap-2" onClick={openAddRoot}>
+            <Plus className="w-4 h-4" />
+            {t.catalog.taxonomy.addRoot}
+          </Button>
+        </div>
       </div>
 
       {/* Tree */}

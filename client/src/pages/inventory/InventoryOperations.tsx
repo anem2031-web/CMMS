@@ -14,6 +14,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import BarcodeScanner from "@/components/common/BarcodeScanner";
 import LotLabelsPrintScreen, { type LotLabelItem } from "@/components/inventory/LotLabelsPrintScreen";
+import OpeningBalanceBulkExcel from "@/components/inventory/OpeningBalanceBulkExcel";
 import {
   Trash2, Plus, Search, QrCode, Package, AlertTriangle,
   Loader2, X, ChevronRight, ChevronDown, Check, ClipboardList, BookOpen, Printer
@@ -1255,16 +1256,27 @@ export default function InventoryOperations() {
                 </Card>
               )}
 
-              {countDetail.operation.status === "in_progress" && isOpeningBalanceCount && (
+              {isOpeningBalanceCount && (
                 <Card className="border-blue-200 bg-blue-50/40">
-                  <CardContent className="p-4 flex items-center justify-between gap-3 flex-wrap">
-                    <div>
-                      <p className="text-sm font-medium">إضافة رصيد افتتاحي من Master Catalog</p>
-                      <p className="text-xs text-muted-foreground mt-1">اختيار Catalog Item إلزامي. الكمية تبقى بانتظار التسوية، ثم يُنشأ Lot وQR مستقل.</p>
+                  <CardContent className="p-4 space-y-3">
+                    <div className="flex items-start justify-between gap-3 flex-wrap">
+                      <div>
+                        <p className="text-sm font-medium">الرصيد الافتتاحي من Master Catalog</p>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          المستودع محدد من العملية. يمكنك إضافة صنف يدويًا أو استخدام قالب Excel. الاستيراد يضيف الصفوف للرصد فقط، ثم يبقى الحفظ والتسوية الحالية هما بوابة إنشاء LOT وQR وتحديث المخزون.
+                        </p>
+                      </div>
+                      {countDetail.operation.status === "in_progress" && (
+                        <Button size="sm" className="gap-1" onClick={() => setShowNewItem(true)}>
+                          <Plus className="w-3.5 h-3.5" /> إضافة صنف من الكتالوج
+                        </Button>
+                      )}
                     </div>
-                    <Button size="sm" className="gap-1" onClick={() => setShowNewItem(true)}>
-                      <Plus className="w-3.5 h-3.5" /> إضافة صنف من الكتالوج
-                    </Button>
+                    <OpeningBalanceBulkExcel
+                      operationId={Number(countDetail.operation.id)}
+                      canImport={countDetail.operation.status === "in_progress"}
+                      onImported={refetchCountDetail}
+                    />
                   </CardContent>
                 </Card>
               )}

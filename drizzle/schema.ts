@@ -98,6 +98,29 @@ export const auditLogs = mysqlTable("audit_logs", {
 	createdAt: timestamp({ mode: 'string' }).default('CURRENT_TIMESTAMP').notNull(),
 });
 
+// AI response cache — phase 1 zero-quality-loss optimization (2026-08-25).
+// Stores only parsed AI results for exact, versioned inputs. It does not store API keys
+// and does not replace confirmed supplier-item aliases. Cache misses always fall back to
+// the existing DeepSeek flow.
+export const aiResponseCache = mysqlTable("ai_response_cache", {
+	id: int().autoincrement().notNull(),
+	cacheKey: varchar({ length: 64 }).notNull(),
+	feature: varchar({ length: 100 }).notNull(),
+	operation: varchar({ length: 100 }).notNull(),
+	cacheVersion: varchar({ length: 50 }).notNull(),
+	responsePayload: json().notNull(),
+	hitCount: int({ unsigned: true }).default(0).notNull(),
+	expiresAt: timestamp({ mode: 'string' }).notNull(),
+	lastHitAt: timestamp({ mode: 'string' }),
+	createdAt: timestamp({ mode: 'string' }).default('CURRENT_TIMESTAMP').notNull(),
+	updatedAt: timestamp({ mode: 'string' }).defaultNow().onUpdateNow().notNull(),
+},
+(table) => [
+	uniqueIndex("uq_ai_response_cache_key").on(table.cacheKey),
+	index("idx_ai_response_cache_feature").on(table.feature),
+	index("idx_ai_response_cache_expires").on(table.expiresAt),
+]);
+
 export const backups = mysqlTable("backups", {
 	id: int().autoincrement().notNull(),
 	name: varchar({ length: 200 }).notNull(),
@@ -1179,6 +1202,19 @@ export const inventory = mysqlTable("inventory", {
 // inventory_lots identifies the physical/source lot; inventory_lot_balances
 // tells where the remaining quantity of that same lot currently exists.
 // No FK rollout here by design; governance remains deferred to 2B-10.
+// ══════════════════════════════════════════════════════════════════════
+// inventory_lot_number_counter — عداد مستقل خاص بأرقام LOT فقط (2026-08-25)
+//
+// لا يشارك في ترقيم المستندات ولا يغيّر قرار Centralized Document Numbering.
+// الأرقام الجديدة فقط تأخذ LOT-YYYY-NNNNN، بينما LOTs التاريخية تبقى كما هي.
+// ══════════════════════════════════════════════════════════════════════
+export const inventoryLotNumberCounter = mysqlTable("inventory_lot_number_counter", {
+	year: smallint({ unsigned: true }).notNull().primaryKey(),
+	lastNumber: int({ unsigned: true }).default(0).notNull(),
+	createdAt: timestamp({ mode: 'string' }).default('CURRENT_TIMESTAMP').notNull(),
+	updatedAt: timestamp({ mode: 'string' }).defaultNow().onUpdateNow().notNull(),
+});
+
 // ══════════════════════════════════════════════════════════════════════
 export const inventoryLots = mysqlTable("inventory_lots", {
 	id: int().autoincrement().notNull(),

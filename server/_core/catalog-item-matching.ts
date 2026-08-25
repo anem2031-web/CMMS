@@ -1,6 +1,73 @@
 import { invokeLLM } from "./llm";
+import { withAiResponseCache, type AiCacheSource } from "./ai-response-cache";
 
 export type MeasurementKind = "length" | "weight" | "volume";
+
+export interface CatalogAiUsageEvent {
+  feature: "catalog_invoice_matching";
+  operation: "search_term_expansion" | "semantic_rerank";
+  phase?: "shortlist" | "fallback";
+  source: "deepseek" | Exclude<AiCacheSource, "producer">;
+  success: boolean;
+  model?: string | null;
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+  promptCacheHitTokens: number;
+  promptCacheMissTokens: number;
+  durationMs: number;
+}
+
+export type CatalogAiUsageReporter = (event: CatalogAiUsageEvent) => void;
+
+const CATALOG_AI_FEATURE = "catalog_invoice_matching" as const;
+const SEARCH_TERMS_CACHE_VERSION = "catalog-search-terms-v1";
+const SEMANTIC_RERANK_CACHE_VERSION = "catalog-semantic-rerank-v1";
+
+function llmUsageEvent(params: {
+  operation: CatalogAiUsageEvent["operation"];
+  phase?: CatalogAiUsageEvent["phase"];
+  response?: any;
+  durationMs: number;
+  success: boolean;
+}): CatalogAiUsageEvent {
+  const usage = params.response?.usage || {};
+  return {
+    feature: CATALOG_AI_FEATURE,
+    operation: params.operation,
+    phase: params.phase,
+    source: "deepseek",
+    success: params.success,
+    model: params.response?.model ?? null,
+    promptTokens: Number(usage.prompt_tokens || 0),
+    completionTokens: Number(usage.completion_tokens || 0),
+    totalTokens: Number(usage.total_tokens || 0),
+    promptCacheHitTokens: Number(usage.prompt_cache_hit_tokens || usage.prompt_cache_hit_tokens_count || 0),
+    promptCacheMissTokens: Number(usage.prompt_cache_miss_tokens || usage.prompt_cache_miss_tokens_count || 0),
+    durationMs: params.durationMs,
+  };
+}
+
+function cachedUsageEvent(params: {
+  operation: CatalogAiUsageEvent["operation"];
+  phase?: CatalogAiUsageEvent["phase"];
+  source: Exclude<AiCacheSource, "producer">;
+}): CatalogAiUsageEvent {
+  return {
+    feature: CATALOG_AI_FEATURE,
+    operation: params.operation,
+    phase: params.phase,
+    source: params.source,
+    success: true,
+    model: null,
+    promptTokens: 0,
+    completionTokens: 0,
+    totalTokens: 0,
+    promptCacheHitTokens: 0,
+    promptCacheMissTokens: 0,
+    durationMs: 0,
+  };
+}
 
 export interface NormalizedMeasurement {
   kind: MeasurementKind;
@@ -669,59 +736,130 @@ function parseAiSearchTerms(raw: unknown): string[] {
   return [...new Set<string>(validTerms)].slice(0, 8);
 }
 
-async function expandHybridSearchTerms(query: ItemMatchQuery): Promise<string[]> {
-  const response = await invokeLLM({
-    maxTokens: 350,
-    messages: [
-      {
-        role: "system",
-        content:
-          "أنت مساعد استرجاع لكتالوج CMMS. حوّل وصف الصنف إلى عبارات بحث قصيرة ومرادفات مفيدة بالعربية والإنجليزية. " +
-          "ركز على نوع المنتج ووظيفته والمرادفات الشائعة ولا تخترع ماركة أو مقاساً غير موجود في الوصف. " +
-          "أعد JSON فقط بالشكل {\"terms\":[\"...\"]} وبحد أقصى 8 عبارات.",
-      },
-      { role: "user", content: JSON.stringify({ invoiceItem: query }) },
-    ],
+async function expandHybridSearchTerms(
+  query: ItemMatchQuery,
+  reportUsage?: CatalogAiUsageReporter,
+): Promise<string[]> {
+  const cached = await withAiResponseCache<string[]>({
+    feature: CATALOG_AI_FEATURE,
+    operation: "search_term_expansion",
+    cacheVersion: SEARCH_TERMS_CACHE_VERSION,
+    input: { invoiceItem: query },
+    producer: async () => {
+      const startedAt = Date.now();
+      try {
+        const response = await invokeLLM({
+          maxTokens: 350,
+          messages: [
+            {
+              role: "system",
+              content:
+                "أنت مساعد استرجاع لكتالوج CMMS. حوّل وصف الصنف إلى عبارات بحث قصيرة ومرادفات مفيدة بالعربية والإنجليزية. " +
+                "ركز على نوع المنتج ووظيفته والمرادفات الشائعة ولا تخترع ماركة أو مقاساً غير موجود في الوصف. " +
+                "أعد JSON فقط بالشكل {\"terms\":[\"...\"]} وبحد أقصى 8 عبارات.",
+            },
+            { role: "user", content: JSON.stringify({ invoiceItem: query }) },
+          ],
+        });
+        reportUsage?.(llmUsageEvent({
+          operation: "search_term_expansion",
+          response,
+          durationMs: Date.now() - startedAt,
+          success: true,
+        }));
+        return parseAiSearchTerms(response.choices?.[0]?.message?.content);
+      } catch (error) {
+        reportUsage?.(llmUsageEvent({
+          operation: "search_term_expansion",
+          durationMs: Date.now() - startedAt,
+          success: false,
+        }));
+        throw error;
+      }
+    },
   });
-  return parseAiSearchTerms(response.choices?.[0]?.message?.content);
+
+  if (cached.source !== "producer") {
+    reportUsage?.(cachedUsageEvent({
+      operation: "search_term_expansion",
+      source: cached.source,
+    }));
+  }
+  return cached.value;
 }
 
 async function rerankHybridShortlist(params: {
   query: ItemMatchQuery;
   shortlist: CatalogItemCandidateInput[];
+  phase: "shortlist" | "fallback";
+  reportUsage?: CatalogAiUsageReporter;
 }): Promise<AiSemanticScore[]> {
-  const { query, shortlist } = params;
+  const { query, shortlist, phase, reportUsage } = params;
   if (!shortlist.length) return [];
   const allowedIds = new Set(shortlist.map(item => item.id));
-  const response = await invokeLLM({
-    maxTokens: 900,
-    messages: [
-      {
-        role: "system",
-        content:
-          "أنت محرك ترتيب دلالي لأصناف كتالوج CMMS. اختر من القائمة المعطاة فقط الأصناف التي يمكن أن تعني نفس صنف الفاتورة، " +
-          "حتى عند اختلاف العربية/الإنجليزية أو ترتيب الكلمات أو الصياغة. لا تخترع catalogItemId ولا تنشئ صنفاً جديداً. " +
-          "ركز على نوع المنتج ووظيفته ومعناه والماركة/المصنع إن وُجد؛ المقاسات والوحدات ستُفحص خوارزمياً بعد ردك. " +
-          "أعد JSON فقط بالشكل {\"ranked\":[{\"catalogItemId\":123,\"semanticScore\":0.92,\"reason\":\"سبب مختصر\"}]}. " +
-          "أعد بحد أقصى 5 مرشحين ولا ترفع semanticScore للتشابه الضعيف.",
-      },
-      {
-        role: "user",
-        content: JSON.stringify({
-          invoiceItem: query,
-          catalogCandidates: shortlist.map(item => ({
-            catalogItemId: item.id,
-            code: item.code,
-            nameAr: item.nameAr,
-            nameEn: item.nameEn,
-            unit: item.unit,
-            manufacturer: item.manufacturer,
-          })),
-        }),
-      },
-    ],
+  const cacheInput = {
+    invoiceItem: query,
+    catalogCandidates: shortlist.map(item => ({
+      catalogItemId: item.id,
+      code: item.code,
+      nameAr: item.nameAr,
+      nameEn: item.nameEn,
+      unit: item.unit,
+      manufacturer: item.manufacturer,
+    })),
+  };
+
+  const cached = await withAiResponseCache<AiSemanticScore[]>({
+    feature: CATALOG_AI_FEATURE,
+    operation: "semantic_rerank",
+    cacheVersion: SEMANTIC_RERANK_CACHE_VERSION,
+    input: cacheInput,
+    producer: async () => {
+      const startedAt = Date.now();
+      try {
+        const response = await invokeLLM({
+          maxTokens: 900,
+          messages: [
+            {
+              role: "system",
+              content:
+                "أنت محرك ترتيب دلالي لأصناف كتالوج CMMS. اختر من القائمة المعطاة فقط الأصناف التي يمكن أن تعني نفس صنف الفاتورة، " +
+                "حتى عند اختلاف العربية/الإنجليزية أو ترتيب الكلمات أو الصياغة. لا تخترع catalogItemId ولا تنشئ صنفاً جديداً. " +
+                "ركز على نوع المنتج ووظيفته ومعناه والماركة/المصنع إن وُجد؛ المقاسات والوحدات ستُفحص خوارزمياً بعد ردك. " +
+                "أعد JSON فقط بالشكل {\"ranked\":[{\"catalogItemId\":123,\"semanticScore\":0.92,\"reason\":\"سبب مختصر\"}]}. " +
+                "أعد بحد أقصى 5 مرشحين ولا ترفع semanticScore للتشابه الضعيف.",
+            },
+            { role: "user", content: JSON.stringify(cacheInput) },
+          ],
+        });
+        reportUsage?.(llmUsageEvent({
+          operation: "semantic_rerank",
+          phase,
+          response,
+          durationMs: Date.now() - startedAt,
+          success: true,
+        }));
+        return parseAiRankedRows(response.choices?.[0]?.message?.content, allowedIds);
+      } catch (error) {
+        reportUsage?.(llmUsageEvent({
+          operation: "semantic_rerank",
+          phase,
+          durationMs: Date.now() - startedAt,
+          success: false,
+        }));
+        throw error;
+      }
+    },
   });
-  return parseAiRankedRows(response.choices?.[0]?.message?.content, allowedIds);
+
+  if (cached.source !== "producer") {
+    reportUsage?.(cachedUsageEvent({
+      operation: "semantic_rerank",
+      phase,
+      source: cached.source,
+    }));
+  }
+  return cached.value;
 }
 
 export function shouldExpandHybridSearch(topRetrievalScore: number): boolean {
@@ -753,8 +891,9 @@ export async function applyAiSemanticDiscovery(params: {
   catalogItems: CatalogItemCandidateInput[];
   deterministicCandidates: RankedCatalogItemMatch[];
   limit?: number;
+  reportUsage?: CatalogAiUsageReporter;
 }): Promise<RankedCatalogItemMatch[]> {
-  const { query, catalogItems, deterministicCandidates, limit = 5 } = params;
+  const { query, catalogItems, deterministicCandidates, limit = 5, reportUsage } = params;
   const top = deterministicCandidates[0];
 
   if (top && (
@@ -778,7 +917,7 @@ export async function applyAiSemanticDiscovery(params: {
 
     if (shouldExpandHybridSearch(shortlist.topRetrievalScore)) {
       try {
-        extraSearchTerms = await expandHybridSearchTerms(query);
+        extraSearchTerms = await expandHybridSearchTerms(query, reportUsage);
         if (extraSearchTerms.length) {
           shortlist = buildHybridCatalogShortlist({
             query,
@@ -799,7 +938,7 @@ export async function applyAiSemanticDiscovery(params: {
       `localTop=${shortlist.topRetrievalScore.toFixed(2)}; expanded=${expanded ? "yes" : "no"}; fallback=no`,
     );
 
-    const firstAiScores = await rerankHybridShortlist({ query, shortlist: shortlist.items });
+    const firstAiScores = await rerankHybridShortlist({ query, shortlist: shortlist.items, phase: "shortlist", reportUsage });
     logHybridDiagnostics({ phase: "shortlist", shortlist, aiScores: firstAiScores });
     let merged = mergeAiSemanticDiscoveryResults({
       query,
@@ -829,7 +968,7 @@ export async function applyAiSemanticDiscovery(params: {
     // search terms now before the fallback so a wrong localTop cannot block recall.
     if (!expanded && extraSearchTerms.length === 0) {
       try {
-        extraSearchTerms = await expandHybridSearchTerms(query);
+        extraSearchTerms = await expandHybridSearchTerms(query, reportUsage);
         expanded = extraSearchTerms.length > 0;
       } catch (error) {
         console.warn("[CatalogItemMatch] AI fallback search-term expansion unavailable", error);
@@ -849,7 +988,7 @@ export async function applyAiSemanticDiscovery(params: {
       `localTop=${fallbackShortlist.topRetrievalScore.toFixed(2)}; expanded=${expanded ? "yes" : "no"}; fallback=yes`,
     );
 
-    const fallbackAiScores = await rerankHybridShortlist({ query, shortlist: fallbackShortlist.items });
+    const fallbackAiScores = await rerankHybridShortlist({ query, shortlist: fallbackShortlist.items, phase: "fallback", reportUsage });
     logHybridDiagnostics({ phase: "fallback", shortlist: fallbackShortlist, aiScores: fallbackAiScores });
     merged = mergeAiSemanticDiscoveryResults({
       query,

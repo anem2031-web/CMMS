@@ -2,7 +2,11 @@ import { z } from "zod";
 import { router, catalogAdminProcedure } from "../_shared/procedures";
 import { getDb } from "../../_core/db";
 
-import { exportCatalogExcel }                          from "../../services/catalog/catalogExport.service";
+import {
+  exportCatalogExcel,
+  exportCatalogItemsExcel,
+  exportCatalogTaxonomyTreeExcel,
+} from "../../services/catalog/catalogExport.service";
 import { parseCatalogImportFile, commitCatalogImport } from "../../services/catalog/catalogImport.service";
 import { validateCatalogImport }                       from "../../services/catalog/catalogValidation.service";
 
@@ -17,6 +21,35 @@ export const catalogImportExportRouter = router({
       return {
         fileName: `catalog-export-${Date.now()}.xlsx`,
         buffer:   buffer.toString("base64"),
+      };
+    }),
+
+
+  exportItemsExcel: catalogAdminProcedure
+    .input(z.object({
+      search: z.string().optional(),
+      nodeIds: z.array(z.number()).optional(),
+      includeInactive: z.boolean().optional(),
+    }).optional())
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      const buffer = await exportCatalogItemsExcel(db, input || {});
+
+      return {
+        fileName: `catalog-items-${Date.now()}.xlsx`,
+        buffer: buffer.toString("base64"),
+      };
+    }),
+
+  exportTaxonomyTreeExcel: catalogAdminProcedure
+    .input(z.object({ includeInactive: z.boolean().optional() }).optional())
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      const buffer = await exportCatalogTaxonomyTreeExcel(db, input?.includeInactive ?? true);
+
+      return {
+        fileName: `catalog-taxonomy-tree-${Date.now()}.xlsx`,
+        buffer: buffer.toString("base64"),
       };
     }),
 

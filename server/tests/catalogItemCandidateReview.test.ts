@@ -8,7 +8,7 @@ import {
   sameItemPrimaryForCandidate,
   decidedPeerIds,
 } from "../_core/catalog-item-candidate-review";
-import { nextCatalogItemCode } from "../_core/catalog-item-code";
+import { isCatalogItemCodeForNode, nextCatalogItemCode } from "../_core/catalog-item-code";
 
 const items = [
   { id: 1, code: "CAT-001", nameAr: "رباط شاش 2 مم", nameEn: "Gauze Bandage 2mm" },
@@ -88,32 +88,44 @@ describe("catalog item candidate review", () => {
     expect(decidedPeerIds(1, decisions).sort((a, b) => a - b)).toEqual([3, 7]);
   });
 
-  it("starts an empty leaf with category code + 0001", () => {
-    expect(nextCatalogItemCode("111", [])).toBe("1110001");
+  it("starts an empty leaf with category code + hyphen + three-digit sequence", () => {
+    expect(nextCatalogItemCode("111", [])).toBe("111-001");
   });
 
-  it("increments a four-digit suffix while preserving its width", () => {
+  it("continues a historical 11001 sequence as 11-002 without renumbering history", () => {
+    expect(nextCatalogItemCode("11", [
+      { id: 1, code: "11001" },
+    ])).toBe("11-002");
+  });
+
+  it("reads historical no-hyphen codes but generates the new hyphenated format", () => {
+    expect(nextCatalogItemCode("11", [
+      { id: 1, code: "11001" },
+      { id: 2, code: "11002" },
+      { id: 3, code: "11003" },
+    ])).toBe("11-004");
+  });
+
+  it("increments an existing hyphenated four-digit suffix while preserving its width", () => {
     expect(nextCatalogItemCode("111", [
-      { id: 1, code: "1110001" },
-      { id: 2, code: "1110002" },
-      { id: 3, code: "1110003" },
-    ])).toBe("1110004");
+      { id: 1, code: "111-0004" },
+      { id: 2, code: "111-0005" },
+    ])).toBe("111-0006");
   });
 
-  it("preserves an existing three-digit suffix pattern", () => {
-    expect(nextCatalogItemCode("111", [
-      { id: 1, code: "111001" },
-      { id: 2, code: "111002" },
-      { id: 3, code: "111003" },
-    ])).toBe("111004");
-  });
-
-  it("uses the latest valid suffix width when legacy widths are mixed", () => {
+  it("uses the highest semantic sequence across mixed historical and hyphenated formats", () => {
     expect(nextCatalogItemCode("111", [
       { id: 1, code: "1110008" },
-      { id: 2, code: "111009" },
-      { id: 3, code: "111010" },
-    ])).toBe("111011");
+      { id: 2, code: "111-009" },
+      { id: 3, code: "111-010" },
+    ])).toBe("111-011");
+  });
+
+  it("validates new or changed item codes against the selected category prefix", () => {
+    expect(isCatalogItemCodeForNode("11-001", "11")).toBe(true);
+    expect(isCatalogItemCodeForNode("11-0001", "11")).toBe(true);
+    expect(isCatalogItemCodeForNode("11001", "11")).toBe(false);
+    expect(isCatalogItemCodeForNode("12-001", "11")).toBe(false);
   });
 
 });

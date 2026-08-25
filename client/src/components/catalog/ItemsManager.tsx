@@ -188,8 +188,8 @@ export default function ItemsManager() {
   const [selectedImage, setSelectedImage] =
     useState<File | null>(null);
 
-  const { data: nodeItems } = trpc.catalog.items.list.useQuery(
-    { nodeId: selectedNode?.id, limit: 200 },
+  const codePreviewQuery = trpc.catalog.items.previewNextCode.useQuery(
+    { nodeId: selectedNode?.id || 0 },
     { enabled: !!selectedNode }
   );
 
@@ -200,30 +200,13 @@ export default function ItemsManager() {
       return;
     }
 
-    const nodeCode = selectedNode.code || "";
-    const items = nodeItems || [];
-
-    const maxSeq =
-      items
-        .map((s: any) => {
-          const code = s.code || "";
-          if (nodeCode && code.startsWith(nodeCode)) {
-            return parseInt(code.slice(nodeCode.length), 10);
-          }
-          return 0;
-        })
-        .filter((n: number) => !isNaN(n) && n > 0)
-        .sort((a: number, b: number) => b - a)[0] || 0;
-
-    const seq = String(maxSeq + 1).padStart(3, "0");
-    const next = nodeCode ? nodeCode + seq : seq;
-
+    const next = codePreviewQuery.data?.code || "";
     setGeneratedCode(next);
 
-    if (!codeEdited) {
+    if (!codeEdited && next) {
       setCustomCode(next);
     }
-  }, [selectedNode, nodeItems]);
+  }, [selectedNode, codePreviewQuery.data?.code, codeEdited]);
 
   const handleNodeChange = (id: number, node: CatalogNode) => {
     setSelectedNode(node);
@@ -359,18 +342,36 @@ export default function ItemsManager() {
       return;
     }
 
-    if (customCode && !/^\d+$/.test(customCode)) {
-      toast.error("الكود يجب أن يحتوي على أرقام فقط");
-      return;
+    const trimmedCode = customCode.trim();
+    const existingCode = String(editingItem?.code || "").trim();
+    const codeChanged = !editingItem || trimmedCode !== existingCode;
+    // Resolve the selected category from the authoritative catalog node list.
+    // Item list rows do not include nodeCode, so edit mode must not rely on a
+    // synthetic selectedNode object built from item.nodeCode.
+    const resolvedSelectedNode = (catalogNodes as CatalogNode[]).find(
+      (node) => Number(node.id) === Number(selectedNode.id),
+    );
+    const nodeCode = String(
+      resolvedSelectedNode?.code || codePreviewQuery.data?.nodeCode || selectedNode.code || "",
+    ).trim();
+
+    if (trimmedCode && codeChanged) {
+      const prefix = `${nodeCode}-`;
+      const suffix = trimmedCode.startsWith(prefix) ? trimmedCode.slice(prefix.length) : "";
+      if (!nodeCode || !/^\d+$/.test(nodeCode) || !/^\d+$/.test(suffix)) {
+        toast.error(`كود الصنف يجب أن يكون بصيغة ${nodeCode || "11"}-001`);
+        return;
+      }
     }
 
     if (editingItem) {
       await updateMut.mutateAsync({
         id: editingItem.id,
+        nodeId: selectedNode.id,
         nameAr: formData.nameAr,
         nameEn: formData.nameEn,
         nameUr: formData.nameUr || undefined,
-        code: customCode || undefined,
+        code: trimmedCode || undefined,
         unit: formData.unit || undefined,
         manufacturer: formData.manufacturer || undefined,
       });
@@ -401,7 +402,7 @@ export default function ItemsManager() {
       nameAr: formData.nameAr,
       nameEn: formData.nameEn,
       nameUr: formData.nameUr || undefined,
-      code: customCode || undefined,
+      code: codeEdited ? (trimmedCode || undefined) : undefined,
       nodeId: selectedNode.id,
       unit: formData.unit || undefined,
     });
@@ -435,7 +436,13 @@ export default function ItemsManager() {
         <h3 className="text-lg font-semibold shrink-0">{t.catalog.items.title}</h3>
 
         <div className="flex items-center gap-2 shrink-0">
-          {isCatalogAdmin && <CatalogExportButton />}
+          {isCatalogAdmin && (
+            <CatalogExportButton
+              search={searchQuery}
+              nodeIds={catalogFilterNodeId !== null ? catalogFilterNodeIds : undefined}
+              includeInactive={true}
+            />
+          )}
           {isCatalogAdmin && <CatalogImportButton />}
           <Button
             size="sm"
@@ -522,14 +529,17 @@ export default function ItemsManager() {
                 }
               }}
               onEdit={(item) => {
-                setSelectedNode({
-                  id: item.nodeId,
-                  code: item.nodeCode || "",
-                  nameAr: item.nodeNameAr || "",
-                  nameEn: item.nodeNameEn || "",
-                  level: 0,
-                  parentId: null,
-                });
+                // items.list returns catalogItems fields, not nodeCode/nodeName.
+                // Reuse the real node already loaded by catalog.nodes.list so
+                // code validation always sees the same category shown by the picker.
+                const itemNode = (catalogNodes as CatalogNode[]).find(
+                  (node) => Number(node.id) === Number(item.nodeId),
+                );
+                if (!itemNode) {
+                  toast.error("تعذر تحميل بيانات تصنيف الصنف. أعد فتح الصفحة وحاول مرة أخرى.");
+                  return;
+                }
+                setSelectedNode(itemNode);
                 setEditingItem(item);
                 setFormData({
                   nameAr: item.nameAr || "",
@@ -749,7 +759,7 @@ export default function ItemsManager() {
                 </div>
                 <p className="text-xs text-muted-foreground">
                   الكود المتوقع: <span className="font-mono text-primary font-medium">{generatedCode}</span>
-                  {" "}— أرقام فقط
+                  {" "}— الصيغة: كود التصنيف-تسلسل رقمي (مثال {String(((catalogNodes as CatalogNode[]).find(node => Number(node.id) === Number(selectedNode.id))?.code || codePreviewQuery.data?.nodeCode || selectedNode.code || "11")).trim()}-001)
                 </p>
               </div>
             )}
