@@ -2,7 +2,7 @@
 // db/invoice-drafts.ts — مسودات الفواتير واعتمادها
 // (مُقسَّم من db.ts الأصلي حسب المجال الوظيفي)
 // ============================================================
-import { eq, desc, asc, and, sql, count, sum, inArray, notInArray, like, or, gte, lte, lt, isNull } from "drizzle-orm";
+import { eq, desc, asc, and, sql, count, sum, inArray, notInArray, like, or, gte, lte, lt, isNull, isNotNull } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import { alias } from "drizzle-orm/mysql-core";
 import mysql from "mysql2/promise";
@@ -45,6 +45,7 @@ import {
   inventoryCountNumberCounter,
   inventorySettlementNumberCounter,
   catalogItems,
+  catalogItemCandidates,
   catalogNodes,
   inventoryLots,
   inventoryLotBalances,
@@ -911,6 +912,213 @@ export async function scanCountItem(params: {
   });
   const countItemId = (result as any).insertId as number;
   return { countItemId, countedQuantity: increment, diffQuantity: diff, isNew: true };
+}
+
+
+// ── بحث موحد داخل الجرد الدوري / الرصيد الافتتاحي ──
+// periodic + Lots: البحث يكون على Snapshot افتتاح العملية فقط حتى لا يُدخل Lot وصل بعد بدء الجرد.
+// opening_balance: البحث يكون على Master Catalog، مع الاستفادة من باركود المصنع التاريخي
+// الموجود في Inventory أو Catalog Item Candidate المرتبط، بدون إضافة عمود جديد للكتالوج.
+export async function searchInventoryCountCandidates(params: {
+  operationId: number;
+  search?: string;
+  catalogNodeId?: number;
+  limit?: number;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("تعذر الاتصال بقاعدة البيانات");
+
+  const opRows = await db.select().from(inventoryCountOperations)
+    .where(eq(inventoryCountOperations.id, params.operationId)).limit(1);
+  const op: any = opRows[0];
+  if (!op) throw new Error("عملية الجرد غير موجودة");
+  if (op.status !== "in_progress") return [];
+
+  const search = String(params.search || "").trim();
+  const term = search ? `%${search}%` : null;
+  const limit = Math.min(50, Math.max(1, Number(params.limit || 20)));
+
+  const operationScopeNodeId = Number(op.catalogNodeId || 0) || null;
+  const requestedNodeId = Number(params.catalogNodeId || 0) || null;
+  let effectiveNodeIds: number[] | null = null;
+
+  if (operationScopeNodeId) {
+    effectiveNodeIds = await getCatalogSubtreeNodeIds(db, operationScopeNodeId);
+  }
+  if (requestedNodeId) {
+    const requestedNodeIds = await getCatalogSubtreeNodeIds(db, requestedNodeId);
+    effectiveNodeIds = effectiveNodeIds
+      ? effectiveNodeIds.filter(id => requestedNodeIds.includes(id))
+      : requestedNodeIds;
+  }
+  if ((operationScopeNodeId || requestedNodeId) && effectiveNodeIds?.length === 0) return [];
+
+  if (op.countType === "opening_balance") {
+    const barcodeCatalogItemIds = new Set<number>();
+
+    if (term) {
+      const inventoryBarcodeRows = await db.select({
+        catalogItemId: inventory.linkedItemId,
+      }).from(inventory).where(and(
+        isNotNull(inventory.linkedItemId),
+        like(inventory.manufacturerBarcode, term),
+      ));
+      for (const row of inventoryBarcodeRows as any[]) {
+        const id = Number(row.catalogItemId || 0);
+        if (id > 0) barcodeCatalogItemIds.add(id);
+      }
+
+      const candidateBarcodeRows = await db.select({
+        catalogItemId: catalogItemCandidates.resolvedCatalogItemId,
+      }).from(catalogItemCandidates).where(and(
+        isNotNull(catalogItemCandidates.resolvedCatalogItemId),
+        like(catalogItemCandidates.manufacturerBarcode, term),
+      ));
+      for (const row of candidateBarcodeRows as any[]) {
+        const id = Number(row.catalogItemId || 0);
+        if (id > 0) barcodeCatalogItemIds.add(id);
+      }
+    }
+
+    const conditions: any[] = [eq(catalogItems.isActive, 1)];
+    if (effectiveNodeIds) conditions.push(inArray(catalogItems.nodeId, effectiveNodeIds));
+    if (term) {
+      const textConditions: any[] = [
+        like(catalogItems.code, term),
+        like(catalogItems.nameAr, term),
+        like(catalogItems.nameEn, term),
+      ];
+      if (barcodeCatalogItemIds.size > 0) {
+        textConditions.push(inArray(catalogItems.id, Array.from(barcodeCatalogItemIds)));
+      }
+      conditions.push(or(...textConditions));
+    }
+
+    const rows = await db.select({
+      id: catalogItems.id,
+      code: catalogItems.code,
+      nameAr: catalogItems.nameAr,
+      nameEn: catalogItems.nameEn,
+      unit: catalogItems.unit,
+      manufacturer: catalogItems.manufacturer,
+      nodeId: catalogItems.nodeId,
+    }).from(catalogItems)
+      .where(and(...conditions))
+      .orderBy(asc(catalogItems.code), asc(catalogItems.nameAr))
+      .limit(limit);
+
+    const catalogItemIds = (rows as any[]).map(row => Number(row.id));
+    const barcodeByCatalogItemId = new Map<number, Set<string>>();
+    const rememberBarcode = (catalogItemId: number, barcode: unknown) => {
+      const normalized = String(barcode || "").trim();
+      if (!catalogItemId || !normalized) return;
+      const values = barcodeByCatalogItemId.get(catalogItemId) || new Set<string>();
+      values.add(normalized);
+      barcodeByCatalogItemId.set(catalogItemId, values);
+    };
+
+    if (catalogItemIds.length > 0) {
+      const inventoryBarcodes = await db.select({
+        catalogItemId: inventory.linkedItemId,
+        barcode: inventory.manufacturerBarcode,
+      }).from(inventory).where(and(
+        inArray(inventory.linkedItemId, catalogItemIds),
+        isNotNull(inventory.manufacturerBarcode),
+      ));
+      for (const row of inventoryBarcodes as any[]) {
+        rememberBarcode(Number(row.catalogItemId || 0), row.barcode);
+      }
+
+      const candidateBarcodes = await db.select({
+        catalogItemId: catalogItemCandidates.resolvedCatalogItemId,
+        barcode: catalogItemCandidates.manufacturerBarcode,
+      }).from(catalogItemCandidates).where(and(
+        inArray(catalogItemCandidates.resolvedCatalogItemId, catalogItemIds),
+        isNotNull(catalogItemCandidates.manufacturerBarcode),
+      ));
+      for (const row of candidateBarcodes as any[]) {
+        rememberBarcode(Number(row.catalogItemId || 0), row.barcode);
+      }
+    }
+
+    return (rows as any[]).map(row => ({
+      kind: "catalog" as const,
+      id: Number(row.id),
+      catalogItemId: Number(row.id),
+      code: row.code ?? null,
+      nameAr: row.nameAr,
+      nameEn: row.nameEn,
+      unit: row.unit ?? null,
+      manufacturer: row.manufacturer ?? null,
+      nodeId: Number(row.nodeId),
+      manufacturerBarcodes: Array.from(barcodeByCatalogItemId.get(Number(row.id)) || []),
+    }));
+  }
+
+  if (!isInventoryLotsEnabled()) return [];
+  if (op.countType !== "periodic") return [];
+
+  const conditions: any[] = [
+    eq(inventoryCountSnapshots.operationId, params.operationId),
+    isNotNull(inventoryCountSnapshots.lotId),
+  ];
+  if (effectiveNodeIds) conditions.push(inArray(catalogItems.nodeId, effectiveNodeIds));
+  if (term) {
+    conditions.push(or(
+      like(catalogItems.code, term),
+      like(catalogItems.nameAr, term),
+      like(catalogItems.nameEn, term),
+      like(inventory.itemName, term),
+      like(inventory.itemNameAr, term),
+      like(inventory.itemNameEn, term),
+      like(inventory.manufacturerBarcode, term),
+      like(inventoryLots.lotCode, term),
+      like(inventoryLots.trackingToken, term),
+    ));
+  }
+
+  const rows = await db.select({
+    inventoryId: inventory.id,
+    lotId: inventoryLots.id,
+    lotCode: inventoryLots.lotCode,
+    trackingToken: inventoryLots.trackingToken,
+    catalogItemId: inventory.linkedItemId,
+    catalogItemCode: catalogItems.code,
+    catalogItemNameAr: catalogItems.nameAr,
+    catalogItemNameEn: catalogItems.nameEn,
+    catalogNodeId: catalogItems.nodeId,
+    itemName: inventory.itemName,
+    itemNameAr: inventory.itemNameAr,
+    itemNameEn: inventory.itemNameEn,
+    manufacturerBarcode: inventory.manufacturerBarcode,
+    unit: inventory.issueUnit,
+    fallbackUnit: inventory.unit,
+    systemQuantity: inventoryCountSnapshots.systemQuantity,
+  })
+    .from(inventoryCountSnapshots)
+    .innerJoin(inventory, eq(inventory.id, inventoryCountSnapshots.inventoryId))
+    .innerJoin(inventoryLots, eq(inventoryLots.id, inventoryCountSnapshots.lotId))
+    .leftJoin(catalogItems, eq(catalogItems.id, inventory.linkedItemId))
+    .where(and(...conditions))
+    .orderBy(asc(catalogItems.code), asc(inventoryLots.lotCode))
+    .limit(limit);
+
+  return (rows as any[]).map(row => ({
+    kind: "lot" as const,
+    id: Number(row.lotId),
+    lotId: Number(row.lotId),
+    inventoryId: Number(row.inventoryId),
+    lotCode: row.lotCode,
+    trackingToken: row.trackingToken,
+    catalogItemId: row.catalogItemId == null ? null : Number(row.catalogItemId),
+    code: row.catalogItemCode ?? null,
+    nameAr: row.catalogItemNameAr || row.itemNameAr || row.itemName,
+    nameEn: row.catalogItemNameEn || row.itemNameEn || null,
+    nodeId: row.catalogNodeId == null ? null : Number(row.catalogNodeId),
+    manufacturerBarcode: row.manufacturerBarcode ?? null,
+    unit: row.unit || row.fallbackUnit || null,
+    systemQuantity: Number(row.systemQuantity || 0),
+  }));
 }
 
 // ── 1ب-Lot) مسح QR دفعة أثناء الجرد الدوري ──

@@ -300,7 +300,7 @@ function CountCatalogTreePicker({
             type="button"
             onClick={() => chooseNode(nodeId)}
             className="min-w-0 flex-1 text-start flex items-center justify-between gap-2 rounded px-1 py-1"
-            title="اختيار هذا المستوى كنطاق للجرد — يشمل جميع الفروع التابعة له"
+            title="اختيار هذا المستوى — يشمل جميع الفروع التابعة له"
           >
             <span className="min-w-0">
               <span className="block text-sm font-medium truncate">
@@ -308,7 +308,7 @@ function CountCatalogTreePicker({
               </span>
               {hasChildren && (
                 <span className="block text-[11px] text-muted-foreground">
-                  يمكن اختيار هذا المستوى — وسيشمل الجرد جميع الفروع تحته
+                  يمكن اختيار هذا المستوى — وسيشمل جميع الفروع تحته
                 </span>
               )}
             </span>
@@ -336,7 +336,7 @@ function CountCatalogTreePicker({
         <div className="space-y-2">
           <div>
             <p className="text-sm font-semibold">شجرة تصنيفات الكتالوج</p>
-            <p className="text-xs text-muted-foreground mt-0.5">اختر أي مستوى؛ نطاق الجرد يشمل العقدة المختارة وجميع الفروع التابعة لها.</p>
+            <p className="text-xs text-muted-foreground mt-0.5">اختر أي مستوى؛ الاختيار يشمل العقدة المختارة وجميع الفروع التابعة لها.</p>
           </div>
           <Input
             value={search}
@@ -346,7 +346,7 @@ function CountCatalogTreePicker({
           />
           {selectedPath.length > 0 && (
             <div className="rounded-md border border-blue-100 bg-blue-50 px-2.5 py-2 text-xs text-blue-900">
-              <span className="font-semibold">النطاق المختار:</span> {selectedPathLabel}
+              <span className="font-semibold">التصنيف المختار:</span> {selectedPathLabel}
             </div>
           )}
           <div
@@ -502,6 +502,9 @@ export default function InventoryOperations() {
   // ── لوحة إضافة/مسح صنف داخل جرد جزئي جارٍ (باركود/رقم/اختيار) ──
   const [scanMode, setScanMode] = useState<"name" | "code" | "qr">("qr");
   const [scanQuery, setScanQuery] = useState("");
+  const [periodicCountSearch, setPeriodicCountSearch] = useState("");
+  const [periodicCountCatalogNodeId, setPeriodicCountCatalogNodeId] = useState("");
+  const countLotEntryModeRef = useRef<"qr" | "manual">("qr");
   // إضافة صنف للجرد: لا يُخمَّن أي كمية — يُنشأ سطر بانتظار العدّ ثم تُفتح
   // نافذة "عدّ الصنف" مباشرة ليُدخل المستخدم الكمية الفعلية بنفسه.
   const addItemMut = trpc.inventoryCount.addItem.useMutation({
@@ -535,7 +538,7 @@ export default function InventoryOperations() {
         lotId: data.lotId,
         lotCode: data.lotCode,
         trackingToken: data.trackingToken,
-        entryMode: "qr",
+        entryMode: countLotEntryModeRef.current,
         itemName: data.itemName,
         unit: data.unit,
         systemQuantity: data.systemQuantity,
@@ -547,6 +550,7 @@ export default function InventoryOperations() {
       refetchCountDetail();
       setScanQuery("");
       toast.success(`تم التعرف على الدفعة ${data.lotCode}`);
+      countLotEntryModeRef.current = "qr";
     },
     onError: (e: any) => {
       if (e.message === "COUNT_LOT_OUTSIDE_CATEGORY_SCOPE") {
@@ -564,6 +568,7 @@ export default function InventoryOperations() {
     if (!activeCountId) return;
     const isPeriodicLotCountActive = lotsEnabled && (countDetail?.operation as any)?.countType === "periodic";
     if (isPeriodicLotCountActive) {
+      countLotEntryModeRef.current = "qr";
       scanCountLotMut.mutate({ operationId: activeCountId, trackingToken: code });
       return;
     }
@@ -589,13 +594,84 @@ export default function InventoryOperations() {
   const [newItemQty, setNewItemQty] = useState("");
   const [newItemCost, setNewItemCost] = useState("");
   const [openingCatalogSearch, setOpeningCatalogSearch] = useState("");
+  const [openingCatalogNodeId, setOpeningCatalogNodeId] = useState("");
   const [selectedOpeningCatalogItem, setSelectedOpeningCatalogItem] = useState<any>(null);
   const { data: catalogUnits } = trpc.catalog.units.list.useQuery();
   const isOpeningBalanceCount = (countDetail?.operation as any)?.countType === "opening_balance";
   const isPeriodicLotCount = lotsEnabled && (countDetail?.operation as any)?.countType === "periodic";
-  const { data: openingCatalogItems, isFetching: openingCatalogLoading } = trpc.catalog.items.list.useQuery(
-    { search: openingCatalogSearch.trim() || undefined, isActive: true, limit: 20, offset: 0 },
-    { enabled: showNewItem && isOpeningBalanceCount },
+
+  useEffect(() => {
+    setPeriodicCountSearch("");
+    setPeriodicCountCatalogNodeId("");
+    setOpeningCatalogSearch("");
+    setOpeningCatalogNodeId("");
+    setSelectedOpeningCatalogItem(null);
+  }, [activeCountId]);
+
+  const periodicSearchCatalogNodes = useMemo(() => {
+    const allNodes = (countCatalogNodes as CountCatalogNode[]) || [];
+    const operationNodeId = Number((countDetail?.operation as any)?.catalogNodeId || 0);
+    if (!operationNodeId) return allNodes;
+
+    const childrenByParent = new Map<number, number[]>();
+    for (const node of allNodes) {
+      if (!node.parentId) continue;
+      const list = childrenByParent.get(Number(node.parentId)) || [];
+      list.push(Number(node.id));
+      childrenByParent.set(Number(node.parentId), list);
+    }
+    const allowed = new Set<number>();
+    const queue = [operationNodeId];
+    while (queue.length) {
+      const nodeId = queue.shift()!;
+      if (allowed.has(nodeId)) continue;
+      allowed.add(nodeId);
+      for (const childId of childrenByParent.get(nodeId) || []) queue.push(childId);
+    }
+    return allNodes.filter(node => allowed.has(Number(node.id)));
+  }, [countCatalogNodes, countDetail?.operation]);
+
+  const countCatalogPathLabel = useCallback((nodeId: number | null | undefined) => {
+    const numericNodeId = Number(nodeId || 0);
+    if (!numericNodeId) return "";
+    const nodeById = new Map((countCatalogNodes as CountCatalogNode[]).map(node => [Number(node.id), node]));
+    const path: CountCatalogNode[] = [];
+    const visited = new Set<number>();
+    let current = nodeById.get(numericNodeId);
+    while (current && !visited.has(Number(current.id))) {
+      path.unshift(current);
+      visited.add(Number(current.id));
+      current = current.parentId ? nodeById.get(Number(current.parentId)) : undefined;
+    }
+    return path.map(node => language === "en"
+      ? (node.nameEn || node.nameAr || `#${node.id}`)
+      : (node.nameAr || node.nameEn || `#${node.id}`)
+    ).join(language === "en" ? " > " : " › ");
+  }, [countCatalogNodes, language]);
+
+  const { data: periodicLotSearchResults = [], isFetching: periodicLotSearchLoading } = trpc.inventoryCount.searchCandidates.useQuery(
+    {
+      operationId: activeCountId || 0,
+      search: periodicCountSearch.trim() || undefined,
+      catalogNodeId: periodicCountCatalogNodeId ? Number(periodicCountCatalogNodeId) : undefined,
+      limit: 30,
+    },
+    {
+      enabled: !!activeCountId
+        && countDetail?.operation?.status === "in_progress"
+        && isPeriodicLotCount
+        && (!!periodicCountSearch.trim() || !!periodicCountCatalogNodeId),
+    },
+  );
+
+  const { data: openingCatalogItems = [], isFetching: openingCatalogLoading } = trpc.inventoryCount.searchCandidates.useQuery(
+    {
+      operationId: activeCountId || 0,
+      search: openingCatalogSearch.trim() || undefined,
+      catalogNodeId: openingCatalogNodeId ? Number(openingCatalogNodeId) : undefined,
+      limit: 30,
+    },
+    { enabled: !!activeCountId && showNewItem && isOpeningBalanceCount },
   );
   const addNewItemMut = trpc.inventoryCount.addNewItem.useMutation({
     onSuccess: (data: any) => {
@@ -611,10 +687,17 @@ export default function InventoryOperations() {
       setNewItemQty("");
       setNewItemCost("");
       setOpeningCatalogSearch("");
+      setOpeningCatalogNodeId("");
       setSelectedOpeningCatalogItem(null);
     },
     onError: (e: any) => toast.error(e.message),
   });
+  function selectPeriodicLotFromSearch(item: any) {
+    if (!activeCountId || !item?.trackingToken) return;
+    countLotEntryModeRef.current = "manual";
+    scanCountLotMut.mutate({ operationId: activeCountId, trackingToken: item.trackingToken });
+  }
+
   function submitNewItem() {
     if (!activeCountId) return;
     const quantity = parseFloat(newItemQty || "0");
@@ -1192,13 +1275,83 @@ export default function InventoryOperations() {
                       <>
                         <div className="flex items-center gap-2">
                           <QrCode className="w-4 h-4 text-blue-700" />
-                          <p className="text-sm font-medium">مسح QR للدفعة</p>
+                          <p className="text-sm font-medium">مسح QR أو البحث عن الدفعة</p>
                         </div>
                         <p className="text-xs text-muted-foreground">
-                          بعد تفعيل Lots، الجرد الدوري يتم على مستوى الدفعة. امسح QR الفعلي للـLot ثم أدخل الكمية الموجودة فعلياً.
+                          QR يبقى الطريقة الأساسية للجرد بالـLot. عند الحاجة يمكنك البحث بكود الصنف، الاسم العربي أو الإنجليزي، باركود المصنع، رقم LOT أو شجرة التصنيف.
                           {" "}{t.inventory.countManualEntryHint}
                         </p>
                         <BarcodeScanner onScan={handleScanResolved} placeholder="امسح QR الدفعة CMMS-LOT-..." />
+
+                        <div className="border-t pt-3 mt-3 space-y-2">
+                          <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_minmax(260px,0.75fr)]">
+                            <div className="relative">
+                              <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                              <Input
+                                value={periodicCountSearch}
+                                onChange={e => setPeriodicCountSearch(e.target.value)}
+                                placeholder="كود الصنف، الاسم، باركود المصنع أو LOT-2026-00001"
+                                className="pr-9"
+                              />
+                            </div>
+                            <div className="flex gap-2">
+                              <div className="flex-1 min-w-0">
+                                <CountCatalogTreePicker
+                                  nodes={periodicSearchCatalogNodes}
+                                  value={periodicCountCatalogNodeId}
+                                  onChange={setPeriodicCountCatalogNodeId}
+                                  language={language}
+                                />
+                              </div>
+                              {periodicCountCatalogNodeId && (
+                                <Button
+                                  type="button" variant="outline" size="icon" title="مسح فلتر التصنيف"
+                                  onClick={() => setPeriodicCountCatalogNodeId("")}
+                                >
+                                  <X className="w-4 h-4" />
+                                </Button>
+                              )}
+                            </div>
+                          </div>
+
+                          {(periodicCountSearch.trim() || periodicCountCatalogNodeId) && (
+                            <div className="max-h-64 overflow-y-auto rounded-md border bg-background divide-y">
+                              {periodicLotSearchLoading && (
+                                <div className="p-3 text-xs text-muted-foreground flex items-center gap-2">
+                                  <Loader2 className="w-3.5 h-3.5 animate-spin" /> جاري البحث...
+                                </div>
+                              )}
+                              {!periodicLotSearchLoading && (periodicLotSearchResults as any[]).length === 0 && (
+                                <div className="p-3 text-xs text-muted-foreground">لا توجد دفعة مطابقة داخل Snapshot افتتاح هذا الجرد.</div>
+                              )}
+                              {(periodicLotSearchResults as any[]).map((item: any) => (
+                                <button
+                                  type="button"
+                                  key={`${item.inventoryId}-${item.lotId}`}
+                                  className="w-full p-3 text-right hover:bg-muted/50"
+                                  onClick={() => selectPeriodicLotFromSearch(item)}
+                                  disabled={scanCountLotMut.isPending}
+                                >
+                                  <div className="flex items-start justify-between gap-3">
+                                    <div className="min-w-0">
+                                      <div className="text-sm font-medium">{item.nameAr || item.itemName}</div>
+                                      {item.nameEn && <div className="text-xs text-muted-foreground" dir="ltr">{item.nameEn}</div>}
+                                    </div>
+                                    <Badge variant="outline" className="font-mono shrink-0" dir="ltr">{item.lotCode}</Badge>
+                                  </div>
+                                  <div className="mt-1 flex gap-x-3 gap-y-1 flex-wrap text-[11px] text-muted-foreground">
+                                    {item.code && <span dir="ltr">كود الصنف: {item.code}</span>}
+                                    {item.manufacturerBarcode && <span dir="ltr">باركود المصنع: {item.manufacturerBarcode}</span>}
+                                    <span>رصيد النظام عند الفتح: {item.systemQuantity} {item.unit || ""}</span>
+                                  </div>
+                                  {countCatalogPathLabel(item.nodeId) && (
+                                    <div className="mt-1 text-[11px] text-muted-foreground truncate">{countCatalogPathLabel(item.nodeId)}</div>
+                                  )}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
                       </>
                     ) : (
                       <>
@@ -1855,6 +2008,7 @@ export default function InventoryOperations() {
         if (!v) {
           setShowNewItem(false);
           setOpeningCatalogSearch("");
+          setOpeningCatalogNodeId("");
           setSelectedOpeningCatalogItem(null);
         }
       }}>
@@ -1878,6 +2032,12 @@ export default function InventoryOperations() {
                           {selectedOpeningCatalogItem.code || `#${selectedOpeningCatalogItem.id}`} — {selectedOpeningCatalogItem.nameEn}
                         </p>
                         <p className="text-xs text-muted-foreground">الوحدة: {selectedOpeningCatalogItem.unit || "—"}</p>
+                        {Array.isArray(selectedOpeningCatalogItem.manufacturerBarcodes) && selectedOpeningCatalogItem.manufacturerBarcodes.length > 0 && (
+                          <p className="text-xs text-muted-foreground" dir="ltr">باركود المصنع: {selectedOpeningCatalogItem.manufacturerBarcodes.slice(0, 3).join("، ")}</p>
+                        )}
+                        {countCatalogPathLabel(selectedOpeningCatalogItem.nodeId) && (
+                          <p className="text-xs text-muted-foreground">{countCatalogPathLabel(selectedOpeningCatalogItem.nodeId)}</p>
+                        )}
                       </div>
                       <Button variant="ghost" size="sm" onClick={() => setSelectedOpeningCatalogItem(null)}>تغيير</Button>
                     </div>
@@ -1886,12 +2046,40 @@ export default function InventoryOperations() {
                       <Input
                         value={openingCatalogSearch}
                         onChange={e => setOpeningCatalogSearch(e.target.value)}
-                        placeholder="ابحث بالاسم أو الكود..."
+                        placeholder="ابحث بكود الصنف، الاسم العربي/الإنجليزي أو باركود المصنع..."
                         autoFocus
                       />
-                      <div className="max-h-52 overflow-y-auto border rounded-md divide-y">
-                        {openingCatalogLoading && <div className="p-3 text-xs text-muted-foreground">جاري البحث...</div>}
-                        {((openingCatalogItems as any[]) || []).map((item: any) => (
+                      <div className="flex gap-2">
+                        <div className="flex-1 min-w-0">
+                          <CountCatalogTreePicker
+                            nodes={(countCatalogNodes as CountCatalogNode[]) || []}
+                            value={openingCatalogNodeId}
+                            onChange={setOpeningCatalogNodeId}
+                            language={language}
+                          />
+                        </div>
+                        {openingCatalogNodeId && (
+                          <Button
+                            type="button" variant="outline" size="icon" title="مسح فلتر التصنيف"
+                            onClick={() => setOpeningCatalogNodeId("")}
+                          >
+                            <X className="w-4 h-4" />
+                          </Button>
+                        )}
+                      </div>
+                      <p className="text-[11px] text-muted-foreground">
+                        باركود المصنع يُبحث من السجلات المرتبطة بهذا Catalog Item. رقم LOT لا يتوفر للرصد الافتتاحي قبل تطبيق التسوية وإنشاء الـLot.
+                      </p>
+                      <div className="max-h-64 overflow-y-auto border rounded-md divide-y">
+                        {openingCatalogLoading && (
+                          <div className="p-3 text-xs text-muted-foreground flex items-center gap-2">
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" /> جاري البحث...
+                          </div>
+                        )}
+                        {!openingCatalogLoading && (openingCatalogItems as any[]).length === 0 && (
+                          <div className="p-3 text-xs text-muted-foreground">لا يوجد صنف مطابق للبحث أو التصنيف المحدد.</div>
+                        )}
+                        {(openingCatalogItems as any[]).map((item: any) => (
                           <button
                             type="button"
                             key={item.id}
@@ -1900,6 +2088,14 @@ export default function InventoryOperations() {
                           >
                             <div className="text-sm font-medium">{item.nameAr}</div>
                             <div className="text-xs text-muted-foreground" dir="ltr">{item.code || `#${item.id}`} — {item.nameEn}</div>
+                            {Array.isArray(item.manufacturerBarcodes) && item.manufacturerBarcodes.length > 0 && (
+                              <div className="text-[11px] text-muted-foreground mt-0.5" dir="ltr">
+                                باركود المصنع: {item.manufacturerBarcodes.slice(0, 3).join("، ")}
+                              </div>
+                            )}
+                            {countCatalogPathLabel(item.nodeId) && (
+                              <div className="text-[11px] text-muted-foreground mt-0.5 truncate">{countCatalogPathLabel(item.nodeId)}</div>
+                            )}
                           </button>
                         ))}
                       </div>

@@ -77,6 +77,25 @@ export const inventoryCountRouter = router({
       }
     }),
 
+  // ── بحث موحد في الجرد الدوري / الرصيد الافتتاحي ──
+  // يدعم كود الصنف، الاسم العربي/الإنجليزي، باركود المصنع، شجرة التصنيف،
+  // وللجرد الدوري بالـLot يدعم أيضاً LOT-... وtrackingToken.
+  searchCandidates: inventoryReadProcedure
+    .input(z.object({
+      operationId: z.number().int().positive(),
+      search: z.string().trim().max(200).optional(),
+      catalogNodeId: z.number().int().positive().optional(),
+      limit: z.number().int().min(1).max(50).default(20),
+    }))
+    .query(async ({ input }) => {
+      return db.searchInventoryCountCandidates({
+        operationId: input.operationId,
+        search: input.search,
+        catalogNodeId: input.catalogNodeId,
+        limit: input.limit,
+      });
+    }),
+
   // ── 2B-8: مسح QR للـLot أثناء الجرد الدوري ──
   scanLot: warehouseProcedure
     .input(z.object({
