@@ -255,7 +255,7 @@ export const inventoryRouter = router({
   resolveDeliveryLot: warehouseProcedure
     .input(z.object({
       inventoryId: z.number(),
-      trackingToken: z.string().trim().min(1, "QR الدفعة مطلوب"),
+      trackingToken: z.string().trim().min(1, "QR الدفعة أو رقم اللوت مطلوب"),
     }))
     .mutation(async ({ input }) => {
       if (!isInventoryLotsEnabled()) {
@@ -284,7 +284,7 @@ export const inventoryRouter = router({
           remainingQuantity: lot.remainingQuantity,
         };
       } catch (error: any) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: error?.message || "QR الدفعة غير صالح للصرف" });
+        throw new TRPCError({ code: "BAD_REQUEST", message: error?.message || "رقم اللوت أو QR الدفعة غير صالح للصرف" });
       }
     }),
 

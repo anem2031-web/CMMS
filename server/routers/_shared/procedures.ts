@@ -160,6 +160,18 @@ export const catalogProcedure = roleMiddleware([
   APP_ROLE.MAINTENANCE_MANAGER,
   APP_ROLE.GENERAL_MAINTENANCE_MANAGER,
   APP_ROLE.CONSTRUCTION_PROCUREMENT_MANAGER,
+  APP_ROLE.WAREHOUSE,
+]);
+
+/**
+ * تعطيل/إعادة تفعيل أصناف الكتالوج تحديداً (isActive toggle فقط).
+ * أوسع من catalogProcedure بإضافة مدير الصيانة والمستودع لهذه الميزة تحديداً،
+ * لكن أضيق من catalogAdminProcedure (لا صلاحية على settings/import-export/
+ * حذف تصنيفات أو وحدات — تلك تبقى Owner/Admin فقط).
+ */
+export const catalogItemLifecycleProcedure = roleMiddleware([
+  APP_ROLE.MAINTENANCE_MANAGER,
+  APP_ROLE.WAREHOUSE,
 ]);
 
 /** Owner/admin-only Catalog actions: delete/deactivate, settings, import/export. */

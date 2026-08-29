@@ -19,7 +19,7 @@ import { TechnicianCombobox } from "@/components/tickets/TechnicianCombobox";
 import {
   Package, Plus, AlertTriangle, Loader2,
   Pencil, Trash2, QrCode, Printer, Search, X, ArrowDownUp, CalendarDays, Truck,
-  ChevronRight, ChevronDown, Check
+  ChevronRight, ChevronDown, ChevronLeft, Check
 } from "lucide-react";
 import { useState, useEffect, useRef, useMemo, type ReactNode } from "react";
 import QRCode from "qrcode";
@@ -294,6 +294,7 @@ export default function Inventory() {
   const [deliverToId, setDeliverToId] = useState("");
   const [deliverNotes, setDeliverNotes] = useState("");
   const [deliverLotInfo, setDeliverLotInfo] = useState<any>(null);
+  const [lotCodeSearch, setLotCodeSearch] = useState("");
   const [lotDialogItem, setLotDialogItem] = useState<any>(null);
   const [printLotQr, setPrintLotQr] = useState<LotLabelItem | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
@@ -302,6 +303,8 @@ export default function Inventory() {
   const [sortBy, setSortBy] = useState<"recent" | "name" | "quantity">("recent");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
+  // ── ترقيم الصفحات لقائمة المخزون: 36 صنفاً في كل صفحة ──
+  const [currentPage, setCurrentPage] = useState(1);
   const { t, language } = useTranslation();
 
   const { data: items, isLoading, refetch } = trpc.inventory.list.useQuery();
@@ -454,6 +457,13 @@ export default function Inventory() {
 
   const isWarehouse = user?.role === "warehouse" || user?.role === "admin" || user?.role === "owner";
 
+  // إعادة الصفحة إلى 1 عند تغيير أي فلتر أو بحث، حتى لا تبقى على صفحة فارغة.
+  // يجب أن يُستدعى هذا الـHook دائماً قبل أي "return" مبكر (مثل return طباعة QR
+  // أدناه)، وإلا يختلف عدد الـHooks بين مرات العرض ويسبب خطأ React.
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, searchMode, selectedWarehouseId, selectedCatalogNodeId, sortBy, dateFrom, dateTo, hideZeroStock]);
+
   if (printLotQr) {
     return <LotLabelsPrintScreen items={[printLotQr]} onDone={() => setPrintLotQr(null)} />;
   }
@@ -492,6 +502,15 @@ export default function Inventory() {
       // recent (الافتراضي): الأحدث أولاً
       return new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime();
     });
+
+  // ── تقسيم الأصناف إلى صفحات، 36 صنفاً في كل صفحة ──
+  const ITEMS_PER_PAGE = 36;
+  const totalPages = Math.max(1, Math.ceil(filteredItems.length / ITEMS_PER_PAGE));
+  const currentPageSafe = Math.min(currentPage, totalPages);
+  const pagedItems = filteredItems.slice(
+    (currentPageSafe - 1) * ITEMS_PER_PAGE,
+    currentPageSafe * ITEMS_PER_PAGE,
+  );
 
   return (
     <div className="space-y-6">
@@ -715,7 +734,7 @@ export default function Inventory() {
               </tr>
             </thead>
             <tbody>
-              {filteredItems.map((item: any) => {
+              {pagedItems.map((item: any) => {
                 const isLow = (item.minQuantity || 0) > 0 && item.quantity <= (item.minQuantity || 0);
                 return (
                   <tr
@@ -775,7 +794,7 @@ export default function Inventory() {
                         {isWarehouse && (
                           <>
                             {item.quantity > 0 && (
-                              <Button variant="ghost" size="icon" className="h-7 w-7 text-blue-600 hover:text-blue-700" onClick={() => { setDeliverItem(item); setDeliverQty(""); setDeliverToId(""); setDeliverNotes(""); setDeliverLotInfo(null); }} title="تسليم للفني">
+                              <Button variant="ghost" size="icon" className="h-7 w-7 text-blue-600 hover:text-blue-700" onClick={() => { setDeliverItem(item); setDeliverQty(""); setDeliverToId(""); setDeliverNotes(""); setDeliverLotInfo(null); setLotCodeSearch(""); }} title="تسليم للفني">
                                 <Truck className="w-3.5 h-3.5" />
                               </Button>
                             )}
@@ -790,6 +809,37 @@ export default function Inventory() {
               })}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* ── أزرار التنقل بين الصفحات — 36 صنفاً في كل صفحة ── */}
+      {filteredItems.length > 0 && totalPages > 1 && (
+        <div className="flex items-center justify-between flex-wrap gap-3 pt-1">
+          <p className="text-xs text-muted-foreground">
+            عرض {(currentPageSafe - 1) * ITEMS_PER_PAGE + 1}
+            {"–"}
+            {Math.min(currentPageSafe * ITEMS_PER_PAGE, filteredItems.length)}
+            {" من "}{filteredItems.length} صنفاً
+          </p>
+          <div className="flex items-center gap-1">
+            <Button
+              variant="outline" size="sm" className="gap-1 px-2"
+              disabled={currentPageSafe <= 1}
+              onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+            >
+              <ChevronRight className="w-4 h-4" /> السابق
+            </Button>
+            <span className="text-xs text-muted-foreground px-2">
+              صفحة {currentPageSafe} من {totalPages}
+            </span>
+            <Button
+              variant="outline" size="sm" className="gap-1 px-2"
+              disabled={currentPageSafe >= totalPages}
+              onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+            >
+              التالي <ChevronLeft className="w-4 h-4" />
+            </Button>
+          </div>
         </div>
       )}
 
@@ -908,7 +958,7 @@ export default function Inventory() {
       </Dialog>
 
       {/* ── نافذة تسليم للفني ── */}
-      <Dialog open={!!deliverItem} onOpenChange={(open) => { if (!open) { setDeliverItem(null); setDeliverLotInfo(null); } }}>
+      <Dialog open={!!deliverItem} onOpenChange={(open) => { if (!open) { setDeliverItem(null); setDeliverLotInfo(null); setLotCodeSearch(""); } }}>
         <DialogContent className="max-w-md" dir="rtl">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
@@ -937,6 +987,42 @@ export default function Inventory() {
                     }}
                     placeholder="امسح QR الدفعة التي ستُصرف منها الكمية..."
                   />
+
+                  {/* بديل عن مسح الـQR: كتابة رقم اللوت البشري يدوياً (مثال: LOT-2026-00123) */}
+                  <div className="flex items-center gap-2 pt-1">
+                    <div className="flex-1 h-px bg-blue-200" />
+                    <span className="text-[10px] text-muted-foreground">أو</span>
+                    <div className="flex-1 h-px bg-blue-200" />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">ابحث برقم اللوت</Label>
+                    <div className="flex gap-1.5">
+                      <Input
+                        dir="ltr"
+                        className="font-mono text-xs"
+                        placeholder="مثال: LOT-2026-00123"
+                        value={lotCodeSearch}
+                        onChange={e => setLotCodeSearch(e.target.value)}
+                        onKeyDown={e => {
+                          if (e.key === "Enter" && lotCodeSearch.trim()) {
+                            setDeliverLotInfo(null);
+                            resolveDeliveryLotMut.mutate({ inventoryId: deliverItem.id, trackingToken: lotCodeSearch.trim() });
+                          }
+                        }}
+                      />
+                      <Button
+                        type="button" size="sm" variant="outline"
+                        disabled={!lotCodeSearch.trim() || resolveDeliveryLotMut.isPending}
+                        onClick={() => {
+                          setDeliverLotInfo(null);
+                          resolveDeliveryLotMut.mutate({ inventoryId: deliverItem.id, trackingToken: lotCodeSearch.trim() });
+                        }}
+                      >
+                        <Search className="w-3.5 h-3.5" />
+                      </Button>
+                    </div>
+                  </div>
+
                   {resolveDeliveryLotMut.isPending && (
                     <p className="text-xs text-muted-foreground flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" /> جاري التحقق من الدفعة...</p>
                   )}
@@ -992,7 +1078,7 @@ export default function Inventory() {
             </div>
           )}
           <DialogFooter>
-            <Button variant="outline" onClick={() => { setDeliverItem(null); setDeliverLotInfo(null); }}>إلغاء</Button>
+            <Button variant="outline" onClick={() => { setDeliverItem(null); setDeliverLotInfo(null); setLotCodeSearch(""); }}>إلغاء</Button>
             <Button
               className="gap-1.5"
               disabled={deliverMut.isPending || resolveDeliveryLotMut.isPending || (lotsEnabled && !deliverLotInfo)}

@@ -37,6 +37,7 @@ export const CATALOG_MODULE_ROLES = [
   APP_ROLE.MAINTENANCE_MANAGER,
   APP_ROLE.GENERAL_MAINTENANCE_MANAGER,
   APP_ROLE.CONSTRUCTION_PROCUREMENT_MANAGER,
+  APP_ROLE.WAREHOUSE,
 ] as const;
 
 export function canRoleAccessCatalogModule(role?: string | null): boolean {
@@ -45,6 +46,22 @@ export function canRoleAccessCatalogModule(role?: string | null): boolean {
 
 export function isCatalogAdminRole(role?: string | null): boolean {
   return role === APP_ROLE.OWNER || role === APP_ROLE.ADMIN;
+}
+
+/**
+ * تعطيل/إعادة تفعيل أصناف الكتالوج (isActive toggle): كان مقصوراً على
+ * Owner/Admin فقط. وُسِّع ليشمل مدير الصيانة والمستودع أيضاً، دون منحهما
+ * بقية صلاحيات catalogAdmin (settings, import/export, حذف تصنيفات/وحدات).
+ */
+export const CATALOG_ITEM_LIFECYCLE_ROLES = [
+  APP_ROLE.OWNER,
+  APP_ROLE.ADMIN,
+  APP_ROLE.MAINTENANCE_MANAGER,
+  APP_ROLE.WAREHOUSE,
+] as const;
+
+export function canManageCatalogItemLifecycle(role?: string | null): boolean {
+  return !!role && (CATALOG_ITEM_LIFECYCLE_ROLES as readonly string[]).includes(role);
 }
 
 /**

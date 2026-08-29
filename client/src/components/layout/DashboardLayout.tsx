@@ -188,10 +188,10 @@ const NAV_SECTIONS: NavSection[] = [
     id: "catalog",
     labelKey: "nav.sections.catalog",
     icon: BookOpen,
-    roles: ["owner", "admin", "maintenance_manager", "general_maintenance_manager", "construction_procurement_manager"],
+    roles: ["owner", "admin", "maintenance_manager", "general_maintenance_manager", "construction_procurement_manager", "warehouse"],
     items: [
       { icon: BookOpen, labelKey: "nav.catalog", path: "/catalog",
-        roles: ["owner", "admin", "maintenance_manager", "general_maintenance_manager", "construction_procurement_manager"] },
+        roles: ["owner", "admin", "maintenance_manager", "general_maintenance_manager", "construction_procurement_manager", "warehouse"] },
     ],
   },
   // 7. وحدة التحليل AI

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, eq, gte, sql } from "drizzle-orm";
+import { and, eq, gte, or, sql } from "drizzle-orm";
 import {
   inventory,
   inventoryCountItems,
@@ -264,7 +264,7 @@ export async function resolveInventoryLotForIssue(params: {
   inventoryCatalogItemId?: number | null;
 }): Promise<InventoryLotIssueResolution> {
   const token = String(params.trackingToken || "").trim();
-  if (!token) throw new Error("يجب مسح QR الدفعة قبل الصرف");
+  if (!token) throw new Error("يجب مسح QR الدفعة أو إدخال رقم اللوت قبل الصرف");
 
   const rows = await params.tx
     .select({
@@ -286,12 +286,13 @@ export async function resolveInventoryLotForIssue(params: {
         eq(inventoryLotBalances.inventoryId, params.inventoryId),
       ),
     )
-    .where(eq(inventoryLots.trackingToken, token))
+    // يقبل إما مسح QR (trackingToken) أو كتابة رقم اللوت البشري (lotCode) يدوياً.
+    .where(or(eq(inventoryLots.trackingToken, token), eq(inventoryLots.lotCode, token)))
     .limit(1);
 
   const row = rows[0] as any;
   if (!row) {
-    throw new Error("QR الممسوح لا يخص هذا الصنف في المستودع الحالي");
+    throw new Error("رقم اللوت أو الـQR الممسوح لا يخص هذا الصنف في المستودع الحالي");
   }
 
   const lotCatalogItemId = row.catalogItemId == null ? null : Number(row.catalogItemId);

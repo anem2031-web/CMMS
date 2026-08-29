@@ -1194,6 +1194,9 @@ export const inventory = mysqlTable("inventory", {
 	linkedItemId: int(),
 	assetId: int(),
 	warehouseId: int(),
+	// أصناف قديمة مجمَّدة يدوياً (بدون Lot) — تُستبعد من قائمة المخزون الرئيسية
+	// عبر getInventoryItems() فقط. راجع: docs/CMMS_INVENTORY_FROZEN_ITEMS_2026-08-29.md
+	isFrozen: tinyint().default(0).notNull(),
 });
 
 // ══════════════════════════════════════════════════════════════════════

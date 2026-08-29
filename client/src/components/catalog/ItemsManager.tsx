@@ -4,7 +4,7 @@ import React, { useState, useMemo, useEffect } from "react";
 import { useTranslation } from "@/contexts/LanguageContext";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
-import { isCatalogAdminRole } from "@shared/roles";
+import { isCatalogAdminRole, canManageCatalogItemLifecycle } from "@shared/roles";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
@@ -161,6 +161,8 @@ function NodeSelector({
 export default function ItemsManager() {
   const { user } = useAuth();
   const isCatalogAdmin = isCatalogAdminRole(user?.role);
+  // تعطيل/إعادة تفعيل الأصناف: Owner/Admin + مدير الصيانة + المستودع الآن.
+  const canManageLifecycle = canManageCatalogItemLifecycle(user?.role);
   const { t, language } = useTranslation();
 
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -253,7 +255,7 @@ export default function ItemsManager() {
       limit: PAGE_SIZE,
       offset: page * PAGE_SIZE,
       isActive: true,
-      includeInactive: isCatalogAdmin || undefined,
+      includeInactive: (isCatalogAdmin || canManageLifecycle) || undefined,
       search: debouncedSearch || undefined,
       nodeIds: catalogFilterNodeId !== null ? catalogFilterNodeIds : undefined,
     });
@@ -552,8 +554,8 @@ export default function ItemsManager() {
                 setCodeEdited(true);
                 setIsDialogOpen(true);
               }}
-              canDelete={isCatalogAdmin}
-              canReactivate={isCatalogAdmin}
+              canDelete={isCatalogAdmin || canManageLifecycle}
+              canReactivate={isCatalogAdmin || canManageLifecycle}
               onDelete={id => {
                 if (confirm(t.catalog.confirm.deleteItem)) {
                   deleteMut.mutate(id);

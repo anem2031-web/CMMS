@@ -7,7 +7,7 @@ import { isCatalogItemCodeForNode, nextCatalogItemCode } from "../../_core/catal
 import { publishResolvedCatalogIdentity } from "../../_core/catalog-item-identity-publication";
 import { catalogAuditJson, pickAuditValues } from "../../_core/catalog-audit";
 import { findCatalogUnitByName, getActiveCatalogUnitCanonicalName } from "../../_core/catalog-unit-governance";
-import { router, catalogAdminProcedure, catalogProcedure, catalogReadProcedure } from "../_shared/procedures";
+import { router, catalogAdminProcedure, catalogProcedure, catalogItemLifecycleProcedure, catalogReadProcedure } from "../_shared/procedures";
 import { z } from "zod";
 import { eq, and, or, like, isNull, ne, count, desc, asc, inArray, sql, gte, lte } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
@@ -658,7 +658,8 @@ const conditions = [];
 // 2B-10-2B UAT: Owner/Admin داخل إدارة الكتالوج يمكنهما طلب النشط + المعطّل
 // لأغراض governance/visibility، بينما جميع القراءات التشغيلية تبقى Active-only افتراضياً.
 const role = (ctx as any)?.user?.role;
-const canIncludeInactive = role === APP_ROLE.OWNER || role === APP_ROLE.ADMIN;
+const canIncludeInactive = role === APP_ROLE.OWNER || role === APP_ROLE.ADMIN
+  || role === APP_ROLE.MAINTENANCE_MANAGER || role === APP_ROLE.WAREHOUSE;
 const includeInactive = input?.includeInactive === true && canIncludeInactive;
 if (!includeInactive) {
   const activeFilter = input?.isActive !== undefined ? input.isActive : true;
@@ -975,9 +976,10 @@ create: catalogProcedure
       }),
 
     /**
-     * Delete a catalog item (soft delete)
+     * Delete (deactivate) a catalog item (soft delete).
+     * Owner/Admin/Maintenance Manager/Warehouse — see catalogItemLifecycleProcedure.
      */
-    delete: catalogAdminProcedure
+    delete: catalogItemLifecycleProcedure
       .input(z.number())
       .mutation(async ({ input, ctx }) => {
         const db = await getDb();
@@ -1005,9 +1007,9 @@ create: catalogProcedure
 
     /**
      * Reactivate a catalog item after soft delete/deactivation.
-     * Owner/Admin only. Keeps the same master identity and records Audit.
+     * Owner/Admin/Maintenance Manager/Warehouse. Keeps the same master identity and records Audit.
      */
-    reactivate: catalogAdminProcedure
+    reactivate: catalogItemLifecycleProcedure
       .input(z.number())
       .mutation(async ({ input, ctx }) => {
         const db = await getDb();

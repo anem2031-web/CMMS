@@ -86,7 +86,11 @@ export async function getInventoryItems() {
   const db = await getDb();
   if (!db) return [];
 
-  const items = await db.select().from(inventory).orderBy(desc(inventory.updatedAt));
+  // أصناف مجمَّدة يدوياً (isFrozen = 1) لا تظهر في قائمة المخزون الرئيسية.
+  // راجع: docs/CMMS_INVENTORY_FROZEN_ITEMS_2026-08-29.md
+  const items = await db.select().from(inventory)
+    .where(eq(inventory.isFrozen, 0))
+    .orderBy(desc(inventory.updatedAt));
   if (items.length === 0) return [];
   const itemIds = items.map(i => i.id);
 
