@@ -1,0 +1,5 @@
+import fs from 'node:fs';
+import { transform } from 'esbuild';
+const files = ['drizzle/schema.ts', 'shared/improvement-execution.ts', 'server/services/improvement-ideas/execution.ts', 'server/services/improvement-ideas/improvementIdeas.ts', 'server/routers/improvement-ideas/improvement-ideas.router.ts', 'server/routers/tickets/tickets.router.ts', 'server/routers/purchase/purchase-orders.router.ts', 'client/src/pages/improvement/ImprovementIdeas.tsx', 'client/src/pages/tickets/CreateTicket.tsx', 'client/src/pages/purchase/CreatePurchaseOrder.tsx', 'client/src/pages/tickets/TicketDetail.tsx', 'client/src/pages/purchase/PurchaseOrderDetail.tsx', 'client/src/components/improvement/ImprovementReference.tsx', 'client/src/components/improvement/ImprovementFinancialPanel.tsx'];
+for (const file of files) await transform(fs.readFileSync(file, 'utf8'), { loader: file.endsWith('tsx') ? 'tsx' : 'ts', target: 'es2022', sourcefile: file, logLevel: 'silent' });
+console.log(`${files.length} source files: syntax OK, no runtime imports or database access.`);

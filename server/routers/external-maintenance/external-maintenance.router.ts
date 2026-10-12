@@ -1,3 +1,4 @@
+import { isItTeamRole } from "@shared/roles";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { APP_ROLE, MAINTENANCE_RESPONSIBLE_DEPARTMENT } from "@shared/roles";
@@ -322,22 +323,21 @@ export const externalMaintenanceRouter = router({
         APP_ROLE.GENERAL_MAINTENANCE_MANAGER,
         APP_ROLE.CONSTRUCTION_PROCUREMENT_MANAGER,
         APP_ROLE.IT_MANAGER,
+        APP_ROLE.IT_MEMBER,
         APP_ROLE.ADMIN,
         APP_ROLE.OWNER,
       ],
       "يجب اختيار فني أو مسؤول صالح لاستلام الأصل",
     );
-    if (recipient.role === APP_ROLE.IT_MANAGER) {
+    if (isItTeamRole(recipient.role)) {
       const ticket = await db.getTicketById(job.ticketId);
       if (
         !ticket ||
-        ticket.maintenanceResponsibleDepartment !== MAINTENANCE_RESPONSIBLE_DEPARTMENT.IT ||
-        ticket.maintenanceResponsibleManagerId !== recipient.id ||
-        ticket.assignedToId !== recipient.id
+        ticket.maintenanceResponsibleDepartment !== MAINTENANCE_RESPONSIBLE_DEPARTMENT.IT
       ) {
         throw new TRPCError({
           code: "BAD_REQUEST",
-          message: "مدير تقنية المعلومات يمكنه استلام الأصل فقط لبلاغ IT المسند إليه",
+          message: "عضو فريق تقنية المعلومات يمكنه استلام الأصل فقط لبلاغ IT المسند إليه",
         });
       }
     }
@@ -354,7 +354,7 @@ export const externalMaintenanceRouter = router({
           (recipientId): recipientId is number => typeof recipientId === "number" && recipientId > 0,
         ),
       );
-      for (const recipientId of recipients) {
+      for (const recipientId of Array.from(recipients)) {
         await db.createNotification({
           userId: recipientId,
           title: "🔧 أصل جاهز لإعادة التركيب",

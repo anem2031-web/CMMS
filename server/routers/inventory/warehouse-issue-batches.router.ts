@@ -9,6 +9,7 @@ import {
   shouldExposeTicketMaterialLink,
 } from "@shared/ticketMaterialDelivery";
 import { syncPathBTicketFromPurchaseOrder } from "../purchase/ticket-purchase-workflow";
+import { isItTeamRole, MAINTENANCE_RESPONSIBLE_DEPARTMENT } from "@shared/roles";
 
 interface InventoryTicketDeliveryContext {
   purchaseOrderItemId: number | null;
@@ -20,6 +21,7 @@ interface InventoryTicketDeliveryContext {
   ticketNumber: string | null;
   ticketStatus: string | null;
   maintenancePath: string | null;
+  maintenanceResponsibleDepartment: string | null;
   ticketSiteId: number | null;
   ticketSectionId: number | null;
   ticketAssetId: number | null;
@@ -243,6 +245,7 @@ async function getInventoryTicketDeliveryContext(
         t.ticketNumber,
         t.status AS ticketStatus,
         t.maintenancePath,
+        t.maintenanceResponsibleDepartment,
         t.siteId AS ticketSiteId,
         t.sectionId AS ticketSectionId,
         t.assetId AS ticketAssetId,
@@ -266,6 +269,7 @@ async function getInventoryTicketDeliveryContext(
         t.ticketNumber,
         t.status AS ticketStatus,
         t.maintenancePath,
+        t.maintenanceResponsibleDepartment,
         t.siteId AS ticketSiteId,
         t.sectionId AS ticketSectionId,
         t.assetId AS ticketAssetId,
@@ -300,6 +304,7 @@ async function getInventoryTicketDeliveryContext(
     ticketNumber: row.ticketNumber ?? null,
     ticketStatus: row.ticketStatus ?? null,
     maintenancePath: row.maintenancePath ?? null,
+    maintenanceResponsibleDepartment: row.maintenanceResponsibleDepartment ?? null,
     ticketSiteId: toPositiveInt(row.ticketSiteId),
     ticketSectionId: toPositiveInt(row.ticketSectionId),
     ticketAssetId: toPositiveInt(row.ticketAssetId),
@@ -308,7 +313,10 @@ async function getInventoryTicketDeliveryContext(
   };
 }
 
-async function assertActualDeliveryRecipient(deliveredToId?: number | null): Promise<any> {
+async function assertActualDeliveryRecipient(
+  deliveredToId?: number | null,
+  allowItTeamRecipient = false,
+): Promise<any> {
   if (!hasActualDeliveryRecipient(deliveredToId)) {
     throw new TRPCError({ code: "BAD_REQUEST", message: "يجب اختيار الفني المستلم فعليًا قبل اعتماد سند الصرف" });
   }
@@ -316,10 +324,9 @@ async function assertActualDeliveryRecipient(deliveredToId?: number | null): Pro
   if (!recipient || (recipient as any).isActive === 0) {
     throw new TRPCError({ code: "BAD_REQUEST", message: "الفني المستلم غير موجود أو غير نشط" });
   }
-  if ((recipient as any).role !== "technician") {
-    throw new TRPCError({ code: "BAD_REQUEST", message: "المستلم الفعلي يجب أن يكون فنيًا" });
-  }
-  return recipient;
+  if ((recipient as any).role === "technician") return recipient;
+  if (allowItTeamRecipient && isItTeamRole((recipient as any).role)) return recipient;
+  throw new TRPCError({ code: "BAD_REQUEST", message: "المستلم الفعلي يجب أن يكون فنيًا" });
 }
 
 async function syncAndNotifyTicketMaterialDelivery(params: {
@@ -431,7 +438,6 @@ export const warehouseIssueBatchesRouter = router({
       if (!warehouse || Number((warehouse as any).isActive ?? 1) === 0) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "المخزن المصدر غير موجود أو غير نشط" });
       }
-      const recipient = await assertActualDeliveryRecipient(input.deliveredToId);
       const performer = await db.getUserById(ctx.user.id);
 
       const duplicateCostTargetKeys = new Set<string>();
@@ -505,6 +511,12 @@ export const warehouseIssueBatchesRouter = router({
         }
         preflight.push({ line, lot, context, pmv2Context, linkToTicket, markPurchaseOrderItemDelivered, sourcePoNumber });
       }
+
+      const allowItTeamRecipient = preflight.length > 0 && preflight.every(row =>
+        row.linkToTicket &&
+        row.context?.maintenanceResponsibleDepartment === MAINTENANCE_RESPONSIBLE_DEPARTMENT.IT
+      );
+      const recipient = await assertActualDeliveryRecipient(input.deliveredToId, allowItTeamRecipient);
 
       const database = await db.getDb();
       if (!database) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر الاتصال بقاعدة البيانات" });

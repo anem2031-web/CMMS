@@ -35,12 +35,13 @@ export default function CreateTicket() {
   const [, setLocation] = useLocation();
   const search = useSearch();
   const { t, language, dir } = useTranslation();
-  const { getPriorityLabel, getCategoryLabel } = useStaticLabels();
+  const { getPriorityLabel } = useStaticLabels();
   const { data: sites } = trpc.sites.list.useQuery();
+  const { data: centerCategories = [] } = trpc.centerCategories.list.useQuery({ activeOnly: true });
 
   const [form, setForm] = useState({
     title: "", description: "", priority: "medium",
-    category: "general", siteId: "", sectionId: "", assetId: "", locationDetail: "", beforePhotoUrl: "",
+    categoryId: "", siteId: "", sectionId: "", assetId: "", locationDetail: "", beforePhotoUrl: "",
   });
 
   const { data: assets } = trpc.assets.list.useQuery(
@@ -100,7 +101,6 @@ export default function CreateTicket() {
     const v = new URLSearchParams(search).get("fromIdeaId");
     return v ? Number(v) : undefined;
   })();
-  const linkIdeaMut = trpc.improvementIdeas.linkToTicket.useMutation();
 
   const { data: sections } = trpc.sections.list.useQuery(
     form.siteId ? { siteId: Number(form.siteId) } : undefined,
@@ -135,9 +135,6 @@ export default function CreateTicket() {
         }
       }
       toast.success(pmv2TaskItemId ? `${t.workflow.ticket.pmv2TicketCreated}: ${data.ticketNumber}` : `${t.tickets.createNew} ${data.ticketNumber}`);
-      if (fromIdeaId) {
-        linkIdeaMut.mutate({ id: fromIdeaId, ticketId: data.id! });
-      }
       setLocation(`/tickets/${data.id}`);
     },
     onError: (err) => toast.error(localizeApiError(err.message)),
@@ -316,6 +313,7 @@ if (f.size > maxSize) {
 
   const handleSubmit = () => {
     if (!form.title.trim()) { toast.error(t.tickets.ticketTitle); return; }
+    if (!form.categoryId) { toast.error(t.tickets.category); return; }
     if (!form.siteId || !form.sectionId) { toast.error(t.workflow.ticket.locationSectionRequired); return; }
     const uploading = fileEntries.some(e => e.status === "uploading" || e.status === "pending");
     if (uploading) { toast.error(at.uploading || t.workflow.ticket.waitUploads); return; }
@@ -330,10 +328,12 @@ if (f.size > maxSize) {
     createMut.mutate({
       ...form,
       beforePhotoUrl: freshBeforePhotoUrl,
+      categoryId: form.categoryId ? parseInt(form.categoryId) : undefined,
       siteId: form.siteId ? parseInt(form.siteId) : undefined,
       sectionId: form.sectionId ? parseInt(form.sectionId) : undefined,
       assetId: form.assetId ? parseInt(form.assetId) : undefined,
       pmv2TaskItemId,
+      fromIdeaId,
     });
   };
 
@@ -409,11 +409,13 @@ if (f.size > maxSize) {
               </Select>
             </div>
             <div className="space-y-2">
-              <Label>{t.tickets.category}</Label>
-              <Select value={form.category} onValueChange={v => setForm(f => ({ ...f, category: v }))}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
+              <Label>{t.tickets.category} *</Label>
+              <Select value={form.categoryId} onValueChange={v => setForm(f => ({ ...f, categoryId: v }))}>
+                <SelectTrigger><SelectValue placeholder={t.tickets.category} /></SelectTrigger>
                 <SelectContent>
-                  {Object.keys(t.category).map(k => <SelectItem key={k} value={k}>{getCategoryLabel(k)}</SelectItem>)}
+                  {(centerCategories as any[]).map((category: any) => (
+                    <SelectItem key={category.id} value={String(category.id)}>{category.name}</SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>

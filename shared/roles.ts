@@ -6,6 +6,9 @@
  * below. Keep module-specific allow/deny decisions here instead of scattering
  * string comparisons across the application.
  */
+import { canManageTicketTeams } from "./maintenance-team-tickets/team-management";
+import { canReadTicketTeamExecution } from "./maintenance-team-tickets/execution-permissions";
+
 export const APP_ROLE = {
   USER: "user",
   ADMIN: "admin",
@@ -13,6 +16,7 @@ export const APP_ROLE = {
   OPERATOR: "operator",
   TECHNICIAN: "technician",
   IT_MANAGER: "it_manager",
+  IT_MEMBER: "it_member",
   MAINTENANCE_MANAGER: "maintenance_manager",
   GENERAL_MAINTENANCE_MANAGER: "general_maintenance_manager",
   CONSTRUCTION_PROCUREMENT_MANAGER: "construction_procurement_manager",
@@ -42,7 +46,21 @@ export const PMV2_MANAGEMENT_ROLES = [
 export const PMV2_TECHNICIAN_EXECUTION_ROLES = [
   APP_ROLE.TECHNICIAN,
   APP_ROLE.IT_MANAGER,
+  APP_ROLE.IT_MEMBER,
 ] as const;
+
+/** Execution across all PM V2 teams; does not grant management or warehouse authority. */
+export const PMV2_ALL_TEAM_EXECUTION_ROLES = [
+  APP_ROLE.OWNER,
+  APP_ROLE.ADMIN,
+  APP_ROLE.MAINTENANCE_MANAGER,
+  APP_ROLE.GENERAL_MAINTENANCE_MANAGER,
+  APP_ROLE.CONSTRUCTION_PROCUREMENT_MANAGER,
+] as const;
+
+export function canRoleExecuteAllPmv2Teams(role?: string | null): boolean {
+  return !!role && (PMV2_ALL_TEAM_EXECUTION_ROLES as readonly string[]).includes(role);
+}
 
 /** Phase 4 warehouse queue is separate from PM V2 management and technician execution. */
 export const PMV2_WAREHOUSE_ROLES = [
@@ -56,7 +74,8 @@ export function canRoleManagePmv2(role?: string | null): boolean {
 }
 
 export function canRoleExecutePmv2Technician(role?: string | null): boolean {
-  return !!role && (PMV2_TECHNICIAN_EXECUTION_ROLES as readonly string[]).includes(role);
+  return canRoleExecuteAllPmv2Teams(role) ||
+    (!!role && (PMV2_TECHNICIAN_EXECUTION_ROLES as readonly string[]).includes(role));
 }
 
 export function canRoleAccessPmv2Warehouse(role?: string | null): boolean {
@@ -156,6 +175,31 @@ export const CONSTRUCTION_MAINTENANCE_MANAGER_ROLES = [
 /** Both derived roles retain purchase-order manager behavior. */
 export const PURCHASE_MAINTENANCE_MANAGER_ROLES = MAINTENANCE_MANAGER_FAMILY;
 
+/**
+ * Supply tracking is a focused procurement follow-up view. Managers see every
+ * non-draft purchase item, while delegates are restricted to their own items.
+ */
+export const PURCHASE_SUPPLY_TRACKING_MANAGER_ROLES = [
+  APP_ROLE.OWNER,
+  APP_ROLE.ADMIN,
+  APP_ROLE.MAINTENANCE_MANAGER,
+  APP_ROLE.GENERAL_MAINTENANCE_MANAGER,
+  APP_ROLE.CONSTRUCTION_PROCUREMENT_MANAGER,
+] as const;
+
+export const PURCHASE_SUPPLY_TRACKING_ROLES = [
+  ...PURCHASE_SUPPLY_TRACKING_MANAGER_ROLES,
+  APP_ROLE.DELEGATE,
+] as const;
+
+export function canRoleAccessPurchaseSupplyTracking(role?: string | null): boolean {
+  return !!role && (PURCHASE_SUPPLY_TRACKING_ROLES as readonly string[]).includes(role);
+}
+
+export function canRoleViewAllPurchaseSupplyTracking(role?: string | null): boolean {
+  return !!role && (PURCHASE_SUPPLY_TRACKING_MANAGER_ROLES as readonly string[]).includes(role);
+}
+
 export function isMaintenanceManagerFamily(role?: string | null): boolean {
   return !!role && (MAINTENANCE_MANAGER_FAMILY as readonly string[]).includes(role);
 }
@@ -209,6 +253,12 @@ function matchesPrefix(path: string, prefix: string): boolean {
 export function canRoleAccessPath(role: string | null | undefined, path: string): boolean {
   if (!role) return false;
   const normalizedPath = path.split(/[?#]/, 1)[0] || "/";
+  if (matchesPrefix(normalizedPath, "/maintenance-team-tickets")) {
+    return canReadTicketTeamExecution(role);
+  }
+  if (matchesPrefix(normalizedPath, "/maintenance-teams")) {
+    return canManageTicketTeams(role);
+  }
   if (matchesPrefix(normalizedPath, "/catalog")) {
     return canRoleAccessCatalogModule(role);
   }
@@ -221,12 +271,14 @@ export function canRoleAccessPath(role: string | null | undefined, path: string)
   if (matchesPrefix(normalizedPath, "/scheduled-maintenance")) {
     return canRoleManagePmv2(role);
   }
-  if (role === APP_ROLE.IT_MANAGER) {
-    // IT role: scoped ticket execution + own purchase orders; PM V2 execution is handled above.
+  if (isItTeamRole(role)) {
+    // فريق IT: تنفيذ البلاغات ضمن نطاق الفريق؛ مدير IT وحده يدخل طلبات الشراء.
+    // تنفيذ PM V2 لأعضاء الفريق يعالج في حارس المسار أعلاه.
     // Inventory, purchase-cycle management and Catalog UI remain closed; PM V2 execution is limited to My Tasks by the route guard above.
     if (normalizedPath === "/" || normalizedPath === "/tickets" || normalizedPath === "/tickets/inbox" || normalizedPath === "/tickets/new") return true;
+    if (normalizedPath === "/notifications") return true;
     if (/^\/tickets\/\d+$/.test(normalizedPath)) return true;
-    if (matchesPrefix(normalizedPath, "/purchase-orders")) return true;
+    if (matchesPrefix(normalizedPath, "/purchase-orders")) return role === APP_ROLE.IT_MANAGER;
     return false;
   }
   if (role === APP_ROLE.GENERAL_MAINTENANCE_MANAGER) {
@@ -242,4 +294,9 @@ export function canRoleAccessPath(role: string | null | undefined, path: string)
     return !CONSTRUCTION_MANAGER_DENIED_PREFIXES.some((prefix) => matchesPrefix(normalizedPath, prefix));
   }
   return true;
+}
+
+/** One IT team; roles retain separate procurement authority. */
+export function isItTeamRole(role?: string | null): boolean {
+  return role === APP_ROLE.IT_MANAGER || role === APP_ROLE.IT_MEMBER;
 }

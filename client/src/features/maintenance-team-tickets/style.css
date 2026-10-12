@@ -1,0 +1,364 @@
+.mtt-app .mtt-team-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 20px;
+}
+.mtt-app .mtt-team-card summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  cursor: pointer;
+  padding: 6px;
+}
+.mtt-app .mtt-team-card summary:focus-visible {
+  outline: 3px solid #b0d4cb;
+}
+.mtt-app .mtt-team-card summary strong {
+  flex: 1;
+  min-width: 150px;
+  font-size: 17px;
+}
+.mtt-app .mtt-team-card[open] summary {
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 15px;
+}
+.mtt-app .mtt-team-details-label {
+  font-size: 12px;
+  color: #536b64;
+}
+.mtt-app .mtt-team-editor {
+  margin-top: 16px;
+}
+.mtt-app .mtt-team-members {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 6px;
+}
+.mtt-app {
+  --ink: #193b37;
+  --accent: #14796a;
+  --line: #dce6e2;
+  font-family: Tahoma, Arial, sans-serif;
+  color: var(--ink);
+  background: #f4f7f5;
+  min-height: 100vh;
+  line-height: 1.7;
+  font-size: 14px;
+}
+.mtt-app * {
+  box-sizing: border-box;
+}
+.mtt-app h1 {
+  font-size: 28px;
+  margin: 0;
+}
+.mtt-app h2 {
+  font-size: 18px;
+  margin: 12px 0;
+}
+.mtt-app p {
+  margin: 7px 0;
+  color: #536b64;
+  white-space: pre-wrap;
+}
+.mtt-app button,
+.mtt-app input,
+.mtt-app select,
+.mtt-app textarea {
+  font: inherit;
+}
+.mtt-app button {
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: var(--accent);
+  color: white;
+  padding: 9px 16px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.mtt-app button:hover {
+  filter: brightness(0.95);
+}
+.mtt-app button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.mtt-app button:focus-visible,
+.mtt-app input:focus-visible,
+.mtt-app select:focus-visible,
+.mtt-app textarea:focus-visible {
+  outline: 3px solid #b0d4cb;
+  outline-offset: 2px;
+}
+.mtt-app label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+  min-width: 150px;
+  margin: 6px 0;
+}
+.mtt-app input,
+.mtt-app select,
+.mtt-app textarea {
+  border: 1px solid #cbdad4;
+  border-radius: 8px;
+  background: #fff;
+  color: var(--ink);
+  padding: 10px;
+  width: 100%;
+}
+.mtt-app textarea {
+  min-height: 88px;
+  resize: vertical;
+}
+.mtt-app fieldset {
+  border: 0;
+  padding: 0;
+  margin: 15px 0;
+}
+.mtt-app legend {
+  font-weight: bold;
+}
+.mtt-preview-banner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 24px;
+  background: #fff2d7;
+  color: #795b23;
+  padding: 10px;
+  flex-wrap: wrap;
+}
+.mtt-shell {
+  display: flex;
+  min-height: calc(100vh - 60px);
+}
+.mtt-sidebar {
+  width: 240px;
+  background: #113b34;
+  color: #fff;
+  padding: 27px 20px;
+  flex-shrink: 0;
+}
+.mtt-logo {
+  font-size: 24px;
+  font-weight: bold;
+  margin-bottom: 28px;
+}
+.mtt-logo span {
+  display: block;
+  font-size: 12px;
+  color: #a5ccc0;
+  letter-spacing: 1px;
+}
+.mtt-sidebar select {
+  font-size: 12px;
+}
+.mtt-sidebar nav {
+  display: grid;
+  gap: 5px;
+  margin-top: 32px;
+}
+.mtt-sidebar nav button {
+  background: transparent;
+  text-align: right;
+  padding: 13px;
+  color: #d7e9e2;
+  border-radius: 7px;
+}
+.mtt-sidebar nav .mtt-nav-active {
+  background: #236153;
+  color: white;
+}
+.mtt-nav-label {
+  font-size: 11px;
+  color: #a5ccc0;
+  padding: 0 12px;
+}
+.mtt-sidebar-note {
+  margin-top: 60px;
+  font-size: 12px;
+  color: #a5ccc0;
+  border-top: 1px solid #326051;
+  padding-top: 18px;
+}
+.mtt-main {
+  padding: 35px;
+  width: 100%;
+  max-width: 1450px;
+}
+.mtt-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 26px;
+}
+.mtt-panel {
+  background: white;
+  border: 1px solid var(--line);
+  border-radius: 15px;
+  padding: 22px;
+  margin-bottom: 20px;
+  box-shadow: 0 3px 12px #163b3305;
+  min-width: 0;
+}
+.mtt-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr));
+  gap: 20px;
+}
+.mtt-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.mtt-row > button {
+  align-self: end;
+  margin-bottom: 6px;
+}
+.mtt-badge {
+  font-size: 11px;
+  background: #e7f3ed;
+  color: #326857;
+  border-radius: 30px;
+  padding: 5px 12px;
+}
+.mtt-reference {
+  font-family: monospace;
+  font-size: 14px;
+  direction: ltr;
+  display: inline-block;
+  color: #14796a;
+  font-weight: bold;
+}
+.mtt-app .mtt-secondary {
+  background: #f4f8f6;
+  border-color: #d4e3dc;
+  color: #245d50;
+}
+.mtt-app .mtt-selected {
+  background: #14796a;
+  color: #fff;
+}
+.mtt-options,
+.mtt-tabs {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 20px 0;
+}
+.mtt-options button {
+  font-size: 12px;
+  padding: 8px 11px;
+}
+.mtt-check {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center;
+  min-width: 0 !important;
+}
+.mtt-check input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--accent);
+}
+.mtt-form {
+  padding: 18px;
+  background: #f6faf8;
+  border-radius: 10px;
+}
+.mtt-material {
+  border: 1px solid #e4ece7;
+  border-radius: 9px;
+  padding: 12px;
+  margin-top: 14px;
+  background: #f9fbfa;
+}
+.mtt-material button {
+  margin-top: 8px;
+}
+.mtt-history {
+  border-right: 3px solid #b9d2c8;
+  padding-right: 12px;
+  margin-top: 15px;
+  font-size: 12px;
+}
+.mtt-history span {
+  color: #7b8c84;
+}
+.mtt-empty {
+  padding: 30px;
+  border: 1px dashed #c8d9d0;
+  border-radius: 12px;
+  text-align: center;
+  color: #6b8277;
+  margin-bottom: 20px;
+}
+.mtt-alert,
+.mtt-success,
+.mtt-notice {
+  padding: 13px 18px;
+  border-radius: 9px;
+  margin-bottom: 18px;
+}
+.mtt-alert {
+  background: #fff0ed;
+  color: #9b4136;
+}
+.mtt-success {
+  background: #e1f4e9;
+  color: #276d48;
+}
+.mtt-app .mtt-notice {
+  background: #fff6e5;
+  color: #84662c;
+  font-size: 12px;
+  margin-top: 15px;
+}
+.mtt-app .mtt-link {
+  background: transparent;
+  color: inherit;
+  border: 0;
+  padding: 4px 8px;
+}
+.mtt-app {
+  margin: 0;
+}
+body:has(.mtt-app) {
+  margin: 0;
+}
+@media (max-width: 800px) {
+  .mtt-shell {
+    flex-direction: column;
+  }
+  .mtt-sidebar {
+    width: 100%;
+    padding: 15px;
+  }
+  .mtt-logo,
+  .mtt-sidebar-note {
+    display: none;
+  }
+  .mtt-sidebar nav {
+    display: flex;
+    flex-wrap: wrap;
+    margin-top: 12px;
+  }
+  .mtt-sidebar label {
+    max-width: 320px;
+  }
+  .mtt-main {
+    padding: 20px;
+  }
+  .mtt-preview-banner {
+    font-size: 12px;
+    gap: 8px;
+  }
+  .mtt-heading h1 {
+    font-size: 23px;
+  }
+}

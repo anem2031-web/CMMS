@@ -1,3 +1,4 @@
+import { isItTeamRole, MAINTENANCE_RESPONSIBLE_DEPARTMENT } from "@shared/roles";
 import { useState, useRef } from "react";
 import QRCode from "qrcode";
 import { mediaUrl } from "@/lib/mediaUrl";
@@ -33,6 +34,7 @@ import { localizeApiError } from "@/i18n/apiError";
 import { EntityTranslatedText } from "@/components/i18n/EntityTranslatedText";
 import { useBatchTranslation, getLocalizedItemField } from "@/hooks/useContentTranslation";
 import { getLocalizedCatalogUnitName } from "@/i18n/catalogMasterData";
+import { formatAvailableDuration, formatDateOnly, getAvailableCalendarDays } from "@/lib/purchaseItemTiming";
 
 // ── مكوّنات مستقلة (خارج الـ component لمنع إعادة الإنشاء) ──────
 
@@ -738,6 +740,7 @@ export default function PurchaseCycle() {
 
   // Item card component
   const ItemCard = ({ item, step, onAction }: { item: any; step: number; onAction: () => void }) => {
+    const availableDays = getAvailableCalendarDays(item.requiredDate, item.delegateAssignedAt);
     const statusColors: Record<string, string> = {
       approved: "bg-blue-100 text-blue-800",
       funded: "bg-indigo-100 text-indigo-800",
@@ -769,6 +772,9 @@ export default function PurchaseCycle() {
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-1 text-xs text-muted-foreground">
                 <span className="flex items-center gap-1"><Hash className="w-3 h-3" /> {t.purchaseOrders.quantity}: <strong className="text-foreground">{item.quantity} {displayUnit(item.unit)}</strong></span>
                 <span className="flex items-center gap-1"><Calendar className="w-3 h-3" /> {new Date(item.createdAt).toLocaleDateString(locale)}</span>
+                {item.requiredDate && <span>{t.purchaseOrders.requiredDate}: <strong className="text-foreground">{formatDateOnly(item.requiredDate, locale)}</strong></span>}
+                {item.delegateAssignedAt && <span>{t.purchaseOrders.delegateAssignedDate}: <strong className="text-foreground">{formatDateOnly(item.delegateAssignedAt, locale)}</strong></span>}
+                {availableDays != null && <span className={availableDays < 0 ? "text-red-600" : ""}>{t.purchaseOrders.availableDuration}: <strong>{formatAvailableDuration(availableDays, language)}</strong></span>}
                 {displayItemDescription(item) && <span className="col-span-2 sm:col-span-1 truncate">{displayItemDescription(item)}</span>}
               </div>
 
@@ -892,7 +898,9 @@ export default function PurchaseCycle() {
                   g.items.push(it);
                 }
 
-                const renderItemCard = (item: any) => (
+                const renderItemCard = (item: any) => {
+                  const availableDays = getAvailableCalendarDays(item.requiredDate, item.delegateAssignedAt);
+                  return (
                 <Card key={item.id} className="border-amber-200 bg-amber-50">
                   <CardContent className="p-4 space-y-3">
                     <div className="flex items-start justify-between gap-2">
@@ -902,6 +910,9 @@ export default function PurchaseCycle() {
                         <div className="flex flex-wrap gap-2 mt-1.5">
                           <Badge variant="outline" className="text-[10px]">{t.workflow.purchase.quantityColon} {item.quantity} {displayUnit(item.unit)}</Badge>
                           {item.purchaseOrderNumber && <Badge variant="outline" className="text-[10px]">{item.purchaseOrderNumber}</Badge>}
+                          {item.requiredDate && <Badge variant="outline" className="text-[10px]">{t.purchaseOrders.requiredDate}: {formatDateOnly(item.requiredDate, locale)}</Badge>}
+                          {item.delegateAssignedAt && <Badge variant="outline" className="text-[10px]">{t.purchaseOrders.delegateAssignedDate}: {formatDateOnly(item.delegateAssignedAt, locale)}</Badge>}
+                          {availableDays != null && <Badge variant="outline" className={`text-[10px] ${availableDays < 0 ? "border-red-300 text-red-700" : ""}`}>{t.purchaseOrders.availableDuration}: {formatAvailableDuration(availableDays, language)}</Badge>}
                           {item.isExternalMaintenance && <Badge className="text-[10px] bg-purple-100 text-purple-700 border-purple-200">{t.workflow.purchase.externalAssetMaintenance}</Badge>}
                         </div>
                         {item.itemRevisionNote && (
@@ -970,6 +981,7 @@ export default function PurchaseCycle() {
                   </CardContent>
                 </Card>
                 );
+                };
 
                 return groups.map(g => {
                   if (!g.packageId) return renderItemCard(g.items[0]);
@@ -1611,7 +1623,10 @@ export default function PurchaseCycle() {
                       u.isActive !== 0 &&
                       (
                         u.role === "technician" ||
-                        (u.role === "it_manager" && String(u.id) === String(deliveryDialog.ticketAssignedToId || ""))
+                        (
+                          isItTeamRole(u.role) &&
+                          deliveryDialog.ticketResponsibleDepartment === MAINTENANCE_RESPONSIBLE_DEPARTMENT.IT
+                        )
                       )
                     )
                     .map((u: any) => ({

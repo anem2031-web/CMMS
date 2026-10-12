@@ -1,4 +1,5 @@
 import { useAuth } from "@/_core/hooks/useAuth";
+import { ticketTeamNotificationPath } from "@shared/maintenance-team-tickets/warehouse-navigation";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
   DropdownMenu,
@@ -75,10 +76,12 @@ const NAV_SECTIONS: NavSection[] = [
       { icon: Nfc,           labelKey: "nav.scanAsset",    path: "/scan-asset",
         roles: ["operator","technician","maintenance_manager","general_maintenance_manager","supervisor","gate_security","owner","admin"] },
       { icon: ClipboardList, labelKey: "nav.tickets",      path: "/tickets",
-        roles: ["operator","technician","it_manager","maintenance_manager","general_maintenance_manager","construction_procurement_manager","supervisor","gate_security","delegate","senior_management","executive_director","owner","admin"] },
+        roles: ["operator","technician","it_manager","it_member","maintenance_manager","general_maintenance_manager","construction_procurement_manager","supervisor","gate_security","delegate","senior_management","executive_director","owner","admin"] },
+      { icon: ClipboardList, labelKey: "nav.maintenanceTeamTickets", path: "/maintenance-team-tickets",
+        roles: ["technician","warehouse","maintenance_manager","general_maintenance_manager","construction_procurement_manager","owner","admin"] },
       // صندوق البلاغات — يبقى محجوبًا عن مدير الإنشاءات والمشتريات
       { icon: Inbox,         labelKey: "nav.ticketsInbox", path: "/tickets/inbox",
-        roles: ["operator","technician","it_manager","maintenance_manager","general_maintenance_manager","supervisor","gate_security","delegate","senior_management","executive_director","owner","admin"] },
+        roles: ["operator","technician","it_manager","it_member","maintenance_manager","general_maintenance_manager","supervisor","gate_security","delegate","senior_management","executive_director","owner","admin"] },
       { icon: Lightbulb,     labelKey: "nav.improvementIdeas", path: "/improvement-ideas" },
       { icon: ScanSearch,    labelKey: "nav.triage",       path: "/triage",
         roles: ["maintenance_manager","general_maintenance_manager","owner","admin"] },
@@ -104,10 +107,10 @@ const NAV_SECTIONS: NavSection[] = [
     id: "scheduled-maintenance",
     labelKey: "nav.sections.scheduledMaintenance",
     icon: CalendarClock,
-    roles: ["technician","it_manager","warehouse","maintenance_manager","general_maintenance_manager","owner","admin"],
+    roles: ["technician","it_manager","it_member","warehouse","maintenance_manager","general_maintenance_manager","construction_procurement_manager","owner","admin"],
     items: [
       { icon: ClipboardList, labelKey: "nav.pmv2MyTasks", path: "/scheduled-maintenance/my-tasks",
-        roles: ["technician","it_manager"] },
+        roles: ["technician","it_manager","it_member","owner","admin","maintenance_manager","general_maintenance_manager","construction_procurement_manager"] },
       { icon: Warehouse, labelKey: "nav.pmv2WarehouseRequests", path: "/scheduled-maintenance/warehouse-requests",
         roles: ["warehouse","owner","admin"] },
       { icon: FileText, labelKey: "nav.pmv2MaintenanceReports", path: "/scheduled-maintenance/reports",
@@ -173,6 +176,10 @@ const NAV_SECTIONS: NavSection[] = [
       // Phase 5: Legacy external technicians page hidden from sidebar (infrastructure preserved, route still accessible via direct URL)
       // { icon: UserCog, labelKey: "nav.technicians", path: "/technicians", roles: ["owner","admin","maintenance_manager","supervisor"] },
       { icon: HardDrive, labelKey: "nav.assets",        path: "/assets",
+        roles: ["owner","admin","maintenance_manager","general_maintenance_manager","construction_procurement_manager"] },
+      { icon: UserCog, labelKey: "nav.maintenanceTeams", path: "/maintenance-teams",
+        roles: ["owner","admin","maintenance_manager","general_maintenance_manager"] },
+      { icon: Tag,       labelKey: "nav.purchaseCategories", path: "/center-categories",
         roles: ["owner","admin","maintenance_manager","general_maintenance_manager","construction_procurement_manager"] },
       { icon: Tag,       labelKey: "nav.assetCategories", path: "/asset-categories",
         roles: ["owner","admin","maintenance_manager","general_maintenance_manager","construction_procurement_manager"] },
@@ -451,7 +458,7 @@ function DashboardLayoutContent({ children, setSidebarWidth }: { children: React
   const { data: latestNotifications } = trpc.notifications.list.useQuery(undefined, { refetchInterval: 5000 });
 
   // ── Live notification popup ──
-  const [popupNotifs, setPopupNotifs] = useState<Array<{ id: number; title: string; message: string; type: string; relatedTicketId?: number | null }>>([]);
+  const [popupNotifs, setPopupNotifs] = useState<Array<{ id: number; title: string; message: string; type: string; relatedTicketId?: number | null; eventKey?: string | null }>>([]);
 
   // Change password dialog
   const [changePwOpen, setChangePwOpen] = useState(false);
@@ -504,7 +511,7 @@ function DashboardLayoutContent({ children, setSidebarWidth }: { children: React
     if (newNotifs.length > 0) {
       setPopupNotifs(prev => [
         ...prev,
-        ...newNotifs.map(n => ({ id: n.id, title: n.title, message: n.message, type: n.type || "info", relatedTicketId: n.relatedTicketId }))
+        ...newNotifs.map(n => ({ id: n.id, title: n.title, message: n.message, type: n.type || "info", relatedTicketId: n.relatedTicketId, eventKey: n.eventKey }))
       ]);
       newNotifs.forEach(n => {
         setTimeout(() => {
@@ -1127,7 +1134,7 @@ function DashboardLayoutContent({ children, setSidebarWidth }: { children: React
                 <div className="flex gap-2 mt-2">
                   {notif.relatedTicketId && (
                     <button
-                      onClick={() => { setLocation(`/tickets/${notif.relatedTicketId}`); dismissPopup(notif.id); }}
+                      onClick={() => { setLocation(ticketTeamNotificationPath(notif.eventKey, notif.relatedTicketId) ?? `/tickets/${notif.relatedTicketId}`); dismissPopup(notif.id); }}
                       className={`text-xs font-medium hover:underline ${style.iconColor}`}
                     >
                       عرض البلاغ

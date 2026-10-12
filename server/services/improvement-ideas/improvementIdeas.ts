@@ -5,7 +5,7 @@
 import { eq, desc, and, count, like, or, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/mysql-core";
 import { getDb } from "../../_core/db";
-import { improvementIdeas, users, sites, sections, tickets, purchaseOrders } from "../../../drizzle/schema";
+import { improvementIdeas, users, sites, sections, assets, tickets, purchaseOrders } from "../../../drizzle/schema";
 
 // ─── توليد رقم الطلب التالي (مثال: IMP-2026-00001) ────────────────────────
 export async function getNextImprovementIdeaNumber() {
@@ -111,14 +111,15 @@ export async function getImprovementIdeasPaginated(filters: IdeaFilters | undefi
 }
 
 // ─── عدّادات المجموعات للأفكار "المصنّفة" (بانتظار قرار الإدارة) — لعرض المجلدات ──
-export async function getGroupedClassifiedCounts() {
+const approvalReady = sql`(${improvementIdeas.executionTrackingVersion}=0 OR (${improvementIdeas.costStudiedAt} IS NOT NULL AND ${improvementIdeas.costStudyById} IS NOT NULL AND TRIM(${improvementIdeas.costStudyNotes})<>'' AND ${improvementIdeas.estimatedMaterialsCost} IS NOT NULL AND ${improvementIdeas.estimatedLaborCost} IS NOT NULL AND ${improvementIdeas.estimatedServicesCost} IS NOT NULL))`;
+export async function getGroupedClassifiedCounts(readyOnly = false) {
   const db = await getDb();
   if (!db) return [] as { groupCategory: string; count: number }[];
 
   const rows = await db
     .select({ groupCategory: improvementIdeas.groupCategory, cnt: count() })
     .from(improvementIdeas)
-    .where(eq(improvementIdeas.status, "classified"))
+    .where(and(eq(improvementIdeas.status, "classified"), readyOnly ? approvalReady : undefined))
     .groupBy(improvementIdeas.groupCategory);
 
   return rows
@@ -127,21 +128,25 @@ export async function getGroupedClassifiedCounts() {
 }
 
 // ─── الأفكار المصنّفة ضمن مجموعة معيّنة، مرتبة حسب الأولوية ──────────────
-export async function getClassifiedIdeasByGroup(groupCategory: string) {
+export async function getClassifiedIdeasByGroup(groupCategory: string, readyOnly = false) {
   const db = await getDb();
   if (!db) return [] as any[];
 
   const submitter = alias(users, "submitter");
+  const studyAuthor = alias(users, "studyAuthor");
 
   const rows = await db
-    .select({ idea: improvementIdeas, submitterName: submitter.name, siteName: sites.name })
+    .select({ idea: improvementIdeas, submitterName: submitter.name, siteName: sites.name, sectionName: sections.name, assetName: assets.name, costStudyAuthorName: studyAuthor.name })
     .from(improvementIdeas)
     .leftJoin(submitter, eq(improvementIdeas.submittedById, submitter.id))
     .leftJoin(sites, eq(improvementIdeas.siteId, sites.id))
-    .where(and(eq(improvementIdeas.status, "classified"), eq(improvementIdeas.groupCategory, groupCategory)))
+    .leftJoin(sections, eq(improvementIdeas.sectionId, sections.id))
+    .leftJoin(assets, eq(improvementIdeas.assetId, assets.id))
+    .leftJoin(studyAuthor, eq(improvementIdeas.costStudyById, studyAuthor.id))
+    .where(and(eq(improvementIdeas.status, "classified"), eq(improvementIdeas.groupCategory, groupCategory), readyOnly ? approvalReady : undefined))
     .orderBy(PRIORITY_ORDER_SQL, desc(improvementIdeas.createdAt));
 
-  return rows.map(r => ({ ...r.idea, submitterName: r.submitterName ?? null, siteName: r.siteName ?? null }));
+  return rows.map(r => ({ ...r.idea, submitterName: r.submitterName ?? null, siteName: r.siteName ?? null, sectionName: r.sectionName ?? null, assetName: r.assetName ?? null, costStudyAuthorName: r.costStudyAuthorName ?? null }));
 }
 
 // ─── الأفكار المعتمدة + قيد التنفيذ (تبويب "المقترحات المعتمدة" — تحويل وتتبّع) ──
@@ -185,6 +190,7 @@ export async function getImprovementIdeaById(id: number) {
   const submitter = alias(users, "submitter");
   const triager = alias(users, "triager");
   const decider = alias(users, "decider");
+  const studyAuthor = alias(users, "studyAuthor");
 
   const rows = await db
     .select({
@@ -192,6 +198,8 @@ export async function getImprovementIdeaById(id: number) {
       submitterName: submitter.name,
       triagerName: triager.name,
       deciderName: decider.name,
+      costStudyAuthorName: studyAuthor.name,
+      assetName: assets.name,
       siteName: sites.name,
       sectionName: sections.name,
       linkedTicketNumber: tickets.ticketNumber,
@@ -203,6 +211,8 @@ export async function getImprovementIdeaById(id: number) {
     .leftJoin(submitter, eq(improvementIdeas.submittedById, submitter.id))
     .leftJoin(triager, eq(improvementIdeas.triagedById, triager.id))
     .leftJoin(decider, eq(improvementIdeas.decidedById, decider.id))
+    .leftJoin(studyAuthor, eq(improvementIdeas.costStudyById, studyAuthor.id))
+    .leftJoin(assets, eq(improvementIdeas.assetId, assets.id))
     .leftJoin(sites, eq(improvementIdeas.siteId, sites.id))
     .leftJoin(sections, eq(improvementIdeas.sectionId, sections.id))
     .leftJoin(tickets, eq(improvementIdeas.linkedTicketId, tickets.id))
@@ -217,6 +227,8 @@ export async function getImprovementIdeaById(id: number) {
     submitterName: r.submitterName ?? null,
     triagerName: r.triagerName ?? null,
     deciderName: r.deciderName ?? null,
+    costStudyAuthorName: r.costStudyAuthorName ?? null,
+    assetName: r.assetName ?? null,
     siteName: r.siteName ?? null,
     sectionName: r.sectionName ?? null,
     linkedTicketNumber: r.linkedTicketNumber ?? null,
@@ -244,8 +256,42 @@ export async function classifyImprovementIdea(id: number, input: ClassifyInput) 
     groupCategory: input.groupCategory,
     priority: input.priority as any,
     triagedById: input.classifiedById,
-    triagedAt: new Date(),
+    triagedAt: new Date().toISOString().slice(0, 19).replace("T", " "),
   }).where(eq(improvementIdeas.id, id));
+}
+
+
+// دراسة الجدوى المالية للفكرة المصنفة. حفظ الدراسة لا يغير حالة الاعتماد.
+export async function saveImprovementCostStudy(id: number, data: {
+  estimatedMaterialsCost: number; estimatedLaborCost: number; estimatedServicesCost: number;
+  costStudyNotes?: string; costStudyById: number;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("قاعدة البيانات غير متاحة");
+  await db.update(improvementIdeas).set({
+    estimatedMaterialsCost: data.estimatedMaterialsCost,
+    estimatedLaborCost: data.estimatedLaborCost,
+    estimatedServicesCost: data.estimatedServicesCost,
+    costStudyNotes: data.costStudyNotes ?? null,
+    costStudyById: data.costStudyById,
+    costStudiedAt: new Date().toISOString().slice(0, 19).replace("T", " "),
+  }).where(and(eq(improvementIdeas.id, id), eq(improvementIdeas.status, "classified")));
+}
+
+// تحديث خطة التنفيذ دون التأثير على بلاغ الصيانة/طلب الشراء المرتبط.
+export async function saveImprovementPlan(id: number, data: {
+  implementationOwner: string; implementationStartDate?: string;
+  implementationDueDate: string; implementationProgress: number; implementationNotes?: string;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("قاعدة البيانات غير متاحة");
+  await db.update(improvementIdeas).set({
+    implementationOwner: data.implementationOwner,
+    implementationStartDate: data.implementationStartDate ?? null,
+    implementationDueDate: data.implementationDueDate,
+    implementationProgress: data.implementationProgress,
+    implementationNotes: data.implementationNotes ?? null,
+  }).where(and(eq(improvementIdeas.id, id), or(eq(improvementIdeas.status, "approved"), eq(improvementIdeas.status, "in_progress"))));
 }
 
 // ─── قرار الإدارة العليا: موافقة / تأجيل (+تاريخ) / إلغاء (+سبب) ──────────
@@ -287,14 +333,27 @@ export async function linkIdeaToPurchaseOrder(id: number, purchaseOrderId: numbe
 }
 
 // ─── إكمال التنفيذ: "قيد التنفيذ" ← "مكتملة" (تأكيد يدوي، متاح بأي وقت) ──
-export async function completeImprovementIdea(id: number, completionNotes?: string) {
-  const db = await getDb();
-  if (!db) return;
+export async function completeImprovementIdea(id: number, input: {
+  completionNotes?: string; actualCost?: number; achievedValue?: number;
+  resultRating?: "achieved" | "partial" | "not_achieved";
+  resultNotes?: string; evaluatedById?: number;
+}, tx?: any) {
+  const db = tx || await getDb();
+  if (!db) throw new Error("قاعدة البيانات غير متاحة");
   await db.update(improvementIdeas).set({
     status: "completed",
     completedAt: new Date(),
-    completionNotes,
-  }).where(eq(improvementIdeas.id, id));
+    completionNotes: input.completionNotes,
+    ...(input.resultRating ? {
+      actualCost: input.actualCost,
+      achievedValue: input.achievedValue ?? null,
+      resultRating: input.resultRating,
+      resultNotes: input.resultNotes,
+      evaluatedById: input.evaluatedById,
+      evaluatedAt: new Date(),
+      implementationProgress: 100,
+    } : {}),
+  }).where(and(eq(improvementIdeas.id, id), eq(improvementIdeas.status, "in_progress")));
 }
 
 // ─── حذف فكرة (لمقدّمها فقط وبحالة "جديدة"، أو admin/owner — يُحدَّد بالراوتر) ──

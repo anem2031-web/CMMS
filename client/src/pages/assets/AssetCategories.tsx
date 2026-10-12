@@ -114,7 +114,7 @@ export default function AssetCategories() {
             </div>
           ) : (
             <div className="space-y-2">
-              {categories.map((c: { id: number; name: string }) => (
+              {categories.map((c: { id: number; name: string; sourceName?: string | null }) => (
                 <div
                   key={c.id}
                   className="flex items-center gap-2 border rounded-lg px-4 py-3 bg-background hover:bg-muted/30 transition-colors"
@@ -167,7 +167,7 @@ export default function AssetCategories() {
                         variant="outline"
                         onClick={() => {
                           setEditCategoryId(c.id);
-                          setEditCategoryName(c.name);
+                          setEditCategoryName(c.sourceName || c.name);
                         }}
                       >
                         <Pencil className="h-3.5 w-3.5 ml-1" />

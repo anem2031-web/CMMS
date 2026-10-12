@@ -59,10 +59,13 @@ export function isCatalogItemCodeForNode(
  *   latest recognized width to avoid unnecessary formatting churn.
  * - A category with no recognized existing item code starts with a 3-digit
  *   sequence (001), as approved by the owner.
+ * - Reserved codes from other categories or historical aliases are skipped
+ *   without changing existing item codes or the selected leaf sequence width.
  */
 export function nextCatalogItemCode(
   nodeCodeInput: string | null | undefined,
   existingItems: ExistingCatalogItemCode[],
+  reservedCodes: Iterable<string> = [],
 ): string {
   const nodeCode = String(nodeCodeInput || "").trim();
   if (!nodeCode) {
@@ -83,20 +86,28 @@ export function nextCatalogItemCode(
     })
     .filter((row): row is NonNullable<typeof row> => !!row);
 
-  if (valid.length === 0) {
-    return `${nodeCode}-${"1".padStart(DEFAULT_ITEM_SEQUENCE_WIDTH, "0")}`;
-  }
-
   // Keep the most recently used recognized suffix width for visual consistency,
   // while using the highest numeric sequence across both historical and current
   // formats so the allocator never restarts the semantic sequence.
-  const latest = valid.reduce((current, row) => row.id > current.id ? row : current);
-  const activeWidth = Math.max(DEFAULT_ITEM_SEQUENCE_WIDTH, latest.width);
+  const latest = valid.length > 0
+    ? valid.reduce((current, row) => row.id > current.id ? row : current)
+    : null;
+  const activeWidth = Math.max(DEFAULT_ITEM_SEQUENCE_WIDTH, latest?.width || 0);
   let maxSequence = 0n;
   for (const row of valid) {
     if (row.sequence > maxSequence) maxSequence = row.sequence;
   }
 
-  const nextSequence = (maxSequence + 1n).toString();
-  return `${nodeCode}-${nextSequence.padStart(activeWidth, "0")}`;
+  // The leaf's own items establish the next sequence and width, but code
+  // uniqueness is global. Older records may have been reclassified while
+  // retaining their original codes; taxonomy moves also reserve old codes.
+  // Skip such codes instead of failing the entire approval transaction.
+  const reserved = new Set(Array.from(reservedCodes, (code) => String(code || "").trim()));
+  let nextSequence = maxSequence + 1n;
+  let candidate = `${nodeCode}-${nextSequence.toString().padStart(activeWidth, "0")}`;
+  while (reserved.has(candidate)) {
+    nextSequence += 1n;
+    candidate = `${nodeCode}-${nextSequence.toString().padStart(activeWidth, "0")}`;
+  }
+  return candidate;
 }

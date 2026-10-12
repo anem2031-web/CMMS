@@ -9,7 +9,7 @@ import mysql from "mysql2/promise";
 import {
   InsertUser, users, tickets, purchaseOrders, purchaseOrderItems,
   inventory, inventoryTransactions, notifications, auditLogs,
-  ticketStatusHistory, ticketItems, ticketDepartments, ticketTasks, ticketTaskAssignees, attachments, sites, backups,
+  ticketStatusHistory, ticketItems, ticketDepartments, ticketTasks, ticketTaskAssignees, itPurchaseNeeds, attachments, sites, backups,
   assets, preventivePlans, pmWorkOrders, assetSpareParts, pmJobs, assetMetrics,
   pmChecklistItems, pmWorkOrderBranches,
   twoFactorSecrets, twoFactorAuditLogs,
@@ -67,6 +67,7 @@ export async function deleteTicket(id: number) {
     await db.delete(ticketTasks).where(inArray(ticketTasks.id, taskIds));
   }
   await db.delete(ticketDepartments).where(eq(ticketDepartments.ticketId, id));
+  await db.delete(itPurchaseNeeds).where(eq(itPurchaseNeeds.ticketId, id));
 
   // ⚠️ بنود البلاغ أولًا: ticket_items.ticketId مفتاح خارجي فعلي بقاعدة
   // البيانات (ON DELETE RESTRICT، أُضيف 2026-08-08)، فبدون هذا السطر

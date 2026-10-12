@@ -4,26 +4,38 @@ import { z } from "zod";
 import { router, protectedProcedure } from "../_shared/procedures";
 import { translateFields, detectLanguage, type SupportedLanguage } from "../../services/translation/translation";
 import * as db from "../../_core/db";
+import { localizeNamedRecords } from "../../services/translation/localizedMasterData";
+import { storeCompletedEntityTranslation } from "../../services/translation/translationEngine";
 
 export const sitesRouter = router({
-  list: protectedProcedure.query(async () => {
-    return cacheManager.getOrCompute(
+  list: protectedProcedure.query(async ({ ctx }) => {
+    const rows = await cacheManager.getOrCompute(
       cacheKeys.sites(),
       () => db.getAllSites(),
       600 // 10 minutes
     );
+    return localizeNamedRecords("SITE", rows as any[], (ctx.user.preferredLanguage || "ar") as any);
   }),
 
   create: protectedProcedure.input(z.object({ name: z.string().min(1), address: z.string().optional(), description: z.string().optional() })).mutation(async ({ input, ctx }) => {
     // Auto-translate name
+    let nameAr: string | undefined;
     let nameEn: string | undefined;
     let nameUr: string | undefined;
     try {
       const translations = await translateFields({ name: input.name });
+      nameAr = translations.name?.ar;
       nameEn = translations.name?.en;
       nameUr = translations.name?.ur;
     } catch (e) { /* fallback */ }
     const id = await db.createSite({ ...input, nameEn, nameUr });
+    if (id) {
+      await Promise.all([
+        nameAr && storeCompletedEntityTranslation("SITE", id, "name", "ar", nameAr),
+        nameEn && storeCompletedEntityTranslation("SITE", id, "name", "en", nameEn),
+        nameUr && storeCompletedEntityTranslation("SITE", id, "name", "ur", nameUr),
+      ]);
+    }
     await db.createAuditLog({ userId: ctx.user.id, action: "create_site", entityType: "site", entityId: id!, newValues: input });
     // Invalidate sites cache
     invalidateCache.sites();
@@ -41,14 +53,23 @@ export const sitesRouter = router({
     const { id, ...updateData } = input;
     // Auto-translate name if changed
     let siteExtraFields: { nameEn?: string; nameUr?: string } = {};
+    let translatedNames: { ar?: string; en?: string; ur?: string } = {};
     if (updateData.name) {
       try {
         const translations = await translateFields({ name: updateData.name });
+        translatedNames = translations.name || {};
         siteExtraFields.nameEn = translations.name?.en;
         siteExtraFields.nameUr = translations.name?.ur;
       } catch (e) { /* fallback */ }
     }
     await db.updateSite(id, { ...updateData, ...siteExtraFields });
+    if (updateData.name) {
+      await Promise.all([
+        translatedNames.ar && storeCompletedEntityTranslation("SITE", id, "name", "ar", translatedNames.ar),
+        translatedNames.en && storeCompletedEntityTranslation("SITE", id, "name", "en", translatedNames.en),
+        translatedNames.ur && storeCompletedEntityTranslation("SITE", id, "name", "ur", translatedNames.ur),
+      ]);
+    }
     await db.createAuditLog({ userId: ctx.user.id, action: "update_site", entityType: "site", entityId: id, oldValues: { name: oldSite.name, address: oldSite.address, description: oldSite.description }, newValues: updateData });
     // Invalidate sites cache
     invalidateCache.sites();

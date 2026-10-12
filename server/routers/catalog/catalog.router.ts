@@ -216,14 +216,29 @@ async function getLeafCategoryCodeState(db: any, nodeId: number, lockNode = fals
     });
   }
 
-  const existingItems = await db.select({
-    id: catalogItems.id,
-    code: catalogItems.code,
-  }).from(catalogItems).where(eq(catalogItems.nodeId, nodeId));
+  const nodeCode = String(node.code || "").trim();
+  // Keep the selected leaf as the source of sequence width / highest number.
+  // A code can nevertheless be in use on a reclassified item in another leaf,
+  // or reserved as an old item code following a taxonomy move. Include both
+  // sources for previews as well as the locked approval/create transactions.
+  const [existingItems, otherMatchingCodes, historicalCodes] = await Promise.all([
+    db.select({ id: catalogItems.id, code: catalogItems.code })
+      .from(catalogItems).where(eq(catalogItems.nodeId, nodeId)),
+    db.select({ code: catalogItems.code }).from(catalogItems)
+      .where(like(catalogItems.code, `${nodeCode}-%`)),
+    db.select({ code: catalogCodeAliases.oldCode }).from(catalogCodeAliases)
+      .where(and(
+        eq(catalogCodeAliases.entityType, "item"),
+        like(catalogCodeAliases.oldCode, `${nodeCode}-%`),
+      )),
+  ]);
 
   let code: string;
   try {
-    code = nextCatalogItemCode(node.code, existingItems as any[]);
+    code = nextCatalogItemCode(nodeCode, existingItems as any[], [
+      ...otherMatchingCodes.map((row: any) => row.code),
+      ...historicalCodes.map((row: any) => row.code),
+    ]);
   } catch (error: any) {
     throw new TRPCError({ code: "BAD_REQUEST", message: error?.message || "تعذر توليد كود الصنف" });
   }
@@ -1671,14 +1686,10 @@ create: catalogProcedure
           const categoryState = await getLeafCategoryCodeState(tx, input.nodeId, true);
           generatedCatalogCode = categoryState.code;
 
-          const codeCollision = await tx.select({ id: catalogItems.id }).from(catalogItems)
-            .where(eq(catalogItems.code, generatedCatalogCode)).limit(1);
-          if (codeCollision.length > 0) {
-            throw new TRPCError({
-              code: "CONFLICT",
-              message: `تعذر توليد كود فريد للصنف (${generatedCatalogCode}). راجع أكواد التصنيف قبل الاعتماد.`,
-            });
-          }
+          // Final safety check mirrors catalog.items.create and also protects
+          // historical aliases. In ordinary operation the allocator above has
+          // already skipped every reserved code.
+          await assertCatalogCodeAvailable(tx, "item", generatedCatalogCode);
 
           const newItemValues = {
             nameAr: input.nameAr.trim(),

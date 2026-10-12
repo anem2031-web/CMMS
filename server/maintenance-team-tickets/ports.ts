@@ -1,0 +1,112 @@
+import type {
+  Snapshot,
+  LocationRef,
+} from "../../shared/maintenance-team-tickets/model";
+
+/** Persistence is injected; the pure domain never imports a database provider. */
+export interface Store {
+  read(): Promise<Snapshot>;
+  /** Must serialize writes and atomically persist the aggregate plus operation record. */
+  transaction<T>(
+    work: (state: Snapshot, effects: MaterialGateway) => Promise<T>
+  ): Promise<T>;
+}
+export interface PhysicalDelivery {
+  deliveryId: number;
+  deliveryNumber: string;
+  lotId: number;
+  inventoryTransactionId: number;
+  catalogItemId: number;
+  warehouseId: number;
+  quantity: number;
+  unit: string;
+  receivedById: number;
+}
+export interface SupplyResult {
+  sourceId: number;
+  sourceNumber: string;
+  quantity: number;
+  status: "pending" | "received";
+}
+/**
+ * Production uses existing inventory writers inside the aggregate transaction.
+ * Operation keys recover committed results before any retry. In-memory tests
+ * do not establish live database atomicity.
+ */
+export interface MaterialGateway {
+  sourceInventoryId?(
+    warehouseId: number,
+    catalogItemId: number
+  ): Promise<number>;
+  transferForm?(input: {
+    fromWarehouseId: number;
+    toWarehouseId: number;
+    notes?: string;
+    items: Array<{
+      fromInventoryId: number;
+      quantity: number;
+      lotTrackingToken?: string;
+      notes?: string;
+    }>;
+  }): Promise<{
+    batchNumber: string;
+    batchId: number;
+    results: any[];
+    sources: SupplyResult[];
+  }>;
+  verifySupply?(
+    needId: number,
+    kind: "purchase",
+    sourceId: number
+  ): Promise<SupplyResult>;
+  purchaseForm?(handoff: {
+    quantity: number;
+    technicianQuantity: number;
+    ticketPurchaseQuantity: number;
+    warehouseExtraQuantity: number;
+    purchaseTotalQuantity: number;
+    catalogItemId: number;
+    unit: string;
+    location: LocationRef;
+    ticketId: number;
+    ticketItemId: number;
+  }): Promise<{ id: number; poNumber: string; source: SupplyResult }>;
+  mainWarehouseId(): Promise<number>;
+  availability(warehouseId: number, catalogItemId: number): Promise<number>;
+  issue(input: {
+    operationKey: string;
+    ticketId: number;
+    ticketNumber: string;
+    warehouseId: number;
+    catalogItemId: number;
+    quantity: number;
+    unit: string;
+    receiverId: number;
+    location: LocationRef;
+  }): Promise<PhysicalDelivery[]>;
+  transfer(input: {
+    operationKey: string;
+    destinationWarehouseId: number;
+    catalogItemId: number;
+    quantity: number;
+    unit: string;
+  }): Promise<SupplyResult | SupplyResult[]>;
+  purchase(input: {
+    operationKey: string;
+    destinationWarehouseId: number;
+    catalogItemId: number;
+    quantity: number;
+    unit: string;
+    location: LocationRef;
+  }): Promise<SupplyResult>;
+  receivePurchase(input: {
+    operationKey: string;
+    sourceId: number;
+  }): Promise<SupplyResult>;
+  returnToWarehouse(input: {
+    operationKey: string;
+    sourceDeliveryId: number;
+    quantity: number;
+    actorId: number;
+  }): Promise<{ returnId: number; returnNumber: string; quantity: number }>;
+}

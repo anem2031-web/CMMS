@@ -54,13 +54,9 @@ export const deliveryDocumentsRouter = router({
     return { success: true };
   }),
 
-  // جلب كل الوثائق للتبويب
-  list: protectedProcedure.query(async ({ ctx }) => {
-    const documents = await db.getDeliveryDocuments();
-    await Promise.all((documents as any[]).map(doc =>
-      queueDeliveryDocumentTranslation(Number(doc.id), doc.itemName, doc.notes, ctx.user.id).catch(() => undefined)
-    ));
-    return documents;
+  // جلب الوثائق مباشرة دون إنشاء مهام ترجمة أثناء القراءة.
+  list: protectedProcedure.query(async () => {
+    return db.getDeliveryDocuments();
   }),
 
   // رفع عداد الطباعة

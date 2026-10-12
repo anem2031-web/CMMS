@@ -274,7 +274,7 @@ export default function TicketsInbox() {
         </Badge>
       </div>
       <div className="font-medium text-sm truncate">{getField(ticket, "title")}</div>
-      <div className="text-xs text-muted-foreground mt-0.5">{getCategoryLabel(ticket.category)}</div>
+      <div className="text-xs text-muted-foreground mt-0.5">{ticket.centerCategoryName || getCategoryLabel(ticket.category)}</div>
     </div>
   );
 
@@ -661,7 +661,7 @@ export default function TicketsInbox() {
                   </div>
                   <div>
                     <div className="text-xs text-muted-foreground mb-0.5">{t.tickets.category}</div>
-                    <div>{getCategoryLabel(previewTicket.category)}</div>
+                    <div>{previewTicket.centerCategoryName || getCategoryLabel(previewTicket.category)}</div>
                   </div>
                   <div>
                     <div className="text-xs text-muted-foreground mb-0.5">{ti.colAssignee}</div>

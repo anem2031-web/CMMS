@@ -17,6 +17,7 @@ import {
   type InsertAsset, type InsertPreventivePlan, type PreventivePlan, type InsertPMWorkOrder,
   type InsertSection, type InsertInspectionResult,
   assetCategories,
+  centerCategories,
   procurementComments,
   type InsertProcurementComment,
   warehouseReceipts,
@@ -108,8 +109,10 @@ export async function getTechnicianPerformance(filters?: { dateFrom?: Date; date
       createdAt: tickets.createdAt,
       closedAt: tickets.closedAt,
       priority: tickets.priority,
-      category: tickets.category,
-    }).from(tickets).where(and(...closedCond));
+      category: sql<string>`COALESCE(${centerCategories.name}, ${tickets.category})`,
+    }).from(tickets)
+      .leftJoin(centerCategories, eq(tickets.categoryId, centerCategories.id))
+      .where(and(...closedCond));
 
     // Calculate avg resolution time in hours
     let totalHours = 0;
@@ -129,7 +132,11 @@ export async function getTechnicianPerformance(filters?: { dateFrom?: Date; date
 
     // Tickets by priority (within date range)
     const priorityBreakdown: Record<string, number> = {};
-    const allTechTickets = await db.select({ priority: tickets.priority, category: tickets.category }).from(tickets).where(and(...dateFilteredCond));
+    const allTechTickets = await db
+      .select({ priority: tickets.priority, category: sql<string>`COALESCE(${centerCategories.name}, ${tickets.category})` })
+      .from(tickets)
+      .leftJoin(centerCategories, eq(tickets.categoryId, centerCategories.id))
+      .where(and(...dateFilteredCond));
     allTechTickets.forEach(t => { priorityBreakdown[t.priority] = (priorityBreakdown[t.priority] || 0) + 1; });
 
     // Tickets by category (within date range)
@@ -221,8 +228,10 @@ export async function getExternalTechnicianPerformance(filters?: { dateFrom?: Da
       assignedAt: tickets.assignedAt,
       closedAt: tickets.closedAt,
       priority: tickets.priority,
-      category: tickets.category,
-    }).from(tickets).where(and(...closedCond));
+      category: sql<string>`COALESCE(${centerCategories.name}, ${tickets.category})`,
+    }).from(tickets)
+      .leftJoin(centerCategories, eq(tickets.categoryId, centerCategories.id))
+      .where(and(...closedCond));
     let totalHours = 0;
     let resolvedCount = 0;
     const resolutionTimes: number[] = [];
@@ -237,7 +246,11 @@ export async function getExternalTechnicianPerformance(filters?: { dateFrom?: Da
     const avgResolutionHours = resolvedCount > 0 ? totalHours / resolvedCount : 0;
     const minResolutionHours = resolutionTimes.length > 0 ? Math.min(...resolutionTimes) : 0;
     const maxResolutionHours = resolutionTimes.length > 0 ? Math.max(...resolutionTimes) : 0;
-    const allTechTickets = await db.select({ priority: tickets.priority, category: tickets.category }).from(tickets).where(and(...dateFilteredCond));
+    const allTechTickets = await db
+      .select({ priority: tickets.priority, category: sql<string>`COALESCE(${centerCategories.name}, ${tickets.category})` })
+      .from(tickets)
+      .leftJoin(centerCategories, eq(tickets.categoryId, centerCategories.id))
+      .where(and(...dateFilteredCond));
     const priorityBreakdown: Record<string, number> = {};
     allTechTickets.forEach(t => { priorityBreakdown[t.priority] = (priorityBreakdown[t.priority] || 0) + 1; });
     const catBreak: Record<string, number> = {};

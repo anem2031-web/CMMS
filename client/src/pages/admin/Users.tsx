@@ -179,7 +179,7 @@ export default function UsersPage() {
 
   const openEdit = (u: any) => {
     setSelectedUser(u);
-    setEditForm({ name: u.name || "", email: u.email || "", role: u.role, phone: u.phone || "", department: u.department || "" });
+    setEditForm({ name: u.sourceName || u.name || "", email: u.email || "", role: u.role, phone: u.phone || "", department: u.department || "" });
     setEditOpen(true);
   };
 

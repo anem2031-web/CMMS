@@ -1,3 +1,6 @@
+import { assertLegacyTeamExecutionAllowed } from "../maintenance-teams/execution.guard";
+import { notifyItTeamArrival, assertActiveItUser } from "./it-team.service";
+import { isItTeamRole } from "@shared/roles";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { router, protectedProcedure, ticketProcedure, ticketManagerProcedure, ticketScopedWorkflowManagerProcedure, supervisorProcedure,
@@ -27,6 +30,7 @@ import {
 const responsibleDepartmentSchema = z.enum([
   MAINTENANCE_RESPONSIBLE_DEPARTMENT.GENERAL,
   MAINTENANCE_RESPONSIBLE_DEPARTMENT.CONSTRUCTION,
+  MAINTENANCE_RESPONSIBLE_DEPARTMENT.IT,
 ]);
 
 const inspectionSeveritySchema = z.enum(["low", "medium", "high", "critical"]);
@@ -39,6 +43,7 @@ const inspectionActorRoles = new Set<string>([
   APP_ROLE.GENERAL_MAINTENANCE_MANAGER,
   APP_ROLE.CONSTRUCTION_PROCUREMENT_MANAGER,
   APP_ROLE.IT_MANAGER,
+  APP_ROLE.IT_MEMBER,
   APP_ROLE.ADMIN,
   APP_ROLE.OWNER,
 ]);
@@ -65,12 +70,11 @@ async function resolveInspectionPerformerId(args: {
     return args.actor.id;
   }
 
-  // IT Manager is the directly routed technical executor for the IT ticket.
-  // Keep the inspection identity scoped to the manager themself rather than
-  // allowing the role to record field work on behalf of unrelated staff.
-  if (args.actor.role === APP_ROLE.IT_MANAGER) {
+  // عضو فريق IT المسند إليه البلاغ يسجل الفحص باسمه، ولا يسجل عملًا ميدانيًا
+  // باسم عضو آخر.
+  if (isItTeamRole(args.actor.role)) {
     if (args.requestedId && args.requestedId !== args.actor.id) {
-      throw new TRPCError({ code: "BAD_REQUEST", message: "مدير تقنية المعلومات يسجل فحص بلاغ IT باسمه فقط" });
+      throw new TRPCError({ code: "BAD_REQUEST", message: "عضو فريق تقنية المعلومات يسجل فحص بلاغ IT باسمه فقط" });
     }
     return args.actor.id;
   }
@@ -137,6 +141,11 @@ async function resolveResponsibleManagerId(
   requestedManagerId: number | undefined,
   actor: { id: number; role: string },
 ): Promise<number> {
+  if (department === MAINTENANCE_RESPONSIBLE_DEPARTMENT.IT) {
+    const managers = (await db.getUsersByRole(APP_ROLE.IT_MANAGER)).filter((u: any) => u.isActive !== 0);
+    if (managers.length !== 1) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "يجب وجود مدير تقنية معلومات نشط واحد للفريق" });
+    return managers[0].id;
+  }
   const requiredRole = department === MAINTENANCE_RESPONSIBLE_DEPARTMENT.CONSTRUCTION
     ? APP_ROLE.CONSTRUCTION_PROCUREMENT_MANAGER
     : APP_ROLE.GENERAL_MAINTENANCE_MANAGER;
@@ -301,6 +310,9 @@ async function routeTicketToDepartmentsForPlanning(args: {
   const primary = resolved[0];
   const routedAt = new Date();
   await db.withTransaction(async (tx: any) => {
+    await db.lockTicketForSubTicketSequence(args.ticket.id, tx);
+    const current = await db.getTicketById(args.ticket.id, tx);
+    if (!current || current.status !== "pending_triage" || (await db.getTicketDepartments(args.ticket.id, tx)).length) throw new TRPCError({ code: "CONFLICT", message: "تم توجيه البلاغ بالفعل" });
     const headerUpdate: Record<string, any> = {
       status: "department_planning", workflowModel: "department_tasks", supervisorId: args.actor.id,
       ticketType: args.ticketType, priority: args.priority, triageNotes: args.triageNotes,
@@ -367,13 +379,16 @@ async function routeTicketToDepartmentsForPlanning(args: {
   }
 
   await db.addTicketStatusHistory({ ticketId: args.ticket.id, fromStatus: args.ticket.status, toStatus: "department_planning", changedById: args.actor.id, notes: `تم اعتماد ${resolved.length} جهة وبدء مرحلة تحليل المهام` });
-  for (const r of resolved) await db.createNotification({
+  for (const r of resolved) {
+    if (r.department === MAINTENANCE_RESPONSIBLE_DEPARTMENT.IT) { await notifyItTeamArrival(args.ticket.id, args.ticket.ticketNumber); continue; }
+    await db.createNotification({
     userId: r.managerId, title: "بلاغ بانتظار تحليل المهام",
     message: r.department === MAINTENANCE_RESPONSIBLE_DEPARTMENT.CONSTRUCTION
       ? `تم توجيه البلاغ ${args.ticket.ticketNumber} إليك تحت العنوان التنظيمي: ${r.organizationalTitle}. أنشئ مهمة واحدة أو عدة مهام ثم وزّع الفنيين.`
       : `تم توجيه البلاغ ${args.ticket.ticketNumber} إلى الصيانة العامة. راجع البلاغ وأنشئ مهام الجهة ثم وزّع الفنيين.`,
     type: "warning", relatedTicketId: args.ticket.id,
   });
+  }
   await db.createAuditLog({ userId: args.actor.id, action: "route_maintenance_ticket_departments", entityType: "ticket", entityId: args.ticket.id,
     newValues: { departments: resolved.map(r => r.department), managers: resolved.map(r => r.managerId), organizationalTitles: resolved.map(r => r.organizationalTitle), workflowModel: "department_tasks" } });
   return { departmentsCreated: resolved.length };
@@ -382,10 +397,13 @@ async function routeTicketToDepartmentsForPlanning(args: {
 function canManageDepartmentPlan(actor: { id: number; role: string }, department: any): boolean {
   if ([APP_ROLE.OWNER, APP_ROLE.ADMIN].includes(actor.role as any)) return true;
 
-  // جهة IT لا تمر بفرز فنيين: مدير IT المسؤول هو من ينشئ مهام الجهة،
-  // وتُسند كل مهمة إليه تلقائيًا قبل تحويلها إلى بلاغ فرعي A/B/C.
+  // يحق لقائد فريق IT إدارة الخطة دائمًا، كما يحق لمالك البلاغ التشغيلي
+  // (العضو أو المدير الذي استلمه) تنفيذ العمل وإدارة مهامه.
   if (department.department === MAINTENANCE_RESPONSIBLE_DEPARTMENT.IT) {
-    return department.responsibleManagerId === actor.id && actor.role === APP_ROLE.IT_MANAGER;
+    return isItTeamRole(actor.role) && (
+      department.claimedById === actor.id ||
+      (actor.role === APP_ROLE.IT_MANAGER && department.responsibleManagerId === actor.id)
+    );
   }
 
   // في جهة الإنشاءات: مدير الصيانة والتشغيل يرسل العنوان التنظيمي فقط.
@@ -427,6 +445,7 @@ function assertDepartmentPlanEditable(ticket: any) {
 
 export const ticketsWorkflowRouter = router({
   submitForTriage: ticketProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
+    if (isItTeamRole(ctx.user.role)) throw new TRPCError({ code: "FORBIDDEN", message: "استخدم استلام البلاغ أو نقل مسؤولية الفريق" });
     const ticket = await db.getTicketById(input.id);
     if (!ticket) throw new TRPCError({ code: "NOT_FOUND" });
     await db.updateTicket(input.id, { status: "pending_triage" });
@@ -455,7 +474,7 @@ export const ticketsWorkflowRouter = router({
     if (!ticket) throw new TRPCError({ code: "NOT_FOUND" });
     assertConstructionManagerOwnTicketForTriage(ctx.user, ticket);
     if (ticket.status !== "pending_triage") throw new TRPCError({ code: "BAD_REQUEST", message: "البلاغ ليس في مرحلة الفرز" });
-    if (ticket.workflowModel === "department_tasks") {
+    if (ticket.workflowModel === "department_tasks" || input.maintenanceResponsibleDepartment === MAINTENANCE_RESPONSIBLE_DEPARTMENT.IT) {
       throw new TRPCError({ code: "BAD_REQUEST", message: "هذا البلاغ يستخدم هيكل الجهات والمهام؛ استخدم فرز الجهات المعتمد" });
     }
     await routeTicketAfterTriage({
@@ -500,7 +519,13 @@ export const ticketsWorkflowRouter = router({
     let departments = await db.getTicketDepartments(input.ticketId);
     let tasks = await db.getTicketTasks(input.ticketId);
     let assignees = await db.getTaskAssigneesForTasks(tasks.map((t: any) => t.id));
-    if (ctx.user.role === APP_ROLE.TECHNICIAN) {
+    if (isItTeamRole(ctx.user.role)) {
+      departments = departments.filter((d: any) => d.department === MAINTENANCE_RESPONSIBLE_DEPARTMENT.IT);
+      const ids = new Set(departments.map((d: any) => d.id));
+      tasks = tasks.filter((t: any) => ids.has(t.ticketDepartmentId));
+      const taskIds = new Set(tasks.map((t: any) => t.id));
+      assignees = assignees.filter((a: any) => taskIds.has(a.taskId));
+    } else if (ctx.user.role === APP_ROLE.TECHNICIAN) {
       const visibleTaskIds = new Set(assignees.filter((a: any) => a.userId === ctx.user.id).map((a: any) => a.taskId));
       tasks = tasks.filter((t: any) => visibleTaskIds.has(t.id));
       const deptIds = new Set(tasks.map((t: any) => t.ticketDepartmentId));
@@ -539,14 +564,24 @@ export const ticketsWorkflowRouter = router({
 
     const isItDepartment = department.department === MAINTENANCE_RESPONSIBLE_DEPARTMENT.IT;
     if (isItDepartment) {
-      const itManager = await db.getUserById(department.responsibleManagerId);
-      if (!itManager || itManager.role !== APP_ROLE.IT_MANAGER || itManager.isActive === 0) {
-        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "مدير تقنية المعلومات المسؤول غير موجود أو غير نشط" });
+      const itExecutor = await db.getUserById(department.claimedById);
+      if (!itExecutor || !isItTeamRole(itExecutor.role) || itExecutor.isActive === 0) {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "يجب أن يستلم البلاغ عضو نشط من فريق تقنية المعلومات أولًا" });
       }
     }
 
-    const taskId = await db.withTransaction(async (tx: any) => {
+    const created = await db.withTransaction(async (tx: any) => {
+      await db.lockTicketForSubTicketSequence(input.ticketId, tx);
       await db.lockTicketDepartmentForTaskSequence(department.id, tx);
+      const freshParent = await db.getTicketById(input.ticketId, tx);
+      assertDepartmentPlanEditable(freshParent);
+      const freshDepartment = await db.getTicketDepartmentById(department.id, tx);
+      if (!freshDepartment || freshDepartment.department !== department.department) throw new TRPCError({ code: "CONFLICT", message: "تغير توجيه البلاغ" });
+      assertCanManageDepartmentPlan(ctx.user, freshDepartment);
+      if (isItDepartment) {
+        if (!freshDepartment.claimedById) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "يجب استلام البلاغ قبل إنشاء مهامه" });
+        await assertActiveItUser(freshDepartment.claimedById);
+      }
       const taskNumber = await db.getNextDepartmentTaskNumber(department.id, tx);
       const createdTaskId = await db.createTicketTask({
         ticketId: input.ticketId,
@@ -554,23 +589,24 @@ export const ticketsWorkflowRouter = router({
         taskNumber,
         title: input.title?.trim() || null,
         description: input.description.trim(),
-        // مهام IT لا تدخل خطوة توزيع الفنيين؛ هي من مسؤولية مدير IT نفسه.
+        // تبدأ مهمة IT باسم مستلم البلاغ، ويمكن إعادة إسنادها إلى عضو آخر قبل التنفيذ.
         status: isItDepartment ? "assigned" : "pending_assignment",
         createdById: ctx.user.id,
       }, tx);
       if (!createdTaskId) throw new Error("Failed to create department task");
       if (isItDepartment) {
-        await db.replaceTicketTaskAssignees(Number(createdTaskId), [department.responsibleManagerId], ctx.user.id, tx);
+        await db.replaceTicketTaskAssignees(Number(createdTaskId), [freshDepartment.claimedById], ctx.user.id, tx);
         await db.updateTicketDepartment(department.id, { status: "active" }, tx);
       }
-      return Number(createdTaskId);
+      return { taskId: Number(createdTaskId), autoAssignedToId: isItDepartment ? Number(freshDepartment.claimedById) : null };
     });
+    const { taskId } = created;
     await db.createAuditLog({
       userId: ctx.user.id,
       action: "create_ticket_department_task",
       entityType: "ticket",
       entityId: input.ticketId,
-      newValues: { taskId, ticketDepartmentId: department.id, autoAssignedToItManager: isItDepartment ? department.responsibleManagerId : null },
+      newValues: { taskId, ticketDepartmentId: department.id, autoAssignedToItTeamMember: created.autoAssignedToId },
     });
 
     const taskFields = [
@@ -586,7 +622,7 @@ export const ticketsWorkflowRouter = router({
       userId: ctx.user.id,
     }).catch((error) => console.error("[TICKET_TASK] Queue translation failed:", error));
 
-    return { success: true, taskId, autoAssignedToId: isItDepartment ? department.responsibleManagerId : null };
+    return { success: true, taskId, autoAssignedToId: created.autoAssignedToId };
   }),
 
   assignDepartmentTask: protectedProcedure.input(z.object({ ticketId: z.number(), taskId: z.number(), technicianIds: z.array(z.number()).min(1, "اختر فنيًا واحدًا على الأقل") })).mutation(async ({ input, ctx }) => {
@@ -601,11 +637,18 @@ export const ticketsWorkflowRouter = router({
     if (!department || department.ticketId !== input.ticketId) throw new TRPCError({ code: "BAD_REQUEST", message: "جهة المهمة غير صالحة" });
     assertCanManageDepartmentPlan(ctx.user, department);
     if (department.department === MAINTENANCE_RESPONSIBLE_DEPARTMENT.IT) {
-      throw new TRPCError({ code: "BAD_REQUEST", message: "مهام تقنية المعلومات تُسند تلقائيًا إلى مدير تقنية المعلومات ولا تقبل توزيع فنيين يدويًا" });
+      if (input.technicianIds.length !== 1) throw new TRPCError({ code: "BAD_REQUEST", message: "اختر منفذًا واحدًا لمهمة تقنية المعلومات" });
+      await assertActiveItUser(input.technicianIds[0]);
     }
     const technicianIds = Array.from(new Set(input.technicianIds));
-    for (const id of technicianIds) await assertActiveInternalTechnician(id);
+    if (department.department !== MAINTENANCE_RESPONSIBLE_DEPARTMENT.IT) for (const id of technicianIds) await assertActiveInternalTechnician(id);
     await db.withTransaction(async (tx: any) => {
+      await db.lockTicketForSubTicketSequence(input.ticketId, tx);
+      await db.lockTicketDepartmentForTaskSequence(department.id, tx);
+      assertDepartmentPlanEditable(await db.getTicketById(input.ticketId, tx));
+      const freshDepartment = await db.getTicketDepartmentById(department.id, tx);
+      if (!freshDepartment || freshDepartment.department !== department.department) throw new TRPCError({ code: "CONFLICT", message: "تغير توجيه البلاغ" });
+      assertCanManageDepartmentPlan(ctx.user, freshDepartment);
       await db.lockTicketTaskForPromotion(task.id, tx);
       const fresh = await db.getTicketTaskById(task.id, tx);
       if (!fresh) throw new TRPCError({ code: "NOT_FOUND", message: "المهمة لم تعد موجودة" });
@@ -615,7 +658,11 @@ export const ticketsWorkflowRouter = router({
       await db.updateTicketDepartment(department.id, { status: "active" }, tx);
     });
     const ticket = await db.getTicketById(input.ticketId);
-    for (const id of technicianIds) await db.createNotification({ userId: id, title: "تم إسناد مهمة جديدة إليك", message: `تم إسناد مهمة ضمن البلاغ ${ticket?.ticketNumber ?? input.ticketId}: ${task.title || task.description}`, type: "info", relatedTicketId: input.ticketId });
+    // فريق IT يتلقى إشعارًا واحدًا فقط عند دخول البلاغ إلى طابور الفريق.
+    // عرض المهمة داخل البرنامج يكفي بعد ذلك ولا تُرسل إشعارات إسناد إضافية.
+    if (department.department !== MAINTENANCE_RESPONSIBLE_DEPARTMENT.IT) {
+      for (const id of technicianIds) await db.createNotification({ userId: id, title: "تم إسناد مهمة جديدة إليك", message: `تم إسناد مهمة ضمن البلاغ ${ticket?.ticketNumber ?? input.ticketId}: ${task.title || task.description}`, type: "info", relatedTicketId: input.ticketId });
+    }
     return { success: true };
   }),
 
@@ -629,15 +676,23 @@ export const ticketsWorkflowRouter = router({
     if (task.convertedTicketId) { const existing = await db.getTicketById(task.convertedTicketId); return { success: true, ticketId: task.convertedTicketId, ticketNumber: existing?.ticketNumber }; }
     const department = await db.getTicketDepartmentById(task.ticketDepartmentId);
     if (!department || department.ticketId !== input.ticketId) throw new TRPCError({ code: "BAD_REQUEST", message: "جهة المهمة غير صالحة" });
-    assertCanManageDepartmentPlan(ctx.user, department);
+    const taskAssignees = await db.getTaskAssignees(task.id);
+    if (!(department.department === MAINTENANCE_RESPONSIBLE_DEPARTMENT.IT && isItTeamRole(ctx.user.role) && taskAssignees.some((a: any) => a.userId === ctx.user.id))) assertCanManageDepartmentPlan(ctx.user, department);
     const result = await db.withTransaction(async (tx: any) => {
+      await db.lockTicketForSubTicketSequence(parent.id, tx);
+      await db.lockTicketDepartmentForTaskSequence(department.id, tx);
+      assertDepartmentPlanEditable(await db.getTicketById(parent.id, tx));
+      const freshDepartment = await db.getTicketDepartmentById(department.id, tx);
+      if (!freshDepartment || freshDepartment.department !== department.department) throw new TRPCError({ code: "CONFLICT", message: "تغير توجيه البلاغ" });
       await db.lockTicketTaskForPromotion(task.id, tx);
       const freshTask = await db.getTicketTaskById(task.id, tx);
       if (!freshTask) throw new TRPCError({ code: "NOT_FOUND", message: "المهمة لم تعد موجودة" });
       if (freshTask.convertedTicketId) return { childId: freshTask.convertedTicketId, ticketNumber: undefined as string | undefined, alreadyExisting: true, assigneeIds: [] as number[] };
+      if (freshTask.status === "cancelled") throw new TRPCError({ code: "BAD_REQUEST", message: "المهمة ملغاة" });
       const freshAssignees = await db.getTaskAssignees(task.id, tx);
+      if (!(freshDepartment.department === MAINTENANCE_RESPONSIBLE_DEPARTMENT.IT && isItTeamRole(ctx.user.role) && freshAssignees.some((a: any) => a.userId === ctx.user.id))) assertCanManageDepartmentPlan(ctx.user, freshDepartment);
+      if (freshDepartment.department === MAINTENANCE_RESPONSIBLE_DEPARTMENT.IT) for (const a of freshAssignees) await assertActiveItUser(a.userId);
       if (!freshAssignees.length) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "يجب توزيع المهمة على فني واحد على الأقل قبل تحويلها" });
-      await db.lockTicketForSubTicketSequence(parent.id, tx);
       const seq = await db.allocateNextSubTicketSequence(parent.id, tx);
       const ticketNumber = `${parent.ticketNumber}-${String(seq).padStart(2, "0")}`;
       const primaryTechnicianId = freshAssignees[0].userId;
@@ -737,6 +792,7 @@ export const ticketsWorkflowRouter = router({
 
       await db.updateTicketDepartment(itDepartment.id, {
         department: input.department,
+        claimedById: null, claimedAt: null,
         responsibleManagerId: managerId,
         routedById: ctx.user.id,
         routedAt,
@@ -837,7 +893,7 @@ export const ticketsWorkflowRouter = router({
     if (!ticket) throw new TRPCError({ code: "NOT_FOUND" });
     assertConstructionManagerOwnTicketForTriage(ctx.user, ticket);
     if (ticket.status !== "pending_triage") throw new TRPCError({ code: "BAD_REQUEST", message: "البلاغ ليس في مرحلة الفرز" });
-    if (ticket.workflowModel === "department_tasks") {
+    if (ticket.workflowModel === "department_tasks" || input.maintenanceResponsibleDepartment === MAINTENANCE_RESPONSIBLE_DEPARTMENT.IT) {
       throw new TRPCError({ code: "BAD_REQUEST", message: "هذا البلاغ يستخدم هيكل الجهات والمهام؛ استخدم فرز الجهات المعتمد" });
     }
     await routeTicketAfterTriage({
@@ -863,6 +919,7 @@ export const ticketsWorkflowRouter = router({
   })).mutation(async ({ input, ctx }) => {
     const ticket = await db.getTicketById(input.id);
     if (!ticket) throw new TRPCError({ code: "NOT_FOUND" });
+    await assertLegacyTeamExecutionAllowed(ticket, undefined, "execution");
     const canRecordInspection = canRecordTicketInspection(ctx.user, ticket as any) ||
       (ctx.user.role === APP_ROLE.TECHNICIAN && await isAssignedTicketTechnicianForWorkflow(ctx.user, ticket as any));
     if (!canRecordInspection) {
@@ -1054,6 +1111,7 @@ export const ticketsWorkflowRouter = router({
   })).mutation(async ({ input, ctx }) => {
     const ticket = await db.getTicketById(input.id);
     if (!ticket) throw new TRPCError({ code: "NOT_FOUND" });
+    await assertLegacyTeamExecutionAllowed(ticket, undefined, "execution");
     if (!canReviewTicketInspection(ctx.user, ticket as any)) {
       throw new TRPCError({ code: "FORBIDDEN", message: "ليس لديك صلاحية مراجعة نتيجة الفحص لهذا البلاغ" });
     }
@@ -1150,7 +1208,7 @@ export const ticketsWorkflowRouter = router({
     if (ticket.assignedToId) notificationTargets.add(ticket.assignedToId);
     if (latest.recordedById) notificationTargets.add(latest.recordedById);
     notificationTargets.delete(ctx.user.id);
-    for (const userId of notificationTargets) {
+    for (const userId of Array.from(notificationTargets)) {
       await db.createNotification({
         userId,
         title: input.action === "approve" ? "تم اعتماد نتيجة الفحص" : "نتيجة الفحص تحتاج تصحيحًا",
@@ -1172,6 +1230,7 @@ export const ticketsWorkflowRouter = router({
   })).mutation(async ({ input, ctx }) => {
     const ticket = await db.getTicketById(input.id);
     if (!ticket) throw new TRPCError({ code: "NOT_FOUND" });
+    await assertLegacyTeamExecutionAllowed(ticket, undefined, "execution");
     assertTicketWorkflowManageable(ctx.user, ticket as any);
     if (ticket.status !== "under_inspection") throw new TRPCError({ code: "BAD_REQUEST", message: "البلاغ ليس في مرحلة الفحص" });
     if (!canSelectTicketMaintenancePath(ctx.user, ticket as any)) {
@@ -1250,6 +1309,7 @@ export const ticketsWorkflowRouter = router({
     if (!item) throw new TRPCError({ code: "NOT_FOUND", message: "بند البلاغ غير موجود" });
     const ticket = await db.getTicketById(item.ticketId);
     if (!ticket) throw new TRPCError({ code: "NOT_FOUND" });
+    await assertLegacyTeamExecutionAllowed(ticket, item.id, "execution");
 
     assertTicketItemWorkflowManageable(ctx.user, ticket as any, item as any);
     if (!canSelectTicketItemMaintenancePath(ctx.user, ticket as any, item as any)) {

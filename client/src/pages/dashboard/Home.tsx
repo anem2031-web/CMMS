@@ -314,6 +314,7 @@ export default function Home() {
       supervisor: "/tickets",
       technician: "/tickets",
       it_manager: "/tickets",
+      it_member: "/tickets",
       accountant: "/purchase-orders",
       warehouse: "/inventory",
       delegate: "/purchase-orders",

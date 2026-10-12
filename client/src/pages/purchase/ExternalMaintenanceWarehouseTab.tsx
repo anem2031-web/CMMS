@@ -105,7 +105,7 @@ const RECIPIENT_ROLES = new Set([
   "maintenance_manager",
   "general_maintenance_manager",
   "construction_procurement_manager",
-  "it_manager",
+  "it_manager", "it_member",
   "admin",
   "owner",
 ]);
@@ -250,9 +250,8 @@ export default function ExternalMaintenanceWarehouseTab() {
   const delegates = useMemo(() => (users as any[]).filter(user => user.role === "delegate" && user.isActive !== 0), [users]);
   const recipients = useMemo(() => (users as any[]).filter(user =>
     RECIPIENT_ROLES.has(user.role) &&
-    user.isActive !== 0 &&
-    (user.role !== "it_manager" || user.id === handoverRow?.ticketAssignedToId)
-  ), [users, handoverRow?.ticketAssignedToId]);
+    user.isActive !== 0
+  ), [users]);
 
   const refetch = () => utils.externalMaintenance.listForWarehouse.invalidate();
 

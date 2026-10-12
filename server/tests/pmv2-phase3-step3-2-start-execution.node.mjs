@@ -24,9 +24,7 @@ test("start mutation serializes writes per task and runs in one DB transaction",
 });
 
 test("start mutation rechecks active team membership and exact task-item ownership server-side", () => {
-  assert.match(execution, /eq\(pmv2TeamMembers\.teamId, pmv2Tasks\.teamId\)/);
-  assert.match(execution, /eq\(pmv2TeamMembers\.userId, userId\)/);
-  assert.match(execution, /eq\(pmv2TeamMembers\.isActive, 1\)/);
+  assert.match(execution, /pmv2ExecutionTeamCondition\(userId, pmv2Tasks\.teamId\)/);
   assert.match(execution, /eq\(pmv2Tasks\.id, input\.taskId\)/);
   assert.match(execution, /eq\(pmv2TaskItems\.id, input\.taskItemId\)/);
   assert.match(execution, /Pmv2TechnicianAccessError/);

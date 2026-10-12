@@ -1,3 +1,4 @@
+import { IT_TICKET_ARRIVAL_EVENT } from "@shared/itTeamWorkflow";
 // ============================================================
 // db/notifications.ts — الإشعارات واشتراكات Push
 // (مُقسَّم من db.ts الأصلي حسب المجال الوظيفي)
@@ -44,7 +45,7 @@ import {
   inventorySettlementNumberCounter,
 } from "../../../drizzle/schema";
 import { ENV } from '../env';
-import { APP_ROLE } from '../../../shared/roles';
+import { APP_ROLE, isItTeamRole } from '../../../shared/roles';
 
 
 import { getDb } from "./client";
@@ -89,17 +90,16 @@ function queueNotificationTranslation(notificationId: number, title: string, mes
   }).catch(() => {});
 }
 
-export async function createNotification(data: { userId: number; title: string; message: string; type?: string; relatedTicketId?: number; relatedPoId?: number; allowSeniorManagement?: boolean; allowItManager?: boolean }) {
+export async function createNotification(data: { userId: number; title: string; message: string; type?: string; eventKey?: string; relatedTicketId?: number; relatedPoId?: number; allowSeniorManagement?: boolean; allowItManager?: boolean }) {
   const db = await getDb();
   if (!db) return;
 
   // ── Restricted-role notification policies ───────────────────────────────
   // Senior Management receives only its explicit purchase-approval exception.
-  // IT Manager receives only two explicit direct notifications:
-  // 1) a newly routed IT ticket, 2) a newly generated PM V2 team task.
+  // مدير IT وأعضاء الفريق يتلقون فقط إشعار وصول تذكرة صيانة إلى تقنية المعلومات.
   // Default-deny here prevents purchase/SLA/closure/warehouse/general broadcasts
-  // from leaking to the IT role when future notification call sites are added.
-  if (!data.allowSeniorManagement || !data.allowItManager) {
+  // from leaking to either IT role when future notification call sites are added.
+  if (!data.allowSeniorManagement || !data.allowItManager || data.eventKey !== IT_TICKET_ARRIVAL_EVENT) {
     const recipient = await getUserById(data.userId);
     if (recipient?.role === APP_ROLE.SENIOR_MANAGEMENT && !data.allowSeniorManagement) {
       console.warn(
@@ -107,9 +107,9 @@ export async function createNotification(data: { userId: number; title: string; 
       );
       return;
     }
-    if (recipient?.role === APP_ROLE.IT_MANAGER && !data.allowItManager) {
+    if (isItTeamRole(recipient?.role) && (!data.allowItManager || data.eventKey !== IT_TICKET_ARRIVAL_EVENT)) {
       console.warn(
-        `[Notifications] Blocked notification to it_manager (userId=${data.userId}): "${data.title}" — only IT ticket routing and new PM V2 task notifications are allowed.`
+        `[Notifications] Blocked notification to IT team (userId=${data.userId}): "${data.title}" — only IT ticket arrival notifications are allowed.`
       );
       return;
     }
@@ -120,6 +120,7 @@ export async function createNotification(data: { userId: number; title: string; 
     title: data.title,
     message: data.message,
     type: data.type as any,
+    eventKey: data.eventKey || null,
     relatedTicketId: data.relatedTicketId,
     relatedPoId: data.relatedPoId,
   });
@@ -143,6 +144,7 @@ export async function createNotification(data: { userId: number; title: string; 
           title: data.title,
           message: data.message,
           type: data.type as any,
+          eventKey: data.eventKey || null,
           relatedTicketId: data.relatedTicketId,
           relatedPoId: data.relatedPoId,
         });
@@ -174,10 +176,13 @@ export async function createNotification(data: { userId: number; title: string; 
   }).catch(() => {});
 }
 
-export async function getUserNotifications(userId: number) {
+export async function getUserNotifications(userId: number, eventKey?: string) {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(notifications).where(eq(notifications.userId, userId)).orderBy(desc(notifications.createdAt)).limit(50);
+  const predicate = eventKey
+    ? and(eq(notifications.userId, userId), eq(notifications.eventKey, eventKey))
+    : eq(notifications.userId, userId);
+  return db.select().from(notifications).where(predicate).orderBy(desc(notifications.createdAt)).limit(50);
 }
 
 export async function markNotificationRead(id: number, userId: number) {
@@ -186,16 +191,22 @@ export async function markNotificationRead(id: number, userId: number) {
   await db.update(notifications).set({ isRead: true }).where(and(eq(notifications.id, id), eq(notifications.userId, userId)));
 }
 
-export async function markAllNotificationsRead(userId: number) {
+export async function markAllNotificationsRead(userId: number, eventKey?: string) {
   const db = await getDb();
   if (!db) return;
-  await db.update(notifications).set({ isRead: true }).where(eq(notifications.userId, userId));
+  const predicate = eventKey
+    ? and(eq(notifications.userId, userId), eq(notifications.eventKey, eventKey))
+    : eq(notifications.userId, userId);
+  await db.update(notifications).set({ isRead: true }).where(predicate);
 }
 
-export async function getUnreadNotificationCount(userId: number) {
+export async function getUnreadNotificationCount(userId: number, eventKey?: string) {
   const db = await getDb();
   if (!db) return 0;
-  const result = await db.select({ cnt: count() }).from(notifications).where(and(eq(notifications.userId, userId), eq(notifications.isRead, false)));
+  const predicate = eventKey
+    ? and(eq(notifications.userId, userId), eq(notifications.eventKey, eventKey), eq(notifications.isRead, false))
+    : and(eq(notifications.userId, userId), eq(notifications.isRead, false));
+  const result = await db.select({ cnt: count() }).from(notifications).where(predicate);
   return result[0]?.cnt || 0;
 }
 

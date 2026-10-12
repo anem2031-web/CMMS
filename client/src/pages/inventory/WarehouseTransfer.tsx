@@ -1,6 +1,6 @@
 import { trpc } from "@/lib/trpc";
 import { useLocation } from "wouter";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import { toast } from "sonner";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -33,10 +33,13 @@ interface CartItem {
   lotCode?: string;
   lotBalanceAtAddTime?: number;
   notes?: string;
-  pmv2MaterialRequestItemId?: number;
+  materialNeedId?: number;
 }
 
-interface Pmv2TransferHandoffContext {
+interface MaterialTransferHandoffContext {
+  source: "pmv2" | "tickets";
+  revision?: number;
+  ticketId?: number;
   requestItemId: number;
   requestId: number;
   taskNumber: string;
@@ -53,11 +56,13 @@ function parsePositiveInt(value: string | null) {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
 }
 
-function readPmv2TransferHandoff(): Pmv2TransferHandoffContext | null {
+function readMaterialTransferHandoff(): MaterialTransferHandoffContext | null {
   if (typeof window === "undefined") return null;
   const params = new URLSearchParams(window.location.search);
-  const requestItemId = parsePositiveInt(params.get("pmv2RequestItemId"));
-  const requestId = parsePositiveInt(params.get("pmv2RequestId"));
+  const ticketSource = params.has("ticketTeamNeedId");
+  if (ticketSource && params.has("pmv2RequestItemId")) return null;
+  const requestItemId = parsePositiveInt(params.get(ticketSource ? "ticketTeamNeedId" : "pmv2RequestItemId"));
+  const requestId = parsePositiveInt(params.get(ticketSource ? "ticketTeamAssignmentId" : "pmv2RequestId"));
   const fromWarehouseId = parsePositiveInt(params.get("fromWarehouseId"));
   const toWarehouseId = parsePositiveInt(params.get("toWarehouseId"));
   const inventoryId = parsePositiveInt(params.get("inventoryId"));
@@ -74,10 +79,13 @@ function readPmv2TransferHandoff(): Pmv2TransferHandoffContext | null {
     return null;
   }
   return {
+    source: ticketSource ? "tickets" : "pmv2",
+    revision: ticketSource ? Number(params.get("ticketTeamRevision")) : undefined,
+    ticketId: ticketSource ? Number(params.get("ticketId")) : undefined,
     requestItemId,
     requestId,
-    taskNumber: params.get("pmv2TaskNumber")?.trim() || "PM V2",
-    materialName: params.get("pmv2MaterialName")?.trim() || "مادة PM V2",
+    taskNumber: params.get(ticketSource ? "ticketNumber" : "pmv2TaskNumber")?.trim() || (ticketSource ? "تذكرة الصيانة" : "PM V2"),
+    materialName: params.get(ticketSource ? "ticketMaterialName" : "pmv2MaterialName")?.trim() || (ticketSource ? "مادة تذكرة الصيانة" : "مادة PM V2"),
     fromWarehouseId,
     toWarehouseId,
     inventoryId,
@@ -86,17 +94,19 @@ function readPmv2TransferHandoff(): Pmv2TransferHandoffContext | null {
   };
 }
 
-function buildPmv2TransferNote(
+function buildMaterialTransferNote(
   userNote: string | undefined,
-  handoff: Pmv2TransferHandoffContext,
+  handoff: MaterialTransferHandoffContext,
 ) {
-  const reference = `مرجع PM V2: ${handoff.taskNumber} — طلب مواد #${handoff.requestId} / بند #${handoff.requestItemId}`;
+  const reference = `مرجع ${handoff.source === "tickets" ? "تذكرة الصيانة" : "PM V2"}: ${handoff.taskNumber} — طلب مواد #${handoff.requestId} / بند #${handoff.requestItemId}`;
   return userNote?.trim() ? `${userNote.trim()}\n${reference}` : reference;
 }
 
 export default function WarehouseTransfer() {
   const [, navigate] = useLocation();
-  const pmv2Handoff = useMemo(() => readPmv2TransferHandoff(), []);
+  const materialHandoff = useMemo(() => readMaterialTransferHandoff(), []);
+  const utils = trpc.useUtils();
+  const ticketOperation = useRef<{ fingerprint: string; key: string } | null>(null);
 
   const { data: warehousesList } = trpc.warehouse.list.useQuery();
   const { data: inventoryList } = trpc.inventory.list.useQuery();
@@ -127,32 +137,32 @@ export default function WarehouseTransfer() {
   const [historySearchMode, setHistorySearchMode] = useState<"name" | "code" | "qr">("name");
   const [openDetailKey, setOpenDetailKey] = useState<string | null>(null);
   const [pmv2HandoffInitialized, setPmv2HandoffInitialized] = useState(false);
-  const [pmv2LinkRetry, setPmv2LinkRetry] = useState<{
+  const [materialLinkRetry, setMaterialLinkRetry] = useState<{
     requestItemId: number;
     transferNumbers: string[];
   } | null>(null);
-  const [pmv2TransferPosted, setPmv2TransferPosted] = useState(false);
+  const [materialTransferPosted, setMaterialTransferPosted] = useState(false);
 
   useEffect(() => {
-    if (!pmv2Handoff || pmv2HandoffInitialized || !inventoryList) return;
+    if (!materialHandoff || pmv2HandoffInitialized || !inventoryList) return;
     const item = (inventoryList as any[]).find(
       (candidate: any) =>
-        Number(candidate.id) === pmv2Handoff.inventoryId &&
-        Number(candidate.warehouseId) === pmv2Handoff.fromWarehouseId,
+        Number(candidate.id) === materialHandoff.inventoryId &&
+        Number(candidate.warehouseId) === materialHandoff.fromWarehouseId,
     );
-    setFromWarehouseId(String(pmv2Handoff.fromWarehouseId));
-    setToWarehouseId(String(pmv2Handoff.toWarehouseId));
+    setFromWarehouseId(String(materialHandoff.fromWarehouseId));
+    setToWarehouseId(String(materialHandoff.toWarehouseId));
     if (!item) {
-      toast.error("تعذر العثور على بطاقة المخزون التي جهزها طلب PM V2؛ ارجع إلى الطلب وحدّث الرصيد");
+      toast.error(materialHandoff?.source === "tickets" ? "تعذر العثور على بطاقة المخزون المطلوبة للتذكرة؛ ارجع إلى الطلب وحدّث الرصيد" : "تعذر العثور على بطاقة المخزون التي جهزها طلب PM V2؛ ارجع إلى الطلب وحدّث الرصيد");
       setPmv2HandoffInitialized(true);
       return;
     }
     setFoundItem(item);
     setTransferLotInfo(null);
     setSearchQuery("");
-    setQty(String(Math.min(pmv2Handoff.quantity, Number(item.quantity || 0))));
+    setQty(String(Math.min(materialHandoff.quantity, Number(item.quantity || 0))));
     setPmv2HandoffInitialized(true);
-  }, [inventoryList, pmv2Handoff, pmv2HandoffInitialized]);
+  }, [inventoryList, materialHandoff, pmv2HandoffInitialized]);
 
   const sourceItems = useMemo(() => {
     if (!fromWarehouseId || !inventoryList) return [];
@@ -167,11 +177,11 @@ export default function WarehouseTransfer() {
   };
 
   const remainingPmv2HandoffQuantity = () => {
-    if (!pmv2Handoff) return null;
+    if (!materialHandoff) return null;
     const alreadyInCart = cart
-      .filter((item) => item.pmv2MaterialRequestItemId === pmv2Handoff.requestItemId)
+      .filter((item) => item.materialNeedId === materialHandoff.requestItemId)
       .reduce((sum, item) => sum + Number(item.quantity || 0), 0);
-    return Math.max(0, Number((pmv2Handoff.quantity - alreadyInCart).toFixed(3)));
+    return Math.max(0, Number((materialHandoff.quantity - alreadyInCart).toFixed(3)));
   };
 
   const searchResults = useMemo(() => {
@@ -197,8 +207,8 @@ export default function WarehouseTransfer() {
     (usersList as any[])?.find((u: any) => u.id === id)?.name || `#${id}`;
 
   function selectItem(item: any) {
-    if (pmv2Handoff && Number(item.id) !== pmv2Handoff.inventoryId) {
-      toast.error("هذا التحويل بدأ من طلب PM V2 لصنف محدد؛ ارجع للطلب لبدء تحويل مادة أخرى");
+    if (materialHandoff && Number(item.id) !== materialHandoff.inventoryId) {
+      toast.error(materialHandoff?.source === "tickets" ? "هذا التحويل مرتبط بصنف التذكرة؛ ارجع للطلب لبدء تحويل مادة أخرى" : "هذا التحويل بدأ من طلب PM V2 لصنف محدد؛ ارجع للطلب لبدء تحويل مادة أخرى");
       return;
     }
     setFoundItem(item);
@@ -208,8 +218,8 @@ export default function WarehouseTransfer() {
   }
 
   async function handleQRScan(code: string) {
-    if (pmv2Handoff && pmv2TransferPosted) {
-      toast.error("تم تنفيذ تحويل مرتبط بهذا السياق بالفعل؛ ارجع إلى طلب PM V2 لإعادة فحص المتبقي قبل تحويل جديد");
+    if (materialHandoff && materialTransferPosted) {
+      toast.error(materialHandoff?.source === "tickets" ? "تم تنفيذ التحويل؛ ارجع إلى مواد التذكرة لإعادة فحص المتبقي قبل تحويل جديد" : "تم تنفيذ تحويل مرتبط بهذا السياق بالفعل؛ ارجع إلى طلب PM V2 لإعادة فحص المتبقي قبل تحويل جديد");
       return;
     }
     if (lotsEnabled) {
@@ -232,13 +242,13 @@ export default function WarehouseTransfer() {
         setFoundItem(item);
         setTransferLotInfo(resolved);
         setSearchQuery("");
-        const pmv2Remaining = remainingPmv2HandoffQuantity();
+        const materialRemaining = remainingPmv2HandoffQuantity();
         setQty(
-          pmv2Remaining == null
+          materialRemaining == null
             ? ""
             : String(
                 Math.min(
-                  pmv2Remaining,
+                  materialRemaining,
                   Number(resolved.availableQuantity || 0),
                   remainingBalance(item),
                 ),
@@ -263,8 +273,8 @@ export default function WarehouseTransfer() {
   }
 
   function addItemToCart() {
-    if (pmv2Handoff && pmv2TransferPosted) {
-      toast.error("تم تنفيذ تحويل مرتبط بهذا السياق بالفعل؛ ارجع إلى طلب PM V2 لإعادة فحص المتبقي قبل تحويل جديد");
+    if (materialHandoff && materialTransferPosted) {
+      toast.error(materialHandoff?.source === "tickets" ? "تم تنفيذ التحويل؛ ارجع إلى مواد التذكرة لإعادة فحص المتبقي قبل تحويل جديد" : "تم تنفيذ تحويل مرتبط بهذا السياق بالفعل؛ ارجع إلى طلب PM V2 لإعادة فحص المتبقي قبل تحويل جديد");
       return;
     }
     if (!foundItem) { toast.error("اختر صنفاً أولاً"); return; }
@@ -292,18 +302,18 @@ export default function WarehouseTransfer() {
       return;
     }
 
-    const pmv2Remaining = remainingPmv2HandoffQuantity();
-    if (pmv2Handoff) {
-      if (Number(foundItem.id) !== pmv2Handoff.inventoryId) {
-        toast.error("الصنف المحدد لا يطابق طلب PM V2");
+    const materialRemaining = remainingPmv2HandoffQuantity();
+    if (materialHandoff) {
+      if (Number(foundItem.id) !== materialHandoff.inventoryId) {
+        toast.error(materialHandoff?.source === "tickets" ? "الصنف المحدد لا يطابق احتياج التذكرة" : "الصنف المحدد لا يطابق طلب PM V2");
         return;
       }
-      if (pmv2Remaining == null || pmv2Remaining <= 0) {
+      if (materialRemaining == null || materialRemaining <= 0) {
         toast.error("تمت إضافة كامل الكمية القابلة للتحويل لهذا الطلب");
         return;
       }
-      if (qtyNum > pmv2Remaining) {
-        toast.error(`الكمية أكبر من القابل للتحويل لهذا الطلب (${pmv2Remaining} ${pmv2Handoff.unit || foundItem.unit || ""})`);
+      if (qtyNum > materialRemaining) {
+        toast.error(`الكمية أكبر من القابل للتحويل لهذا الطلب (${materialRemaining} ${materialHandoff.unit || foundItem.unit || ""})`);
         return;
       }
     }
@@ -320,15 +330,15 @@ export default function WarehouseTransfer() {
       lotCode: lotsEnabled ? transferLotInfo?.lotCode : undefined,
       lotBalanceAtAddTime: lotsEnabled ? Number(transferLotInfo?.availableQuantity || 0) : undefined,
       notes: itemNotes.trim() || undefined,
-      pmv2MaterialRequestItemId: pmv2Handoff?.requestItemId,
+      materialNeedId: materialHandoff?.requestItemId,
     }]);
 
-    const remainingAfterAdd = pmv2Handoff && pmv2Remaining != null
-      ? Number(Math.max(0, pmv2Remaining - qtyNum).toFixed(3))
+    const remainingAfterAdd = materialHandoff && materialRemaining != null
+      ? Number(Math.max(0, materialRemaining - qtyNum).toFixed(3))
       : 0;
-    setFoundItem(pmv2Handoff && remainingAfterAdd > 0 ? foundItem : null);
+    setFoundItem(materialHandoff && remainingAfterAdd > 0 ? foundItem : null);
     setTransferLotInfo(null);
-    setQty(pmv2Handoff && remainingAfterAdd > 0 ? String(remainingAfterAdd) : "");
+    setQty(materialHandoff && remainingAfterAdd > 0 ? String(remainingAfterAdd) : "");
     setItemNotes("");
     setSearchQuery("");
     toast.success(lotsEnabled ? "تم إضافة الدفعة للعملية" : "تم إضافة الصنف — يمكنك إضافة صنف آخر أو تنفيذ العملية");
@@ -340,10 +350,10 @@ export default function WarehouseTransfer() {
 
   const createBatchMut = trpc.transfers.createBatch.useMutation();
 
-  async function linkPmv2Transfers(payload: { requestItemId: number; transferNumbers: string[] }) {
+  async function linkMaterialTransfers(payload: { requestItemId: number; transferNumbers: string[] }) {
     try {
       const linked = await linkConfirmedPmv2TransfersMut.mutateAsync(payload);
-      setPmv2LinkRetry(null);
+      setMaterialLinkRetry(null);
       toast.success(
         linked.status === "issued_to_team"
           ? "تم ربط التحويل بطلب PM V2 وتغطية الكمية المطلوبة بالكامل"
@@ -351,7 +361,7 @@ export default function WarehouseTransfer() {
       );
       return true;
     } catch (error: any) {
-      setPmv2LinkRetry(payload);
+      setMaterialLinkRetry(payload);
       toast.warning(
         `تم تنفيذ التحويل في المخزون، لكن تعذر تحديث PM V2: ${error?.message || "خطأ غير معروف"}. أعد محاولة الربط قبل مغادرة الصفحة.`,
       );
@@ -360,29 +370,29 @@ export default function WarehouseTransfer() {
   }
 
   async function handleSubmitAll() {
-    if (pmv2Handoff && pmv2TransferPosted) {
-      toast.error("تم تنفيذ تحويل مرتبط بهذا السياق بالفعل؛ ارجع إلى طلب PM V2 لإعادة فحص المتبقي قبل تحويل جديد");
+    if (materialHandoff && materialTransferPosted) {
+      toast.error(materialHandoff?.source === "tickets" ? "تم تنفيذ التحويل؛ ارجع إلى مواد التذكرة لإعادة فحص المتبقي قبل تحويل جديد" : "تم تنفيذ تحويل مرتبط بهذا السياق بالفعل؛ ارجع إلى طلب PM V2 لإعادة فحص المتبقي قبل تحويل جديد");
       return;
     }
     if (!fromWarehouseId || !toWarehouseId) { toast.error("اختر المخزن المصدر والمخزن الهدف"); return; }
     if (fromWarehouseId === toWarehouseId) { toast.error("لا يمكن التحويل لنفس المخزن"); return; }
     if (cart.length === 0) { toast.error("أضف صنفاً واحداً على الأقل"); return; }
-    if (pmv2Handoff) {
-      const pmv2CartQuantity = Number(
+    if (materialHandoff) {
+      const materialCartQuantity = Number(
         cart
-          .filter((item) => item.pmv2MaterialRequestItemId === pmv2Handoff.requestItemId)
+          .filter((item) => item.materialNeedId === materialHandoff.requestItemId)
           .reduce((sum, item) => sum + Number(item.quantity || 0), 0)
           .toFixed(3),
       );
-      if (Math.abs(pmv2CartQuantity - pmv2Handoff.quantity) > 0.0005) {
-        toast.error(`يجب تحويل كامل النقص المرتبط بالمهمة (${pmv2Handoff.quantity} ${pmv2Handoff.unit || "وحدة"}) في هذه العملية`);
+      if (Math.abs(materialCartQuantity - materialHandoff.quantity) > 0.0005) {
+        toast.error(`يجب تحويل كامل النقص المرتبط بالمهمة (${materialHandoff.quantity} ${materialHandoff.unit || "وحدة"}) في هذه العملية`);
         return;
       }
     }
 
     setIsSubmitting(true);
     try {
-      const res = await createBatchMut.mutateAsync({
+      const form = {
         fromWarehouseId: Number(fromWarehouseId),
         toWarehouseId: Number(toWarehouseId),
         notes: operationNotes.trim() || undefined,
@@ -391,17 +401,23 @@ export default function WarehouseTransfer() {
           quantity: c.quantity,
           lotTrackingToken: lotsEnabled ? c.lotTrackingToken : undefined,
           notes:
-            pmv2Handoff && c.pmv2MaterialRequestItemId === pmv2Handoff.requestItemId
-              ? buildPmv2TransferNote(c.notes, pmv2Handoff)
+            materialHandoff && c.materialNeedId === materialHandoff.requestItemId
+              ? buildMaterialTransferNote(c.notes, materialHandoff)
               : c.notes,
         })),
-      });
+      };
+      const fingerprint = JSON.stringify(form);
+      if (materialHandoff?.source === "tickets" && ticketOperation.current?.fingerprint !== fingerprint) ticketOperation.current = { fingerprint, key: 'mtt:' + crypto.randomUUID() };
+      const res = materialHandoff?.source === "tickets"
+        ? await utils.client.ticketTeamExecution.transferFromForm.mutate({ assignmentId: materialHandoff.requestId, needId: materialHandoff.requestItemId, expectedRevision: materialHandoff.revision!, operationKey: ticketOperation.current!.key, form: { ...form, items: form.items.map(item => ({ ...item, lotTrackingToken: item.lotTrackingToken! })) } })
+        : await createBatchMut.mutateAsync(form);
+      if (materialHandoff?.source === "tickets") setMaterialTransferPosted(true);
 
       const resultsWithNames = res.results.map((r: any, idx: number) => ({
         ...r,
         itemName: cart[idx]?.itemName || `صنف #${r.fromInventoryId}`,
         lotCode: r.lotCode || cart[idx]?.lotCode || null,
-        pmv2MaterialRequestItemId: cart[idx]?.pmv2MaterialRequestItemId,
+        materialNeedId: cart[idx]?.materialNeedId,
       }));
       setLastResult({ batchNumber: res.batchNumber, results: resultsWithNames });
 
@@ -417,27 +433,27 @@ export default function WarehouseTransfer() {
       }
       refetchCards();
 
-      const pmv2TransferNumbers = resultsWithNames
+      const materialTransferNumbers = resultsWithNames
         .filter(
           (result: any) =>
             result.success &&
-            result.pmv2MaterialRequestItemId === pmv2Handoff?.requestItemId &&
+            result.materialNeedId === materialHandoff?.requestItemId &&
             result.transferNumber,
         )
         .map((result: any) => String(result.transferNumber));
-      if (pmv2Handoff && pmv2TransferNumbers.length > 0) {
+      if (materialHandoff?.source === "pmv2" && materialTransferNumbers.length > 0) {
         // The physical stock move already happened. Freeze this handoff immediately,
         // even if the PM V2 projection link fails, so a stale URL/context cannot
         // be reused for a second transfer before the queue rechecks the remaining need.
-        setPmv2TransferPosted(true);
+        setMaterialTransferPosted(true);
         setCart([]);
         setFoundItem(null);
         setTransferLotInfo(null);
         setQty("");
         setSearchQuery("");
-        await linkPmv2Transfers({
-          requestItemId: pmv2Handoff.requestItemId,
-          transferNumbers: pmv2TransferNumbers,
+        await linkMaterialTransfers({
+          requestItemId: materialHandoff.requestItemId,
+          transferNumbers: materialTransferNumbers,
         });
       }
     } catch (err: any) {
@@ -504,34 +520,34 @@ export default function WarehouseTransfer() {
         </div>
       </div>
 
-      {pmv2Handoff && pmv2TransferPosted && (
+      {materialHandoff && materialTransferPosted && (
         <Card className="border-amber-300 bg-amber-50/70">
           <CardContent className="p-4 text-sm text-amber-900">
             <p className="font-semibold">تم تنفيذ تحويل من هذا السياق</p>
             <p className="mt-1">
-              ارجع إلى طلبات مواد PM V2 لإعادة فحص الكمية المتبقية والرصيد الحالي قبل بدء تحويل آخر.
+              {materialHandoff.source === "tickets" ? "ارجع إلى مواد تذاكر الصيانة لإعادة فحص الرصيد قبل بدء تحويل آخر." : "ارجع إلى طلبات مواد PM V2 لإعادة فحص الكمية المتبقية والرصيد الحالي قبل بدء تحويل آخر."}
             </p>
             <Button
               type="button"
               variant="outline"
               className="mt-3 w-full border-amber-300"
-              onClick={() => navigate("/scheduled-maintenance/warehouse-requests")}
+              onClick={() => navigate(materialHandoff?.source === "tickets" ? `/scheduled-maintenance/warehouse-requests?source=tickets&ticketId=${materialHandoff.ticketId}` : "/scheduled-maintenance/warehouse-requests")}
             >
-              العودة إلى طلبات مواد PM V2 وإعادة الفحص
+              {materialHandoff.source === "tickets" ? "العودة إلى مواد تذاكر الصيانة وإعادة الفحص" : "العودة إلى طلبات مواد PM V2 وإعادة الفحص"}
             </Button>
           </CardContent>
         </Card>
       )}
 
-      {pmv2Handoff && (
+      {materialHandoff && (
         <Card className="border-blue-200 bg-blue-50/60">
           <CardContent className="p-4 text-sm text-blue-900">
-            <p className="font-semibold">تحويل مرتبط بطلب مواد PM V2</p>
+            <p className="font-semibold">{materialHandoff.source === "tickets" ? "تحويل مرتبط بمواد تذكرة الصيانة" : "تحويل مرتبط بطلب مواد PM V2"}</p>
             <p className="mt-1">
-              المهمة {pmv2Handoff.taskNumber} — {pmv2Handoff.materialName}
+              المهمة {materialHandoff.taskNumber} — {materialHandoff.materialName}
             </p>
             <p className="mt-1 text-xs">
-              الكمية المطلوب تحويلها كاملة الآن: {pmv2Handoff.quantity} {pmv2Handoff.unit || "وحدة"}. يمكنك تقسيمها على أكثر من Lot داخل نفس العملية، لكن يجب أن يساوي الإجمالي كامل النقص.
+              الكمية المطلوب تحويلها كاملة الآن: {materialHandoff.quantity} {materialHandoff.unit || "وحدة"}. يمكنك تقسيمها على أكثر من Lot داخل نفس العملية، لكن يجب أن يساوي الإجمالي كامل النقص.
             </p>
           </CardContent>
         </Card>
@@ -557,7 +573,7 @@ export default function WarehouseTransfer() {
                   <Select
                     value={fromWarehouseId}
                     onValueChange={(v) => { setFromWarehouseId(v); setCart([]); setFoundItem(null); setTransferLotInfo(null); setSearchQuery(""); }}
-                    disabled={!!pmv2Handoff || cart.length > 0}
+                    disabled={!!materialHandoff || cart.length > 0}
                   >
                     <SelectTrigger><SelectValue placeholder="اختر المخزن المصدر" /></SelectTrigger>
                     <SelectContent>
@@ -569,7 +585,7 @@ export default function WarehouseTransfer() {
                 </div>
                 <div className="space-y-1.5">
                   <Label className="text-xs">إلى مخزن *</Label>
-                  <Select value={toWarehouseId} onValueChange={setToWarehouseId} disabled={!!pmv2Handoff}>
+                  <Select value={toWarehouseId} onValueChange={setToWarehouseId} disabled={!!materialHandoff}>
                     <SelectTrigger><SelectValue placeholder="اختر المخزن الهدف" /></SelectTrigger>
                     <SelectContent>
                       {(warehousesList as any[] || [])
@@ -666,7 +682,7 @@ export default function WarehouseTransfer() {
                                 <p>المتاح فعلياً للتحويل الآن: <strong className="text-foreground">{remainingBalance(foundItem)} {foundItem.unit}</strong></p>
                               </div>
                             </div>
-                            {!pmv2Handoff && (
+                            {!materialHandoff && (
                               <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => { setFoundItem(null); setTransferLotInfo(null); setQty(""); setItemNotes(""); }}>
                                 <X className="w-3.5 h-3.5" />
                               </Button>
@@ -725,9 +741,9 @@ export default function WarehouseTransfer() {
                               <AlertTriangle className="w-3 h-3" /> أكبر من رصيد الدفعة الممسوحة
                             </p>
                           )}
-                          {pmv2Handoff && qty && parseFloat(qty) > Number(remainingPmv2HandoffQuantity() || 0) && (
+                          {materialHandoff && qty && parseFloat(qty) > Number(remainingPmv2HandoffQuantity() || 0) && (
                             <p className="text-xs text-destructive flex items-center gap-1">
-                              <AlertTriangle className="w-3 h-3" /> أكبر من الكمية القابلة للتحويل لهذا طلب PM V2
+                              <AlertTriangle className="w-3 h-3" /> {materialHandoff.source === "tickets" ? "أكبر من كمية احتياج التذكرة القابلة للتحويل" : "أكبر من الكمية القابلة للتحويل لهذا طلب PM V2"}
                             </p>
                           )}
                         </div>
@@ -741,7 +757,7 @@ export default function WarehouseTransfer() {
                           className="w-full gap-2"
                           variant="outline"
                           onClick={addItemToCart}
-                          disabled={pmv2TransferPosted || resolveTransferLotMut.isPending || (lotsEnabled && !transferLotInfo)}
+                          disabled={materialTransferPosted || resolveTransferLotMut.isPending || (lotsEnabled && !transferLotInfo)}
                         >
                           <Plus className="w-4 h-4" /> إضافة هذا الصنف للعملية
                         </Button>
@@ -766,9 +782,9 @@ export default function WarehouseTransfer() {
                             {item.lotCode ? ` — الدفعة: ${item.lotCode}` : ""}
                             {item.notes ? ` — ${item.notes}` : ""}
                           </p>
-                          {item.pmv2MaterialRequestItemId && (
+                          {item.materialNeedId && (
                             <Badge variant="outline" className="mt-1 border-blue-200 bg-blue-50 text-blue-700">
-                              مرتبط بطلب PM V2
+                              {materialHandoff?.source === "tickets" ? "مرتبط بتذكرة الصيانة" : "مرتبط بطلب PM V2"}
                             </Badge>
                           )}
                         </div>
@@ -789,7 +805,7 @@ export default function WarehouseTransfer() {
                 />
               </div>
 
-              <Button className="w-full gap-1.5" onClick={handleSubmitAll} disabled={pmv2TransferPosted || isSubmitting || cart.length === 0}>
+              <Button className="w-full gap-1.5" onClick={handleSubmitAll} disabled={materialTransferPosted || isSubmitting || cart.length === 0}>
                 {isSubmitting
                   ? <Loader2 className="w-4 h-4 animate-spin" />
                   : <><ArrowLeftRight className="w-4 h-4" /> تنفيذ تحويل {cart.length > 0 ? `(${cart.length} ${lotsEnabled ? "بند" : "صنف"})` : ""}</>}
@@ -808,26 +824,26 @@ export default function WarehouseTransfer() {
                       <span className="text-muted-foreground">— {r.message}</span>
                     </div>
                   ))}
-                  {pmv2LinkRetry && (
+                  {materialLinkRetry && (
                     <Button
                       type="button"
                       variant="outline"
                       className="w-full"
                       disabled={linkConfirmedPmv2TransfersMut.isPending}
-                      onClick={() => linkPmv2Transfers(pmv2LinkRetry)}
+                      onClick={() => linkMaterialTransfers(materialLinkRetry)}
                     >
                       {linkConfirmedPmv2TransfersMut.isPending && <Loader2 className="ml-2 h-4 w-4 animate-spin" />}
                       إعادة ربط التحويل بطلب PM V2
                     </Button>
                   )}
-                  {pmv2Handoff && (
+                  {materialHandoff && (
                     <Button
                       type="button"
                       variant="outline"
                       className="w-full"
-                      onClick={() => navigate("/scheduled-maintenance/warehouse-requests")}
+                      onClick={() => navigate(materialHandoff?.source === "tickets" ? `/scheduled-maintenance/warehouse-requests?source=tickets&ticketId=${materialHandoff.ticketId}` : "/scheduled-maintenance/warehouse-requests")}
                     >
-                      العودة إلى طلبات مواد PM V2
+                      {materialHandoff.source === "tickets" ? "العودة إلى مواد تذاكر الصيانة" : "العودة إلى طلبات مواد PM V2"}
                     </Button>
                   )}
                 </div>

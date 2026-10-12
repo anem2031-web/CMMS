@@ -1,3 +1,4 @@
+import { pmv2ExecutionActor, pmv2ExecutionActorCondition, pmv2ExecutionTeamCondition } from "../security/execution-access";
 import { and, desc, eq, ne, sql } from "drizzle-orm";
 import {
   assets,
@@ -6,7 +7,6 @@ import {
   pmv2TaskItems,
   pmv2Tasks,
   pmv2TaskTicketLinks,
-  pmv2TeamMembers,
   sections,
   tickets,
 } from "../../../drizzle/schema";
@@ -45,14 +45,9 @@ async function loadSource(db: any, userId: number, taskItemId: number) {
     .innerJoin(pmv2Tasks, eq(pmv2Tasks.id, pmv2TaskItems.taskId))
     .innerJoin(pmv2ProgramTargets, eq(pmv2ProgramTargets.id, pmv2Tasks.programTargetId))
     .innerJoin(
-      pmv2TeamMembers,
-      and(
-        eq(pmv2TeamMembers.teamId, pmv2Tasks.teamId),
-        eq(pmv2TeamMembers.userId, userId),
-        eq(pmv2TeamMembers.isActive, 1),
-      ),
+      pmv2ExecutionActor, pmv2ExecutionActorCondition(userId),
     )
-    .where(eq(pmv2TaskItems.id, taskItemId))
+    .where(and(pmv2ExecutionTeamCondition(userId, pmv2Tasks.teamId), eq(pmv2TaskItems.id, taskItemId)))
     .limit(1);
 
   const row = rows[0];

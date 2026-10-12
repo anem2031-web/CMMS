@@ -153,7 +153,7 @@ export default function Assets() {
   const openEdit = (asset: any) => {
     setEditId(asset.id);
     setForm({
-      name: asset.name ?? "",
+      name: asset.sourceName ?? asset.name ?? "",
       description: asset.description ?? "",
       category: asset.category ?? "",
       brand: asset.brand ?? "",
@@ -683,7 +683,7 @@ export default function Assets() {
                   <span className="flex-1 text-sm">{c.name}</span>
                   <button
                     className="px-3 py-1 border rounded text-xs hover:bg-muted"
-                    onClick={() => { setEditCategoryId(c.id); setEditCategoryName(c.name); }}
+                    onClick={() => { setEditCategoryId(c.id); setEditCategoryName((c as any).sourceName || c.name); }}
                   >
                     تعديل
                   </button>

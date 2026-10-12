@@ -1,9 +1,9 @@
+import { pmv2ExecutionActor, pmv2ExecutionActorCondition, pmv2ExecutionTeamCondition } from "../security/execution-access";
 import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import {
   pmv2ItemActions,
   pmv2TaskItems,
   pmv2Tasks,
-  pmv2TeamMembers,
   pmv2VisitMembers,
   pmv2Visits,
 } from "../../../drizzle/schema";
@@ -130,15 +130,11 @@ export class Pmv2TechnicianExecutionService {
         .from(pmv2TaskItems)
         .innerJoin(pmv2Tasks, eq(pmv2Tasks.id, pmv2TaskItems.taskId))
         .innerJoin(
-          pmv2TeamMembers,
-          and(
-            eq(pmv2TeamMembers.teamId, pmv2Tasks.teamId),
-            eq(pmv2TeamMembers.userId, userId),
-            eq(pmv2TeamMembers.isActive, 1),
-          ),
+          pmv2ExecutionActor, pmv2ExecutionActorCondition(userId),
         )
         .where(
           and(
+            pmv2ExecutionTeamCondition(userId, pmv2Tasks.teamId),
             eq(pmv2Tasks.id, input.taskId),
             eq(pmv2TaskItems.id, input.taskItemId),
           ),
@@ -311,14 +307,9 @@ export class Pmv2TechnicianExecutionService {
         .from(pmv2TaskItems)
         .innerJoin(pmv2Tasks, eq(pmv2Tasks.id, pmv2TaskItems.taskId))
         .innerJoin(
-          pmv2TeamMembers,
-          and(
-            eq(pmv2TeamMembers.teamId, pmv2Tasks.teamId),
-            eq(pmv2TeamMembers.userId, userId),
-            eq(pmv2TeamMembers.isActive, 1),
-          ),
+          pmv2ExecutionActor, pmv2ExecutionActorCondition(userId),
         )
-        .where(and(eq(pmv2Tasks.id, input.taskId), eq(pmv2TaskItems.id, input.taskItemId)))
+        .where(and(pmv2ExecutionTeamCondition(userId, pmv2Tasks.teamId), eq(pmv2Tasks.id, input.taskId), eq(pmv2TaskItems.id, input.taskItemId)))
         .limit(1);
 
       const row = accessible[0];
@@ -464,15 +455,11 @@ export class Pmv2TechnicianExecutionService {
         .from(pmv2TaskItems)
         .innerJoin(pmv2Tasks, eq(pmv2Tasks.id, pmv2TaskItems.taskId))
         .innerJoin(
-          pmv2TeamMembers,
-          and(
-            eq(pmv2TeamMembers.teamId, pmv2Tasks.teamId),
-            eq(pmv2TeamMembers.userId, userId),
-            eq(pmv2TeamMembers.isActive, 1),
-          ),
+          pmv2ExecutionActor, pmv2ExecutionActorCondition(userId),
         )
         .where(
           and(
+            pmv2ExecutionTeamCondition(userId, pmv2Tasks.teamId),
             eq(pmv2Tasks.id, input.taskId),
             eq(pmv2TaskItems.id, input.taskItemId),
           ),
@@ -671,15 +658,11 @@ export class Pmv2TechnicianExecutionService {
         .from(pmv2TaskItems)
         .innerJoin(pmv2Tasks, eq(pmv2Tasks.id, pmv2TaskItems.taskId))
         .innerJoin(
-          pmv2TeamMembers,
-          and(
-            eq(pmv2TeamMembers.teamId, pmv2Tasks.teamId),
-            eq(pmv2TeamMembers.userId, userId),
-            eq(pmv2TeamMembers.isActive, 1),
-          ),
+          pmv2ExecutionActor, pmv2ExecutionActorCondition(userId),
         )
         .where(
           and(
+            pmv2ExecutionTeamCondition(userId, pmv2Tasks.teamId),
             eq(pmv2Tasks.id, input.taskId),
             eq(pmv2TaskItems.id, input.taskItemId),
           ),
@@ -853,14 +836,9 @@ export class Pmv2TechnicianExecutionService {
         })
         .from(pmv2Tasks)
         .innerJoin(
-          pmv2TeamMembers,
-          and(
-            eq(pmv2TeamMembers.teamId, pmv2Tasks.teamId),
-            eq(pmv2TeamMembers.userId, userId),
-            eq(pmv2TeamMembers.isActive, 1),
-          ),
+          pmv2ExecutionActor, pmv2ExecutionActorCondition(userId),
         )
-        .where(eq(pmv2Tasks.id, input.taskId))
+        .where(and(pmv2ExecutionTeamCondition(userId, pmv2Tasks.teamId), eq(pmv2Tasks.id, input.taskId)))
         .limit(1);
 
       const row = accessible[0];

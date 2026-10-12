@@ -6,8 +6,10 @@ import { ticketsClosureRouter } from "./tickets.closure";
 import { ticketsExternalRouter } from "./tickets.external";
 import { ticketsPurchaseRouter } from "./tickets.purchase";
 import { ticketsHistoryRouter } from "./tickets.history";
+import { itTeamRouter } from "./it-team.router";
 
 export const ticketsMergedRouter = router({
+  ...itTeamRouter._def.procedures,
   ...ticketsRouter._def.procedures,
   ...ticketsWorkflowRouter._def.procedures,
   ...ticketsApprovalsRouter._def.procedures,

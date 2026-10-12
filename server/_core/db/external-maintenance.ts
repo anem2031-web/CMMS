@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, isNull } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/mysql-core";
 import {
   assets,
@@ -431,8 +431,9 @@ export async function handoverExternalMaintenanceAsset(input: {
   warehouseUserId: number;
   actualRecipientId: number;
   notes?: string;
-}) {
-  return withTransaction(async (tx) => {
+}, existingTx?: any) {
+  const executeHandover = async (tx: any) => {
+    await tx.execute(sql`SELECT id FROM external_maintenance_jobs WHERE id=${input.jobId} FOR UPDATE`);
     const rows = await tx.select().from(externalMaintenanceJobs)
       .where(eq(externalMaintenanceJobs.id, input.jobId)).limit(1);
     const job = rows[0];
@@ -450,7 +451,16 @@ export async function handoverExternalMaintenanceAsset(input: {
       ? await tx.select().from(ticketItems).where(eq(ticketItems.id, job.ticketItemId)).limit(1)
       : [];
     const item = itemRows[0];
-    const assignedTechnicianId = item?.assignedToId ?? ticket?.assignedToId;
+    let assignedTechnicianId = item?.assignedToId ?? ticket?.assignedToId;
+    // Team tickets keep their independent assignment. A real recipient must be an active team technician.
+    if (ticket?.workflowModel === "sub_ticket" && item) {
+      const [teamRows] = await tx.execute(sql`SELECT a.id,a.teamId FROM ticket_team_assignments a WHERE a.ticketId=${ticket.id} AND a.ticketItemId=${item.id} FOR UPDATE`);
+      if (teamRows.length) {
+        const [members] = await tx.execute(sql`SELECT u.id FROM maintenance_team_members m INNER JOIN maintenance_teams t ON t.id=m.teamId INNER JOIN users u ON u.id=m.userId WHERE m.teamId=${Number(teamRows[0].teamId)} AND m.userId=${input.actualRecipientId} AND m.isActive=1 AND t.isActive=1 AND u.isActive=1 AND u.role='technician' FOR UPDATE`);
+        if (!members.length) throw new Error("المستلم الفعلي يجب أن يكون فنيًا نشطًا في فريق البلاغ");
+        assignedTechnicianId = input.actualRecipientId;
+      }
+    }
     if (!assignedTechnicianId) throw new Error("EXTERNAL_TICKET_ASSIGNED_TECHNICIAN_REQUIRED");
 
     const handoverDocumentNumber = documentNumber("HND", job.id);
@@ -500,5 +510,6 @@ export async function handoverExternalMaintenanceAsset(input: {
     } as any);
 
     return { job, ticket, handoverDocumentNumber };
-  });
+  };
+  return existingTx ? executeHandover(existingTx) : withTransaction(executeHandover);
 }

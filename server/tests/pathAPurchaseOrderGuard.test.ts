@@ -42,7 +42,7 @@ describe("Path A purchase-order guard", () => {
     const caller = appRouter.createCaller(createContext());
     await expect(caller.purchaseOrders.create({
       ticketId: 501,
-      items: [{ itemName: "قطعة غيار", quantity: 1 }],
+      items: [{ itemName: "قطعة غيار", requiredDate: "2026-10-08", quantity: 1 }],
     })).rejects.toThrow("المسار B");
     expect(db.getNextPONumber).not.toHaveBeenCalled();
   });
@@ -51,7 +51,7 @@ describe("Path A purchase-order guard", () => {
     const caller = appRouter.createCaller(createContext());
     await expect(caller.purchaseOrders.saveDraft({
       ticketId: 501,
-      items: [{ itemName: "قطعة غيار", quantity: 1 }],
+      items: [{ itemName: "قطعة غيار", requiredDate: "2026-10-08", quantity: 1 }],
     })).rejects.toThrow("المسار B");
     expect(db.getNextPONumber).not.toHaveBeenCalled();
   });

@@ -1,0 +1,14 @@
+IT notification update
+======================
+
+Behavior:
+- Active IT_MANAGER and all active IT_MEMBER users receive the same maintenance-ticket arrival notification.
+- The notification is still emitted only through the existing IT arrival event: it_ticket_arrival.
+- Both IT_MANAGER and IT_MEMBER notification inboxes are filtered to the same event only.
+- Other purchase/SLA/closure/warehouse/general notifications remain blocked for both IT roles.
+
+Focused tests:
+- 20/20 passed via node --test on the three IT notification/workflow test files.
+
+TypeScript check:
+- Could not complete because the provided runtime is missing type definition packages for node and vite/client.

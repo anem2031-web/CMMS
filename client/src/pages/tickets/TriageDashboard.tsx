@@ -85,6 +85,7 @@ export default function TriageDashboard() {
   // Inspection assignment requires a system user account so the technician can record the result.
   const { data: userTechniciansList = [] } = trpc.users.listTechnicians.useQuery();
   const { data: sites = [] } = trpc.sites.list.useQuery();
+  const { data: centerCategories = [] } = trpc.centerCategories.list.useQuery({ activeOnly: false });
 
   // ── Active view (card click) ──────────────────────────────────────────────
   const [activeView, setActiveView] = useState<ActiveView>("all_pending");
@@ -125,6 +126,7 @@ export default function TriageDashboard() {
   const emptyMultiAssignments = () => ({
     [MAINTENANCE_RESPONSIBLE_DEPARTMENT.GENERAL]: { selected: false, managerId: "", organizationalTitle: "" },
     [MAINTENANCE_RESPONSIBLE_DEPARTMENT.CONSTRUCTION]: { selected: false, managerId: "", organizationalTitle: "" },
+    [MAINTENANCE_RESPONSIBLE_DEPARTMENT.IT]: { selected: false, managerId: "", organizationalTitle: "" },
   });
 
   const updateAssignment = (dept: string, patch: Partial<{ selected: boolean; managerId: string; organizationalTitle: string }>) =>
@@ -179,8 +181,10 @@ export default function TriageDashboard() {
   const inspectionTickets = inspectionTicketsRaw.filter((ticket: any) =>
     ticket.maintenanceResponsibleDepartment !== MAINTENANCE_RESPONSIBLE_DEPARTMENT.CONSTRUCTION
   );
-  const managersForDepartment = (department: string) =>
-    department === MAINTENANCE_RESPONSIBLE_DEPARTMENT.CONSTRUCTION ? constructionManagers : generalManagers;
+  const managersForDepartment = (department: string) => {
+    if (department === MAINTENANCE_RESPONSIBLE_DEPARTMENT.IT) return [];
+    return department === MAINTENANCE_RESPONSIBLE_DEPARTMENT.CONSTRUCTION ? constructionManagers : generalManagers;
+  };
 
   const criticalPending = useMemo(
     () => pendingTickets.filter((t: any) => t.priority === "critical"),
@@ -195,13 +199,27 @@ export default function TriageDashboard() {
     return pendingTickets;
   }, [activeView, pendingTickets, inspectionTickets, criticalPending]);
 
+  const legacyCategoriesPresent = useMemo(() => {
+    const keys = new Set<string>();
+    for (const ticket of baseTickets as any[]) {
+      if (!ticket.categoryId && ticket.category) keys.add(ticket.category);
+    }
+    return Array.from(keys);
+  }, [baseTickets]);
+
   // Apply local filters
   const filteredTickets = useMemo(() => {
     return baseTickets.filter((ticket: any) => {
       if (searchText && !ticket.title?.toLowerCase().includes(searchText.toLowerCase()) &&
           !ticket.ticketNumber?.toLowerCase().includes(searchText.toLowerCase())) return false;
       if (filterSiteId !== "all" && ticket.siteId !== parseInt(filterSiteId)) return false;
-      if (filterCategory !== "all" && ticket.category !== filterCategory) return false;
+      if (filterCategory !== "all") {
+        if (filterCategory.startsWith("center:")) {
+          if (Number(ticket.categoryId) !== Number(filterCategory.slice("center:".length))) return false;
+        } else if (filterCategory.startsWith("legacy:")) {
+          if (ticket.categoryId || ticket.category !== filterCategory.slice("legacy:".length)) return false;
+        }
+      }
       if (filterPriority !== "all" && ticket.priority !== filterPriority) return false;
       return true;
     });
@@ -250,11 +268,11 @@ export default function TriageDashboard() {
     }
     for (const [dept, v] of selectedDepartments) {
       const mgrs = managersForDepartment(dept);
-      if (mgrs.length === 0) {
+      if (dept !== MAINTENANCE_RESPONSIBLE_DEPARTMENT.IT && mgrs.length === 0) {
         toast.error(t.workflow.ticket.noActiveDepartmentManager);
         return;
       }
-      if (mgrs.length > 1 && !v.managerId) {
+      if (dept !== MAINTENANCE_RESPONSIBLE_DEPARTMENT.IT && mgrs.length > 1 && !v.managerId) {
         toast.error(t.workflow.ticket.chooseEveryDepartmentManager);
         return;
       }
@@ -272,9 +290,11 @@ export default function TriageDashboard() {
         const mgrs = managersForDepartment(dept);
         return {
           department: dept as any,
-          responsibleManagerId: v.managerId
-            ? parseInt(v.managerId)
-            : mgrs.length === 1 ? mgrs[0].id : undefined,
+          responsibleManagerId: dept === MAINTENANCE_RESPONSIBLE_DEPARTMENT.IT
+            ? undefined
+            : v.managerId
+              ? parseInt(v.managerId)
+              : mgrs.length === 1 ? mgrs[0].id : undefined,
           organizationalTitle: dept === MAINTENANCE_RESPONSIBLE_DEPARTMENT.CONSTRUCTION ? v.organizationalTitle.trim() : undefined,
         };
       }),
@@ -492,8 +512,15 @@ export default function TriageDashboard() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">📋 {t.workflow.ticket.allCategories}</SelectItem>
-                  {Object.entries(CATEGORY_LABELS).map(([key, label]) => (
-                    <SelectItem key={key} value={key}>{label}</SelectItem>
+                  {(centerCategories as any[]).map((category: any) => (
+                    <SelectItem key={`center-${category.id}`} value={`center:${category.id}`}>
+                      {category.name}{!category.isActive ? " (معطّل)" : ""}
+                    </SelectItem>
+                  ))}
+                  {legacyCategoriesPresent.map((key) => (
+                    <SelectItem key={`legacy-${key}`} value={`legacy:${key}`}>
+                      {categoryLabels[key] || key} (تاريخي)
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -594,9 +621,9 @@ export default function TriageDashboard() {
                       <Badge className={`text-xs ${PRIORITY_COLORS[ticket.priority] || "bg-gray-100 text-gray-700"}`}>
                         {priorityLabels[ticket.priority] || ticket.priority}
                       </Badge>
-                      {ticket.category && (
-                        <Badge className={`text-xs ${CATEGORY_BADGE_COLORS[ticket.category] || "bg-gray-100 text-gray-700"}`}>
-                          {categoryLabels[ticket.category] || ticket.category}
+                      {(ticket.categoryId || ticket.category) && (
+                        <Badge className={`text-xs ${ticket.centerCategorySystemKey === "it" ? CATEGORY_BADGE_COLORS.it : (CATEGORY_BADGE_COLORS[ticket.category] || "bg-gray-100 text-gray-700")}`}>
+                          {ticket.centerCategoryName || categoryLabels[ticket.category] || ticket.category}
                         </Badge>
                       )}
                     </div>
@@ -771,6 +798,7 @@ export default function TriageDashboard() {
                   {[
                     { key: MAINTENANCE_RESPONSIBLE_DEPARTMENT.GENERAL, label: t.workflow.ticket.departmentGeneral },
                     { key: MAINTENANCE_RESPONSIBLE_DEPARTMENT.CONSTRUCTION, label: t.workflow.ticket.departmentConstruction },
+                    { key: MAINTENANCE_RESPONSIBLE_DEPARTMENT.IT, label: t.workflow.ticket.departmentIt },
                   ].map(({ key, label }) => {
                     const a = multiAssignments[key] || { selected: false, managerId: "", organizationalTitle: "" };
                     const mgrs = managersForDepartment(key);
@@ -802,6 +830,8 @@ export default function TriageDashboard() {
                               </>
                             ) : mgrs.length === 1 ? (
                               <p className="text-xs text-muted-foreground">{t.workflow.ticket.departmentManagerColon} {mgrs[0].name || mgrs[0].username}</p>
+                            ) : key === MAINTENANCE_RESPONSIBLE_DEPARTMENT.IT ? (
+                              <p className="text-xs text-sky-700 dark:text-sky-300">{t.workflow.ticket.itAutoAssigned}</p>
                             ) : null}
                             {key === MAINTENANCE_RESPONSIBLE_DEPARTMENT.CONSTRUCTION && (
                               <div className="space-y-1">
@@ -956,6 +986,7 @@ export default function TriageDashboard() {
                   {[
                     { key: MAINTENANCE_RESPONSIBLE_DEPARTMENT.GENERAL, label: t.workflow.ticket.departmentGeneral },
                     { key: MAINTENANCE_RESPONSIBLE_DEPARTMENT.CONSTRUCTION, label: t.workflow.ticket.departmentConstruction },
+                    { key: MAINTENANCE_RESPONSIBLE_DEPARTMENT.IT, label: t.workflow.ticket.departmentIt },
                   ].map(({ key, label }) => {
                     const a = multiAssignments[key] || { selected: false, managerId: "", organizationalTitle: "" };
                     const mgrs = managersForDepartment(key);
@@ -987,6 +1018,8 @@ export default function TriageDashboard() {
                               </>
                             ) : mgrs.length === 1 ? (
                               <p className="text-xs text-muted-foreground">{t.workflow.ticket.departmentManagerColon} {mgrs[0].name || mgrs[0].username}</p>
+                            ) : key === MAINTENANCE_RESPONSIBLE_DEPARTMENT.IT ? (
+                              <p className="text-xs text-sky-700 dark:text-sky-300">{t.workflow.ticket.itAutoAssigned}</p>
                             ) : null}
                             {key === MAINTENANCE_RESPONSIBLE_DEPARTMENT.CONSTRUCTION && (
                               <div className="space-y-1">

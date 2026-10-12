@@ -214,36 +214,76 @@ export async function exportAuditLogToExcel(filters?: any): Promise<Buffer> {
 // ============================================================
 // INVENTORY EXPORT
 // ============================================================
-export async function exportInventoryToExcel(): Promise<Buffer> {
-  const items = await db.getInventoryItems();
+export async function exportInventoryToExcel(options?: { itemIds?: number[] }): Promise<Buffer> {
+  const [inventoryItems, taxonomyRows] = await Promise.all([
+    db.getInventoryItems(),
+    db.getInventoryCatalogTaxonomy(),
+  ]);
+
+  const taxonomyByInventoryId = new Map<number, any>(
+    (taxonomyRows as any[]).map((row: any) => [Number(row.inventoryId), row]),
+  );
+  const mergedItems = (inventoryItems as any[]).map((item: any) => ({
+    ...item,
+    ...(taxonomyByInventoryId.get(Number(item.id)) || {}),
+  }));
+
+  // عند استدعاء التصدير من صفحة Inventory ترسل الواجهة معرّفات النتائج
+  // بعد تطبيق كل الفلاتر والبحث والترتيب. نحافظ على نفس الترتيب حرفيًا.
+  let items = mergedItems;
+  if (options?.itemIds !== undefined) {
+    const itemById = new Map<number, any>(
+      mergedItems.map((item: any) => [Number(item.id), item]),
+    );
+    items = options.itemIds
+      .map(id => itemById.get(Number(id)))
+      .filter(Boolean) as any[];
+  }
+
   const workbook = new ExcelJS.Workbook();
   workbook.creator = "CMMS";
   workbook.created = new Date();
+  workbook.subject = "تقرير المخزون حسب النتائج الظاهرة في شاشة المستودع";
 
   const ws = workbook.addWorksheet("المخزون");
   addRtlSupport(ws);
 
+  // نفس أعمدة شاشة Inventory ونفس ترتيبها — بدون عمود الإجراءات.
   ws.columns = [
-    { header: "اسم الصنف", key: "name", width: 30 },
-    { header: "رقم القطعة", key: "partNumber", width: 18 },
-    { header: "الكمية", key: "quantity", width: 12 },
-    { header: "الحد الأدنى", key: "minQuantity", width: 15 },
-    { header: "الوحدة", key: "unit", width: 12 },
-    { header: "الموقع", key: "location", width: 20 },
-    { header: "تاريخ الإضافة", key: "createdAt", width: 22 },
+    { header: "الصنف", key: "itemName", width: 34 },
+    { header: "التصنيف", key: "category", width: 42 },
+    { header: "الكود", key: "code", width: 20 },
+    { header: "الرصيد", key: "quantity", width: 14 },
+    { header: "الوحدة", key: "unit", width: 14 },
+    { header: "آخر توريد", key: "lastSupply", width: 18 },
+    { header: "آخر صرف", key: "lastIssue", width: 18 },
+    { header: "آخر سعر شراء", key: "lastPurchasePrice", width: 20 },
   ];
   styleHeader(ws);
 
   items.forEach((item: any) => {
     ws.addRow({
-      name: item.itemName,
-      partNumber: item.partNumber || "-",
-      quantity: item.quantity,
-      minQuantity: item.minQuantity,
-      unit: item.unit,
-      location: item.location || "-",
-      createdAt: new Date(item.createdAt).toLocaleString("ar-SA"),
+      itemName: item.itemName || "—",
+      category: item.catalogCategoryPathAr || "غير مرتبط بالكتالوج",
+      code: item.internalCode || item.manufacturerBarcode || "—",
+      quantity: Number(item.quantity || 0),
+      unit: item.unit || item.issueUnit || "—",
+      lastSupply: item.invoiceDate ? new Date(item.invoiceDate).toLocaleDateString("ar-SA") : "—",
+      lastIssue: item.lastIssuedAt ? new Date(item.lastIssuedAt).toLocaleDateString("ar-SA") : "—",
+      lastPurchasePrice: item.lastPurchasePrice != null && item.lastPurchasePrice !== ""
+        ? Number(item.lastPurchasePrice)
+        : "—",
     });
+  });
+
+  // تحسينات Excel تشغيلية بدون تغيير البيانات: تثبيت العناوين + فلترة Excel مباشرة.
+  ws.views = [{ rightToLeft: true, state: "frozen", ySplit: 1 }];
+  ws.autoFilter = { from: "A1", to: "H1" };
+  ws.getColumn("lastPurchasePrice").numFmt = '#,##0.00 "ر.س"';
+
+  ws.eachRow((row, rowNumber) => {
+    row.alignment = { vertical: "middle", horizontal: rowNumber === 1 ? "center" : "right", wrapText: true };
+    if (rowNumber > 1) row.height = 24;
   });
 
   const buffer = await workbook.xlsx.writeBuffer();

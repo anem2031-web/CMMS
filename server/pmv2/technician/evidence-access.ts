@@ -1,9 +1,9 @@
 import { and, eq } from "drizzle-orm";
+import { pmv2ExecutionActor, pmv2ExecutionActorCondition, pmv2ExecutionTeamCondition } from "../security/execution-access";
 import {
   pmv2ItemActions,
   pmv2TaskItems,
   pmv2Tasks,
-  pmv2TeamMembers,
   pmv2Visits,
 } from "../../../drizzle/schema";
 import { getDb } from "../../_core/db/client";
@@ -39,11 +39,10 @@ async function requireDb() {
  *
  * Read:
  * - PM V2 managers may review evidence.
- * - Technicians must be active members of the current Task Team.
+ * - Technicians require active team membership; designated administrative executors may access all teams.
  *
  * Write:
- * - PM V2 execution role only (technician or scoped IT manager);
- * - active Task-Team membership;
+ * - an active account with execution access to the Task Team;
  * - the target Item Action must have been performed by the same technician;
  * - the Visit that owns that action must still be open.
  */
@@ -61,7 +60,8 @@ export async function assertPmv2ItemActionEvidenceAccess(
       visitId: pmv2ItemActions.visitId,
       visitEndedAt: pmv2Visits.endedAt,
       taskId: pmv2Tasks.id,
-      activeMemberId: pmv2TeamMembers.id,
+      teamId: pmv2Tasks.teamId,
+      executionActorId: pmv2ExecutionActor.id,
     })
     .from(pmv2ItemActions)
     .innerJoin(pmv2TaskItems, eq(pmv2TaskItems.id, pmv2ItemActions.taskItemId))
@@ -74,12 +74,7 @@ export async function assertPmv2ItemActionEvidenceAccess(
       ),
     )
     .leftJoin(
-      pmv2TeamMembers,
-      and(
-        eq(pmv2TeamMembers.teamId, pmv2Tasks.teamId),
-        eq(pmv2TeamMembers.userId, user.id),
-        eq(pmv2TeamMembers.isActive, 1),
-      ),
+      pmv2ExecutionActor, pmv2ExecutionActorCondition(user.id),
     )
     .where(eq(pmv2ItemActions.id, itemActionId))
     .limit(1);
@@ -89,7 +84,15 @@ export async function assertPmv2ItemActionEvidenceAccess(
 
   if (mode === "read" && canManagePmv2Foundation(user.role)) return row;
 
-  if (!canAccessPmv2TechnicianExecution(user.role) || !row.activeMemberId) {
+  if (!canAccessPmv2TechnicianExecution(user.role) || !row.executionActorId) {
+    throw new Pmv2EvidenceAccessError("ليس لديك صلاحية الوصول إلى دليل تنفيذ هذا البند");
+  }
+
+  // Keep the existing manager review exception and own-action/open-visit rules.
+  // The team proof belongs in WHERE, not in the optional actor JOIN ON.
+  const allowed = await db.select({ id: pmv2ExecutionActor.id }).from(pmv2ExecutionActor)
+    .where(pmv2ExecutionTeamCondition(user.id, Number(row.teamId))).limit(1);
+  if (!allowed[0]) {
     throw new Pmv2EvidenceAccessError("ليس لديك صلاحية الوصول إلى دليل تنفيذ هذا البند");
   }
 

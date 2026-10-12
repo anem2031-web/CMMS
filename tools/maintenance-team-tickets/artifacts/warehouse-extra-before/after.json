@@ -1,0 +1,42 @@
+[
+  {
+    "file": "client/src/pages/maintenance-teams/ExecutionPanel.tsx",
+    "hash": "6D4B2E49895A2CDE03F89CC9CCDE571E4DB61F590F00BD141353319E32978B51"
+  },
+  {
+    "file": "client/src/pages/purchase/CreatePurchaseOrder.tsx",
+    "hash": "B5B269CFAFB2D67687400720A0F613111988F384E201B3EB3FB65D6F1B5FBA3D"
+  },
+  {
+    "file": "server/maintenance-team-tickets/service.ts",
+    "hash": "16E9B28728539D4AD28D10CF6B1972E16AEE86F5F071B9594DDB09BC35AA9B8E"
+  },
+  {
+    "file": "server/maintenance-team-tickets/ports.ts",
+    "hash": "E293941E3117199C0D339CE43455E7EB6E9D73AAB890E8813F4747B966740806"
+  },
+  {
+    "file": "server/routers/maintenance-teams/purchase-form.ts",
+    "hash": "BE0BD105A10F63D3A732ED96D1BBEF585D6DBDCA35385442843FD69209D2E93B"
+  },
+  {
+    "file": "server/routers/purchase/purchase-orders.router.ts",
+    "hash": "2C77D4FEA8F57154EF90D3E5B7A68E59D6A9DAB3452E066EC97CF6215F930F88"
+  },
+  {
+    "file": "server/services/improvement-ideas/execution.ts",
+    "hash": "AAEA3D7E093C293DC3721F96D71091390E970601087639A0356BA472AFFBAA3D"
+  },
+  {
+    "file": "shared/improvement-execution.ts",
+    "hash": "5CAD8B31C7D38A8E61EB15B8D3605A6BB5D75910972E04F75BE8FF0B3AFEB3DA"
+  },
+  {
+    "file": "shared/maintenance-team-tickets/purchase-quantities.ts",
+    "hash": "51EE3F2F6EC6BA2D4D1C5BC59830B4259C1B8D520AC67B2A880E317CDFDBA19C"
+  },
+  {
+    "file": "client/src/pages/maintenance-teams/WarehousePurchaseQuantities.tsx",
+    "hash": "EBBA39CE473F945807FC54985E90A81B85130CE229A3539EBA76F140F374EF2D"
+  }
+]

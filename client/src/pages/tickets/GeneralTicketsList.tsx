@@ -111,9 +111,10 @@ export default function GeneralTicketsList() {
   const [editOpen, setEditOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [selectedTicket, setSelectedTicket] = useState<any>(null);
-  const [editData, setEditData] = useState({ title: "", description: "", priority: "", category: "" });
+  const [editData, setEditData] = useState({ title: "", description: "", priority: "", categoryId: "" });
 
   const { data: sites = [] } = trpc.sites.list.useQuery();
+  const { data: centerCategories = [] } = trpc.centerCategories.list.useQuery({ activeOnly: false });
   const { data: allSections } = trpc.sections.list.useQuery(undefined);
   const { data: userTechniciansList = [] } = trpc.users.listTechnicians.useQuery();
   const allTechnicians = userTechniciansList.map((u: any) => ({ id: u.id, name: u.name || u.email }));
@@ -189,7 +190,7 @@ export default function GeneralTicketsList() {
   const openEdit = (ticket: any, e: React.MouseEvent) => {
     e.stopPropagation();
     setSelectedTicket(ticket);
-    setEditData({ title: ticket.title, description: ticket.description || "", priority: ticket.priority, category: ticket.category });
+    setEditData({ title: ticket.title, description: ticket.description || "", priority: ticket.priority, categoryId: ticket.categoryId ? String(ticket.categoryId) : "" });
     setEditOpen(true);
   };
 
@@ -381,7 +382,7 @@ export default function GeneralTicketsList() {
                       </div>
                       <h3 className="font-medium text-sm truncate">{getField(ticket, "title")}</h3>
                       <div className="flex items-center gap-3 mt-1.5 text-xs text-muted-foreground flex-wrap">
-                        <span>{getCategoryLabel(ticket.category)}</span>
+                        <span>{ticket.centerCategoryName || getCategoryLabel(ticket.category)}</span>
                         <span>{new Date(ticket.createdAt).toLocaleDateString(locale)}</span>
                         {(ticket.assignedToUserName || ticket.assignedTechnicianName) && (
                           <span className="flex items-center gap-1 text-blue-600 dark:text-blue-400 font-medium">
@@ -581,11 +582,14 @@ export default function GeneralTicketsList() {
               </div>
               <div className="grid gap-2">
                 <Label>{t.tickets.category}</Label>
-                <Select value={editData.category} onValueChange={v => setEditData({ ...editData, category: v })}>
+                <Select value={editData.categoryId || "__legacy__"} onValueChange={v => setEditData({ ...editData, categoryId: v === "__legacy__" ? "" : v })}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    {Object.keys(t.category).map(k => (
-                      <SelectItem key={k} value={k}>{getCategoryLabel(k)}</SelectItem>
+                    {!selectedTicket?.categoryId && (
+                      <SelectItem value="__legacy__">{selectedTicket?.centerCategoryName || getCategoryLabel(selectedTicket?.category || "general")} (تاريخي)</SelectItem>
+                    )}
+                    {(centerCategories as any[]).filter((category: any) => category.isActive || Number(category.id) === Number(selectedTicket?.categoryId)).map((category: any) => (
+                      <SelectItem key={category.id} value={String(category.id)}>{category.name}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -594,7 +598,13 @@ export default function GeneralTicketsList() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditOpen(false)}>{t.common.cancel}</Button>
-            <Button onClick={() => updateMutation.mutate({ id: selectedTicket.id, ...editData })} disabled={updateMutation.isPending}>
+            <Button onClick={() => updateMutation.mutate({
+              id: selectedTicket.id,
+              title: editData.title,
+              description: editData.description,
+              priority: editData.priority,
+              categoryId: editData.categoryId ? Number(editData.categoryId) : undefined,
+            })} disabled={updateMutation.isPending}>
               {t.common.save}
             </Button>
           </DialogFooter>

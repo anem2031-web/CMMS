@@ -17,6 +17,7 @@ import {
   type InsertAsset, type InsertPreventivePlan, type PreventivePlan, type InsertPMWorkOrder,
   type InsertSection, type InsertInspectionResult,
   assetCategories,
+  centerCategories,
   procurementComments,
   type InsertProcurementComment,
   warehouseReceipts,
@@ -90,7 +91,7 @@ export async function createTicket(data: any, tx?: any) {
   return result[0].insertId;
 }
 
-type TicketListFilters = { status?: string; priority?: string; siteId?: number; sectionId?: number; assetId?: number; assignedToId?: number; assignedTechnicianId?: number; reportedById?: number; search?: string; category?: string; maintenanceResponsibleDepartment?: string; maintenanceResponsibleManagerId?: number; constructionManagerScopeUserId?: number; itManagerScopeUserId?: number };
+type TicketListFilters = { status?: string; priority?: string; siteId?: number; sectionId?: number; assetId?: number; assignedToId?: number; assignedTechnicianId?: number; reportedById?: number; search?: string; category?: string; categoryId?: number; maintenanceResponsibleDepartment?: string; maintenanceResponsibleManagerId?: number; constructionManagerScopeUserId?: number; itManagerScopeUserId?: number };
 
 // شرط الفلترة المشترك بين getTickets وgetTicketsInboxCounts وgetTicketsPaginated
 function buildTicketsWhere(filters?: TicketListFilters) {
@@ -131,17 +132,16 @@ function buildTicketsWhere(filters?: TicketListFilters) {
     const uid = filters.itManagerScopeUserId;
     const routedAtTicket = and(
       eq(tickets.maintenanceResponsibleDepartment, MAINTENANCE_RESPONSIBLE_DEPARTMENT.IT as any),
-      eq(tickets.maintenanceResponsibleManagerId, uid),
     );
     const assignedAtTicket = eq(tickets.assignedToId, uid);
     const routedAtItem = sql`EXISTS (SELECT 1 FROM \`ticket_items\` WHERE \`ticket_items\`.\`ticketId\` = ${tickets.id}
       AND \`ticket_items\`.\`responsibleDepartment\` = ${MAINTENANCE_RESPONSIBLE_DEPARTMENT.IT}
-      AND \`ticket_items\`.\`responsibleManagerId\` = ${uid})`;
+      )`;
     const assignedAtItem = sql`EXISTS (SELECT 1 FROM \`ticket_items\` WHERE \`ticket_items\`.\`ticketId\` = ${tickets.id}
       AND \`ticket_items\`.\`assignedToId\` = ${uid})`;
     const routedAtDepartment = sql`EXISTS (SELECT 1 FROM \`ticket_departments\` WHERE \`ticket_departments\`.\`ticketId\` = ${tickets.id}
       AND \`ticket_departments\`.\`department\` = ${MAINTENANCE_RESPONSIBLE_DEPARTMENT.IT}
-      AND \`ticket_departments\`.\`responsibleManagerId\` = ${uid})`;
+      )`;
     const assignedAtTask = sql`EXISTS (
       SELECT 1 FROM \`ticket_task_assignees\` tta
       INNER JOIN \`ticket_tasks\` tt ON tt.\`id\` = tta.\`taskId\`
@@ -206,7 +206,8 @@ function buildTicketsWhere(filters?: TicketListFilters) {
     like(tickets.titleEn, `%${filters.search}%`), like(tickets.titleUr, `%${filters.search}%`),
     like(tickets.ticketNumber, `%${filters.search}%`)
   ));
-  if (filters?.category) conditions.push(eq(tickets.category, filters.category as any));
+  if (filters?.categoryId) conditions.push(eq(tickets.categoryId, filters.categoryId));
+  else if (filters?.category) conditions.push(eq(tickets.category, filters.category as any));
   return conditions.length > 0 ? and(...conditions) : undefined;
 }
 
@@ -222,8 +223,11 @@ export async function getTickets(filters?: TicketListFilters) {
       ticket: tickets,
       technicianName: technicians.name,           // external technician name
       assignedUserName: assignedUser.name,         // internal user name
+      centerCategoryName: centerCategories.name,
+      centerCategorySystemKey: centerCategories.systemKey,
     })
     .from(tickets)
+    .leftJoin(centerCategories, eq(tickets.categoryId, centerCategories.id))
     .leftJoin(technicians, eq(tickets.assignedTechnicianId, technicians.id))
     .leftJoin(assignedUser, eq(tickets.assignedToId, assignedUser.id))
     .where(where)
@@ -232,6 +236,8 @@ export async function getTickets(filters?: TicketListFilters) {
     ...r.ticket,
     assignedTechnicianName: r.technicianName ?? null,   // legacy external path
     assignedToUserName: r.assignedUserName ?? null,     // Phase 4: internal path
+    centerCategoryName: r.centerCategoryName ?? null,
+    centerCategorySystemKey: r.centerCategorySystemKey ?? null,
   }));
 }
 
@@ -372,8 +378,11 @@ export async function getTicketsPaginated(
       technicianName: technicians.name,
       assignedUserName: assignedUser.name,
       reporterName: reporter.name,
+      centerCategoryName: centerCategories.name,
+      centerCategorySystemKey: centerCategories.systemKey,
     })
     .from(tickets)
+    .leftJoin(centerCategories, eq(tickets.categoryId, centerCategories.id))
     .leftJoin(technicians, eq(tickets.assignedTechnicianId, technicians.id))
     .leftJoin(assignedUser, eq(tickets.assignedToId, assignedUser.id))
     .leftJoin(reporter, eq(tickets.reportedById, reporter.id))
@@ -387,6 +396,8 @@ export async function getTicketsPaginated(
     assignedTechnicianName: r.technicianName ?? null,
     assignedToUserName: r.assignedUserName ?? null,
     reportedByName: r.reporterName ?? null,
+    centerCategoryName: r.centerCategoryName ?? null,
+    centerCategorySystemKey: r.centerCategorySystemKey ?? null,
   }));
 
   if (!groupSubTickets || mappedParents.length === 0) {
@@ -413,8 +424,11 @@ export async function getTicketsPaginated(
       technicianName: technicians.name,
       assignedUserName: childAssignedUser.name,
       reporterName: childReporter.name,
+      centerCategoryName: centerCategories.name,
+      centerCategorySystemKey: centerCategories.systemKey,
     })
     .from(tickets)
+    .leftJoin(centerCategories, eq(tickets.categoryId, centerCategories.id))
     .leftJoin(technicians, eq(tickets.assignedTechnicianId, technicians.id))
     .leftJoin(childAssignedUser, eq(tickets.assignedToId, childAssignedUser.id))
     .leftJoin(childReporter, eq(tickets.reportedById, childReporter.id))
@@ -429,6 +443,8 @@ export async function getTicketsPaginated(
       assignedTechnicianName: row.technicianName ?? null,
       assignedToUserName: row.assignedUserName ?? null,
       reportedByName: row.reporterName ?? null,
+      centerCategoryName: row.centerCategoryName ?? null,
+      centerCategorySystemKey: row.centerCategorySystemKey ?? null,
     };
     const bucket = childrenByParent.get(row.ticket.parentTicketId) || [];
     bucket.push(child);
@@ -450,8 +466,22 @@ export async function getTicketsPaginated(
 export async function getTicketById(id: number, tx?: any) {
   const db = tx || await getDb();
   if (!db) return null;
-  const result = await db.select().from(tickets).where(eq(tickets.id, id)).limit(1);
-  return result[0] || null;
+  const rows = await db
+    .select({
+      ticket: tickets,
+      centerCategoryName: centerCategories.name,
+      centerCategorySystemKey: centerCategories.systemKey,
+    })
+    .from(tickets)
+    .leftJoin(centerCategories, eq(tickets.categoryId, centerCategories.id))
+    .where(eq(tickets.id, id))
+    .limit(1);
+  const row = rows[0];
+  return row ? {
+    ...row.ticket,
+    centerCategoryName: row.centerCategoryName ?? null,
+    centerCategorySystemKey: row.centerCategorySystemKey ?? null,
+  } : null;
 }
 
 /**
@@ -734,11 +764,15 @@ export async function createTicketDepartments(rows: any[], tx?: any) {
   const db = tx || await getDb(); if (!db) return; if (!rows.length) throw new Error("At least one ticket department is required");
   await db.insert(ticketDepartments).values(rows);
 }
-export async function hasTicketDepartmentAssignment(ticketId: number, department: string, managerId: number) {
+export async function hasTicketDepartmentAssignment(ticketId: number, department: string, managerId?: number) {
   const db = await getDb(); if (!db) return false;
-  const rows = await db.select({ id: ticketDepartments.id }).from(ticketDepartments).where(and(
-    eq(ticketDepartments.ticketId, ticketId), eq(ticketDepartments.department, department as any), eq(ticketDepartments.responsibleManagerId, managerId),
-  )).limit(1); return rows.length > 0;
+  const predicates = [
+    eq(ticketDepartments.ticketId, ticketId),
+    eq(ticketDepartments.department, department as any),
+  ];
+  if (managerId !== undefined) predicates.push(eq(ticketDepartments.responsibleManagerId, managerId));
+  const rows = await db.select({ id: ticketDepartments.id }).from(ticketDepartments).where(and(...predicates)).limit(1);
+  return rows.length > 0;
 }
 export async function getTicketTasks(ticketId: number, tx?: any) {
   const db = tx || await getDb(); if (!db) return [];

@@ -1,3 +1,4 @@
+import { isItTeamRole } from "@shared/roles";
 import { TRPCError } from "@trpc/server";
 import {
   APP_ROLE,
@@ -99,7 +100,9 @@ export function isTicketVisible(
   // الرؤية بدون تحديث الحراس الثلاثة معًا — راجع
   // docs/CONSTRUCTION_MANAGER_TICKET_READ_ACCESS.md.
 
-  if (user.role === APP_ROLE.IT_MANAGER) {
+  if (isItTeamRole(user.role)) {
+    if (ticket.maintenanceResponsibleDepartment === MAINTENANCE_RESPONSIBLE_DEPARTMENT.IT) return true;
+    if (items?.some(i => i.responsibleDepartment === MAINTENANCE_RESPONSIBLE_DEPARTMENT.IT)) return true;
     if (ticket.reportedById === user.id) return true;
     if (ticket.assignedToId === user.id) return true;
     if (
@@ -168,9 +171,9 @@ export async function assertTicketReadable(
     const assignedThroughTask = await db.isUserAssignedToTicketTasks(ticket.id, ticket.sourceTaskId, user.id);
     if (assignedThroughTask) return;
   }
-  if (user.role === APP_ROLE.IT_MANAGER) {
+  if (isItTeamRole(user.role)) {
     const routedThroughDepartmentPlan = await db.hasTicketDepartmentAssignment(
-      ticket.id, MAINTENANCE_RESPONSIBLE_DEPARTMENT.IT, user.id,
+      ticket.id, MAINTENANCE_RESPONSIBLE_DEPARTMENT.IT,
     );
     if (routedThroughDepartmentPlan) return;
     const assignedThroughTask = await db.isUserAssignedToTicketTasks(ticket.id, ticket.sourceTaskId, user.id);
@@ -196,7 +199,7 @@ export function canManageTicketWorkflow(
   // IT is a separate, scoped workflow owner. Only the exact IT manager routed
   // on this ticket may act; maintenance/construction/supervisor roles stay read-only.
   if (ticket.maintenanceResponsibleDepartment === MAINTENANCE_RESPONSIBLE_DEPARTMENT.IT) {
-    return user.role === APP_ROLE.IT_MANAGER && ticket.maintenanceResponsibleManagerId === user.id;
+    return isItTeamRole(user.role) && ticket.assignedToId === user.id;
   }
 
   if (user.role === APP_ROLE.MAINTENANCE_MANAGER) return true;
@@ -241,7 +244,7 @@ export function canManageTicketItemWorkflow(
 ): boolean {
   if ([APP_ROLE.OWNER, APP_ROLE.ADMIN].includes(user.role as any)) return true;
   if (item.responsibleDepartment === MAINTENANCE_RESPONSIBLE_DEPARTMENT.IT) {
-    return user.role === APP_ROLE.IT_MANAGER && item.responsibleManagerId === user.id;
+    return isItTeamRole(user.role) && item.assignedToId === user.id;
   }
   if (user.role === APP_ROLE.MAINTENANCE_MANAGER) return true;
   if (user.role === APP_ROLE.GENERAL_MAINTENANCE_MANAGER) {
@@ -261,6 +264,10 @@ export function assertTicketItemWorkflowManageable(
   item: TicketItemVisibilitySubject,
   message = "ليس لديك صلاحية لتنفيذ إجراء على هذا البند",
 ): void {
+  if (item.responsibleDepartment === MAINTENANCE_RESPONSIBLE_DEPARTMENT.IT) {
+    if (canManageTicketItemWorkflow(user, item)) return;
+    throw new TRPCError({ code: "FORBIDDEN", message: "هذه المهمة مسندة إلى عضو آخر" });
+  }
   // الجهة الرئيسية تمر من الفحص القائم أولًا (بلا تغيير سلوك) — الثانوية من هنا.
   if (canManageTicketWorkflow(user, ticket)) return;
   if (canManageTicketItemWorkflow(user, item)) return;
@@ -275,7 +282,7 @@ export function isTicketReadOnlyForUser(
     if ([APP_ROLE.OWNER, APP_ROLE.ADMIN].includes(user.role as any)) return false;
     // IT manager owns the routed ticket structurally; workflow mutations themselves
     // remain denied by canManageTicketWorkflow until Phase 2.
-    if (user.role === APP_ROLE.IT_MANAGER && ticket.maintenanceResponsibleManagerId === user.id) return false;
+    if (isItTeamRole(user.role) && ticket.assignedToId === user.id) return false;
     return true;
   }
 
@@ -298,6 +305,7 @@ const INSPECTION_MANAGER_ROLES = [
   APP_ROLE.GENERAL_MAINTENANCE_MANAGER,
   APP_ROLE.CONSTRUCTION_PROCUREMENT_MANAGER,
   APP_ROLE.IT_MANAGER,
+  APP_ROLE.IT_MEMBER,
   APP_ROLE.ADMIN,
   APP_ROLE.OWNER,
 ] as const;
@@ -385,6 +393,8 @@ export function canSelectTicketItemMaintenancePath(
     item.status === "under_inspection" &&
     ticket.inspectionWorkflowStatus === MAINTENANCE_INSPECTION_WORKFLOW_STATUS.APPROVED &&
     (INSPECTION_MANAGER_ROLES as readonly string[]).includes(user.role) &&
-    (canManageTicketWorkflow(user, ticket) || canManageTicketItemWorkflow(user, item))
+    (item.responsibleDepartment === MAINTENANCE_RESPONSIBLE_DEPARTMENT.IT
+      ? canManageTicketItemWorkflow(user, item)
+      : (canManageTicketWorkflow(user, ticket) || canManageTicketItemWorkflow(user, item)))
   );
 }

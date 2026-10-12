@@ -1,0 +1,197 @@
+import React from "react";
+import { describe, it, expect, vi } from "vitest";
+import { renderToStaticMarkup } from "react-dom/server";
+import { createDemo } from "../../server/maintenance-team-tickets/testing/fixture";
+
+const fixture = vi.hoisted(() => ({
+  state: null as any,
+  balances: [] as any[],
+}));
+vi.mock("../../client/src/lib/trpc", () => ({
+  trpc: {
+    useUtils: () => ({
+      client: {},
+      ticketTeamExecution: { balances: { invalidate: vi.fn() } },
+      ticketTeamAssignments: {
+        queue: { invalidate: vi.fn() },
+        warehouseRequests: { invalidate: vi.fn() },
+      },
+    }),
+    ticketTeamExecution: {
+      details: {
+        useQuery: () => ({
+          data: fixture.state,
+          isLoading: false,
+          error: null,
+          refetch: vi.fn(),
+        }),
+      },
+      catalog: { useQuery: () => ({ data: [], error: null }) },
+      preview: { useQuery: () => ({ data: null, error: null, isFetching: false }) },
+      balances: { useQuery: () => ({ data: fixture.balances, error: null }) },
+    },
+  },
+}));
+import { ExecutionPanel } from "../../client/src/pages/maintenance-teams/ExecutionPanel";
+
+async function render(
+  role: string,
+  stage = "action_required",
+  materials = false,
+  actorId = 1,
+  mode: "execution" | "warehouse" = "execution",
+  warehouseSection?: "waiting" | "ready" | "returns"
+) {
+  const demo = createDemo(),
+    initial = await demo.store.read(),
+    t = initial.tickets[0];
+  await demo.service.assign(1, { ...t, teamId: 21 });
+  fixture.state = await demo.store.read();
+  const a = fixture.state.assignments[0];
+  a.stage = stage;
+  if (materials)
+    fixture.state.needs.push({
+      id: 12,
+      assignmentId: a.id,
+      catalogItemId: 101,
+      name: "فلتر أصلي",
+      unit: "قطعة",
+      requested: 3,
+      requestedById: 3,
+      used: 2,
+      round: 1,
+    });
+  return renderToStaticMarkup(
+    <ExecutionPanel
+      assignmentId={a.id}
+      actorId={actorId}
+      mode={mode}
+      warehouseSection={warehouseSection}
+      role={role}
+      language="ar"
+      onChanged={() => {}}
+    />
+  );
+}
+describe("production execution UI rendered with mock queries only", () => {
+  it("ready section selects a real team recipient and issues without duplicate technician confirmation", async () => {
+    fixture.balances = [{ needId: 12, branch: 3, main: 0 }];
+    const html = await render(
+      "warehouse",
+      "waiting_material",
+      true,
+      2,
+      "warehouse",
+      "ready"
+    );
+    expect(html).toContain("المستلم الفعلي");
+    expect(html).toContain("أحمد");
+    expect(html).toContain("خالد");
+    expect(html).toContain("صرف إلى المستلم الفعلي");
+    expect(html).not.toContain("تحويل كامل النقص");
+    expect(html).not.toContain("أؤكد استلام");
+    fixture.balances = [];
+  });
+  it("ready material is excluded from processing section", async () => {
+    fixture.balances = [{ needId: 12, branch: 3, main: 0 }];
+    const html = await render(
+      "warehouse",
+      "waiting_material",
+      true,
+      2,
+      "warehouse",
+      "waiting"
+    );
+    expect(html).not.toContain("فلتر أصلي");
+    expect(html).not.toContain("طلب شراء العجز");
+    fixture.balances = [];
+  });
+  it.each(["warehouse", "owner", "admin"])(
+    "%s has material processing controls without technician actions in warehouse mode",
+    async role => {
+      const html = await render(
+        role,
+        "waiting_material",
+        true,
+        99,
+        "warehouse"
+      );
+      expect(html).toContain("فلتر أصلي");
+      expect(html).toContain("تحويل كامل النقص من الرئيسي");
+      expect(html).toContain("طلب شراء العجز");
+      expect(html).not.toContain("أؤكد استلام كامل المتبقي لنفسي");
+      expect(
+        await render(role, "action_required", false, 99, "warehouse")
+      ).not.toContain("تم الإصلاح");
+      expect(
+        await render(role, "awaiting_review", true, 1, "warehouse")
+      ).not.toContain("اعتماد نتيجة الفريق");
+    }
+  );
+  it("technician sees all five choices in the original theme components", async () => {
+    const html = await render("technician");
+    for (const label of [
+      "سليم",
+      "تم الإصلاح",
+      "تحتاج مواد",
+      "يوجد عائق",
+      "صيانة خارجية",
+    ])
+      expect(html).toContain(label);
+    expect(html).toContain('data-slot="button"');
+    expect(html).not.toContain("SIMULATE");
+  });
+  it("waiting technician sees material name, unit and quantities without manager approval buttons", async () => {
+    const html = await render("technician", "waiting_material", true);
+    expect(html).toContain("فلتر أصلي");
+    expect(html).toContain("قطعة");
+    expect(html).toContain("استلام المواد من مخزن الفريق");
+    expect(html).not.toContain("اعتماد نتيجة الفريق");
+  });
+  it("responsible manager sees evidence and approve/return options at review", async () => {
+    const html = await render("maintenance_manager", "awaiting_review", true);
+    expect(html).toContain("اعتماد نتيجة الفريق");
+    expect(html).toContain("إعادة للفريق");
+    expect(html).toContain("فلتر أصلي");
+    expect(html).not.toContain("تأكيد استلام المرتجع للمستودع");
+  });
+  it.each([
+    "owner",
+    "admin",
+    "maintenance_manager",
+    "general_maintenance_manager",
+    "construction_procurement_manager",
+  ])("%s sees all five execution choices without membership", async role => {
+    const html = await render(role, "action_required", false, 99);
+    for (const label of [
+      "سليم",
+      "تم الإصلاح",
+      "تحتاج مواد",
+      "يوجد عائق",
+      "صيانة خارجية",
+    ])
+      expect(html).toContain(label);
+  });
+  it.each([
+    "maintenance_manager",
+    "general_maintenance_manager",
+    "construction_procurement_manager",
+  ])(
+    "%s can receive materials but cannot approve another manager's assignment",
+    async role => {
+      expect(await render(role, "waiting_material", true, 99)).toContain(
+        "استلام المواد من مخزن الفريق"
+      );
+      const html = await render(role, "awaiting_review", true, 99);
+      expect(html).not.toContain("اعتماد نتيجة الفريق");
+      expect(html).not.toContain("إعادة للفريق");
+      expect(html).not.toContain("تأكيد استلام المرتجع للمستودع");
+    }
+  );
+  it("execution completed links to current ticket closure without claiming actual ticket closure", async () => {
+    const html = await render("maintenance_manager", "closed");
+    expect(html).toContain("اكتمل تنفيذ الفريق");
+    expect(html).toContain("متابعة اعتماد وإغلاق البلاغ");
+    expect(html).not.toContain("مغلقة باعتماد المسؤول");
+  });
+});

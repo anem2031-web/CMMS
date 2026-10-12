@@ -1,3 +1,4 @@
+import { assertLegacyTeamExecutionAllowed } from "../maintenance-teams/execution.guard";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { router, protectedProcedure, ticketProcedure, ticketScopedWorkflowManagerProcedure, ticketScopedClosureProcedure, supervisorProcedure } from "../_shared/procedures";
@@ -28,11 +29,13 @@ const executionManagerRoles = new Set<string>([
   APP_ROLE.GENERAL_MAINTENANCE_MANAGER,
   APP_ROLE.CONSTRUCTION_PROCUREMENT_MANAGER,
   APP_ROLE.IT_MANAGER,
+  APP_ROLE.IT_MEMBER,
   APP_ROLE.ADMIN,
   APP_ROLE.OWNER,
 ]);
 
 async function assertAssignedTechnicianOrScopedManager(user: { id: number; role: string }, ticket: any) {
+  await assertLegacyTeamExecutionAllowed(ticket);
   if (user.role === APP_ROLE.TECHNICIAN) {
     if (!(await isAssignedTicketTechnicianForWorkflow(user, ticket))) {
       throw new TRPCError({ code: "FORBIDDEN", message: "البلاغ غير مسند إليك" });
@@ -96,6 +99,10 @@ export const ticketsClosureRouter = router({
       throw new TRPCError({ code: "BAD_REQUEST", message: "البلاغ الرئيسي مغلق بالفعل" });
     }
 
+    const plannedTasks = await db.getTicketTasks(parent.id);
+    if (plannedTasks.some((task: any) => task.status !== "cancelled" && !task.convertedTicketId)) {
+      throw new TRPCError({ code: "BAD_REQUEST", message: "توجد مهام لم تتحول إلى بلاغات تنفيذ بعد" });
+    }
     const children = await db.getSubTicketsByParent(parent.id);
     const summary = summarizeSubTicketFamily(children as any);
     // ⚠️ قاعدة #1: summarizeSubTicketFamily تتحقق من total > 0 داخليًا، فبلاغ
@@ -176,6 +183,7 @@ export const ticketsClosureRouter = router({
   close: ticketScopedWorkflowManagerProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
     const ticket = await db.getTicketById(input.id);
     if (!ticket) throw new TRPCError({ code: "NOT_FOUND" });
+    await assertLegacyTeamExecutionAllowed(ticket, undefined, "closure");
     assertTicketWorkflowManageable(ctx.user, ticket as any);
     const isLegacyRepairedTicket = ticket.status === "repaired" && !ticket.maintenancePath;
     const isReadyPathBOrC =
@@ -265,6 +273,7 @@ export const ticketsClosureRouter = router({
   closeBySupervisor: ticketScopedClosureProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
     const ticket = await db.getTicketById(input.id);
     if (!ticket) throw new TRPCError({ code: "NOT_FOUND" });
+    await assertLegacyTeamExecutionAllowed(ticket, undefined, "closure");
     assertTicketWorkflowManageable(ctx.user, ticket as any);
     if (ticket.status !== "ready_for_closure") throw new TRPCError({ code: "BAD_REQUEST", message: "البلاغ ليس جاهزاً للإغلاق" });
     if (ticket.maintenancePath !== "A") {

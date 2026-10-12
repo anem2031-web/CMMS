@@ -1,5 +1,6 @@
 import { TRPCError } from "@trpc/server";
-import { APP_ROLE } from "@shared/roles";
+import { readTeamTicketExecution } from "../maintenance-teams/execution.guard";
+import { APP_ROLE, MAINTENANCE_RESPONSIBLE_DEPARTMENT } from "@shared/roles";
 import {
   ACTIVE_PATH_B_PURCHASE_ORDER_STATUSES,
   derivePathBTicketPurchaseStatus,
@@ -54,6 +55,7 @@ export async function assertCanCreateTicketLinkedPurchaseOrder(
   ticketId?: number,
   options: AssertTicketPurchaseOptions = {},
 ): Promise<any | null> {
+  if (user.role === APP_ROLE.IT_MEMBER) throw new TRPCError({ code: "FORBIDDEN", message: "ارفع احتياج الشراء إلى مدير تقنية المعلومات" });
   if (!ticketId) return null;
 
   const ticket = await db.getTicketById(ticketId);
@@ -74,9 +76,13 @@ export async function assertCanCreateTicketLinkedPurchaseOrder(
     if (!item || item.ticketId !== ticketId) {
       throw new TRPCError({ code: "BAD_REQUEST", message: "بند البلاغ غير مطابق لهذا البلاغ" });
     }
-    assertTicketItemWorkflowManageable(user, ticket as any, item as any);
+    if (item.responsibleDepartment === MAINTENANCE_RESPONSIBLE_DEPARTMENT.IT) {
+      if (![APP_ROLE.OWNER, APP_ROLE.ADMIN].includes(user.role as any) && !(user.role === APP_ROLE.IT_MANAGER && item.responsibleManagerId === user.id)) throw new TRPCError({ code: "FORBIDDEN", message: "طلبات شراء الفريق من اختصاص مدير تقنية المعلومات" });
+    } else assertTicketItemWorkflowManageable(user, ticket as any, item as any);
   } else {
-    assertTicketWorkflowManageable(user, ticket as any);
+    if (ticket.maintenanceResponsibleDepartment === MAINTENANCE_RESPONSIBLE_DEPARTMENT.IT) {
+      if (![APP_ROLE.OWNER, APP_ROLE.ADMIN].includes(user.role as any) && !(user.role === APP_ROLE.IT_MANAGER && ticket.maintenanceResponsibleManagerId === user.id)) throw new TRPCError({ code: "FORBIDDEN", message: "طلبات شراء الفريق من اختصاص مدير تقنية المعلومات" });
+    } else assertTicketWorkflowManageable(user, ticket as any);
   }
 
   const relevantPath = item ? item.maintenancePath : ticket.maintenancePath;
@@ -133,6 +139,9 @@ export async function syncPathBTicketFromTicketId(
   if (!ticket || ticket.maintenancePath !== "B") return;
   if (TERMINAL_TICKET_STATUSES.has(ticket.status)) return;
 
+  // Team execution owns its status; procurement progress must not reset its approved result.
+  if (await readTeamTicketExecution(ticket)) return;
+
   const linkedOrders = await db.getPurchaseOrdersByTicketId(ticketId);
   const allItems = (
     await Promise.all(linkedOrders.map((linked: any) => db.getPOItems(linked.id)))
@@ -171,6 +180,9 @@ export async function syncPathBTicketItemFromItemId(
   const item = await db.getTicketItemById(ticketItemId);
   if (!item || item.maintenancePath !== "B") return;
   if (TERMINAL_TICKET_STATUSES.has(item.status)) return;
+
+  const parentTicket = await db.getTicketById(item.ticketId);
+  if (parentTicket && await readTeamTicketExecution(parentTicket,item.id)) return;
 
   const linkedOrders = await db.getPurchaseOrdersByTicketItemId(ticketItemId);
   const allItems = (

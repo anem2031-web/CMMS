@@ -174,7 +174,7 @@ export async function createWarehouseTransfer(params: {
   createdById: number;
   batchId?: number;
   lotTrackingToken?: string;
-}) {
+}, existingTx?: any) {
   const lotsEnabled = isInventoryLotsEnabled();
   const lotTrackingToken = String(params.lotTrackingToken || "").trim();
   if (lotsEnabled && !lotTrackingToken) {
@@ -191,7 +191,7 @@ export async function createWarehouseTransfer(params: {
     ? normalizeInventoryQuantity(params.quantity)
     : params.quantity;
 
-  return withTransaction(async (tx) => {
+  const executeTransfer = async (tx: any) => {
     const fromWh = (
       await tx.select().from(warehouses).where(eq(warehouses.id, params.fromWarehouseId)).limit(1)
     )[0];
@@ -434,7 +434,8 @@ export async function createWarehouseTransfer(params: {
       lotId: movedLot?.lotId ?? null,
       lotCode: movedLot?.lotCode ?? null,
     };
-  });
+  };
+  return existingTx ? executeTransfer(existingTx) : withTransaction(executeTransfer);
 }
 
 export async function getWarehouseTransfers(filters?: { warehouseId?: number }) {
@@ -475,8 +476,8 @@ export async function getWarehouseTransfers(filters?: { warehouseId?: number }) 
 // نجاح/فشل صنف لا يوقف بقية الأصناف، ونُرجع تقريراً بنتيجة كل صنف على حدة.
 // ─────────────────────────────────────────────────────────────
 
-async function generateBatchNumber(): Promise<string> {
-  const db = await getDb();
+async function generateBatchNumber(tx?: any): Promise<string> {
+  const db = tx ?? await getDb();
   if (!db) throw new Error("تعذر الاتصال بقاعدة البيانات");
   const year = new Date().getFullYear();
   const [result] = await db.insert(warehouseTransferBatchNumberCounter).values({ year });
@@ -490,13 +491,20 @@ export async function createWarehouseTransferBatch(params: {
   notes?: string;
   createdById: number;
   items: Array<{ fromInventoryId: number; quantity: number; notes?: string; lotTrackingToken?: string }>;
-}) {
+}, tx?: any) {
   if (params.items.length === 0) throw new Error("أضف صنفاً واحداً على الأقل");
   if (params.items.length > 20) throw new Error("الحد الأقصى 20 صنفاً بالعملية الواحدة");
+  // The supplied transaction is only for lots of one material need. Ordinary
+  // batches containing different materials keep their independent transactions.
+  if (tx && new Set(params.items.map(item => item.fromInventoryId)).size !== 1) {
+    throw new Error("المعاملة الخارجية مخصصة لدفعات صنف واحد فقط");
+  }
 
-  const batchNumber = await generateBatchNumber();
+  const batchNumber = await generateBatchNumber(tx);
 
-  const db = await getDb();
+  // Existing callers retain independent item transactions. Ticket-team forms
+  // supply one outer transaction so stock and their links commit together.
+  const db = tx ?? await getDb();
   if (!db) throw new Error("تعذر الاتصال بقاعدة البيانات");
   const [headerResult] = await db.insert(warehouseTransferBatches).values({
     batchNumber,
@@ -529,7 +537,7 @@ export async function createWarehouseTransferBatch(params: {
         createdById: params.createdById,
         batchId,
         lotTrackingToken: item.lotTrackingToken,
-      });
+      }, tx);
       results.push({
         fromInventoryId: item.fromInventoryId,
         success: true,
@@ -540,6 +548,7 @@ export async function createWarehouseTransferBatch(params: {
         message: r.categoryMismatch ? "تم — تنبيه: تصنيف غير مطابق" : "تم بنجاح",
       });
     } catch (err: any) {
+      if (tx) throw err;
       results.push({
         fromInventoryId: item.fromInventoryId,
         success: false,

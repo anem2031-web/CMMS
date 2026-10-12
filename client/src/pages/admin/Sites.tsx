@@ -40,7 +40,7 @@ export default function Sites() {
 
   const openEdit = (site: any) => {
     setSelectedSite(site);
-    setEditForm({ name: site.name, address: site.address || "", description: site.description || "" });
+    setEditForm({ name: site.sourceName || site.name, address: site.address || "", description: site.description || "" });
     setEditOpen(true);
   };
 
