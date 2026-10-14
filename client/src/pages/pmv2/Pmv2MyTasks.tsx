@@ -1,4 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
+import { useAuth } from "@/_core/hooks/useAuth";
+import { TechnicianExecutionWindow, ExecutionElapsedTime } from "@/components/maintenance/TechnicianExecutionWindow";
+import { currentExecutionStep } from "@shared/technician-workspace";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { TicketSourceSummary } from "@/components/maintenance/TicketSourceSummary";
+import CreateTicket from "@/pages/tickets/CreateTicket";
 import { BellRing, CalendarClock, Camera, Check, CheckCircle2, ChevronsUpDown, ClipboardList, Clock3, ExternalLink, History, ImageIcon, Loader2, MapPin, PackageSearch, PlayCircle, RefreshCw, TicketPlus, Users, Wrench } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -190,7 +196,7 @@ function ItemEvidence({ taskId, taskItemId }: { taskId: number; taskItemId: numb
 
 
 
-function MaterialNeedPanel({ taskId, taskItemId }: { taskId: number; taskItemId: number }) {
+function MaterialNeedPanel({ taskId, taskItemId, onBusyChange }: { taskId: number; taskItemId: number; onBusyChange?: (busy: boolean) => void }) {
   const { t, language, dir } = useTranslation();
   const localizedCatalogName = (item: any) => language === "ar"
     ? (item?.nameAr || item?.nameEn || "—")
@@ -388,6 +394,7 @@ function MaterialNeedPanel({ taskId, taskItemId }: { taskId: number; taskItemId:
     shortageQuantity === 0,
   );
   const anyMaterialMutationPending = submitMaterialNeed.isPending || submitAndReceiveMaterialNeed.isPending || receiveReadyMaterial.isPending;
+  useEffect(() => { onBusyChange?.(anyMaterialMutationPending); return () => onBusyChange?.(false); }, [anyMaterialMutationPending, onBusyChange]);
 
   const openAnotherMaterial = () => {
     resetMaterialEntry();
@@ -912,7 +919,7 @@ function MaterialNeedPanel({ taskId, taskItemId }: { taskId: number; taskItemId:
   );
 }
 
-function MaterialCompletionPanel({ taskId, taskItemId }: { taskId: number; taskItemId: number }) {
+function MaterialCompletionPanel({ taskId, taskItemId, onBusyChange }: { taskId: number; taskItemId: number; onBusyChange?: (busy: boolean) => void }) {
   const utils = trpc.useUtils();
   const materials = trpc.pmv2.technician.completionMaterials.useQuery({ taskId, taskItemId });
   const [usedByCatalog, setUsedByCatalog] = useState<Record<number, string>>({});
@@ -952,6 +959,7 @@ function MaterialCompletionPanel({ taskId, taskItemId }: { taskId: number; taskI
   const rows = materials.data ?? [];
   if (!rows.length) return <p className="text-xs text-muted-foreground">{t.workflow.pmv2.noIssuedMaterials}</p>;
 
+  useEffect(() => { onBusyChange?.(complete.isPending); return () => onBusyChange?.(false); }, [complete.isPending, onBusyChange]);
   return (
     <div className="w-full space-y-3 rounded-lg border border-emerald-200 bg-emerald-50/40 p-3 sm:w-[420px]">
       <div>
@@ -998,6 +1006,8 @@ function MaterialCompletionPanel({ taskId, taskItemId }: { taskId: number; taskI
 }
 
 export default function Pmv2MyTasks() {
+  const { user } = useAuth();
+  const sequential = user?.role === "technician";
   const { t, language, dir } = useTranslation();
   const { getStatusLabel } = useStaticLabels();
   const locale = language === "ar" ? "ar-SA" : language === "ur" ? "ur-PK" : "en-US";
@@ -1020,6 +1030,11 @@ export default function Pmv2MyTasks() {
   const todayTasks = tasks.filter(task => !task.isCarryOver);
   const carryOverTasks = tasks.filter(task => task.isCarryOver);
   const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null);
+  const [activeItemId, setActiveItemId] = useState<number | null>(null);
+  const [createLinkedItemId, setCreateLinkedItemId] = useState<number | null>(null);
+  const [viewLinkedTicketId, setViewLinkedTicketId] = useState<number | null>(null);
+  const [creatingLinkedTicket, setCreatingLinkedTicket] = useState(false);
+  const [materialWindowBusy, setMaterialWindowBusy] = useState(false);
   const [resultNotes, setResultNotes] = useState<Record<number, string>>({});
   const [ticketNoteDialogItemId, setTicketNoteDialogItemId] = useState<number | null>(null);
   const [ticketHandoffNote, setTicketHandoffNote] = useState("");
@@ -1031,9 +1046,10 @@ export default function Pmv2MyTasks() {
       return;
     }
     if (selectedTaskId == null || !tasks.some(task => task.id === selectedTaskId)) {
-      setSelectedTaskId(tasks[0].id);
+      if (!sequential) setSelectedTaskId(tasks[0].id);
+      else if (selectedTaskId != null) setSelectedTaskId(null);
     }
-  }, [todayQuery.data, selectedTaskId, tasks]);
+  }, [todayQuery.data, selectedTaskId, tasks, sequential]);
 
   const selectedTask = useMemo(
     () => tasks.find(task => task.id === selectedTaskId) ?? null,
@@ -1080,6 +1096,7 @@ export default function Pmv2MyTasks() {
 
   const openAttentionTask = (taskId: number) => {
     setSelectedTaskId(taskId);
+    setActiveItemId(null);
     window.setTimeout(() => document.getElementById("pmv2-selected-task")?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
   };
 
@@ -1167,7 +1184,8 @@ export default function Pmv2MyTasks() {
 
   const resultMutationPending = submitBasicResult.isPending || submitDependencyResult.isPending;
   const openLinkedTicketCreate = (taskItemId: number) => {
-    setLocation(`/tickets/new?pmv2TaskItemId=${taskItemId}`);
+    if (sequential) setCreateLinkedItemId(taskItemId);
+    else setLocation(`/tickets/new?pmv2TaskItemId=${taskItemId}`);
   };
   const openTicketNoteDialog = (taskItemId: number) => {
     setTicketHandoffNote(resultNotes[taskItemId] ?? "");
@@ -1197,6 +1215,10 @@ export default function Pmv2MyTasks() {
     }
   };
   const hasInProgressItem = Boolean(itemsQuery.data?.some(item => item.status === "in_progress"));
+  const steps = (itemsQuery.data ?? []).map(item => ({ id: item.id, title: item.titleSnapshot, status: itemStatusLabels[item.status] ?? item.status, recorded: item.status === "completed", working: item.status === "in_progress" }));
+  const currentStep = currentExecutionStep(steps, activeItemId);
+  const displayedItems = sequential ? (itemsQuery.data ?? []).filter(item => item.id === currentStep?.id) : itemsQuery.data ?? [];
+  const windowBusy = startItem.isPending || resumeItem.isPending || endVisit.isPending || resultMutationPending || materialWindowBusy;
 
   return (
     <div className="mx-auto w-full max-w-5xl space-y-4 p-3 sm:p-5" dir={dir}>
@@ -1354,7 +1376,7 @@ export default function Pmv2MyTasks() {
                     <button
                       key={task.id}
                       type="button"
-                      onClick={() => setSelectedTaskId(task.id)}
+                      onClick={() => { setSelectedTaskId(task.id); setActiveItemId(null); }}
                       className={`rounded-xl border p-4 text-start transition ${selected ? "border-primary bg-primary/5" : "hover:bg-muted/50"}`}
                     >
                       <div className="flex items-start justify-between gap-3">
@@ -1378,6 +1400,7 @@ export default function Pmv2MyTasks() {
                         <span>{t.workflow.pmv2.completedItemsCount.replace("{done}", String(task.completedItemCount)).replace("{total}", String(task.itemCount))}</span>
                       </div>
                       <Progress value={progress} className="mt-2 h-2" />
+                      {sequential && <span className="mt-3 inline-flex items-center gap-1 text-sm text-primary"><PlayCircle className="h-4 w-4" />{language === "ar" ? "بدء التنفيذ / متابعة" : language === "ur" ? "کام شروع / جاری رکھیں" : "Start / continue execution"}</span>}
                     </button>
                   );
                 })}
@@ -1428,6 +1451,7 @@ export default function Pmv2MyTasks() {
       </AlertDialog>
 
       {selectedTask && (
+        <TechnicianExecutionWindow sequential={sequential} open onClose={() => { setSelectedTaskId(null); setActiveItemId(null); }} title={selectedTask.taskNumber} description={targetLabel(selectedTask, t)} language={language} steps={steps} currentId={currentStep?.id ?? null} onSelect={setActiveItemId} busy={windowBusy} timer={<ExecutionElapsedTime startedAt={visitStateQuery.data?.startedAt} language={language} />}>
         <Card id="pmv2-selected-task">
           <CardHeader>
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -1443,7 +1467,7 @@ export default function Pmv2MyTasks() {
                   size="sm"
                   variant="outline"
                   onClick={() => endVisit.mutate({ taskId: selectedTask.id })}
-                  disabled={endVisit.isPending || hasInProgressItem}
+                  disabled={endVisit.isPending || hasInProgressItem || materialWindowBusy}
                 >
                   {endVisit.isPending ? t.workflow.pmv2.endingVisit : t.workflow.pmv2.endVisit}
                 </Button>
@@ -1571,8 +1595,8 @@ export default function Pmv2MyTasks() {
 
             {itemsQuery.isLoading && <p className="text-sm text-muted-foreground">{t.workflow.pmv2.loadingItems}</p>}
             {itemsQuery.error && <p className="text-sm text-destructive">{localizeApiError(itemsQuery.error.message)}</p>}
-            {itemsQuery.data?.map(item => (
-              <div key={item.id} className="flex flex-col gap-2 rounded-lg border p-3 sm:flex-row sm:items-center sm:justify-between">
+            {displayedItems.map(item => (
+              <div key={item.id} data-active-execution-item={item.id} className={sequential ? "space-y-4 rounded-2xl border-2 border-primary/20 p-5" : "flex flex-col gap-2 rounded-lg border p-3 sm:flex-row sm:items-center sm:justify-between"}>
                 <div className="flex items-start gap-2">
                   {item.status === "completed"
                     ? <CheckCircle2 className="mt-0.5 h-5 w-5 text-emerald-600" />
@@ -1603,7 +1627,7 @@ export default function Pmv2MyTasks() {
                   <ItemEvidence taskId={selectedTask.id} taskItemId={item.id} />
 
                   {item.status === "waiting_material" && item.result === "needs_material" && (
-                    <MaterialNeedPanel taskId={selectedTask.id} taskItemId={item.id} />
+                    <MaterialNeedPanel taskId={selectedTask.id} taskItemId={item.id} onBusyChange={sequential ? setMaterialWindowBusy : undefined} />
                   )}
 
                   {item.status === "waiting_ticket" && item.result === "needs_ticket" && (
@@ -1617,7 +1641,7 @@ export default function Pmv2MyTasks() {
                             <span>{t.workflow.pmv2.statusLabel}: {getStatusLabel(item.linkedTicket.status) ?? item.linkedTicket.status}</span>
                             {item.linkedTicket.maintenancePath && <span>{t.workflow.pmv2.pathLabel}: {item.linkedTicket.maintenancePath}</span>}
                           </div>
-                          <Button size="sm" variant="outline" onClick={() => setLocation(`/tickets/${item.linkedTicket!.id}`)}>
+                          <Button size="sm" variant="outline" onClick={() => sequential ? setViewLinkedTicketId(item.linkedTicket!.id) : setLocation(`/tickets/${item.linkedTicket!.id}`)}>
                             <ExternalLink className="me-1 h-4 w-4" />
                             {t.workflow.pmv2.openTicket}
                           </Button>
@@ -1651,7 +1675,7 @@ export default function Pmv2MyTasks() {
                   )}
 
                   {item.status === "in_progress" && item.result === "needs_material" && (
-                    <MaterialCompletionPanel taskId={selectedTask.id} taskItemId={item.id} />
+                    <MaterialCompletionPanel taskId={selectedTask.id} taskItemId={item.id} onBusyChange={sequential ? setMaterialWindowBusy : undefined} />
                   )}
 
                   {item.status === "in_progress" && item.result !== "needs_material" && (
@@ -1723,7 +1747,10 @@ export default function Pmv2MyTasks() {
             )}
           </CardContent>
         </Card>
+        </TechnicianExecutionWindow>
       )}
+      <Dialog open={createLinkedItemId != null} onOpenChange={open => { if (!open && !creatingLinkedTicket) setCreateLinkedItemId(null); }}><DialogContent dir={dir} className="max-h-[90vh] overflow-y-auto sm:max-w-3xl"><DialogHeader><DialogTitle>{t.workflow.pmv2.createLinkedTicket}</DialogTitle></DialogHeader>{createLinkedItemId != null && <CreateTicket key={createLinkedItemId} linkedPmv2ItemId={createLinkedItemId} onSavingChange={setCreatingLinkedTicket} onCancel={() => { if (!creatingLinkedTicket) setCreateLinkedItemId(null); }} onCreated={() => { setCreatingLinkedTicket(false); setCreateLinkedItemId(null); void Promise.all([itemsQuery.refetch(), todayQuery.refetch(), materialAttentionQuery.refetch()]); }} />}</DialogContent></Dialog>
+      <Dialog open={viewLinkedTicketId != null} onOpenChange={open => { if (!open) setViewLinkedTicketId(null); }}><DialogContent dir={dir} className="max-h-[90vh] overflow-y-auto sm:max-w-2xl"><DialogHeader><DialogTitle>{t.workflow.pmv2.linkedTicket}</DialogTitle></DialogHeader>{viewLinkedTicketId != null && <TicketSourceSummary ticketId={viewLinkedTicketId} language={language} />}</DialogContent></Dialog>
     </div>
   );
 }

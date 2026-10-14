@@ -96,7 +96,7 @@ function AttachmentVideo({ url, fileName }: { url: string; fileName: string }) {
   );
 }
 
-export default function TicketDetail() {
+export default function TicketDetail({ embeddedTicketId, onBack }: { params?: unknown; embeddedTicketId?: number; onBack?: () => void } = {}) {
   const [, params] = useRoute("/tickets/:id");
   const [, setLocation] = useLocation();
   const { user } = useAuth();
@@ -104,7 +104,7 @@ export default function TicketDetail() {
   const { getStatusLabel, getPriorityLabel, getCategoryLabel, getPOStatusLabel } = useStaticLabels();
 const locale = language === "ar" ? "ar-SA" : language === "ur" ? "ur-PK" : "en-US";
 const currency = language === "en" ? "SAR" : "ر.س";
-const ticketId = parseInt(params?.id || "0");
+const ticketId = embeddedTicketId ?? parseInt(params?.id || "0");
 
 const { data: ticket, isLoading, refetch } = trpc.tickets.getById.useQuery({ id: ticketId }, { enabled: !!ticketId });
 const { data: parentTicket } = trpc.tickets.getById.useQuery(
@@ -691,7 +691,7 @@ const { getField } = useResolvedTranslation(
       <ImprovementReference kind="ticket" documentId={ticketId} />
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-3 flex-1">
-          <Button variant="ghost" size="icon" onClick={() => goBackOrFallback(
+          <Button variant="ghost" size="icon" onClick={() => onBack ? onBack() : goBackOrFallback(
             setLocation,
             role === APP_ROLE.CONSTRUCTION_PROCUREMENT_MANAGER ? "/tickets?tab=construction" : "/tickets",
           )}>

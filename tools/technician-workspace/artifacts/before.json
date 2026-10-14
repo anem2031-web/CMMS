@@ -1,0 +1,59 @@
+[
+  {
+    "file": "shared/roles.ts",
+    "backup": "tools/technician-workspace/artifacts/shared__roles.ts.before",
+    "hash": "346AD2A02FB17523A3DCBE582358D3310BDAACEC8F8F833839BE65BE0AD9CF1C"
+  },
+  {
+    "file": "client/src/components/layout/DashboardLayout.tsx",
+    "backup": "tools/technician-workspace/artifacts/client__src__components__layout__DashboardLayout.tsx.before",
+    "hash": "1B752800595172BFE6E41BC8E89BE885EB15EADACFBD43618BE643A9B3562A1F"
+  },
+  {
+    "file": "client/src/pages/auth/Login.tsx",
+    "backup": "tools/technician-workspace/artifacts/client__src__pages__auth__Login.tsx.before",
+    "hash": "FBB134D247CC2D4D3395488F13294DFD5AC42F9999E3101B4AA0858AECCCC392"
+  },
+  {
+    "file": "client/src/pages/maintenance-teams/TicketExecutionTasksView.tsx",
+    "backup": "tools/technician-workspace/artifacts/client__src__pages__maintenance-teams__TicketExecutionTasksView.tsx.before",
+    "hash": "9ED0796456EF6A4C4ECDD10FBD757C208D0F6258CFC73F75BB785D978CF59822"
+  },
+  {
+    "file": "client/src/pages/maintenance-teams/ExecutionPanel.tsx",
+    "backup": "tools/technician-workspace/artifacts/client__src__pages__maintenance-teams__ExecutionPanel.tsx.before",
+    "hash": "6AD4927B159952F053E8015D885078EFF2DB2E90F872255891927F12E6E71C8B"
+  },
+  {
+    "file": "client/src/pages/pmv2/Pmv2MyTasks.tsx",
+    "backup": "tools/technician-workspace/artifacts/client__src__pages__pmv2__Pmv2MyTasks.tsx.before",
+    "hash": "50ED7B63EDB3775A77C4B9C44DF8BC4D36EAC987B8753F69FB9FA23CB79F1A1A"
+  },
+  {
+    "file": "client/src/pages/tickets/CreateTicket.tsx",
+    "backup": "tools/technician-workspace/artifacts/client__src__pages__tickets__CreateTicket.tsx.before",
+    "hash": "ABFD75F71ED0910F113CC297C269A5F374EA06CC6C0192717D3F1A63FF7E31D3"
+  },
+  {
+    "file": "tools/ticket-material-identity/identity-ui.test.tsx",
+    "backup": "tools/technician-workspace/artifacts/tools__ticket-material-identity__identity-ui.test.tsx.before",
+    "hash": "CE48B43957868F5D03AFC03DC6AD223F2CD97C1775A17D21B6A5C1E6BFFAB0BD"
+  },
+  {
+    "file": "tools/ticket-execution-parity/ui.test.tsx",
+    "backup": "tools/technician-workspace/artifacts/tools__ticket-execution-parity__ui.test.tsx.before",
+    "hash": "609FB7D3CCDB55876B3FBE2E7CD46163BECF89473C9E15A002F07C01E9C1F350"
+  },
+  {
+    "file": "client/src/pages/maintenance-teams/AssignedMaintenanceTickets.tsx",
+    "backup": "tools/technician-workspace/artifacts/client__src__pages__maintenance-teams__AssignedMaintenanceTickets.tsx.before"
+  },
+  {
+    "file": "client/src/pages/pmv2/MyTasksPage.tsx",
+    "backup": "tools/technician-workspace/artifacts/client__src__pages__pmv2__MyTasksPage.tsx.before"
+  },
+  {
+    "file": "client/src/pages/tickets/TicketDetail.tsx",
+    "backup": "tools/technician-workspace/artifacts/client__src__pages__tickets__TicketDetail.tsx.before"
+  }
+]

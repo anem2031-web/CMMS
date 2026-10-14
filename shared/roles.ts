@@ -256,6 +256,7 @@ export function canRoleAccessPath(role: string | null | undefined, path: string)
   if (!role) return false;
   if (isObserver(role)) return canRoleAccessPath(APP_ROLE.ADMIN, path);
   const normalizedPath = path.split(/[?#]/, 1)[0] || "/";
+  if (role === APP_ROLE.TECHNICIAN) return normalizedPath === "/scheduled-maintenance/my-tasks";
   if (matchesPrefix(normalizedPath, "/maintenance-team-tickets")) {
     return canReadTicketTeamExecution(role);
   }

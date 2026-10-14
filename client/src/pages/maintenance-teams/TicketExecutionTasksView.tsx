@@ -5,9 +5,15 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import type { AssignedTeamTicket } from "@shared/maintenance-team-tickets/assignment";
 import { stageLabels } from "@shared/maintenance-team-tickets/model";
+import { TicketSequentialTasksView } from "./TicketSequentialTasksView";
 
 /** Same task-card/detail layout as Pmv2MyTasks; the document identity remains a ticket. */
-export function TicketExecutionTasksView({ tickets, language, renderExecution }: {
+export function TicketExecutionTasksView({ sequential = false, ...props }: {
+  tickets: AssignedTeamTicket[]; language: string; sequential?: boolean; renderExecution: (ticket: AssignedTeamTicket, onBusyChange?: (busy: boolean) => void) => ReactNode;
+}) {
+  return sequential ? <TicketSequentialTasksView {...props} /> : <LegacyTicketExecutionTasksView {...props} />;
+}
+function LegacyTicketExecutionTasksView({ tickets, language, renderExecution }: {
   tickets: AssignedTeamTicket[]; language: string; renderExecution: (ticket: AssignedTeamTicket) => ReactNode;
 }) {
   const [selectedId, setSelectedId] = useState<number | null>(null);

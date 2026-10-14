@@ -326,7 +326,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
 // ─── Inner Component ──────────────────────────────────────────────────────────
 function DashboardLayoutContent({ children, setSidebarWidth }: { children: React.ReactNode; setSidebarWidth: (w: number) => void }) {
-  const { user, authenticatedUser, isReadOnly, logout } = useAuth();
+  const { user, authenticatedUser, isReadOnly, logout, loading: authLoading } = useAuth();
   const [location, setLocation] = useLocation();
   const { state, toggleSidebar } = useSidebar();
   const isCollapsed = state === "collapsed";
@@ -566,16 +566,16 @@ function DashboardLayoutContent({ children, setSidebarWidth }: { children: React
   const role = user?.role || "user";
 
   // Prevent direct-URL access to modules explicitly removed from the derived roles.
-  const canAccessCurrentPath = canRoleAccessPath(role, location);
+  const canAccessCurrentPath = !authLoading && canRoleAccessPath(role, location);
   useEffect(() => {
-    if (canAccessCurrentPath) return;
-    const fallback = role === "technician" && location.startsWith("/scheduled-maintenance")
+    if (authLoading || canAccessCurrentPath) return;
+    const fallback = role === "technician"
       ? "/scheduled-maintenance/my-tasks"
       : role === "warehouse" && location.startsWith("/scheduled-maintenance")
         ? "/scheduled-maintenance/warehouse-requests"
         : role === "construction_procurement_manager" ? "/tickets?tab=construction" : "/tickets";
     setLocation(fallback);
-  }, [canAccessCurrentPath, location, role, setLocation]);
+  }, [authLoading, canAccessCurrentPath, location, role, setLocation]);
 
   // ── Build visible sections with translated labels ──
   const visibleSections = useMemo(() => {

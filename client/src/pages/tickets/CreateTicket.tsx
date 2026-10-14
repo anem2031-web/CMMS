@@ -30,7 +30,7 @@ type FileEntry = {
   error?: string;
 };
 
-export default function CreateTicket() {
+export default function CreateTicket({ linkedPmv2ItemId, onCreated, onCancel, onSavingChange }: { params?: unknown; linkedPmv2ItemId?: number; onCreated?: (ticketId: number) => void; onCancel?: () => void; onSavingChange?: (busy: boolean) => void } = {}) {
   const { t: tr } = useLanguage();
   const [, setLocation] = useLocation();
   const search = useSearch();
@@ -48,6 +48,7 @@ export default function CreateTicket() {
     form.sectionId ? { sectionId: Number(form.sectionId) } : {},
   );
   const pmv2TaskItemId = (() => {
+    if (linkedPmv2ItemId != null) return linkedPmv2ItemId;
     const value = new URLSearchParams(search).get("pmv2TaskItemId");
     const parsed = value ? Number(value) : NaN;
     return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
@@ -135,7 +136,8 @@ export default function CreateTicket() {
         }
       }
       toast.success(pmv2TaskItemId ? `${t.workflow.ticket.pmv2TicketCreated}: ${data.ticketNumber}` : `${t.tickets.createNew} ${data.ticketNumber}`);
-      setLocation(`/tickets/${data.id}`);
+      if (onCreated) onCreated(data.id!);
+      else setLocation(`/tickets/${data.id}`);
     },
     onError: (err) => toast.error(localizeApiError(err.message)),
   });
@@ -346,11 +348,12 @@ if (f.size > maxSize) {
 
   const doneCount = fileEntries.filter(e => e.status === "done").length;
   const uploadingCount = fileEntries.filter(e => e.status === "uploading" || e.status === "pending").length;
+  useEffect(() => { onSavingChange?.(createMut.isPending || uploadingCount > 0); }, [createMut.isPending, uploadingCount, onSavingChange]);
 
   return (
     <div className="max-w-2xl space-y-6">
       <div className="flex items-center gap-3">
-        <Button variant="ghost" size="icon" onClick={() => goBackOrFallback(setLocation, "/tickets")}>
+        <Button variant="ghost" size="icon" onClick={() => onCancel ? onCancel() : goBackOrFallback(setLocation, "/tickets")}>
           <ArrowRight className={`w-5 h-5 ${dir === "ltr" ? "rotate-180" : ""}`} />
         </Button>
         <h1 className="text-xl font-bold">{t.tickets.createNew}</h1>
@@ -372,7 +375,7 @@ if (f.size > maxSize) {
                 {pmv2ContextQuery.data.hasActiveTicket && pmv2ContextQuery.data.linkedTicket && (
                   <div className="flex flex-wrap items-center gap-2 pt-1">
                     <span className="text-amber-700">{t.workflow.pmv2.activeTicketExists}: <span dir="ltr">{pmv2ContextQuery.data.linkedTicket.ticketNumber}</span></span>
-                    <Button type="button" size="sm" variant="outline" onClick={() => setLocation(`/tickets/${pmv2ContextQuery.data!.linkedTicket!.id}`)}>
+                    <Button type="button" size="sm" variant="outline" onClick={() => onCreated ? onCreated(pmv2ContextQuery.data!.linkedTicket!.id) : setLocation(`/tickets/${pmv2ContextQuery.data!.linkedTicket!.id}`)}>
                       {t.workflow.pmv2.openTicket}
                     </Button>
                   </div>

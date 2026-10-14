@@ -18,6 +18,6 @@ export default function AssignedMaintenanceTickets() {
   return <div className="space-y-4 p-6" dir={dir}>
     <Button variant="outline" size="sm" disabled={queue.isFetching} onClick={() => void Promise.all([queue.refetch(), utils.ticketTeamExecution.details.invalidate(), utils.ticketTeamExecution.balances.invalidate()])}><RefreshCw className="me-1 h-4 w-4" />{language === "ar" ? "تحديث" : language === "ur" ? "تازہ کریں" : "Refresh"}</Button>
     {queue.error && <p role="alert" className="text-destructive">{queue.error.message}</p>}
-    {queue.data && <TicketExecutionTasksView tickets={queue.data} language={language} renderExecution={ticket => <ExecutionPanel key={ticket.assignmentId} assignmentId={ticket.assignmentId} actorId={user!.id} role={user!.role} language={language} onChanged={()=>void queue.refetch()} />} />}
+    {queue.data && <TicketExecutionTasksView sequential={user!.role === "technician"} tickets={queue.data} language={language} renderExecution={(ticket, onBusyChange) => <ExecutionPanel key={ticket.assignmentId} assignmentId={ticket.assignmentId} actorId={user!.id} role={user!.role} language={language} onBusyChange={onBusyChange} onChanged={()=>void queue.refetch()} />} />}
   </div>;
 }

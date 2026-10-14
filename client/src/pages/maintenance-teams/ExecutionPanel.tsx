@@ -1,4 +1,5 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { ExecutionElapsedTime } from "@/components/maintenance/TechnicianExecutionWindow";
 import { TicketExecutionControls } from "./TicketExecutionControls";
 import { TicketTechnicianMaterials } from "./TicketTechnicianMaterials";
 import { ticketSessionActionText, ticketExecutionSession } from "@shared/maintenance-team-tickets/execution-session";
@@ -83,6 +84,7 @@ export function ExecutionPanel({
   warehouseSection,
   warehouseNeedId,
   warehouseTicket,
+  onBusyChange,
 }: {
   assignmentId: number;
   actorId: number;
@@ -93,6 +95,7 @@ export function ExecutionPanel({
   warehouseSection?: WarehouseSection;
   warehouseNeedId?: number;
   warehouseTicket?: AssignedTeamTicket;
+  onBusyChange?: (busy: boolean) => void;
 }) {
   const l = (ar: string, en: string, ur: string) =>
     language === "ar" ? ar : language === "ur" ? ur : en;
@@ -131,6 +134,7 @@ export function ExecutionPanel({
     ),
     [allocations, setAllocations] = useState<Record<string, number>>({});
   const retry = useRef<{ fingerprint: string; key: string } | null>(null);
+  useEffect(() => { onBusyChange?.(busy); }, [busy, onBusyChange]);
   const state = details.data,
     a = state?.assignments[0],
     technician =
@@ -326,6 +330,7 @@ export function ExecutionPanel({
           {message}
         </p>
       )}
+      {technician && role === "technician" && <ExecutionElapsedTime language={language} startedAt={ticketExecutionSession(state, a).visits.at(-1)?.startedAt} endedAt={ticketExecutionSession(state, a).visits.at(-1)?.endedAt} />}
       {technician && <TicketExecutionControls
         key={a.id}
         state={state} assignment={a} actorId={actorId} language={language} busy={busy}

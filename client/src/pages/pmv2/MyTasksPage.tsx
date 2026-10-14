@@ -6,6 +6,7 @@ import { canRoleExecutePmv2Technician } from "@shared/roles";
 import { canReadTicketTeamExecution } from "@shared/maintenance-team-tickets/execution-permissions";
 import AssignedMaintenanceTickets from "../maintenance-teams/AssignedMaintenanceTickets";
 import Pmv2MyTasks from "./Pmv2MyTasks";
+import { NamedTechnicianTickets } from "../maintenance-teams/NamedTechnicianTickets";
 
 export default function MyTasksPage() {
   const { user, loading } = useAuth();
@@ -55,6 +56,7 @@ export default function MyTasksPage() {
         {source === "tickets" && ticketsAllowed && (
           <AssignedMaintenanceTickets />
         )}
+        {source === "tickets" && ticketsAllowed && user?.role === "technician" && <NamedTechnicianTickets />}
       </TabsContent>
       <TabsContent value="pmv2">
         {source === "pmv2" && <Pmv2MyTasks />}

@@ -1,0 +1,62 @@
+[
+  {
+    "file": "shared/roles.ts",
+    "hash": "9819E7B0BD43555EFE7E2FDD5C36FA8BC1C41E4257E103AAD1608816405D90A8"
+  },
+  {
+    "file": "shared/technician-workspace.ts",
+    "hash": "FC9FD34259D6215DC693E6CFC8D48398ADC10C32FD9358641034B82921D69098"
+  },
+  {
+    "file": "client/src/components/layout/DashboardLayout.tsx",
+    "hash": "104DF579DB5258092A0B71A07B9FAB26C9F39651553E008FC8603D8C3760763C"
+  },
+  {
+    "file": "client/src/pages/auth/Login.tsx",
+    "hash": "BE548EC0FD59750C43F2DC5BDC2D76DF71239B1BD5835D7836C65B98D20C4FF3"
+  },
+  {
+    "file": "client/src/components/maintenance/TechnicianExecutionWindow.tsx",
+    "hash": "32948D511EDD28F2511E1847A49E0698626538B19E2DBAD23AEA5B78B96B8367"
+  },
+  {
+    "file": "client/src/components/maintenance/TicketSourceSummary.tsx",
+    "hash": "60A25007277CB3B739BC4615574E49B5B7E2DEBEAF25682C832CFA11E6FD0B5C"
+  },
+  {
+    "file": "client/src/pages/maintenance-teams/TicketSequentialTasksView.tsx",
+    "hash": "CA1FAC3D54ECD5E6FF7F85DF9F154131E2059E9A8154D2EE472EF0F9011C416B"
+  },
+  {
+    "file": "client/src/pages/maintenance-teams/NamedTechnicianTickets.tsx",
+    "hash": "4D94475B0C451F11F47A36E4A8AEB89C5A1599C5B505464656324A8E162AE049"
+  },
+  {
+    "file": "client/src/pages/maintenance-teams/TicketExecutionTasksView.tsx",
+    "hash": "BFE79D9813E5C641D047F76B000317E46B42B075448541285A930853CC73CCF2"
+  },
+  {
+    "file": "client/src/pages/maintenance-teams/AssignedMaintenanceTickets.tsx",
+    "hash": "B30926A70F23714820DCBE623044B9D74563A794D9CA4333CA13FCD56E3D4EE7"
+  },
+  {
+    "file": "client/src/pages/maintenance-teams/ExecutionPanel.tsx",
+    "hash": "7C606ED08C4BD509709086A772E59195B9449D7013DFE237134DAEF1C6B4C109"
+  },
+  {
+    "file": "client/src/pages/pmv2/Pmv2MyTasks.tsx",
+    "hash": "1B63089B34F4C70919E46708311A91229050E87381E8A7F53FFB9EF5D608D44F"
+  },
+  {
+    "file": "client/src/pages/pmv2/MyTasksPage.tsx",
+    "hash": "1070823107AC703332B075DF3367842DCB7D8770881885CE8884F0B043B1759F"
+  },
+  {
+    "file": "client/src/pages/tickets/CreateTicket.tsx",
+    "hash": "A7EF704C7D31A1198C9E91969C03FCA4186EE55880628AB9440FA2CA6AD72659"
+  },
+  {
+    "file": "client/src/pages/tickets/TicketDetail.tsx",
+    "hash": "BEE71555B5C3A94812F7CAE8DE9565F71E89F1A78A86323C751C9F76E479BB1E"
+  }
+]
