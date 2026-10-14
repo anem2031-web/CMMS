@@ -24,7 +24,7 @@ vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 vi.mock("../../client/src/lib/trpc", () => {
   const proxy = (path: string[] = []): any => new Proxy(() => {}, { get: (_target, key: string) => {
     if (key === "useUtils") return () => proxy();
-    if (key === "useQuery") return (input: any, options: any = {}) => { const name = path.join("."); f.queries.push({ name, input, options }); return { data: options.enabled === false ? undefined : f.data[name], isLoading: false, isFetching: false, error: null, refetch: vi.fn() }; };
+    if (key === "useQuery") return (input: any, options: any = {}) => { const name = path.join("."); f.queries.push({ name, input, options }); return { data: options.enabled === false ? undefined : (f.data[name] ?? (name === "pmv2.technician.workspace" ? f.data["pmv2.technician.today"] : undefined)), isLoading: false, isFetching: false, error: null, refetch: vi.fn() }; };
     if (key === "useMutation") return () => ({ isPending: false, mutate: (input: any) => f.calls.push({ name: path.join("."), input }), mutateAsync: async (input: any) => { f.calls.push({ name: path.join("."), input }); return {}; } });
     if (key === "invalidate") return async () => {};
     return proxy([...path, key]);
@@ -33,6 +33,7 @@ vi.mock("../../client/src/lib/trpc", () => {
 import { TechnicianExecutionWindow, ExecutionElapsedTime } from "../../client/src/components/maintenance/TechnicianExecutionWindow";
 import { TicketSequentialTasksView } from "../../client/src/pages/maintenance-teams/TicketSequentialTasksView";
 import Pmv2MyTasks from "../../client/src/pages/pmv2/Pmv2MyTasks";
+import { TechnicianTicketDashboard } from "../../client/src/pages/maintenance-teams/TechnicianTicketDashboard";
 const ticket = (id: number, ticketId = 10, stage = "action_required") => ({ assignmentId: id, ticketId, ticketNumber: `MOCK-${ticketId}`, title: `ticket item ${id}`, description: "test", teamName: "team", warehouseName: "store", siteName: "site", sectionName: "section", stage } as any);
 function render(node: React.ReactNode) { f.index = 0; f.buttons.clear(); return renderToStaticMarkup(node); }
 function click(label: string) { const props = f.buttons.get(label); expect(props).toBeDefined(); expect(props.disabled).toBeFalsy(); props.onClick({ preventDefault() {} }); }
@@ -51,3 +52,23 @@ it("login, path guard, named tickets and linked-ticket creation preserve the sin
 it("PMV2 start/resume/result/end-visit mutations retain their original implementation byte for byte", () => { const before = fs.readFileSync("tools/technician-workspace/artifacts/client__src__pages__pmv2__Pmv2MyTasks.tsx.before", "utf8"); const after = fs.readFileSync("client/src/pages/pmv2/Pmv2MyTasks.tsx", "utf8"); const extract = (value: string) => value.slice(value.indexOf("  const startItem ="), value.indexOf("  const resultMutationPending =")); expect(extract(after)).toBe(extract(before)); });
 it("the shared route policy changes only the technician condition; all other policy code is identical", () => { const before = fs.readFileSync("tools/technician-workspace/artifacts/shared__roles.ts.before", "utf8"); const after = fs.readFileSync("shared/roles.ts", "utf8").replace('  if (role === APP_ROLE.TECHNICIAN) return normalizedPath === "/scheduled-maintenance/my-tasks";\n', ""); expect(after).toBe(before); });
 it("layout waits for authentication before mounting a direct-link page and redirects technicians to their workspace", () => { const source = fs.readFileSync("client/src/components/layout/DashboardLayout.tsx", "utf8"); expect(source).toContain("!authLoading && canRoleAccessPath(role, location)"); expect(source).toContain("if (authLoading || canAccessCurrentPath) return;"); expect(source).toContain('const fallback = role === "technician"\n      ? "/scheduled-maintenance/my-tasks"'); });
+it("PMV2 status cards filter the actual task list and do not mutate tasks on card selection", () => {
+  const base = f.data["pmv2.technician.today"].items[0];
+  f.data["pmv2.technician.workspace"] = { date: "2026-10-14", items: [
+    { ...base, hasOpenVisit: false, activeItemCount: 2 },
+    { ...base, id: 8, taskNumber: "MATERIAL-TASK", status: "waiting_material", hasOpenVisit: false, activeItemCount: 0, waitingMaterialCount: 2 },
+    { ...base, id: 9, taskNumber: "MANAGER-TASK", status: "waiting_ticket", hasOpenVisit: false, activeItemCount: 0, waitingTicketCount: 2 },
+    { ...base, id: 10, taskNumber: "DONE-TASK", status: "completed", hasOpenVisit: false, activeItemCount: 0, completedItemCount: 2 },
+  ] };
+  const node = <Pmv2MyTasks />;
+  const first = render(node); expect(first).toContain("MOCK-PMV2-7"); expect(first).not.toContain("MATERIAL-TASK"); expect(first).not.toContain("DONE-TASK");
+  click("بانتظار المواد1"); const material = render(node); expect(material).toContain("MATERIAL-TASK"); expect(material).not.toContain("MOCK-PMV2-7");
+  click("بانتظار المسؤول1"); const manager = render(node); expect(manager).toContain("MANAGER-TASK"); expect(manager).not.toContain("MATERIAL-TASK");
+  click("تم تنفيذها1"); const done = render(node); expect(done).toContain("DONE-TASK"); expect(done).toContain("أحدث 100"); expect(done).not.toContain("MANAGER-TASK"); expect(f.calls).toEqual([]);
+});
+it("ticket cards combine team and name assignment counts without counting the same document twice", () => {
+  f.data["ticketTeamAssignments.queue"] = [{ ...ticket(1, 10), hasOpenVisit: false }, { ...ticket(2, 20, "awaiting_review"), hasOpenVisit: false }];
+  f.data["tickets.list"] = [{ id: 10, title: "duplicate team doc", ticketNumber: "DUP", status: "assigned" }, { id: 30, title: "named open", ticketNumber: "NAMED-OPEN", status: "assigned" }, { id: 31, title: "named done", ticketNumber: "NAMED-DONE", status: "ready_for_closure" }];
+  const node = <TechnicianTicketDashboard />; const html = render(node); expect(f.buttons.has("مهام التنفيذ2")).toBe(true); expect(f.buttons.has("تم تنفيذها2")).toBe(true); expect(html).toContain("NAMED-OPEN"); expect(html).not.toContain("duplicate team doc"); expect(html).not.toContain("NAMED-DONE");
+  click("تم تنفيذها2"); const done = render(node); expect(done).toContain("NAMED-DONE"); expect(done).toContain("MOCK-20"); expect(done).not.toContain("NAMED-OPEN"); expect(done).not.toContain("MOCK-10"); expect(f.calls).toEqual([]);
+});

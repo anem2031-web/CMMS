@@ -1,0 +1,47 @@
+[
+  {
+    "file": "client/src/pages/maintenance-teams/TicketSequentialTasksView.tsx",
+    "backup": "tools/technician-status-cards/artifacts/client__src__pages__maintenance-teams__TicketSequentialTasksView.tsx.before",
+    "hash": "CA1FAC3D54ECD5E6FF7F85DF9F154131E2059E9A8154D2EE472EF0F9011C416B"
+  },
+  {
+    "file": "client/src/pages/maintenance-teams/NamedTechnicianTickets.tsx",
+    "backup": "tools/technician-status-cards/artifacts/client__src__pages__maintenance-teams__NamedTechnicianTickets.tsx.before",
+    "hash": "4D94475B0C451F11F47A36E4A8AEB89C5A1599C5B505464656324A8E162AE049"
+  },
+  {
+    "file": "client/src/pages/maintenance-teams/AssignedMaintenanceTickets.tsx",
+    "backup": "tools/technician-status-cards/artifacts/client__src__pages__maintenance-teams__AssignedMaintenanceTickets.tsx.before",
+    "hash": "B30926A70F23714820DCBE623044B9D74563A794D9CA4333CA13FCD56E3D4EE7"
+  },
+  {
+    "file": "client/src/pages/maintenance-teams/TicketExecutionTasksView.tsx",
+    "backup": "tools/technician-status-cards/artifacts/client__src__pages__maintenance-teams__TicketExecutionTasksView.tsx.before",
+    "hash": "BFE79D9813E5C641D047F76B000317E46B42B075448541285A930853CC73CCF2"
+  },
+  {
+    "file": "client/src/pages/pmv2/MyTasksPage.tsx",
+    "backup": "tools/technician-status-cards/artifacts/client__src__pages__pmv2__MyTasksPage.tsx.before",
+    "hash": "1070823107AC703332B075DF3367842DCB7D8770881885CE8884F0B043B1759F"
+  },
+  {
+    "file": "client/src/pages/pmv2/Pmv2MyTasks.tsx",
+    "backup": "tools/technician-status-cards/artifacts/client__src__pages__pmv2__Pmv2MyTasks.tsx.before",
+    "hash": "1B63089B34F4C70919E46708311A91229050E87381E8A7F53FFB9EF5D608D44F"
+  },
+  {
+    "file": "server/pmv2/technician/read-service.ts",
+    "backup": "tools/technician-status-cards/artifacts/server__pmv2__technician__read-service.ts.before",
+    "hash": "D16AF919C0BB6F4873EC7CB937D05308E1EAEB8D9549043BA5BECC62A093B18F"
+  },
+  {
+    "file": "server/routers/pmv2/technician.ts",
+    "backup": "tools/technician-status-cards/artifacts/server__routers__pmv2__technician.ts.before",
+    "hash": "E86EB9284B531F3B0DE67573E948C3DF55804F68CFC50AC9C6AA59FC74D75932"
+  },
+  {
+    "file": "tools/technician-workspace/workspace-ui.test.tsx",
+    "backup": "tools/technician-status-cards/artifacts/tools__technician-workspace__workspace-ui.test.tsx.before",
+    "hash": "F5FDB0554734D5A64CBD2E97484C6AD30D994ACF8C195B1B147C9B3867518556"
+  }
+]

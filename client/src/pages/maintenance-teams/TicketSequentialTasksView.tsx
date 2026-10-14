@@ -6,6 +6,10 @@ import { TechnicianExecutionWindow } from "@/components/maintenance/TechnicianEx
 import type { AssignedTeamTicket } from "@shared/maintenance-team-tickets/assignment";
 import { stageLabels } from "@shared/maintenance-team-tickets/model";
 import {
+  teamTicketBucket,
+  type TechnicianBucket,
+} from "@shared/technician-task-buckets";
+import {
   currentExecutionStep,
   ticketStepRecorded,
 } from "@shared/technician-workspace";
@@ -15,9 +19,11 @@ export function TicketSequentialTasksView({
   tickets,
   language,
   renderExecution,
+  bucket,
 }: {
   tickets: AssignedTeamTicket[];
   language: string;
+  bucket?: TechnicianBucket;
   renderExecution: (
     ticket: AssignedTeamTicket,
     onBusyChange?: (busy: boolean) => void
@@ -70,6 +76,9 @@ export function TicketSequentialTasksView({
   const groups = Array.from(
     new Set(tickets.map(ticket => ticket.ticketId))
   ).map(id => tickets.filter(ticket => ticket.ticketId === id));
+  const visibleGroups = groups.filter(
+    items => bucket == null || teamTicketBucket(items) === bucket
+  );
   const selected = tickets.find(ticket => ticket.assignmentId === selectedId);
   const group = selected
     ? tickets.filter(ticket => ticket.ticketId === selected.ticketId)
@@ -92,48 +101,49 @@ export function TicketSequentialTasksView({
   };
   return (
     <div className="space-y-6">
-      {tickets.some(ticket =>
-        ["waiting_material", "ready_to_repair"].includes(ticket.stage)
-      ) && (
-        <Card>
-          <CardHeader>
-            <CardTitle>
-              {l(
-                "مواد تحتاج انتباهك",
-                "Materials needing your attention",
-                "مواد جن پر توجہ درکار ہے"
-              )}
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            {tickets
-              .filter(ticket =>
-                ["waiting_material", "ready_to_repair"].includes(ticket.stage)
-              )
-              .map(ticket => (
-                <button
-                  key={ticket.assignmentId}
-                  type="button"
-                  className="flex w-full justify-between gap-2 rounded-lg border p-3 text-start text-sm"
-                  onClick={() => open(ticket)}
-                >
-                  <span>
-                    {ticket.ticketNumber} — {ticket.title}
-                  </span>
-                  <span>{status(ticket)}</span>
-                </button>
-              ))}
-          </CardContent>
-        </Card>
-      )}
+      {bucket == null &&
+        tickets.some(ticket =>
+          ["waiting_material", "ready_to_repair"].includes(ticket.stage)
+        ) && (
+          <Card>
+            <CardHeader>
+              <CardTitle>
+                {l(
+                  "مواد تحتاج انتباهك",
+                  "Materials needing your attention",
+                  "مواد جن پر توجہ درکار ہے"
+                )}
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {tickets
+                .filter(ticket =>
+                  ["waiting_material", "ready_to_repair"].includes(ticket.stage)
+                )
+                .map(ticket => (
+                  <button
+                    key={ticket.assignmentId}
+                    type="button"
+                    className="flex w-full justify-between gap-2 rounded-lg border p-3 text-start text-sm"
+                    onClick={() => open(ticket)}
+                  >
+                    <span>
+                      {ticket.ticketNumber} — {ticket.title}
+                    </span>
+                    <span>{status(ticket)}</span>
+                  </button>
+                ))}
+            </CardContent>
+          </Card>
+        )}
       <Card>
         <CardHeader>
           <CardTitle>
-            {title} ({groups.length})
+            {title} ({visibleGroups.length})
           </CardTitle>
         </CardHeader>
         <CardContent>
-          {!groups.length && (
+          {!visibleGroups.length && (
             <p>
               {l(
                 "لا توجد تذاكر مسندة إلى فريقك.",
@@ -143,7 +153,7 @@ export function TicketSequentialTasksView({
             </p>
           )}
           <div className="grid gap-3 md:grid-cols-2">
-            {groups.map(items => {
+            {visibleGroups.map(items => {
               const ticket = items[0];
               const done = items.filter(item =>
                 ticketStepRecorded(item.stage)

@@ -5,6 +5,8 @@ import { currentExecutionStep } from "@shared/technician-workspace";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { TicketSourceSummary } from "@/components/maintenance/TicketSourceSummary";
 import CreateTicket from "@/pages/tickets/CreateTicket";
+import { TechnicianStatusCards, technicianBucketTitle } from "@/components/maintenance/TechnicianStatusCards";
+import { scheduledTaskBucket, bucketCounts, type TechnicianBucket } from "@shared/technician-task-buckets";
 import { BellRing, CalendarClock, Camera, Check, CheckCircle2, ChevronsUpDown, ClipboardList, Clock3, ExternalLink, History, ImageIcon, Loader2, MapPin, PackageSearch, PlayCircle, RefreshCw, TicketPlus, Users, Wrench } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -256,6 +258,7 @@ function MaterialNeedPanel({ taskId, taskItemId, onBusyChange }: { taskId: numbe
       readyReceiptsQuery.refetch(),
       utils.pmv2.technician.items.invalidate({ taskId }),
       utils.pmv2.technician.today.invalidate(),
+      utils.pmv2.technician.workspace.invalidate(),
       utils.pmv2.technician.materialAttention.invalidate(),
     ]);
   };
@@ -945,6 +948,7 @@ function MaterialCompletionPanel({ taskId, taskItemId, onBusyChange }: { taskId:
       }
       await Promise.all([
         utils.pmv2.technician.today.invalidate(),
+      utils.pmv2.technician.workspace.invalidate(),
         utils.pmv2.technician.items.invalidate({ taskId }),
         utils.pmv2.technician.visitState.invalidate({ taskId }),
         utils.pmv2.technician.timeline.invalidate({ taskId }),
@@ -1024,7 +1028,9 @@ export default function Pmv2MyTasks() {
   };
   const utils = trpc.useUtils();
   const [, setLocation] = useLocation();
-  const todayQuery = trpc.pmv2.technician.today.useQuery();
+  const legacyTodayQuery = trpc.pmv2.technician.today.useQuery(undefined, { enabled: !sequential });
+  const workspaceQuery = trpc.pmv2.technician.workspace.useQuery(undefined, { enabled: sequential, refetchInterval: 30_000 });
+  const todayQuery = sequential ? workspaceQuery : legacyTodayQuery;
   const materialAttentionQuery = trpc.pmv2.technician.materialAttention.useQuery(undefined, { refetchInterval: 60_000 });
   const tasks = todayQuery.data?.items ?? [];
   const todayTasks = tasks.filter(task => !task.isCarryOver);
@@ -1039,6 +1045,14 @@ export default function Pmv2MyTasks() {
   const [ticketNoteDialogItemId, setTicketNoteDialogItemId] = useState<number | null>(null);
   const [ticketHandoffNote, setTicketHandoffNote] = useState("");
   const [attentionReceipt, setAttentionReceipt] = useState<any | null>(null);
+  const [bucket, setBucket] = useState<TechnicianBucket>("execution");
+  const counts = bucketCounts(tasks, scheduledTaskBucket);
+  const listedTasks = sequential ? tasks.filter(task => scheduledTaskBucket(task) === bucket) : tasks;
+  const listedTodayTasks = listedTasks.filter(task => !task.isCarryOver);
+  const listedCarryOverTasks = listedTasks.filter(task => task.isCarryOver);
+  const visibleMaterialAttention = (materialAttentionQuery.data?.items ?? []).filter((alert: any) => !sequential || tasks.some(task => task.id === alert.taskId && scheduledTaskBucket(task) === "materials"));
+  const attentionCount = sequential ? visibleMaterialAttention.length : materialAttentionQuery.data?.count ?? 0;
+  const actionableAttentionCount = sequential ? visibleMaterialAttention.filter((alert: any) => alert.attentionStatus === "ready_to_receive").length : materialAttentionQuery.data?.actionableCount ?? 0;
 
   useEffect(() => {
     if (tasks.length === 0) {
@@ -1242,7 +1256,9 @@ export default function Pmv2MyTasks() {
         </Button>
       </div>
 
-      {(materialAttentionQuery.isLoading || materialAttentionQuery.error || (materialAttentionQuery.data?.count ?? 0) > 0) && (
+      {sequential && <TechnicianStatusCards counts={counts} value={bucket} onChange={setBucket} language={language} loading={todayQuery.isLoading || !!todayQuery.error} />}
+      {sequential && bucket === "done" && <p className="text-xs text-muted-foreground">{language === "ar" ? "يعرض المنجز الحالي وأحدث 100 مهمة منجزة سابقة؛ العدد يخص المهام المعروضة، دون حذف السجل." : language === "ur" ? "موجودہ مکمل کام اور آخری 100 سابقہ مکمل کام؛ تعداد دکھائے گئے کاموں کی ہے۔" : "Current completed tasks and the latest 100 archived tasks; the count is for displayed tasks. No history is deleted."}</p>}
+      {(!sequential || bucket === "materials") && (materialAttentionQuery.isLoading || materialAttentionQuery.error || attentionCount > 0) && (
         <Card className="border-amber-300 bg-amber-50/30">
           <CardHeader className="pb-3">
             <CardTitle className="flex flex-wrap items-center justify-between gap-2 text-lg">
@@ -1251,9 +1267,9 @@ export default function Pmv2MyTasks() {
                 {t.workflow.pmv2.materialsNeedAttention}
               </span>
               <div className="flex flex-wrap gap-1.5">
-                <Badge variant="outline">{t.workflow.pmv2.statusesCount.replace("{count}", String(materialAttentionQuery.data?.count ?? 0))}</Badge>
-                {(materialAttentionQuery.data?.actionableCount ?? 0) > 0 && (
-                  <Badge className="bg-emerald-600">{t.workflow.pmv2.readyReceiveCount.replace("{count}", String(materialAttentionQuery.data?.actionableCount ?? 0))}</Badge>
+                <Badge variant="outline">{t.workflow.pmv2.statusesCount.replace("{count}", String(attentionCount))}</Badge>
+                {actionableAttentionCount > 0 && (
+                  <Badge className="bg-emerald-600">{t.workflow.pmv2.readyReceiveCount.replace("{count}", String(actionableAttentionCount))}</Badge>
                 )}
               </div>
             </CardTitle>
@@ -1262,7 +1278,7 @@ export default function Pmv2MyTasks() {
           <CardContent className="space-y-2">
             {materialAttentionQuery.isLoading && <p className="text-sm text-muted-foreground">{t.workflow.pmv2.loadingMaterialStatuses}</p>}
             {materialAttentionQuery.error && <p className="text-sm text-destructive">{localizeApiError(materialAttentionQuery.error.message)}</p>}
-            {materialAttentionQuery.data?.items.map((alert: any) => (
+            {visibleMaterialAttention.map((alert: any) => (
               <div key={alert.id} className="rounded-lg border bg-background p-3">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div className="min-w-0 space-y-1.5">
@@ -1335,10 +1351,10 @@ export default function Pmv2MyTasks() {
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="flex flex-wrap items-center justify-between gap-2 text-lg">
-            <span>{t.workflow.pmv2.myTasksHeader.replace("{date}", todayQuery.data?.date ?? t.workflow.pmv2.myTasksToday)}</span>
+            <span>{sequential ? technicianBucketTitle(bucket, language) : t.workflow.pmv2.myTasksHeader.replace("{date}", todayQuery.data?.date ?? t.workflow.pmv2.myTasksToday)}</span>
             <div className="flex flex-wrap gap-1.5">
-              <Badge variant="secondary">{t.workflow.pmv2.todayCount.replace("{count}", String(todayQuery.data?.todayCount ?? todayTasks.length))}</Badge>
-              {carryOverTasks.length > 0 && (
+              {sequential ? <Badge variant="secondary">{listedTasks.length}</Badge> : <Badge variant="secondary">{t.workflow.pmv2.todayCount.replace("{count}", String(todayQuery.data?.todayCount ?? todayTasks.length))}</Badge>}
+              {!sequential && carryOverTasks.length > 0 && (
                 <Badge variant="outline">{t.workflow.pmv2.carryOverCount.replace("{count}", String(todayQuery.data?.carryOverCount ?? carryOverTasks.length))}</Badge>
               )}
             </div>
@@ -1348,15 +1364,15 @@ export default function Pmv2MyTasks() {
         <CardContent className="space-y-5">
           {todayQuery.isLoading && <p className="text-sm text-muted-foreground">{t.workflow.pmv2.loadingYourTasks}</p>}
           {todayQuery.error && <p className="text-sm text-destructive">{localizeApiError(todayQuery.error.message)}</p>}
-          {!todayQuery.isLoading && !todayQuery.error && tasks.length === 0 && (
+          {!todayQuery.isLoading && !todayQuery.error && listedTasks.length === 0 && (
             <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
               {t.workflow.pmv2.noTasks}
             </div>
           )}
 
           {[
-            { key: "today", title: t.workflow.pmv2.todayTasks, items: todayTasks, carryOver: false },
-            { key: "carry-over", title: t.workflow.pmv2.carryOverTasks, items: carryOverTasks, carryOver: true },
+            { key: "today", title: t.workflow.pmv2.todayTasks, items: listedTodayTasks, carryOver: false },
+            { key: "carry-over", title: t.workflow.pmv2.carryOverTasks, items: listedCarryOverTasks, carryOver: true },
           ].map(section => section.items.length > 0 && (
             <section key={section.key} className="space-y-2">
               <div className="flex flex-wrap items-center gap-2">

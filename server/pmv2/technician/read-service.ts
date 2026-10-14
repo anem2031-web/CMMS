@@ -39,9 +39,9 @@ export class Pmv2TechnicianAccessError extends Error {
  * so the Visit leader can close it without reopening or mutating the Task itself.
  */
 export class Pmv2TechnicianReadService {
-  async listTodayTasks(userId: number, date = getRiyadhDateOnly()) {
+  async listTodayTasks(userId: number, date = getRiyadhDateOnly(), completedArchive = false) {
     const db = await requireDb();
-    const rows = await db
+    const query = db
       .select({
         id: pmv2Tasks.id,
         taskNumber: pmv2Tasks.taskNumber,
@@ -57,6 +57,10 @@ export class Pmv2TechnicianReadService {
         assetName: assets.name,
         itemCount: sql<number>`count(${pmv2TaskItems.id})`,
         completedItemCount: sql<number>`coalesce(sum(case when ${pmv2TaskItems.status} = 'completed' then 1 else 0 end), 0)`,
+        activeItemCount: sql<number>`coalesce(sum(case when ${pmv2TaskItems.status} in ('pending','in_progress','ready_to_complete') then 1 else 0 end), 0)`,
+        waitingMaterialCount: sql<number>`coalesce(sum(case when ${pmv2TaskItems.status} = 'waiting_material' then 1 else 0 end), 0)`,
+        waitingTicketCount: sql<number>`coalesce(sum(case when ${pmv2TaskItems.status} = 'waiting_ticket' then 1 else 0 end), 0)`,
+        hasOpenVisit: sql<number>`exists (select 1 from ${pmv2Visits} where ${pmv2Visits.taskId} = ${pmv2Tasks.id} and ${pmv2Visits.endedAt} is null)`,
       })
       .from(pmv2Tasks)
       .innerJoin(
@@ -73,7 +77,7 @@ export class Pmv2TechnicianReadService {
           pmv2ExecutionTeamCondition(userId, pmv2Tasks.teamId),
           lte(pmv2Tasks.dueDate, date),
           ne(pmv2Tasks.status, "cancelled"),
-          or(
+          completedArchive ? and(eq(pmv2Tasks.status, "completed"), sql<boolean>`not exists (select 1 from ${pmv2Visits} where ${pmv2Visits.taskId} = ${pmv2Tasks.id} and ${pmv2Visits.endedAt} is null)`) : or(
             eq(pmv2Tasks.dueDate, date),
             ne(pmv2Tasks.status, "completed"),
             sql<boolean>`exists (
@@ -100,11 +104,16 @@ export class Pmv2TechnicianReadService {
         assets.name,
       )
       .orderBy(desc(pmv2Tasks.dueDate), asc(pmv2Tasks.taskNumber));
+    const rows = await (completedArchive ? query.limit(100) : query);
 
     const items = rows.map(row => ({
       ...row,
       itemCount: Number(row.itemCount ?? 0),
       completedItemCount: Number(row.completedItemCount ?? 0),
+      activeItemCount: Number(row.activeItemCount ?? 0),
+      waitingMaterialCount: Number(row.waitingMaterialCount ?? 0),
+      waitingTicketCount: Number(row.waitingTicketCount ?? 0),
+      hasOpenVisit: Number(row.hasOpenVisit ?? 0) > 0,
       isCarryOver: String(row.dueDate) < date,
     }));
 
@@ -114,6 +123,13 @@ export class Pmv2TechnicianReadService {
       carryOverCount: items.filter(item => item.isCarryOver).length,
       items,
     };
+  }
+
+  /** Same authenticated team scope; active feed plus a bounded completed archive. */
+  async listWorkspaceTasks(userId: number, date = getRiyadhDateOnly()) {
+    const [active, archive] = await Promise.all([this.listTodayTasks(userId, date), this.listTodayTasks(userId, date, true)]);
+    const items = Array.from(new Map([...active.items, ...archive.items].map(item => [item.id, item])).values());
+    return { ...active, items, archiveLimit: 100, archiveMayHaveMore: archive.items.length === 100 };
   }
 
   async getVisitState(userId: number, taskId: number) {

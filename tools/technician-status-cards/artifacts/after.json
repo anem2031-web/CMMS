@@ -1,0 +1,38 @@
+[
+  {
+    "file": "shared/technician-task-buckets.ts",
+    "hash": "9A983078F633836B530E40A841046FB3188404BBF7CAB3A5E188EAA7F428EF81"
+  },
+  {
+    "file": "client/src/components/maintenance/TechnicianStatusCards.tsx",
+    "hash": "282AFA69281A8FBC8270BB50DD6590FA9F39713AFD3468C472FE7E5780F7DAD2"
+  },
+  {
+    "file": "client/src/pages/maintenance-teams/TechnicianTicketDashboard.tsx",
+    "hash": "835E7FC2DF719EA3F834CF76A7290BC3D4CFF379E07994426FBE6F29CBBF3800"
+  },
+  {
+    "file": "client/src/pages/maintenance-teams/TicketSequentialTasksView.tsx",
+    "hash": "CF7590093C69E728031683C14C798681864D95372F91D6F3AC6A0C450A759565"
+  },
+  {
+    "file": "client/src/pages/maintenance-teams/NamedTechnicianTickets.tsx",
+    "hash": "A87A3A7DBEF0AC49B9BACF3F928738E2E235B0A34D2A216CA2A7993B845E3972"
+  },
+  {
+    "file": "client/src/pages/pmv2/MyTasksPage.tsx",
+    "hash": "BA3340F225A5146267029E0AF1B31C5AB5AA36231B16AEFEACE8C5DA46FA604D"
+  },
+  {
+    "file": "client/src/pages/pmv2/Pmv2MyTasks.tsx",
+    "hash": "41CB381CF14F325DA3313614D07FB989B5AEB44F79E187DD95ACB8AB814CFF71"
+  },
+  {
+    "file": "server/pmv2/technician/read-service.ts",
+    "hash": "B1315F7E759C70F7F1D6B90781B374D01FAC572CEE5C7B32FEDA4FAEC46924CC"
+  },
+  {
+    "file": "server/routers/pmv2/technician.ts",
+    "hash": "63B01E22B70238DA6C2CA70031B05B2BC4EE4E87771FD55435DB99F75AA4AE21"
+  }
+]

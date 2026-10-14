@@ -3,6 +3,8 @@ import { trpc } from "@/lib/trpc";
 import { useTranslation } from "@/contexts/LanguageContext";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import type { TechnicianBucket } from "@shared/technician-task-buckets";
+import { namedTicketBucket } from "@shared/technician-task-buckets";
 import {
   Dialog,
   DialogContent,
@@ -12,20 +14,44 @@ import {
 const TicketDetail = lazy(() => import("@/pages/tickets/TicketDetail"));
 
 /** Preserve name-assigned ticket workflow within the single technician page. */
-export function NamedTechnicianTickets() {
+export function NamedTechnicianTickets({
+  rows,
+  bucket,
+  onChanged,
+}: {
+  rows?: Array<{
+    id: number;
+    ticketNumber: string;
+    title: string;
+    status: string;
+    inspectionWorkflowStatus?: string | null;
+  }>;
+  bucket?: TechnicianBucket;
+  onChanged?: () => void;
+} = {}) {
   const { t, language, dir } = useTranslation();
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState<number | null>(null);
   const query = trpc.tickets.listPaginated.useQuery(
     { page, pageSize: 20, groupSubTickets: false },
-    { retry: false }
+    { retry: false, enabled: rows == null }
   );
   const l = (a: string, e: string, u: string) =>
     language === "ar" ? a : language === "ur" ? u : e;
   const close = () => {
     setSelected(null);
-    void query.refetch();
+    if (rows == null) void query.refetch();
+    else onChanged?.();
   };
+  const filteredRows = rows?.filter(
+    ticket => bucket == null || namedTicketBucket(ticket) === bucket
+  );
+  const visibleRows = filteredRows
+    ? filteredRows.slice((page - 1) * 20, page * 20)
+    : (query.data?.tickets ?? []);
+  const pages = filteredRows
+    ? Math.max(1, Math.ceil(filteredRows.length / 20))
+    : (query.data?.totalPages ?? 1);
   return (
     <>
       <Card>
@@ -39,33 +65,35 @@ export function NamedTechnicianTickets() {
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
-          {query.isLoading && <p>{t.common.loading}</p>}
-          {query.error && (
+          {rows == null && query.isLoading && <p>{t.common.loading}</p>}
+          {rows == null && query.error && (
             <p role="alert" className="text-destructive">
               {query.error.message}
             </p>
           )}
-          {query.data?.tickets.map((ticket: { id: number; ticketNumber: string; title: string }) => (
-            <button
-              key={ticket.id}
-              type="button"
-              onClick={() => setSelected(ticket.id)}
-              className="block w-full rounded-xl border p-4 text-start hover:bg-muted/50"
-            >
-              <span className="font-mono" dir="ltr">
-                {ticket.ticketNumber}
-              </span>
-              <p className="mt-1 font-medium">{ticket.title}</p>
-              <span className="text-xs text-primary">
-                {l(
-                  "فتح التنفيذ الحالي",
-                  "Open existing execution",
-                  "موجودہ کارروائی کھولیں"
-                )}
-              </span>
-            </button>
-          ))}
-          {query.data && !query.data.tickets.length && (
+          {visibleRows.map(
+            (ticket: { id: number; ticketNumber: string; title: string }) => (
+              <button
+                key={ticket.id}
+                type="button"
+                onClick={() => setSelected(ticket.id)}
+                className="block w-full rounded-xl border p-4 text-start hover:bg-muted/50"
+              >
+                <span className="font-mono" dir="ltr">
+                  {ticket.ticketNumber}
+                </span>
+                <p className="mt-1 font-medium">{ticket.title}</p>
+                <span className="text-xs text-primary">
+                  {l(
+                    "فتح التنفيذ الحالي",
+                    "Open existing execution",
+                    "موجودہ کارروائی کھولیں"
+                  )}
+                </span>
+              </button>
+            )
+          )}
+          {(rows != null || query.data) && !visibleRows.length && (
             <p>
               {l(
                 "لا توجد تذاكر مسندة بالاسم.",
@@ -74,7 +102,7 @@ export function NamedTechnicianTickets() {
               )}
             </p>
           )}
-          {query.data && query.data.totalPages > 1 && (
+          {pages > 1 && (
             <div className="flex gap-2">
               <Button
                 variant="outline"
@@ -84,11 +112,11 @@ export function NamedTechnicianTickets() {
                 {l("السابق", "Previous", "پچھلا")}
               </Button>
               <span>
-                {page} / {query.data.totalPages}
+                {page} / {pages}
               </span>
               <Button
                 variant="outline"
-                disabled={page >= query.data.totalPages || query.isFetching}
+                disabled={page >= pages || query.isFetching}
                 onClick={() => setPage(value => value + 1)}
               >
                 {l("التالي", "Next", "اگلا")}

@@ -38,6 +38,9 @@ function mapTechnicianError(error: unknown): never {
 
 /** Phase 3 technician task surface: read, start execution, and Core PM V2 result recording. */
 export const pmv2TechnicianRouter = router({
+  workspace: pmv2TechnicianProcedure.query(async ({ ctx }) =>
+    localizeMasterDataReferences(await pmv2TechnicianReadService.listWorkspaceTasks(ctx.user.id), (ctx.user.preferredLanguage || "ar") as SupportedLanguage),
+  ),
   today: pmv2TechnicianProcedure.query(async ({ ctx }) =>
     localizeMasterDataReferences(
       await pmv2TechnicianReadService.listTodayTasks(ctx.user.id),

@@ -77,10 +77,14 @@ class FixtureStore {
           return this.rows(a[0]).some(row => this.value(a[1], { ...record, [a[0].name]: row }));
         }
         if (/exists/.test(node.text)) {
-          return this.rows(a[0]).some(row => row.taskId === v(a[2]) && row.endedAt == null);
+          const found = this.rows(a[0]).some(row => row.taskId === v(a[2]) && row.endedAt == null);
+          return /not\s+exists/.test(node.text) ? !found : found;
         }
         if (/^count/.test(node.text)) return group.filter(r => this.value(a[0], r) != null).length;
-        if (/coalesce\(sum/.test(node.text)) return group.filter(r => this.value(a[0], r) === 'completed').length;
+        if (/coalesce\(sum/.test(node.text)) {
+          const statuses = /\bin\s*\(/.test(node.text) ? ['pending', 'in_progress', 'ready_to_complete'] : [node.text.includes("'waiting_material'") ? 'waiting_material' : node.text.includes("'waiting_ticket'") ? 'waiting_ticket' : 'completed'];
+          return group.filter(r => statuses.includes(this.value(a[0], r))).length;
+        }
         if (/CURRENT_TIMESTAMP/.test(node.text)) return '2026-10-11T12:00:00Z';
         throw new Error(`Unmodelled SQL: ${node.text}`);
       }
@@ -228,6 +232,44 @@ test('unsupported roles do not acquire execution from membership; management and
   assert.deepEqual(Array.from(roles.PMV2_TECHNICIAN_EXECUTION_ROLES), ordinaryRoles);
   assert.equal(roles.canRoleManagePmv2('construction_procurement_manager'), false);
   assert.equal(roles.canRoleAccessPmv2Warehouse('maintenance_manager'), false);
+});
+
+test('workspace category metadata distinguishes remaining work, materials, ticket dependencies and visits', async () => {
+  const f = fixture('technician', { member: true });
+  f.db.records.pmv2TaskItems = [
+    { id: 100, taskId: 10, status: 'in_progress' }, { id: 101, taskId: 10, status: 'waiting_material' },
+    { id: 102, taskId: 10, status: 'waiting_ticket' }, { id: 103, taskId: 10, status: 'completed' },
+  ];
+  f.db.records.pmv2Visits = [{ id: 1, taskId: 10, startedAt: '2026-10-11T08:00:00Z', endedAt: null }];
+  const row = (await f.read.listWorkspaceTasks(1)).items[0];
+  assert.equal(row.itemCount, 4); assert.equal(row.activeItemCount, 1); assert.equal(row.waitingMaterialCount, 1); assert.equal(row.waitingTicketCount, 1); assert.equal(row.completedItemCount, 1); assert.equal(row.hasOpenVisit, true);
+  assert.equal(f.db.writes.length, 0);
+});
+test('completed prior task stays active with an open visit, then remains readable in the bounded completed archive', async () => {
+  const f = fixture('technician', { member: true });
+  f.db.records.pmv2Tasks[0].status = 'completed'; f.db.records.pmv2Tasks[0].dueDate = '2026-10-01';
+  f.db.records.pmv2TaskItems[0].status = 'completed';
+  f.db.records.pmv2Visits = [{ id: 1, taskId: 10, startedAt: '2026-10-01T08:00:00Z', endedAt: null }];
+  assert.equal((await f.read.listWorkspaceTasks(1)).items[0].hasOpenVisit, true);
+  assert.equal((await f.read.listTodayTasks(1, '2026-10-11', true)).items.length, 0);
+  f.db.records.pmv2Visits[0].endedAt = '2026-10-01T09:00:00Z';
+  assert.equal((await f.read.listTodayTasks(1)).items.length, 0);
+  const feed = await f.read.listWorkspaceTasks(1); assert.equal(feed.items.length, 1); assert.equal(feed.items[0].hasOpenVisit, false); assert.equal(feed.items[0].dueDate, '2026-10-01'); assert.equal(f.db.writes.length, 0);
+});
+test('completed archive remains scoped to active accounts and the same team membership', async () => {
+  for (const options of [{}, { member: true, active: 0 }, { member: true, memberActive: 0 }, { member: true, memberTeam: 99 }]) {
+    const f = fixture('technician', options); f.db.records.pmv2Tasks[0].status = 'completed'; f.db.records.pmv2TaskItems[0].status = 'completed';
+    assert.equal((await f.read.listWorkspaceTasks(1)).items.length, 0);
+    assert.equal(f.db.writes.length, 0);
+  }
+});
+test('archive is limited to 100 records without limiting old pending work or duplicating current completed tasks', async () => {
+  const f = fixture('technician', { member: true }); f.db.records.pmv2Tasks[0].dueDate = '2026-01-01';
+  for (let id = 11; id < 141; id++) {
+    f.db.records.pmv2Tasks.push({ ...f.db.records.pmv2Tasks[0], id, taskNumber: `PMV2-${id}`, status: 'completed', dueDate: '2026-10-01' });
+    f.db.records.pmv2TaskItems.push({ id: id + 100, taskId: id, status: 'completed' });
+  }
+  const feed = await f.read.listWorkspaceTasks(1); assert.equal(feed.items.length, 101); assert.ok(feed.items.some(task => task.id === 10)); assert.equal(new Set(feed.items.map(task => task.id)).size, feed.items.length); assert.equal(feed.archiveMayHaveMore, true); assert.equal(f.db.writes.length, 0);
 });
 test('fresh account role is checked on every write, including after an earlier successful read', async () => {
   const f = fixture('admin'); assert.equal((await f.read.listTodayTasks(1)).items.length, 1);
@@ -407,15 +449,20 @@ test('actual task and material-attention queries compile with plain JOIN ON and 
   const read = new (load(files[0], common).Pmv2TechnicianReadService)();
   const attention = new (load(files[1], common).Pmv2TechnicianMaterialAttentionService)();
   await read.listTodayTasks(60723); await attention.list(60723);
-  assert.equal(captured.length, 2);
+  await read.listWorkspaceTasks(60723);
+  assert.equal(captured.length, 4);
   for (const query of captured) {
-    const beforeWhere = query.sql.split(/\bwhere\b/i)[0];
+    const joinStart = query.sql.indexOf(' inner join ');
+    assert.ok(joinStart >= 0);
+    // SELECT projection may contain a correlated visit lookup with its own WHERE.
+    const beforeWhere = query.sql.slice(joinStart).split(/\bwhere\b/i)[0];
     assert.doesNotMatch(beforeWhere.slice(beforeWhere.indexOf('inner join')), /\b(?:exists|select)\b/i);
     assert.match(beforeWhere, /join `users` `pmv2ExecutionActor` on/);
     assert.match(query.sql, /where[\s\S]+exists \(select 1 from `pmv2_team_members`/i);
     assert.ok(query.params.includes(60723));
     for (const role of [...globalRoles, ...ordinaryRoles]) assert.ok(query.params.includes(role));
   }
+  assert.ok(captured.some(query => /not exists[\s\S]+endedAt` is null[\s\S]+limit \?/i.test(query.sql) && query.params.includes(100)));
 });
 for (const role of globalRoles) test(`${role}: original lot issue and PMV2 delivery linkage retain actual actor/recipient`, async () => {
   const f = materialFixture(role);
