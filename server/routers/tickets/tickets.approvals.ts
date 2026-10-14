@@ -8,17 +8,20 @@ import { canStartTicketRepair, canSubmitStandardRepair } from "@shared/ticketUiR
 import { assertPathBMaterialsDeliveredToTechnician, assertPathBMaterialsDeliveredToTechnicianForItem } from "../purchase/ticket-purchase-workflow";
 import { notifyTicketSupervisor } from "../_shared/router-helpers";
 import { assertTicketWorkflowManageable, canManageTicketWorkflow, assertTicketItemWorkflowManageable, canManageTicketItemWorkflow, isAssignedTicketTechnicianForWorkflow } from "./tickets.access";
+import { assertLegacyTeamExecutionAllowed } from "../maintenance-teams/execution.guard";
 
 const executionManagerRoles = new Set<string>([
   APP_ROLE.MAINTENANCE_MANAGER,
   APP_ROLE.GENERAL_MAINTENANCE_MANAGER,
   APP_ROLE.CONSTRUCTION_PROCUREMENT_MANAGER,
   APP_ROLE.IT_MANAGER,
+  APP_ROLE.IT_MEMBER,
   APP_ROLE.ADMIN,
   APP_ROLE.OWNER,
 ]);
 
 async function assertAssignedTechnicianOrScopedManager(user: { id: number; role: string }, ticket: any) {
+  await assertLegacyTeamExecutionAllowed(ticket);
   if (user.role === APP_ROLE.TECHNICIAN) {
     if (!(await isAssignedTicketTechnicianForWorkflow(user, ticket))) {
       throw new TRPCError({ code: "FORBIDDEN", message: "البلاغ غير مسند إليك" });
@@ -62,6 +65,7 @@ export const ticketsApprovalsRouter = router({
     const ticket = await db.getTicketById(input.id);
     if (!ticket) throw new TRPCError({ code: "NOT_FOUND" });
     assertTicketWorkflowManageable(ctx.user, ticket as any);
+    await assertLegacyTeamExecutionAllowed(ticket);
     if (!input.technicianId && !input.externalTechnicianId) {
       throw new TRPCError({ code: "BAD_REQUEST", message: "يجب تحديد فني لإعادة الإسناد" });
     }
@@ -242,6 +246,7 @@ export const ticketsApprovalsRouter = router({
     if (!item) throw new TRPCError({ code: "NOT_FOUND", message: "بند البلاغ غير موجود" });
     const ticket = await db.getTicketById(item.ticketId);
     if (!ticket) throw new TRPCError({ code: "NOT_FOUND" });
+    await assertLegacyTeamExecutionAllowed(ticket, item.id, "execution");
 
     // الفني المسند للبند تحديدًا، أو مدير مخوّل (بالبلاغ أو بالبند).
     if (ctx.user.role === APP_ROLE.TECHNICIAN) {
@@ -297,6 +302,7 @@ export const ticketsApprovalsRouter = router({
     if (!item) throw new TRPCError({ code: "NOT_FOUND", message: "بند البلاغ غير موجود" });
     const ticket = await db.getTicketById(item.ticketId);
     if (!ticket) throw new TRPCError({ code: "NOT_FOUND" });
+    await assertLegacyTeamExecutionAllowed(ticket, item.id, "execution");
 
     if (ctx.user.role === APP_ROLE.TECHNICIAN) {
       if (item.assignedToId !== ctx.user.id) {
@@ -349,6 +355,7 @@ export const ticketsApprovalsRouter = router({
     if (!item) throw new TRPCError({ code: "NOT_FOUND", message: "بند البلاغ غير موجود" });
     const ticket = await db.getTicketById(item.ticketId);
     if (!ticket) throw new TRPCError({ code: "NOT_FOUND" });
+    await assertLegacyTeamExecutionAllowed(ticket, item.id, "closure");
 
     assertTicketItemWorkflowManageable(ctx.user, ticket as any, item as any);
 

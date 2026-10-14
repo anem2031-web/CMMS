@@ -104,7 +104,7 @@ async function refreshServiceWorkerRegistration() {
 }
 
 export default function AppUpdateBanner() {
-  const { user, loading } = useAuth();
+  const { user, loading, isReadOnly } = useAuth();
   const { language } = useLanguage();
   const auditMutation = trpc.audit.recordPwaUpdateDecision.useMutation();
   const [targetBuildId, setTargetBuildId] = useState<string | null>(null);
@@ -134,7 +134,7 @@ export default function AppUpdateBanner() {
       toBuildId: string,
       deferredUntil?: string,
     ) => {
-      if (!user) return;
+      if (!user || isReadOnly) return;
       try {
         await Promise.race([
           auditMutation.mutateAsync({
@@ -149,7 +149,7 @@ export default function AppUpdateBanner() {
         // Updating the app must not be blocked if audit logging is temporarily unavailable.
       }
     },
-    [auditMutation, user],
+    [auditMutation, user, isReadOnly],
   );
 
   const performUpdate = useCallback(

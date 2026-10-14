@@ -1,0 +1,240 @@
+import React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import fs from "node:fs";
+import ts from "typescript";
+import { transformSync } from "esbuild";
+import { APP_ROLE } from "../../shared/roles";
+import { isObserver } from "../../shared/observer-policy";
+const fixture = vi.hoisted(() => ({
+  path: "/users",
+  language: "ar",
+  reads: [] as any[],
+  inputs: new Map<string, any>(),
+  buttons: new Map<string, any>(),
+  navigate: vi.fn(),
+  hooks: [] as any[],
+  index: 0,
+  error: null as any,
+  data: {
+    columns: ["id", "name", "role"],
+    rows: [{ id: 1, name: "المالك", role: "owner" }],
+    total: 30,
+    pageSize: 25,
+  },
+}));
+vi.mock("react", async original => {
+  const actual = await original<typeof import("react")>();
+  return {
+    ...actual,
+    useState: (initial: any) => {
+      const index = fixture.index++;
+      if (!(index in fixture.hooks))
+        fixture.hooks[index] =
+          typeof initial === "function" ? initial() : initial;
+      return [
+        fixture.hooks[index],
+        (value: any) => {
+          fixture.hooks[index] =
+            typeof value === "function" ? value(fixture.hooks[index]) : value;
+        },
+      ];
+    },
+  };
+});
+vi.mock("wouter", () => ({
+  useLocation: () => [fixture.path, fixture.navigate],
+}));
+vi.mock("../../client/src/contexts/LanguageContext", () => ({
+  useTranslation: () => ({ language: fixture.language }),
+}));
+vi.mock("../../client/src/lib/trpc", () => ({
+  trpc: {
+    observer: {
+      readPage: {
+        useQuery: (input: any, options: any) => {
+          fixture.reads.push({ input, options });
+          return {
+            data: fixture.data,
+            isLoading: false,
+            error: fixture.error,
+            isFetching: false,
+            refetch: vi.fn(),
+          };
+        },
+      },
+    },
+  },
+}));
+const text = (node: any): string =>
+  node == null || typeof node === "boolean"
+    ? ""
+    : Array.isArray(node)
+      ? node.map(text).join("")
+      : typeof node === "object"
+        ? text(node.props?.children)
+        : String(node);
+vi.mock("../../client/src/components/ui/button", () => ({
+  Button: (props: any) => {
+    fixture.buttons.set(text(props.children), props);
+    return <button disabled={props.disabled}>{props.children}</button>;
+  },
+}));
+vi.mock("../../client/src/components/ui/input", () => ({
+  Input: (props: any) => {
+    fixture.inputs.set(props["aria-label"], props);
+    return <input {...props} />;
+  },
+}));
+import ObserverPage from "../../client/src/pages/observer/ObserverPage";
+beforeEach(() => {
+  fixture.path = "/users";
+  fixture.language = "ar";
+  fixture.reads = [];
+  fixture.hooks = [];
+  fixture.index = 0;
+  fixture.buttons.clear();
+  fixture.inputs.clear();
+  fixture.navigate.mockReset();
+  fixture.error = null;
+  fixture.data = {
+    columns: ["id", "name", "role"],
+    rows: [{ id: 1, name: "المالك", role: "owner" }],
+    total: 30,
+    pageSize: 25,
+  };
+});
+function render() {
+  fixture.index = 0;
+  return renderToStaticMarkup(<ObserverPage />);
+}
+describe("isolated observer interface", () => {
+  it("shows read-only identity, records, filters and paging without write controls", () => {
+    const html = render();
+    expect(html).toContain("المراقب — قراءة فقط");
+    expect(html).toContain("المالك");
+    for (const word of ["حذف", "حفظ", "اعتماد", "إنشاء مستخدم"])
+      expect(Array.from(fixture.buttons.keys()).join(" ")).not.toContain(word);
+    expect(fixture.reads[0].input.path).toBe("/users");
+    expect(fixture.reads[0].options.enabled).toBe(true);
+  });
+  it("direct create/edit route names remain a reader and never mount a mutation form", () => {
+    for (const path of [
+      "/tickets/new",
+      "/purchase-orders/new",
+      "/construction/projects/1/edit",
+      "/warehouse/issue",
+      "/backup",
+    ]) {
+      fixture.path = path;
+      const html = render();
+      expect(html).toContain("المراقب — قراءة فقط");
+      expect(html).toContain("<table");
+      expect(html).not.toContain('type="submit"');
+    }
+  });
+  it("unknown route cannot cause an enabled query", () => {
+    fixture.path = "/users/delete-all";
+    expect(render()).toContain("هذه الصفحة غير موجودة");
+    expect(fixture.reads[0].options.enabled).toBe(false);
+  });
+  it("search and paging only alter the read query", () => {
+    render();
+    fixture.inputs.get("بحث السجلات").onChange({ target: { value: "فريق" } });
+    render();
+    expect(fixture.reads.at(-1).input.search).toBe("فريق");
+    fixture.buttons.get("التالي").onClick();
+    render();
+    expect(fixture.reads.at(-1).input.page).toBe(2);
+    expect(fixture.buttons.get("التالي").disabled).toBe(true);
+  });
+  it("record links open the original document URL through the observer reader", () => {
+    fixture.path = "/tickets";
+    render();
+    fixture.buttons.get("1").onClick();
+    expect(fixture.navigate).toHaveBeenCalledWith("/tickets/1");
+  });
+  it("errors/empty rows and Arabic/English/Urdu readonly labels are handled without writes", () => {
+    fixture.error = new Error("private DB error");
+    expect(render()).not.toContain("private DB error");
+    expect(render()).toContain("تعذر عرض بيانات");
+    fixture.error = null;
+    fixture.data.rows = [];
+    expect(render()).toContain("لا توجد سجلات مطابقة");
+    fixture.language = "en";
+    expect(render()).toContain("Observer — read only");
+    fixture.language = "ur";
+    expect(render()).toContain("نگران — صرف مطالعہ");
+  });
+  it("untrusted record markup is rendered as text", () => {
+    fixture.data.rows[0].name = "<script>alert(1)</script>";
+    const html = render();
+    expect(html).toContain("&lt;script&gt;");
+    expect(html).not.toContain("<script>");
+  });
+  it("existing native route switch is unchanged for every other role", () => {
+    const before = fs.readFileSync(
+        "tools/observer/artifacts/before/client__src__App.tsx.before",
+        "utf8"
+      ),
+      after = fs.readFileSync("client/src/App.tsx", "utf8");
+    const get = (source: string) => {
+      const ast = ts.createSourceFile(
+        "App.tsx",
+        source,
+        ts.ScriptTarget.Latest,
+        true,
+        ts.ScriptKind.TSX
+      );
+      return ast.statements.find(
+        n => ts.isFunctionDeclaration(n) && n.name?.text === "Router"
+      ) as ts.FunctionDeclaration;
+    };
+    expect(
+      get(after)
+        .body!.statements.slice(2)
+        .map(n => n.getText())
+        .join("\n")
+    ).toBe(
+      get(before)
+        .body!.statements.map(n => n.getText())
+        .join("\n")
+    );
+  });
+  it("sidebar reader overrides do not change visibility decisions for old roles", () => {
+    const file = "client/src/components/layout/DashboardLayout.tsx",
+      before = fs.readFileSync(
+        "tools/observer/artifacts/before/client__src__components__layout__DashboardLayout.tsx.before",
+        "utf8"
+      ),
+      after = fs.readFileSync(file, "utf8");
+    const get = (source: string, name: string) => {
+      const ast = ts.createSourceFile(
+        file,
+        source,
+        ts.ScriptTarget.Latest,
+        true,
+        ts.ScriptKind.TSX
+      );
+      const declaration = ast.statements.find(
+        n => ts.isFunctionDeclaration(n) && n.name?.text === name
+      )!;
+      return new Function(
+        "isObserver",
+        `${transformSync(declaration.getText(ast), { loader: "ts" }).code}; return ${name};`
+      )(isObserver);
+    };
+    for (const name of ["canSeeItem", "canSeeSection"]) {
+      const old = get(before, name),
+        current = get(after, name);
+      for (const role of Object.values(APP_ROLE).filter(r => r !== "observer"))
+        for (const item of [
+          { path: "/users", roles: ["owner", "admin"] },
+          { path: "/tickets" },
+          { path: "/gate-security", roles: [] },
+        ])
+          expect(current(item, role)).toBe(old(item, role));
+      expect(current({ path: "/users", roles: [] }, "observer")).toBe(true);
+    }
+  });
+});

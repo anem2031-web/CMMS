@@ -1,0 +1,10 @@
+import fs from "node:fs";
+import path from "node:path";
+import { compile } from "@tailwindcss/node";
+const root = process.cwd();
+const html = ["preview.html", "details-fix/preview-details.html"].filter(file => fs.existsSync(path.join(root, "tools/dashboard-development/artifacts", file))).map(file => fs.readFileSync(path.join(root, "tools/dashboard-development/artifacts", file), "utf8")).join("\n");
+const candidates = Array.from(new Set(Array.from(html.matchAll(/class="([^"]*)"/g)).flatMap(match => match[1].split(/\s+/))));
+const css = fs.readFileSync(path.join(root, "client/src/index.css"), "utf8");
+const compiler = await compile(css, { base: path.join(root, "client/src"), onDependency() {} });
+fs.writeFileSync(path.join(root, "tools/dashboard-development/artifacts/preview.css"), compiler.build(candidates));
+console.log(`Rendered program CSS for ${candidates.length} dashboard classes.`);

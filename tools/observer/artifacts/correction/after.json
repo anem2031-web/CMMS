@@ -1,0 +1,130 @@
+[
+  {
+    "file": "shared/roles.ts",
+    "hash": "346ad2a02fb17523a3dcbe582358d3310bdaacec8f8f833839be65be0ad9cf1c"
+  },
+  {
+    "file": "shared/types.ts",
+    "hash": "d4d1323436ba7852ffa88f24dbb811a3761c1cd1939a66e46012520bc5d71175"
+  },
+  {
+    "file": "drizzle/schema.ts",
+    "hash": "d5e6fef055ee5a2f1c57b392a71803c5845ba30d661596fbdc3a23a7ee9c390c"
+  },
+  {
+    "file": "server/_core/trpc.ts",
+    "hash": "cdb90c20865c7e54cb83577d9d757d821003fd6f0afc55b99ab8536db442e40b"
+  },
+  {
+    "file": "server/_core/index.ts",
+    "hash": "f0ab24952041d91d19a18a9d194713f68dfa1e10cdfde513d70a94418d2d84c9"
+  },
+  {
+    "file": "server/routers/index.ts",
+    "hash": "e1ec9fc082d969981c3689c1f8874a38cbec14c32531df145ab3a134eee6b23c"
+  },
+  {
+    "file": "client/src/App.tsx",
+    "hash": "ec58105b7b1cba70d84d0f51817c3e33de3943f5857256586f6142c958d7e6ce"
+  },
+  {
+    "file": "client/src/components/layout/DashboardLayout.tsx",
+    "hash": "1b752800595172bfe6e41bc8e89be885eb15eadacfbd43618be643a9b3562a1f"
+  },
+  {
+    "file": "client/src/hooks/usePushNotifications.ts",
+    "hash": "1d89860a731dde730e727f20c8d17bc656fd06c7aec35e7a15c3f4c301c28b64"
+  },
+  {
+    "file": "client/src/components/system/AppUpdateBanner.tsx",
+    "hash": "efe9f6f9d7620cc14ffdeb53dd36cf1758c9fd14c0a6c2506f9da0543bf9c6dd"
+  },
+  {
+    "file": "client/src/pages/admin/Users.tsx",
+    "hash": "942b2f4a83580b696b5b0d993ff2535886b02b3692878757d127206e863a932a"
+  },
+  {
+    "file": "client/src/i18n/ar.ts",
+    "hash": "2bc55da3bd407d706238895a230e7f876eca3122c4fa2abde388d0c1ebd3261b"
+  },
+  {
+    "file": "client/src/i18n/en.ts",
+    "hash": "333751cc79b7fc6f641c5228276e5bb37848028d651bacd83fe924d946306254"
+  },
+  {
+    "file": "client/src/i18n/ur.ts",
+    "hash": "5d95f531b1a5dc3bc8a0f05c3003478f690fc9384d0106e6033a9bda49644aef"
+  },
+  {
+    "file": "client/src/_core/hooks/useAuth.ts",
+    "hash": "900c2dc68f0f4745933a690ec42a16a907952e327d569d0bea43b4ba3ed25a4d"
+  },
+  {
+    "file": "client/src/contexts/LanguageContext.tsx",
+    "hash": "4f2751e237ec764537b2516df62abd9c495347cd47de4efdc5f973f28265c323"
+  },
+  {
+    "file": "server/_core/db/client.ts",
+    "hash": "828971ad9d477e22e5bad76b12cfbe34866e58c71f37614d8ee93a6e19d7fc10"
+  },
+  {
+    "file": "server/pmv2/security/execution-access.ts",
+    "hash": "52651e59016da207204f8fb62b81dd46f34d266cbe359952b41a3eb1e586856c"
+  },
+  {
+    "file": "shared/observer-policy.ts",
+    "hash": "f4df6f4285043caf77145319cff0924019577b890908fce389c94b0c460dfc9c"
+  },
+  {
+    "file": "server/_core/authz/observer-guard.ts",
+    "hash": "e0ac49453a3a5aabdd947b6ac1df975ba40809660b1a82f27e5976d53d46651b"
+  },
+  {
+    "file": "client/src/main.tsx",
+    "hash": "3e3b41e26afb0d143f188c7fd9a0d6248b827c801569bb68c1e1e8a1acd42aaa"
+  },
+  {
+    "file": "server/routers/purchase/pricing-batch-state.ts",
+    "hash": "fcc621684ae6c08b1c4ae3d3dd2bcb663dac79ba76ec518765db00958babe0e3"
+  },
+  {
+    "file": "server/services/translation/translationEngine.ts",
+    "hash": "af46717e705ae9884cf045f01f84f5554f866df1861d6cc408331eb7ac58a4f7"
+  },
+  {
+    "file": "server/routers/maintenance-teams/execution.repository.ts",
+    "hash": "623a71f2fe9bc943a4d2a98ae55f1cf3082384145cd3b6399a0299b531bb8876"
+  },
+  {
+    "file": "server/_core/context.ts",
+    "hash": "cc797a833284d0d6ada0601b93d423ce4d0ac78b0392c5d5502bdae26e6928c8"
+  },
+  {
+    "file": "server/pmv2/materials/technician-attention-service.ts",
+    "hash": "ec7c67564927db71bec87d1c6016e41ba64b1a58bbb58a3a77fa198e1d84ff64"
+  },
+  {
+    "file": "shared/observer-native-reads.ts",
+    "hash": "84cc3a2999d17b2716ecae635a3acfb03ad331a1fd06044fc2a931def8ced8a0"
+  },
+  {
+    "file": "shared/observer-view.ts",
+    "hash": "986321c8b99398f4fe2672d123fd8fc67e29e18fc825220b37a58c2001688d65"
+  },
+  {
+    "file": "server/_core/authz/observer-read-scope.ts",
+    "hash": "1fc974d9ee0c3130a6067aeab2deea67040e5c91503c802ab6169c94a284bed5"
+  },
+  {
+    "file": "client/src/components/system/observer-controls.ts",
+    "hash": "334f1d84a6cbf2530ffed78f86efdd69416e81713d5bd14a4d70b39dc942e08b"
+  },
+  {
+    "file": "client/src/components/system/ObserverReadOnlyBoundary.tsx",
+    "hash": "3201488b5f30cde7a651b4a4d59e8f979524f2e801551929ed51d47f8998b241"
+  },
+  {
+    "file": "client/src/lib/observer-link.ts",
+    "hash": "6d2d642f69e5f9b125b1200f1514536f36da363b225291a66cccea4715d2312e"
+  }
+]

@@ -1,3 +1,4 @@
+import { ItPurchaseNeedsPanel } from "./ItTeamPanel";
 import { useEffect, useMemo } from "react";
 import { useLocation, useSearch } from "wouter";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -47,6 +48,7 @@ export default function Tickets() {
 
   return (
     <div className="space-y-5">
+      <ItPurchaseNeedsPanel />
       <Tabs
         value={activeTab}
         onValueChange={handleTabChange}

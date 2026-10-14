@@ -7,6 +7,22 @@ export const assetCategories = mysqlTable("asset_categories", {
 	createdAt: timestamp({ mode: 'string' }).default('CURRENT_TIMESTAMP').notNull(),
 });
 
+export const centerCategories = mysqlTable("center_categories", {
+	id: int().autoincrement().notNull(),
+	name: varchar({ length: 255 }).notNull(),
+	// Internal immutable key for categories that drive system behavior.
+	// Currently only `it` is reserved; ordinary categories keep this NULL.
+	systemKey: varchar({ length: 50 }),
+	isActive: tinyint().default(1).notNull(),
+	createdAt: timestamp({ mode: 'string' }).default('CURRENT_TIMESTAMP').notNull(),
+	updatedAt: timestamp({ mode: 'string' }).defaultNow().onUpdateNow().notNull(),
+},
+(table) => [
+	uniqueIndex("center_categories_name_uq").on(table.name),
+	uniqueIndex("center_categories_system_key_uq").on(table.systemKey),
+	index("center_categories_active_idx").on(table.isActive),
+]);
+
 export const assetMetrics = mysqlTable("asset_metrics", {
 	id: int().autoincrement().notNull(),
 	assetId: int().notNull(),
@@ -1172,6 +1188,31 @@ export const improvementIdeas = mysqlTable("improvement_ideas", {
 	priority: mysqlEnum(['low','medium','high','critical']).default('medium').notNull(),
 	status: mysqlEnum(['new','classified','approved','in_progress','completed','postponed','cancelled']).default('new').notNull(),
 	expectedBenefit: text(),
+	// Improvement workflow v3: legacy records retain costStudyRequired=0.
+	executionTrackingVersion: tinyint().default(0).notNull(),
+	currentSituation: text(),
+	targetOutcome: text(),
+	successMetric: text(),
+	baselineValue: decimal({ precision: 14, scale: 2, mode: 'number' }),
+	targetValue: decimal({ precision: 14, scale: 2, mode: 'number' }),
+	costStudyRequired: tinyint().default(0).notNull(),
+	estimatedMaterialsCost: decimal({ precision: 14, scale: 2, mode: 'number' }),
+	estimatedLaborCost: decimal({ precision: 14, scale: 2, mode: 'number' }),
+	estimatedServicesCost: decimal({ precision: 14, scale: 2, mode: 'number' }),
+	costStudyNotes: text(),
+	costStudyById: int(),
+	costStudiedAt: timestamp({ mode: 'string' }),
+	implementationOwner: varchar({ length: 200 }),
+	implementationStartDate: date({ mode: 'string' }),
+	implementationDueDate: date({ mode: 'string' }),
+	implementationProgress: int().default(0).notNull(),
+	implementationNotes: text(),
+	actualCost: decimal({ precision: 14, scale: 2, mode: 'number' }),
+	achievedValue: decimal({ precision: 14, scale: 2, mode: 'number' }),
+	resultRating: mysqlEnum(['achieved','partial','not_achieved']),
+	resultNotes: text(),
+	evaluatedAt: timestamp({ mode: 'string' }),
+	evaluatedById: int(),
 	siteId: int(),
 	sectionId: int(),
 	assetId: int(),
@@ -1601,11 +1642,15 @@ export const notifications = mysqlTable("notifications", {
 	title: varchar({ length: 300 }).notNull(),
 	message: text().notNull(),
 	type: mysqlEnum(['info','warning','error','success','critical','ticket_updated','ticket_deleted','po_deleted','po_updated','low_stock']).default('info').notNull(),
+	eventKey: varchar({ length: 80 }),
 	relatedTicketId: int(),
 	relatedPoId: int(),
 	isRead: tinyint().default(0).notNull(),
 	createdAt: timestamp({ mode: 'string' }).default('CURRENT_TIMESTAMP').notNull(),
-});
+},
+(table) => [
+	index("idx_notifications_user_event_created").on(table.userId, table.eventKey, table.createdAt),
+]);
 
 export const ocrJobs = mysqlTable("ocr_jobs", {
 	id: int().autoincrement().notNull(),
@@ -2019,6 +2064,8 @@ export const purchaseOrderItems = mysqlTable("purchase_order_items", {
 	photoUrl: text(),
 	notes: text(),
 	delegateId: int(),
+	requiredDate: date({ mode: 'string' }),
+	delegateAssignedAt: timestamp({ mode: 'string' }),
 	delegateChangeRequestedById: int(),
 	delegateChangeReason: text(),
 	delegateChangeRequestedAt: timestamp({ mode: 'string' }),
@@ -2111,6 +2158,8 @@ export const purchaseOrders = mysqlTable("purchase_orders", {
 	custodyAmount: decimal({ precision: 12, scale: 2 }),
 	siteId: int(),
 	sectionId: int(),
+	assetId: int(),
+	categoryId: int().references(() => centerCategories.id, { onDelete: "restrict" }),
 	reviewedAt: timestamp({ mode: 'string' }),
 	reviewedById: int(),
 	requesterSignatureSnapshot: varchar({ length: 500 }),
@@ -2124,6 +2173,8 @@ export const purchaseOrders = mysqlTable("purchase_orders", {
 },
 (table) => [
 	index("idx_purchase_orders_packageId").on(table.packageId),
+	index("idx_purchase_orders_assetId").on(table.assetId),
+	index("idx_purchase_orders_categoryId").on(table.categoryId),
 ]);
 
 export const purchaseOrdersLegacyOrphans = mysqlTable("purchase_orders_legacy_orphans", {
@@ -2331,6 +2382,8 @@ export const tickets = mysqlTable("tickets", {
 	status: mysqlEnum(['new','pending_triage','department_planning','under_inspection','work_approved','ready_for_closure','approved','assigned','in_progress','needs_purchase','purchase_pending_estimate','purchase_pending_accounting','purchase_pending_management','purchase_approved','partial_purchase','purchased','received_warehouse','out_for_repair','repaired','verified','closed','requester_confirmed']).default('new').notNull(),
 	priority: mysqlEnum(['low','medium','high','critical']).default('medium').notNull(),
 	category: mysqlEnum(['electrical','plumbing','hvac','structural','mechanical','general','safety','cleaning','it']).default('general').notNull(),
+	// Center Categories is used by new tickets. Legacy category remains untouched for historical compatibility.
+	categoryId: int().references(() => centerCategories.id, { onDelete: "restrict" }),
 	siteId: int(),
 	locationDetail: varchar({ length: 300 }),
 	reportedById: int().notNull(),
@@ -2405,6 +2458,7 @@ export const tickets = mysqlTable("tickets", {
 	subTicketCounter: int().default(0).notNull(),
 },
 (table) => [
+	index("idx_tickets_categoryId").on(table.categoryId),
 	index("idx_tickets_parent").on(table.parentTicketId),
 	uniqueIndex("uq_tickets_source_task").on(table.sourceTaskId),
 	uniqueIndex("uq_tickets_parent_sub_sequence").on(table.parentTicketId, table.subTicketSequence),
@@ -2416,7 +2470,23 @@ export const tickets = mysqlTable("tickets", {
 // → تحويل اختياري للمهمة إلى بلاغ فرعي مستقل.
 // ticket_items يبقى لوحدة الـWorkflow التنفيذية والتوافق الرجعي.
 // ══════════════════════════════════════════════════════════════════════
+export const itPurchaseNeeds = mysqlTable("it_purchase_needs", {
+  id: int().autoincrement().primaryKey(),
+  ticketId: int().notNull().references(() => tickets.id, { onDelete: "restrict" }),
+  ticketItemId: int().notNull().references(() => ticketItems.id, { onDelete: "restrict" }),
+  requestedById: int().notNull(),
+  managerId: int().notNull(),
+  items: json().$type<Array<{ itemName: string; quantity: number; unit?: string }>>().notNull(),
+  reason: text().notNull(),
+  status: mysqlEnum(["pending", "returned", "ordered"]).default("pending").notNull(),
+  reviewNote: text(),
+  purchaseOrderId: int(),
+  createdAt: timestamp({ mode: "string" }).defaultNow().notNull(),
+}, table => [index("idx_it_need_manager_status").on(table.managerId, table.status), index("idx_it_need_ticket").on(table.ticketId)]);
+
 export const ticketDepartments = mysqlTable("ticket_departments", {
+	claimedById: int(),
+	claimedAt: timestamp({ mode: "string" }),
 	id: int().autoincrement().notNull(),
 	ticketId: int().notNull().references(() => tickets.id, { onDelete: "restrict" }),
 	department: mysqlEnum([
@@ -2530,7 +2600,7 @@ export const users = mysqlTable("users", {
 	name: text(),
 	email: varchar({ length: 320 }),
 	loginMethod: varchar({ length: 64 }),
-	role: mysqlEnum(['user','admin','operator','technician','it_manager','maintenance_manager','general_maintenance_manager','construction_procurement_manager','supervisor','purchase_manager','purchase_requester','delegate','accountant','senior_management','executive_director','warehouse','gate_security','owner','food_warehouse_manager','food_warehouse_assistant']).default('user').notNull(),
+	role: mysqlEnum(['user','admin','operator','technician','it_manager','it_member','maintenance_manager','general_maintenance_manager','construction_procurement_manager','supervisor','purchase_manager','purchase_requester','delegate','accountant','senior_management','executive_director','warehouse','gate_security','owner','food_warehouse_manager','food_warehouse_assistant','observer']).default('user').notNull(),
 	createdAt: timestamp({ mode: 'string' }).default('CURRENT_TIMESTAMP').notNull(),
 	updatedAt: timestamp({ mode: 'string' }).defaultNow().onUpdateNow().notNull(),
 	lastSignedIn: timestamp({ mode: 'string' }).default('CURRENT_TIMESTAMP').notNull(),
@@ -3222,7 +3292,7 @@ export const pmv2MaterialRequestItems = mysqlTable("pmv2_material_request_items"
 // (تم تصحيح poItemStatuses لتطابق القيم الـ12 الفعلية المؤكدة من قاعدة الإنتاج).
 // ══════════════════════════════════════════════════════════════════════
 
-export const userRoles = ["operator", "technician", "it_manager", "maintenance_manager", "general_maintenance_manager", "construction_procurement_manager", "supervisor", "purchase_manager", "purchase_requester", "delegate", "accountant", "senior_management", "executive_director", "warehouse", "gate_security", "owner", "food_warehouse_manager", "food_warehouse_assistant"] as const;
+export const userRoles = ["operator", "technician", "it_manager", "it_member", "maintenance_manager", "general_maintenance_manager", "construction_procurement_manager", "supervisor", "purchase_manager", "purchase_requester", "delegate", "accountant", "senior_management", "executive_director", "warehouse", "gate_security", "owner", "food_warehouse_manager", "food_warehouse_assistant"] as const;
 
 export type UserRole = typeof userRoles[number];
 

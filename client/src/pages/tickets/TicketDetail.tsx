@@ -1,3 +1,6 @@
+import { ImprovementReference } from "@/components/improvement/ImprovementReference";
+import { ItTeamPanel, ItTaskActions } from "./ItTeamPanel";
+import { isItTeamRole } from "@shared/roles";
 import { trpc } from "@/lib/trpc";
 import { mediaUrl } from "@/lib/mediaUrl";
 import { goBackOrFallback } from "@/lib/backStack";
@@ -41,6 +44,7 @@ import { useState, useMemo, useCallback, useEffect } from "react";
 import { toast } from "sonner";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useTranslation } from "@/contexts/LanguageContext";
+import { TeamAssignmentSlot } from "@/pages/maintenance-teams/TeamTaskAssignment";
 import { useStaticLabels, useBatchTranslation } from "@/hooks/useContentTranslation";
 import { useResolvedTranslation, getLocalizedName } from "@/hooks/useTranslatedField";
 import DropZone, { type UploadedFile } from "@/components/common/DropZone";
@@ -136,6 +140,7 @@ const { getField } = useResolvedTranslation(
   const { data: ticketAttachments } = trpc.attachments.list.useQuery(attachmentsInput, { enabled: !!ticketId });
   const { data: inspectionResultsList, refetch: refetchInspectionResults } = trpc.inspectionResults.listByTicket.useQuery({ ticketId }, { enabled: !!ticketId });
   const { data: ticketConfirmation, refetch: refetchConfirmation } = trpc.tickets.getConfirmation.useQuery({ id: ticketId }, { enabled: !!ticketId });
+  const { data: centerCategories = [] } = trpc.centerCategories.list.useQuery({ activeOnly: false });
   // بنود البلاغ — الخطوة 2 من ميزة البلاغ متعدد الجهات (2026-08-08). قراءة فقط، بنفس حارس
   // صلاحية البلاغ نفسه (tickets.items تُحقق assertTicketReadable داخليًا).
   const { data: ticketItems } = trpc.tickets.items.useQuery({ ticketId }, { enabled: !!ticketId });
@@ -154,7 +159,7 @@ const { getField } = useResolvedTranslation(
 
   // ── تعديل البلاغ: متاح فقط طالما لم يُصنَّف بعد (status === "pending_triage") ──
   const [editDialogOpen, setEditDialogOpen] = useState(false);
-  const [editForm, setEditForm] = useState({ title: "", description: "", priority: "", category: "", locationDetail: "" });
+  const [editForm, setEditForm] = useState({ title: "", description: "", priority: "", categoryId: "", locationDetail: "" });
   const isManagedConstructionTicket = !!ticket && user?.role === APP_ROLE.CONSTRUCTION_PROCUREMENT_MANAGER &&
     (
       (ticket.maintenanceResponsibleDepartment === MAINTENANCE_RESPONSIBLE_DEPARTMENT.CONSTRUCTION &&
@@ -183,7 +188,7 @@ const { getField } = useResolvedTranslation(
   const isRoutedConstructionReadOnlyForGeneral = !!ticket &&
     user?.role === APP_ROLE.GENERAL_MAINTENANCE_MANAGER &&
     ticket.maintenanceResponsibleDepartment === MAINTENANCE_RESPONSIBLE_DEPARTMENT.CONSTRUCTION;
-  const isTicketReadOnly = isLinkedTicketReadOnly || isRoutedConstructionReadOnlyForGeneral || isItReadOnlyForMaintenanceManagers;
+  const isTicketReadOnly = isLinkedTicketReadOnly || isRoutedConstructionReadOnlyForGeneral || isItReadOnlyForMaintenanceManagers || (isItTeamRole(user?.role) && isItDepartmentTicket && ticket?.assignedToId !== user?.id);
   const isCreatorRestrictedForEdit = (MAINTENANCE_MANAGER_FAMILY as readonly string[]).includes(user?.role || "");
   const isEditAdminOverride = [APP_ROLE.OWNER, APP_ROLE.ADMIN].includes(user?.role as any);
   const isTicketReporter = ticket?.reportedById === user?.id;
@@ -195,7 +200,7 @@ const { getField } = useResolvedTranslation(
       title: ticket.title || "",
       description: ticket.description || "",
       priority: ticket.priority || "",
-      category: ticket.category || "",
+      categoryId: ticket.categoryId ? String(ticket.categoryId) : "",
       locationDetail: ticket.locationDetail || "",
     });
     setEditDialogOpen(true);
@@ -487,8 +492,8 @@ const { getField } = useResolvedTranslation(
     );
   const isLegacyMaintenanceManagerForTicket = role === APP_ROLE.MAINTENANCE_MANAGER && !isItDepartmentTicket;
   const isSupervisorForTicket = role === APP_ROLE.SUPERVISOR && !isItDepartmentTicket;
-  const isItWorkflowManager = role === APP_ROLE.IT_MANAGER && isItDepartmentTicket &&
-    ticket?.maintenanceResponsibleManagerId === user?.id;
+  const isItWorkflowManager = isItTeamRole(role) && isItDepartmentTicket &&
+    ticket?.assignedToId === user?.id;
   const isManager = [APP_ROLE.PURCHASE_MANAGER, APP_ROLE.OWNER, APP_ROLE.ADMIN].includes(role as any) ||
     isLegacyMaintenanceManagerForTicket || isGeneralMaintenanceScope || isManagedConstructionTicket || isItWorkflowManager;
   const isTicketWorkflowManager = [APP_ROLE.OWNER, APP_ROLE.ADMIN].includes(role as any) ||
@@ -508,7 +513,8 @@ const { getField } = useResolvedTranslation(
   const generalManagers = users?.filter((u: any) =>
     [APP_ROLE.GENERAL_MAINTENANCE_MANAGER, APP_ROLE.MAINTENANCE_MANAGER].includes(u.role as any) && u.isActive !== 0
   ) || [];
-  const selectedDepartmentManagers = triageDepartment === MAINTENANCE_RESPONSIBLE_DEPARTMENT.CONSTRUCTION ? constructionManagers : generalManagers;
+  const itManagers = users?.filter((u: any) => u.role === APP_ROLE.IT_MANAGER && u.isActive !== 0) || [];
+  const selectedDepartmentManagers = triageDepartment === MAINTENANCE_RESPONSIBLE_DEPARTMENT.IT ? itManagers : triageDepartment === MAINTENANCE_RESPONSIBLE_DEPARTMENT.CONSTRUCTION ? constructionManagers : generalManagers;
   const itTransferManagers = itTransferDepartment === MAINTENANCE_RESPONSIBLE_DEPARTMENT.CONSTRUCTION
     ? constructionManagers
     : itTransferDepartment === MAINTENANCE_RESPONSIBLE_DEPARTMENT.GENERAL
@@ -521,6 +527,7 @@ const { getField } = useResolvedTranslation(
     APP_ROLE.GENERAL_MAINTENANCE_MANAGER,
     APP_ROLE.CONSTRUCTION_PROCUREMENT_MANAGER,
     APP_ROLE.IT_MANAGER,
+    APP_ROLE.IT_MEMBER,
     APP_ROLE.ADMIN,
     APP_ROLE.OWNER,
   ].includes(candidate.role as any)) || [];
@@ -551,7 +558,7 @@ const { getField } = useResolvedTranslation(
     ACTIVE_PATH_B_PURCHASE_ORDER_STATUSES.has(po.status)
   );
   const canCreatePO = canCreateTicketPurchaseOrder(
-    isTicketWorkflowManager,
+    (isItDepartmentTicket ? role === APP_ROLE.IT_MANAGER && ticket?.maintenanceResponsibleManagerId === user?.id : isTicketWorkflowManager),
     ticket?.status,
     ticket?.maintenancePath,
     hasActiveLinkedPurchaseOrder,
@@ -681,6 +688,7 @@ const { getField } = useResolvedTranslation(
   return (
     <>
     <div className="space-y-6 max-w-5xl" dir={dir}>
+      <ImprovementReference kind="ticket" documentId={ticketId} />
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-3 flex-1">
           <Button variant="ghost" size="icon" onClick={() => goBackOrFallback(
@@ -694,7 +702,7 @@ const { getField } = useResolvedTranslation(
               <span className="text-sm font-mono text-muted-foreground">{ticket.ticketNumber}</span>
               <Badge className={`${STATUS_COLORS[ticket.status]}`}>{getStatusLabel(ticket.status)}</Badge>
               <Badge variant="outline" className={PRIORITY_COLORS[ticket.priority]}>{getPriorityLabel(ticket.priority)}</Badge>
-              <Badge variant="outline">{getCategoryLabel(ticket.category)}</Badge>
+              <Badge variant="outline">{ticket.centerCategoryName || getCategoryLabel(ticket.category)}</Badge>
             </div>
             <h1 className="text-xl font-bold mt-1">{getField("title")}</h1>
             {ticket.status === "requester_confirmed" && ticketConfirmation && (
@@ -761,6 +769,7 @@ const { getField } = useResolvedTranslation(
         </Card>
       )}
 
+      <ItTeamPanel ticket={ticket} departments={departmentPlan?.departments || []} onChanged={() => { refetch(); refetchDepartmentPlan(); }} />
       {ticket.workflowModel === "department_tasks" && ticket.status !== "pending_triage" && departmentPlan && (
         <Card className="border-purple-200 dark:border-purple-800">
           <CardHeader className="pb-2">
@@ -837,8 +846,10 @@ const { getField } = useResolvedTranslation(
                 )) ||
                 (dept.department === MAINTENANCE_RESPONSIBLE_DEPARTMENT.CONSTRUCTION &&
                   dept.responsibleManagerId === user?.id && role === APP_ROLE.CONSTRUCTION_PROCUREMENT_MANAGER) ||
-                (dept.department === MAINTENANCE_RESPONSIBLE_DEPARTMENT.IT &&
-                  dept.responsibleManagerId === user?.id && role === APP_ROLE.IT_MANAGER));
+                (dept.department === MAINTENANCE_RESPONSIBLE_DEPARTMENT.IT && isItTeamRole(role) && (
+                  dept.claimedById === user?.id ||
+                  (role === APP_ROLE.IT_MANAGER && dept.responsibleManagerId === user?.id)
+                )));
               const isItDepartmentPlan = dept.department === MAINTENANCE_RESPONSIBLE_DEPARTMENT.IT;
               const hasPromotedDepartmentTask = deptTasks.some((task: any) => !!task.convertedTicketId || task.status === "promoted" || task.status === "completed");
               const draft = departmentTaskDrafts[dept.id] || { title: "", description: "" };
@@ -914,23 +925,11 @@ const { getField } = useResolvedTranslation(
                               <Badge variant="outline">{task.status === "pending_assignment" ? t.workflow.ticket.pendingAssignment : task.status === "assigned" ? t.workflow.ticket.distributed : task.status === "promoted" ? t.workflow.ticket.subTicket : task.status}</Badge>
                             </div>
 
-                            {canManageDept && !task.convertedTicketId && (
+                            {(canManageDept || (isItDepartmentPlan && isItTeamRole(role) && persistedAssigneeIds.includes(user?.id))) && !task.convertedTicketId && (
                               isItDepartmentPlan ? (
-                                <div className="rounded-md bg-muted/40 p-2 flex items-center justify-between gap-3 flex-wrap">
-                                  <div>
-                                    <p className="text-xs font-medium">{t.workflow.ticket.itAutoAssigned}</p>
-                                    <p className="text-[11px] text-muted-foreground">{t.workflow.ticket.itNoTriage}</p>
-                                  </div>
-                                  <Button
-                                    size="sm"
-                                    className="gap-2"
-                                    disabled={!persistedAssigneeIds.length || promoteDepartmentTaskMut.isPending}
-                                    onClick={() => promoteDepartmentTaskMut.mutate({ ticketId, taskId: task.id })}
-                                  >
-                                    {promoteDepartmentTaskMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <GitBranch className="w-4 h-4" />} {t.workflow.ticket.startTask}
-                                  </Button>
-                                </div>
+                                <ItTaskActions ticketId={ticketId} taskId={task.id} assigneeIds={persistedAssigneeIds} canAssign={canManageDept} onChanged={() => { refetch(); refetchDepartmentPlan(); }} />
                               ) : (
+                                <TeamAssignmentSlot enabled={dept.department === MAINTENANCE_RESPONSIBLE_DEPARTMENT.GENERAL} ticketId={ticketId} taskId={task.id} hasNamedAssignment={persistedAssigneeIds.length > 0} onChanged={() => { refetch(); refetchDepartmentPlan(); }}>
                                 <div className="space-y-2">
                                   <div className="flex items-center justify-between gap-2">
                                     <Label className="text-xs">{t.workflow.ticket.assignedTechnicians}</Label>
@@ -967,6 +966,7 @@ const { getField } = useResolvedTranslation(
                                     </Button>
                                   </div>
                                 </div>
+                                </TeamAssignmentSlot>
                               )
                             )}
                             {!!task.convertedTicketId && (
@@ -1070,7 +1070,7 @@ const { getField } = useResolvedTranslation(
               const isItemManager = isAdminOrOwner || role === APP_ROLE.MAINTENANCE_MANAGER || role === APP_ROLE.SUPERVISOR ||
                 (role === APP_ROLE.GENERAL_MAINTENANCE_MANAGER && (!item.responsibleDepartment || item.responsibleDepartment === MAINTENANCE_RESPONSIBLE_DEPARTMENT.GENERAL)) ||
                 (role === APP_ROLE.CONSTRUCTION_PROCUREMENT_MANAGER && item.responsibleDepartment === MAINTENANCE_RESPONSIBLE_DEPARTMENT.CONSTRUCTION && item.responsibleManagerId === user?.id) ||
-                (role === APP_ROLE.IT_MANAGER && item.responsibleDepartment === MAINTENANCE_RESPONSIBLE_DEPARTMENT.IT && item.responsibleManagerId === user?.id);
+                (isItTeamRole(role) && item.responsibleDepartment === MAINTENANCE_RESPONSIBLE_DEPARTMENT.IT && item.assignedToId === user?.id);
               const canExecuteItem = !isTicketReadOnly && (isItemTech || isItemManager);
               const form = itemRepairForms[item.id] || { afterPhotoUrl: "", repairNotes: "", materialsUsed: "" };
               const setForm = (patch: any) => setItemRepairForms(prev => ({ ...prev, [item.id]: { ...form, ...patch } }));
@@ -1234,7 +1234,7 @@ const { getField } = useResolvedTranslation(
               <div className="grid grid-cols-2 gap-4 text-sm">
                 <div className="flex items-center gap-2">
                   <span className="text-muted-foreground">{t.tickets.category}:</span>
-                  <span className="font-medium">{getCategoryLabel(ticket.category)}</span>
+                  <span className="font-medium">{ticket.centerCategoryName || getCategoryLabel(ticket.category)}</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <MapPin className="w-3.5 h-3.5 text-muted-foreground" />
@@ -2315,6 +2315,7 @@ const { getField } = useResolvedTranslation(
                 <SelectContent>
                   <SelectItem value={MAINTENANCE_RESPONSIBLE_DEPARTMENT.GENERAL}>{t.workflow.ticket.departmentGeneral}</SelectItem>
                   <SelectItem value={MAINTENANCE_RESPONSIBLE_DEPARTMENT.CONSTRUCTION}>{t.workflow.ticket.departmentConstruction}</SelectItem>
+                  <SelectItem value={MAINTENANCE_RESPONSIBLE_DEPARTMENT.IT}>{t.workflow.ticket.departmentIt}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -2356,6 +2357,7 @@ const { getField } = useResolvedTranslation(
                 {[
                   { key: MAINTENANCE_RESPONSIBLE_DEPARTMENT.GENERAL, label: t.workflow.ticket.departmentGeneral, mgrs: generalManagers },
                   { key: MAINTENANCE_RESPONSIBLE_DEPARTMENT.CONSTRUCTION, label: t.workflow.ticket.departmentConstruction, mgrs: constructionManagers },
+                  { key: MAINTENANCE_RESPONSIBLE_DEPARTMENT.IT, label: t.workflow.ticket.departmentIt, mgrs: itManagers },
                 ]
                   // ⚠️ 2026-08-13: مدير الإنشاءات والمشتريات يصنّف بلاغه الشخصي فقط (راجع
                   // canRouteTicket أعلاه)، فلا معنى لعرض خيار توجيهه لجهة ليست جهته. يبقى
@@ -2425,7 +2427,7 @@ const { getField } = useResolvedTranslation(
                   const selected = Object.entries(multiAssignments).filter(([, v]) => v?.selected);
                   if (selected.length === 0) { toast.error(t.workflow.ticket.chooseOneDepartment); return; }
                   for (const [dept, v] of selected) {
-                    const mgrs = dept === MAINTENANCE_RESPONSIBLE_DEPARTMENT.CONSTRUCTION ? constructionManagers : generalManagers;
+                    const mgrs = dept === MAINTENANCE_RESPONSIBLE_DEPARTMENT.IT ? itManagers : dept === MAINTENANCE_RESPONSIBLE_DEPARTMENT.CONSTRUCTION ? constructionManagers : generalManagers;
                     if (mgrs.length === 0) { toast.error(t.workflow.ticket.noActiveDepartmentManager); return; }
                     if (mgrs.length > 1 && !v.managerId) { toast.error(t.workflow.ticket.chooseEveryDepartmentManager); return; }
                     if (dept === MAINTENANCE_RESPONSIBLE_DEPARTMENT.CONSTRUCTION && !v.organizationalTitle.trim()) { toast.error(t.workflow.ticket.constructionTitleValidation); return; }
@@ -2433,7 +2435,7 @@ const { getField } = useResolvedTranslation(
                   triageMultiMut.mutate({
                     id: ticket!.id,
                     assignments: selected.map(([dept, v]) => {
-                      const mgrs = dept === MAINTENANCE_RESPONSIBLE_DEPARTMENT.CONSTRUCTION ? constructionManagers : generalManagers;
+                      const mgrs = dept === MAINTENANCE_RESPONSIBLE_DEPARTMENT.IT ? itManagers : dept === MAINTENANCE_RESPONSIBLE_DEPARTMENT.CONSTRUCTION ? constructionManagers : generalManagers;
                       return {
                         department: dept as any,
                         responsibleManagerId: v.managerId ? parseInt(v.managerId) : (mgrs.length === 1 ? mgrs[0].id : undefined),
@@ -2448,6 +2450,10 @@ const { getField } = useResolvedTranslation(
                   ? parseInt(triageAssignedTo)
                   : undefined;
                 const autoManagerId = selectedDepartmentManagers.length === 1 ? selectedDepartmentManagers[0].id : undefined;
+                if (triageDepartment === MAINTENANCE_RESPONSIBLE_DEPARTMENT.IT) {
+                  triageMultiMut.mutate({ id: ticketId, assignments: [{ department: MAINTENANCE_RESPONSIBLE_DEPARTMENT.IT }] });
+                  return;
+                }
                 triageMut.mutate({
                   id: ticket!.id,
                   assignedToId,
@@ -2505,10 +2511,13 @@ const { getField } = useResolvedTranslation(
               </div>
               <div className="space-y-2">
                 <Label>{t.tickets.category}</Label>
-                <Select value={editForm.category} onValueChange={v => setEditForm(f => ({ ...f, category: v }))}>
+                <Select value={editForm.categoryId || "__legacy__"} onValueChange={v => setEditForm(f => ({ ...f, categoryId: v === "__legacy__" ? "" : v }))}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    {Object.keys(t.category).map(k => <SelectItem key={k} value={k}>{getCategoryLabel(k)}</SelectItem>)}
+                    {!ticket?.categoryId && <SelectItem value="__legacy__">{ticket?.centerCategoryName || getCategoryLabel(ticket?.category || "general")} (تاريخي)</SelectItem>}
+                    {(centerCategories as any[]).filter((category: any) => category.isActive || Number(category.id) === Number(ticket?.categoryId)).map((category: any) => (
+                      <SelectItem key={category.id} value={String(category.id)}>{category.name}</SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
@@ -2528,7 +2537,7 @@ const { getField } = useResolvedTranslation(
                   title: editForm.title,
                   description: editForm.description,
                   priority: editForm.priority,
-                  category: editForm.category,
+                  categoryId: editForm.categoryId ? Number(editForm.categoryId) : undefined,
                   locationDetail: editForm.locationDetail,
                 });
               }}

@@ -2,6 +2,8 @@ import { getLoginUrl, getLoginUrlWithReturn } from "@/const";
 import { trpc } from "@/lib/trpc";
 import { TRPCClientError } from "@trpc/client";
 import { useCallback, useEffect, useMemo } from "react";
+import { isObserver } from "@shared/observer-policy";
+import { observerViewUser } from "@shared/observer-view";
 
 type UseAuthOptions = {
   redirectOnUnauthenticated?: boolean;
@@ -47,7 +49,9 @@ export function useAuth(options?: UseAuthOptions) {
       JSON.stringify(meQuery.data)
     );
     return {
-      user: meQuery.data ?? null,
+      user: observerViewUser(meQuery.data),
+      authenticatedUser: meQuery.data ?? null,
+      isReadOnly: isObserver(meQuery.data?.role),
       loading: meQuery.isLoading || logoutMutation.isPending,
       error: meQuery.error ?? logoutMutation.error ?? null,
       isAuthenticated: Boolean(meQuery.data),

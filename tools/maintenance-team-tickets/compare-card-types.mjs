@@ -1,0 +1,11 @@
+import ts from 'typescript';
+import fs from 'node:fs';
+import path from 'node:path';
+const root=process.cwd(), scratch=path.resolve('tools/maintenance-team-tickets/artifacts/warehouse-cards-before');
+const norm=s=>path.resolve(s).replaceAll('\\','/').toLowerCase();
+const beforeFiles=new Map(JSON.parse(fs.readFileSync(`${scratch}/before.json`,'utf8')).map(x=>[norm(x.file),fs.readFileSync(x.backup,'utf8')]));
+const added=new Set(['client/src/pages/maintenance-teams/TicketWarehouseMaterialCard.tsx'].map(norm));
+const config=ts.readConfigFile('tsconfig.json',ts.sys.readFile), parsed=ts.parseJsonConfigFileContent(config.config,ts.sys,root);
+function check(before){const host=ts.createCompilerHost(parsed.options),read=host.readFile.bind(host); host.readFile=f=>before&&beforeFiles.has(norm(f))?beforeFiles.get(norm(f)):read(f); const program=ts.createProgram({rootNames:parsed.fileNames.filter(f=>!before||!added.has(norm(f))),options:{...parsed.options,incremental:false},host}); return ts.getPreEmitDiagnostics(program).map(d=>`${d.file?path.relative(root,d.file.fileName).replaceAll('\\','/'):'<config>'}: TS${d.code}: ${ts.flattenDiagnosticMessageText(d.messageText,' ')}`).sort();}
+const before=check(true);global.gc?.();const after=check(false); const result={before:before.length,after:after.length,introduced:after.filter(x=>!before.includes(x)),resolved:before.filter(x=>!after.includes(x))}; fs.writeFileSync(`${scratch}/typecheck-comparison.json`,JSON.stringify(result,null,2)); console.log(JSON.stringify(result)); if(result.introduced.length||result.resolved.length) process.exitCode=1;
+

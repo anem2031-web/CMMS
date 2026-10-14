@@ -1,3 +1,4 @@
+import { pmv2ExecutionActor, pmv2ExecutionActorCondition, pmv2ExecutionTeamCondition } from "../security/execution-access";
 import { and, desc, eq, isNull, notInArray, sql } from "drizzle-orm";
 import {
   pmv2ItemActions,
@@ -6,7 +7,6 @@ import {
   pmv2MaterialRequests,
   pmv2TaskItems,
   pmv2Tasks,
-  pmv2TeamMembers,
   pmv2Teams,
 } from "../../../drizzle/schema";
 import { getDb } from "../../_core/db/client";
@@ -186,14 +186,9 @@ export class Pmv2MaterialRequestService {
       .innerJoin(pmv2Tasks, eq(pmv2Tasks.id, pmv2TaskItems.taskId))
       .innerJoin(pmv2Teams, eq(pmv2Teams.id, pmv2Tasks.teamId))
       .innerJoin(
-        pmv2TeamMembers,
-        and(
-          eq(pmv2TeamMembers.teamId, pmv2Tasks.teamId),
-          eq(pmv2TeamMembers.userId, userId),
-          eq(pmv2TeamMembers.isActive, 1),
-        ),
+        pmv2ExecutionActor, pmv2ExecutionActorCondition(userId),
       )
-      .where(and(eq(pmv2Tasks.id, taskId), eq(pmv2TaskItems.id, taskItemId)))
+      .where(and(pmv2ExecutionTeamCondition(userId, pmv2Tasks.teamId), eq(pmv2Tasks.id, taskId), eq(pmv2TaskItems.id, taskItemId)))
       .limit(1);
 
     const context = allowed[0];
@@ -379,14 +374,9 @@ export class Pmv2MaterialRequestService {
       .innerJoin(pmv2Tasks, eq(pmv2Tasks.id, pmv2TaskItems.taskId))
       .innerJoin(pmv2Teams, eq(pmv2Teams.id, pmv2Tasks.teamId))
       .innerJoin(
-        pmv2TeamMembers,
-        and(
-          eq(pmv2TeamMembers.teamId, pmv2Tasks.teamId),
-          eq(pmv2TeamMembers.userId, userId),
-          eq(pmv2TeamMembers.isActive, 1),
-        ),
+        pmv2ExecutionActor, pmv2ExecutionActorCondition(userId),
       )
-      .where(and(eq(pmv2Tasks.id, taskId), eq(pmv2TaskItems.id, taskItemId)))
+      .where(and(pmv2ExecutionTeamCondition(userId, pmv2Tasks.teamId), eq(pmv2Tasks.id, taskId), eq(pmv2TaskItems.id, taskItemId)))
       .limit(1);
 
     const context = allowed[0];
@@ -559,15 +549,11 @@ export class Pmv2MaterialRequestService {
         .innerJoin(pmv2Tasks, eq(pmv2Tasks.id, pmv2TaskItems.taskId))
         .innerJoin(pmv2Teams, eq(pmv2Teams.id, pmv2Tasks.teamId))
         .innerJoin(
-          pmv2TeamMembers,
-          and(
-            eq(pmv2TeamMembers.teamId, pmv2Tasks.teamId),
-            eq(pmv2TeamMembers.userId, userId),
-            eq(pmv2TeamMembers.isActive, 1),
-          ),
+          pmv2ExecutionActor, pmv2ExecutionActorCondition(userId),
         )
         .where(
           and(
+            pmv2ExecutionTeamCondition(userId, pmv2Tasks.teamId),
             eq(pmv2Tasks.id, input.taskId),
             eq(pmv2TaskItems.id, input.taskItemId),
           ),

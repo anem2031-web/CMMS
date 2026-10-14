@@ -1,0 +1,154 @@
+import { useState } from "react";
+import { useLocation } from "wouter";
+import { toast } from "sonner";
+import { trpc } from "@/lib/trpc";
+import { useAuth } from "@/_core/hooks/useAuth";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { APP_ROLE, isItTeamRole, MAINTENANCE_RESPONSIBLE_DEPARTMENT as DEPT } from "@shared/roles";
+import { getDefaultRequiredDate } from "@/lib/purchaseItemTiming";
+import { useTranslation } from "@/contexts/LanguageContext";
+import { localizeApiError } from "@/i18n/apiError";
+
+const selectClass = "border rounded-md bg-background px-3 py-2 text-sm";
+const format = (template: string, values: Record<string, string | number>) =>
+  Object.entries(values).reduce((text, [key, value]) => text.replace(`{${key}}`, String(value)), template);
+
+export function ItTaskActions({ ticketId, taskId, assigneeIds, canAssign, onChanged }: { ticketId: number; taskId: number; assigneeIds: number[]; canAssign: boolean; onChanged: () => void }) {
+  const [selected, setSelected] = useState("");
+  const { user } = useAuth();
+  const { t, language } = useTranslation();
+  const fail = (error: { message: string }) => toast.error(localizeApiError(error.message, language));
+  const { data: users } = trpc.users.list.useQuery();
+  const members = users?.filter((u: any) => isItTeamRole(u.role) && u.isActive !== 0) || [];
+  const assign = trpc.tickets.assignDepartmentTask.useMutation({ onSuccess: onChanged, onError: fail });
+  const promote = trpc.tickets.promoteDepartmentTask.useMutation({ onSuccess: onChanged, onError: fail });
+  const assignee = members.find((u: any) => assigneeIds.includes(u.id));
+  return <div className="space-y-2 rounded border p-3">
+    <p className="text-sm">{t.workflow.ticket.itAssigneeLabel}: {assignee?.name || assignee?.email || t.workflow.ticket.notAssigned}</p>
+    {canAssign && <div className="flex flex-wrap gap-2">
+      <select aria-label={t.workflow.ticket.itTaskAssigneeAria} className={selectClass} value={selected} onChange={e => setSelected(e.target.value)}>
+        <option value="">{t.workflow.ticket.chooseTaskAssignee}</option>{members.map((u: any) => <option key={u.id} value={u.id}>{u.name || u.email}</option>)}
+      </select>
+      <Button variant="outline" disabled={!selected || assign.isPending} onClick={() => assign.mutate({ ticketId, taskId, technicianIds: [Number(selected)] })}>{t.workflow.ticket.saveAssignment}</Button>
+    </div>}
+    {(canAssign || assigneeIds.includes(user?.id || 0)) && <Button disabled={!assigneeIds.length || promote.isPending} onClick={() => promote.mutate({ ticketId, taskId })}>{t.workflow.ticket.startTaskCreateSubTicket}</Button>}
+  </div>;
+}
+
+export function ItTeamPanel({ ticket, departments, onChanged }: { ticket: any; departments: any[]; onChanged: () => void }) {
+  const { user } = useAuth();
+  const { t, language } = useTranslation();
+  const fail = (error: { message: string }) => toast.error(localizeApiError(error.message, language));
+  const [reason, setReason] = useState("");
+  const [target, setTarget] = useState("");
+  const team = isItTeamRole(user?.role);
+  const { data: users } = trpc.users.list.useQuery(undefined, { enabled: team });
+  const members = users?.filter((u: any) => isItTeamRole(u.role) && u.isActive !== 0) || [];
+  const claim = trpc.tickets.claimItTicket.useMutation({ onSuccess: onChanged, onError: fail });
+  const transfer = trpc.tickets.routeGeneralTicketToIt.useMutation({ onSuccess: onChanged, onError: fail });
+  const handover = trpc.tickets.handoverItTicket.useMutation({ onSuccess: () => { setReason(""); onChanged(); }, onError: fail });
+  const closed = ["closed", "requester_confirmed"].includes(ticket.status);
+  const routeableDepartment = !ticket.maintenanceResponsibleDepartment ||
+    [DEPT.GENERAL, DEPT.CONSTRUCTION].includes(ticket.maintenanceResponsibleDepartment);
+  const roleCanRouteDepartment = user?.role === APP_ROLE.CONSTRUCTION_PROCUREMENT_MANAGER
+    ? ticket.maintenanceResponsibleDepartment === DEPT.CONSTRUCTION && ticket.maintenanceResponsibleManagerId === user.id
+    : user?.role === APP_ROLE.GENERAL_MAINTENANCE_MANAGER
+      ? (!ticket.maintenanceResponsibleDepartment || ticket.maintenanceResponsibleDepartment === DEPT.GENERAL)
+      : [APP_ROLE.MAINTENANCE_MANAGER, APP_ROLE.ADMIN, APP_ROLE.OWNER].includes(user?.role as any);
+  const canRoute = routeableDepartment && roleCanRouteDepartment &&
+    ["pending_triage", "department_planning", "under_inspection"].includes(ticket.status) && !ticket.maintenancePath && !ticket.sourceTaskId;
+  return <div className="space-y-3">
+    {canRoute && <section className="rounded-lg border p-4 space-y-2">
+      <p className="font-semibold">{t.workflow.ticket.routeToItTitle}</p>
+      <Textarea aria-label={t.workflow.ticket.routeToItReasonAria} placeholder={t.workflow.ticket.routeToItReasonPlaceholder} value={reason} onChange={e => setReason(e.target.value)} />
+      <Button disabled={reason.trim().length < 3 || transfer.isPending} onClick={() => transfer.mutate({ ticketId: ticket.id, reason })}>{t.workflow.ticket.routeToItAction}</Button>
+      <p className="text-xs text-muted-foreground">{t.workflow.ticket.routeToItHint}</p>
+    </section>}
+    {team && departments.filter(d => d.department === DEPT.IT).map(d => {
+      const claimedBy = users?.find((u: any) => u.id === d.claimedById);
+      return <section key={d.id} className="rounded-lg border p-4 space-y-3">
+        <p className="font-semibold">{t.workflow.ticket.itTeamLabel} — {d.claimedById ? format(t.workflow.ticket.claimedBy, { name: claimedBy?.name || claimedBy?.email || d.claimedById }) : t.workflow.ticket.waitingForClaim}</p>
+        {!closed && !d.claimedById && <Button disabled={claim.isPending} onClick={() => claim.mutate({ ticketId: ticket.id, departmentId: d.id })}>{t.workflow.ticket.claimTicket}</Button>}
+        {!closed && !!d.claimedById && (d.claimedById === user?.id || user?.role === APP_ROLE.IT_MANAGER) && <div className="space-y-2">
+          <select aria-label={t.workflow.ticket.handoverAria} className={selectClass} value={target} onChange={e => setTarget(e.target.value)}>
+            <option value="">{t.workflow.ticket.returnToTeamQueue}</option>{members.filter((u: any) => u.id !== d.claimedById).map((u: any) => <option key={u.id} value={u.id}>{u.name || u.email}</option>)}
+          </select>
+          <Input placeholder={t.workflow.ticket.handoverReasonPlaceholder} value={reason} onChange={e => setReason(e.target.value)} />
+          <Button variant="outline" disabled={reason.trim().length < 3 || handover.isPending} onClick={() => handover.mutate({ ticketId: ticket.id, departmentId: d.id, userId: target ? Number(target) : null, reason })}>{t.workflow.ticket.handoverAction}</Button>
+          <p className="text-xs text-muted-foreground">{t.workflow.ticket.handoverHint}</p>
+        </div>}
+      </section>;
+    })}
+    {team && ticket.maintenanceResponsibleDepartment === DEPT.IT && <ItPurchaseNeedsPanel ticket={ticket} />}
+  </div>;
+}
+
+type NeedItem = { itemName: string; quantity: number; unit?: string; requiredDate?: string };
+function NeedReview({ need, onChanged }: { need: any; onChanged: () => void }) {
+  const { user } = useAuth();
+  const { t, language } = useTranslation();
+  const fail = (error: { message: string }) => toast.error(localizeApiError(error.message, language));
+  const [, navigate] = useLocation();
+  const [items, setItems] = useState<NeedItem[]>(() =>
+    (need.items || []).map((item: NeedItem) => ({ ...item, requiredDate: item.requiredDate || getDefaultRequiredDate() }))
+  );
+  const [note, setNote] = useState("");
+  const create = trpc.purchaseOrders.create.useMutation({ onSuccess: onChanged, onError: fail });
+  const returnNeed = trpc.tickets.returnItPurchaseNeed.useMutation({ onSuccess: onChanged, onError: fail });
+  const manager = user?.role === APP_ROLE.IT_MANAGER;
+  const statusText = need.status === "pending"
+    ? t.workflow.ticket.needWaitingManager
+    : need.status === "returned"
+      ? format(t.workflow.ticket.needReturnedClarification, { note: need.reviewNote || "" })
+      : format(t.workflow.ticket.needPoCreated, { po: need.purchaseOrderId || "" });
+  return <div className="rounded border p-3 space-y-2">
+    <Button variant="link" onClick={() => navigate(`/tickets/${need.ticketId}`)}>{format(t.workflow.ticket.ticketNeedLink, { ticket: need.ticketId, need: need.id })}</Button>
+    <p className="text-sm whitespace-pre-wrap">{need.reason}</p>
+    <p className="text-sm">{statusText}</p>
+    {items.map((item, index) => <div key={index} className="grid grid-cols-1 sm:grid-cols-4 gap-2">
+      <Input aria-label={t.workflow.ticket.needItemAria} value={item.itemName} disabled={!manager || need.status !== "pending"} onChange={e => setItems(v => v.map((x,i) => i === index ? {...x,itemName:e.target.value} : x))} />
+      <Input aria-label={t.workflow.ticket.needQuantityAria} type="number" min={1} value={item.quantity} disabled={!manager || need.status !== "pending"} onChange={e => setItems(v => v.map((x,i) => i === index ? {...x,quantity:Number(e.target.value)} : x))} />
+      <Input aria-label={t.workflow.ticket.needUnitAria} value={item.unit || ""} disabled={!manager || need.status !== "pending"} onChange={e => setItems(v => v.map((x,i) => i === index ? {...x,unit:e.target.value} : x))} />
+      <Input aria-label={t.workflow.ticket.needRequiredDateAria} type="date" required value={item.requiredDate || ""} disabled={!manager || need.status !== "pending"} onChange={e => setItems(v => v.map((x,i) => i === index ? {...x,requiredDate:e.target.value} : x))} />
+    </div>)}
+    {manager && need.status === "pending" && <>
+      <Textarea placeholder={t.workflow.ticket.managerNoteReturnReason} value={note} onChange={e => setNote(e.target.value)} />
+      <div className="flex flex-wrap gap-2">
+        <Button disabled={create.isPending || items.some(i => !i.itemName.trim() || i.quantity < 1 || !i.requiredDate)} onClick={() => create.mutate({ ticketId: need.ticketId, ticketItemId: need.ticketItemId, itPurchaseNeedId: need.id, items: items.map(i => ({ ...i, requiredDate: i.requiredDate! })), notes: [need.reason,note].filter(Boolean).join("\n") })}>{t.workflow.ticket.createOfficialPo}</Button>
+        <Button variant="outline" disabled={note.trim().length < 3 || returnNeed.isPending} onClick={() => returnNeed.mutate({ id: need.id, reason: note })}>{t.workflow.ticket.returnForClarification}</Button>
+      </div>
+    </>}
+  </div>;
+}
+
+export function ItPurchaseNeedsPanel({ ticket }: { ticket?: any }) {
+  const { user } = useAuth();
+  const { t, language } = useTranslation();
+  const fail = (error: { message: string }) => toast.error(localizeApiError(error.message, language));
+  const team = isItTeamRole(user?.role);
+  const utils = trpc.useUtils();
+  const needs = trpc.tickets.itPurchaseNeeds.useQuery(ticket ? { ticketId: ticket.id } : undefined, { enabled: team });
+  const [reason, setReason] = useState("");
+  const [items, setItems] = useState<NeedItem[]>([{ itemName: "", quantity: 1, unit: "" }]);
+  const changed = () => { needs.refetch(); utils.tickets.getById.invalidate(); utils.purchaseOrders.list.invalidate(); };
+  const submit = trpc.tickets.submitItPurchaseNeed.useMutation({ onSuccess: () => { setReason(""); changed(); }, onError: fail });
+  const canSubmit = user?.role === APP_ROLE.IT_MEMBER && ticket?.assignedToId === user?.id && ticket?.maintenancePath === "B" && ticket?.status === "work_approved" && !needs.data?.some(n => n.status === "pending");
+  if (!team || (!canSubmit && !needs.data?.length)) return null;
+  return <section className="rounded-lg border p-4 space-y-3">
+    <h3 className="font-semibold">{t.workflow.ticket.itPurchaseNeedsTitle}</h3>
+    {canSubmit && <div className="space-y-2">
+      {items.map((item,i) => <div key={i} className="flex flex-wrap gap-2">
+        <Input className="flex-1" aria-label={t.workflow.ticket.requiredItemNameAria} placeholder={t.workflow.ticket.needItemPlaceholder} value={item.itemName} onChange={e => setItems(v => v.map((x,j) => i === j ? {...x,itemName:e.target.value} : x))} />
+        <Input className="w-24" aria-label={t.workflow.ticket.requiredQuantityAria} type="number" min={1} value={item.quantity} onChange={e => setItems(v => v.map((x,j) => i === j ? {...x,quantity:Number(e.target.value)} : x))} />
+        <Input className="w-28" aria-label={t.workflow.ticket.needUnitInputAria} placeholder={t.workflow.ticket.needUnitPlaceholder} value={item.unit} onChange={e => setItems(v => v.map((x,j) => i === j ? {...x,unit:e.target.value} : x))} />
+        {items.length > 1 && <Button variant="ghost" onClick={() => setItems(v => v.filter((_,j) => i !== j))}>{t.workflow.ticket.deleteNeedItem}</Button>}
+      </div>)}
+      <Button variant="outline" disabled={items.length >= 20} onClick={() => setItems(v => [...v,{itemName:"",quantity:1,unit:""}])}>{t.workflow.ticket.addNeedItem}</Button>
+      <Textarea placeholder={t.workflow.ticket.needJustificationPlaceholder} value={reason} onChange={e => setReason(e.target.value)} />
+      <Button disabled={submit.isPending || reason.trim().length < 3 || items.some(i => !i.itemName.trim() || i.quantity < 1)} onClick={() => submit.mutate({ ticketId: ticket.id, items, reason })}>{t.workflow.ticket.submitNeedToItManager}</Button>
+    </div>}
+    {needs.data?.map(need => <NeedReview key={need.id} need={need} onChanged={changed} />)}
+  </section>;
+}

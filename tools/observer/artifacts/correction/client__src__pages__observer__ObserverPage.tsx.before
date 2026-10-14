@@ -1,0 +1,369 @@
+import { useEffect, useState } from "react";
+import { useLocation } from "wouter";
+import { trpc } from "@/lib/trpc";
+import { useTranslation } from "@/contexts/LanguageContext";
+import { findObserverPage } from "@shared/observer-pages";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import { Eye, ChevronLeft, ChevronRight, RefreshCw } from "lucide-react";
+
+const labels: Record<string, string> = {
+  tickets: "التذاكر",
+  ticketItems: "بنود التذاكر",
+  ticketDepartments: "الجهات",
+  ticketTasks: "المهام",
+  ticketStatusHistory: "سجل الحالات",
+  inspectionResults: "الفحوصات",
+  users: "المستخدمون",
+  sites: "المواقع",
+  sections: "الأقسام",
+  technicians: "الفنيون",
+  purchaseOrders: "طلبات الشراء",
+  purchaseOrderItems: "أصناف الشراء",
+  purchaseOrderItemHistory: "سجل الأصناف",
+  purchasePackages: "حزم الشراء",
+  purchasePackageSubmissions: "إرسالات الحزم",
+  assets: "الأصول",
+  assetCategories: "تصنيفات الأصول",
+  assetMetrics: "المؤشرات",
+  assetSpareParts: "قطع الغيار",
+  inventory: "رصيد المخزون",
+  inventoryLots: "الدفعات",
+  inventoryLotBalances: "أرصدة الدفعات",
+  inventoryTransactions: "الحركات",
+  inventoryIssueCostAllocations: "توزيع التكلفة",
+  inventoryCountOperations: "الجرد",
+  inventorySettlements: "التسويات",
+  disposalOperations: "الاستبعاد",
+  warehouseReceipts: "سندات الاستلام",
+  warehouseReceiptItems: "بنود الاستلام",
+  deliveryDocuments: "سندات الصرف",
+  returnDocuments: "سندات الإرجاع",
+  warehouseReturns: "المرتجعات",
+  warehouses: "المستودعات",
+  warehouseTransferBatches: "عمليات التحويل",
+  warehouseTransfers: "بنود التحويل",
+  warehouseIssueBatches: "عمليات الصرف",
+  warehouseIssueBatchItems: "بنود الصرف",
+  externalMaintenanceJobs: "الصيانة الخارجية",
+  improvementIdeas: "أفكار التحسين",
+  notifications: "الإشعارات",
+  auditLogs: "التدقيق",
+  backups: "النسخ الاحتياطية",
+  aiResponseCache: "المحادثات المحفوظة",
+  translationJobs: "مهام الترجمة",
+  entityTranslations: "الترجمات",
+  translationVersions: "إصدارات الترجمة",
+  centerCategories: "التصنيفات المركزية",
+  maintenance_teams: "فرق الصيانة",
+  maintenance_team_members: "أعضاء الفرق",
+  ticket_team_assignments: "إسنادات التذاكر",
+  ticket_team_material_needs: "احتياجات المواد",
+  ticket_team_actions: "إجراءات الفريق",
+  ticket_team_supply_links: "التوفير",
+  ticket_team_delivery_links: "الصرف للفني",
+  ticket_team_return_links: "مرتجعات الفريق",
+  pmv2Programs: "برامج الصيانة",
+  pmv2ProgramTargets: "أهداف البرامج",
+  pmv2Teams: "فرق PMV2",
+  pmv2TeamMembers: "أعضاء PMV2",
+  pmv2Checklists: "قوائم الفحص",
+  pmv2ChecklistItems: "بنود الفحص",
+  pmv2SlaRules: "مدد الإجراءات",
+  pmv2Tasks: "المهام المجدولة",
+  pmv2TaskItems: "بنود المهام",
+  pmv2Visits: "الزيارات",
+  pmv2ItemActions: "إجراءات الفني",
+  pmv2MaterialRequests: "طلبات المواد",
+  pmv2MaterialRequestItems: "مواد الطلبات",
+  pmv2MaterialPurchaseLinks: "الشراء المرتبط",
+  pmv2DailyReportReviews: "مراجعات التقارير",
+  preventivePlans: "الخطط الوقائية",
+  pmMainPlans: "الخطط الرئيسية",
+  pmSubPlans: "الخطط الفرعية",
+  pmWorkOrders: "أوامر العمل",
+  pmExecutionResults: "نتائج التنفيذ",
+  constructionProjects: "المشاريع",
+  constructionTasks: "مهام الإنشاءات",
+  constructionDailyReports: "التقارير اليومية",
+  constructionGoals: "الأهداف",
+  constructionPhases: "المراحل",
+  constructionChangeOrders: "أوامر التغيير",
+  constructionQuantityTracking: "تتبع الكميات",
+  catalogItems: "الأصناف",
+  catalogNodes: "تصنيفات الكتالوج",
+  catalogUnits: "الوحدات",
+  catalogItemSpecs: "المواصفات",
+  catalogItemAlternatives: "البدائل",
+  catalogItemCompatibility: "التوافق",
+  catalogSuppliers: "الموردون",
+  catalogSupplierPrices: "أسعار الموردين",
+  catalogKnowledge: "الأدلة الفنية",
+};
+const fields: Record<string, string> = {
+  id: "رقم السجل",
+  name: "الاسم",
+  nameAr: "الاسم العربي",
+  nameEn: "الاسم الإنجليزي",
+  description: "الوصف",
+  title: "العنوان",
+  role: "الدور",
+  status: "الحالة",
+  stage: "المرحلة",
+  createdAt: "تاريخ الإنشاء",
+  updatedAt: "آخر تحديث",
+  ticketNumber: "رقم التذكرة",
+  taskNumber: "رقم المهمة",
+  poNumber: "رقم طلب الشراء",
+  quantity: "الكمية",
+  unit: "الوحدة",
+  actualTotalCost: "التكلفة الفعلية",
+  estimatedTotalCost: "التكلفة التقديرية",
+  siteId: "الموقع",
+  sectionId: "القسم",
+  assetId: "الأصل",
+  teamId: "الفريق",
+  userId: "المستخدم",
+  ticketId: "التذكرة",
+  purchaseOrderId: "طلب الشراء",
+  notes: "الملاحظات",
+  note: "الملاحظات",
+  email: "البريد",
+  phone: "الهاتف",
+  isActive: "فعال",
+};
+const human = (key: string) =>
+  key.replace(/([a-z])([A-Z])/g, "$1 $2").replaceAll("_", " ");
+function cell(value: unknown): string {
+  if (value == null) return "—";
+  if (value instanceof Date)
+    return value.toLocaleString("ar-SA", { timeZone: "Asia/Riyadh" });
+  return typeof value === "object" ? JSON.stringify(value) : String(value);
+}
+export default function ObserverPage() {
+  const [path, navigate] = useLocation();
+  const { language } = useTranslation();
+  const l = (ar: string, en: string, ur: string) =>
+    language === "ar" ? ar : language === "ur" ? ur : en;
+  const spec = findObserverPage(path);
+  const [dataset, setDataset] = useState(0),
+    [page, setPage] = useState(1),
+    [search, setSearch] = useState("");
+  useEffect(() => {
+    setDataset(0);
+    setPage(1);
+    setSearch("");
+  }, [path]);
+  const query = trpc.observer.readPage.useQuery(
+    { path, dataset, page, search },
+    {
+      enabled: !!spec && dataset < spec.page.datasets.length,
+      retry: false,
+      refetchOnWindowFocus: false,
+    }
+  );
+  if (!spec)
+    return (
+      <Card>
+        <CardContent className="p-6">
+          {l("هذه الصفحة غير موجودة.", "Page not found.", "صفحہ موجود نہیں۔")}
+        </CardContent>
+      </Card>
+    );
+  const columns = query.data?.columns ?? [],
+    rows = query.data?.rows ?? [];
+  const source = spec.page.datasets[dataset]?.source;
+  const title =
+    language === "ar"
+      ? spec.page.title
+      : l(spec.page.title, "Read-only monitoring", "صرف مطالعہ کی نگرانی");
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-2xl font-bold">{title}</h1>
+        <Badge variant="secondary" className="gap-2">
+          <Eye className="h-4 w-4" />
+          {l(
+            "المراقب — قراءة فقط",
+            "Observer — read only",
+            "نگران — صرف مطالعہ"
+          )}
+        </Badge>
+      </div>
+      <p className="text-sm text-muted-foreground">
+        {l(
+          "عرض السجلات دون إضافة أو تعديل أو اعتماد. اختر قسم البيانات وابحث أو افتح سجلًا لمراجعة تفاصيله.",
+          "View records without creating, editing or approving. Select a dataset, search, or open a record.",
+          "بغیر تخلیق، ترمیم یا منظوری کے ریکارڈ دیکھیں۔ ڈیٹا منتخب کریں یا تلاش کریں۔"
+        )}
+      </p>
+      <div className="flex flex-wrap gap-2">
+        {spec.page.datasets.map((d, index) => (
+          <Button
+            key={d.source}
+            variant={dataset === index ? "default" : "outline"}
+            onClick={() => {
+              setDataset(index);
+              setPage(1);
+              setSearch("");
+            }}
+          >
+            {language === "ar"
+              ? (labels[d.source] ?? human(d.source))
+              : human(d.source)}
+          </Button>
+        ))}
+      </div>
+      <Card>
+        <CardHeader>
+          <CardTitle>
+            {language === "ar"
+              ? (labels[source] ?? title)
+              : human(source ?? "Records")}
+          </CardTitle>
+          <div className="flex gap-2">
+            <Input
+              aria-label={l(
+                "بحث السجلات",
+                "Search records",
+                "ریکارڈ تلاش کریں"
+              )}
+              value={search}
+              maxLength={100}
+              onChange={e => {
+                setSearch(e.target.value);
+                setPage(1);
+              }}
+              placeholder={l(
+                "بحث في السجلات",
+                "Search records",
+                "ریکارڈ تلاش کریں"
+              )}
+            />
+            <Button
+              variant="outline"
+              disabled={query.isFetching}
+              onClick={() => void query.refetch()}
+            >
+              <RefreshCw className="h-4 w-4" />
+              {l("تحديث", "Refresh", "تازہ کریں")}
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {query.isLoading ? (
+            <p>{l("جارٍ تحميل البيانات…", "Loading…", "لوڈ ہو رہا ہے…")}</p>
+          ) : query.error ? (
+            <p role="alert" className="text-destructive">
+              {l(
+                "تعذر عرض بيانات هذا القسم. حدّث الصفحة أو راجع المسؤول.",
+                "Unable to read this dataset. Refresh or contact your administrator.",
+                "ڈیٹا نہیں پڑھا جا سکا۔ تازہ کریں یا ذمہ دار سے رابطہ کریں۔"
+              )}
+            </p>
+          ) : (
+            <>
+              <div className="overflow-x-auto">
+                <table className="w-full text-start text-sm">
+                  <thead>
+                    <tr>
+                      {columns.map(key => (
+                        <th
+                          key={key}
+                          className="whitespace-nowrap border-b p-3 text-start"
+                        >
+                          {language === "ar"
+                            ? (fields[key] ?? human(key))
+                            : human(key)}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map((row, index) => (
+                      <tr key={String(row.id ?? index)} className="border-b">
+                        {columns.map(key => (
+                          <td key={key} className="max-w-xs p-3 align-top">
+                            <div className="max-h-36 overflow-auto whitespace-pre-wrap break-words">
+                              {key === "id" && source === "tickets" ? (
+                                <Button
+                                  variant="link"
+                                  onClick={() => navigate(`/tickets/${row.id}`)}
+                                >
+                                  {cell(row[key])}
+                                </Button>
+                              ) : key === "id" &&
+                                source === "purchaseOrders" ? (
+                                <Button
+                                  variant="link"
+                                  onClick={() =>
+                                    navigate(`/purchase-orders/${row.id}`)
+                                  }
+                                >
+                                  {cell(row[key])}
+                                </Button>
+                              ) : key === "id" && source === "assets" ? (
+                                <Button
+                                  variant="link"
+                                  onClick={() => navigate(`/asset/${row.id}`)}
+                                >
+                                  {cell(row[key])}
+                                </Button>
+                              ) : key === "role" &&
+                                language === "ar" &&
+                                row[key] === "observer" ? (
+                                "المراقب"
+                              ) : (
+                                cell(row[key])
+                              )}
+                            </div>
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {!rows.length && (
+                <p className="py-6 text-muted-foreground">
+                  {l(
+                    "لا توجد سجلات مطابقة.",
+                    "No matching records.",
+                    "کوئی مماثل ریکارڈ نہیں۔"
+                  )}
+                </p>
+              )}
+              <div className="mt-4 flex items-center justify-between gap-2">
+                <Button
+                  variant="outline"
+                  disabled={page <= 1 || query.isFetching}
+                  onClick={() => setPage(p => p - 1)}
+                >
+                  <ChevronRight className="h-4 w-4" />
+                  {l("السابق", "Previous", "پچھلا")}
+                </Button>
+                <span className="text-sm text-muted-foreground">
+                  {page} /{" "}
+                  {Math.max(1, Math.ceil((query.data?.total ?? 0) / 25))} ·{" "}
+                  {query.data?.total ?? 0} {l("سجل", "records", "ریکارڈ")}
+                </span>
+                <Button
+                  variant="outline"
+                  disabled={
+                    page * 25 >= (query.data?.total ?? 0) || query.isFetching
+                  }
+                  onClick={() => setPage(p => p + 1)}
+                >
+                  {l("التالي", "Next", "اگلا")}
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
+              </div>
+            </>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}

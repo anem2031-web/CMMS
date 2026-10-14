@@ -1,0 +1,20 @@
+{
+  "tests": 89,
+  "baselinePass": 79,
+  "baselineFail": 10,
+  "currentPass": 79,
+  "currentFail": 10,
+  "sameFailures": true,
+  "failures": [
+    "✖ My Tasks shows End Visit only for the open Visit Leader and blocks while an Item is active",
+    "✖ a physical Delivery that fails PM V2 linking is persisted as relink-only recovery",
+    "✖ full remaining task need is calculated server-side and lot allocations are automatic",
+    "✖ requesting technician is the default recipient but another active team technician may receive",
+    "✖ single-lot return is fixed automatically without QR or lot selection",
+    "✖ technician UI retains سليم and تم الإصلاح for in-progress items",
+    "✖ technician completion requests only actual used quantity",
+    "✖ technician router/UI expose only the scoped Start Execution action for pending items",
+    "✖ technician save creates a pending return instead of mutating warehouse stock",
+    "✖ warehouse pending-return queue identifies original recipient and only original issue lots"
+  ]
+}

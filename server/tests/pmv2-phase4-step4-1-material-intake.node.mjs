@@ -60,15 +60,13 @@ test("Team Warehouse balances are loaded in one scoped batch for catalog options
 
 test("catalog balance lookup is protected by the selected task and active team membership", () => {
   const searchBlock = service.split("async searchCatalog", 2)[1]?.split("async getItemMaterialState", 1)[0] ?? "";
-  assert.match(searchBlock, /eq\(pmv2TeamMembers\.userId, userId\)/);
-  assert.match(searchBlock, /eq\(pmv2TeamMembers\.isActive, 1\)/);
+  assert.match(searchBlock, /pmv2ExecutionTeamCondition\(userId, pmv2Tasks\.teamId\)/);
   assert.match(searchBlock, /eq\(pmv2Tasks\.id, taskId\)/);
   assert.match(searchBlock, /eq\(pmv2TaskItems\.id, taskItemId\)/);
 });
 
 test("material need write is restricted to active task-team membership and waiting_material/needs_material", () => {
-  assert.match(service, /eq\(pmv2TeamMembers\.userId, userId\)/);
-  assert.match(service, /eq\(pmv2TeamMembers\.isActive, 1\)/);
+  assert.match(service, /pmv2ExecutionTeamCondition\(userId, pmv2Tasks\.teamId\)/);
   assert.match(service, /context\.itemStatus !== "waiting_material"/);
   assert.match(service, /context\.itemResult !== "needs_material"/);
 });

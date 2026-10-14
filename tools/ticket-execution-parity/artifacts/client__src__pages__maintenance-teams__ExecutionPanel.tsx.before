@@ -1,0 +1,1141 @@
+import { useRef, useState } from "react";
+import { trpc } from "@/lib/trpc";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import { CatalogPickerDialog, type CatalogPickerSelection } from "@/components/catalog/CatalogPickerDialog";
+import { getLocalizedCatalogName } from "@/i18n/catalogMasterData";
+import { TicketWarehouseMaterialCard } from "./TicketWarehouseMaterialCard";
+import type { AssignedTeamTicket } from "@shared/maintenance-team-tickets/assignment";
+import { WarehousePurchaseQuantities } from "./WarehousePurchaseQuantities";
+import {
+  MAX_TICKET_PURCHASE_QUANTITY,
+  validWarehouseExtra,
+} from "@shared/maintenance-team-tickets/purchase-quantities";
+import {
+  materialSupplyRemaining,
+  materialActionMessage,
+} from "@shared/maintenance-team-tickets/material-routing";
+import {
+  TicketMaterialNeedPanel,
+  TicketMaterialReceiptButton,
+} from "./TicketMaterialNeedPanel";
+import {
+  materialSection,
+  type WarehouseSection,
+} from "@shared/maintenance-team-tickets/warehouse-materials";
+import {
+  canExecuteAllTicketTeams,
+  canReviewTicketTeamExecution,
+} from "@shared/maintenance-team-tickets/execution-permissions";
+import {
+  issued,
+  remainingReturn,
+  outcomeLabels,
+  stageLabels,
+  type Outcome,
+} from "@shared/maintenance-team-tickets/model";
+
+const outcomes: Outcome[] = [
+  "ok",
+  "fixed",
+  "needs_material",
+  "blocked",
+  "external",
+];
+const english: Record<string, string> = {
+  ok: "No repair needed",
+  fixed: "Repaired",
+  needs_material: "Materials needed",
+  blocked: "Obstacle",
+  external: "External maintenance",
+  action_required: "Team action required",
+  waiting_material: "Waiting for materials",
+  ready_to_repair: "Materials received — complete repair",
+  awaiting_review: "Awaiting manager review",
+  external_requested: "External maintenance requested",
+  external_in_progress: "External maintenance in progress",
+  reinstall_required: "Reinstallation required",
+  closed: "Team execution completed",
+};
+const urdu: Record<string, string> = {
+  ok: "درست",
+  fixed: "مرمت مکمل",
+  needs_material: "مواد درکار",
+  blocked: "رکاوٹ",
+  external: "بیرونی مرمت",
+  action_required: "ٹیم کی کارروائی درکار",
+  waiting_material: "مواد کا انتظار",
+  ready_to_repair: "مواد موصول — مرمت مکمل کریں",
+  awaiting_review: "ذمہ دار کی منظوری کا انتظار",
+  external_requested: "بیرونی مرمت کی درخواست",
+  external_in_progress: "بیرونی مرمت جاری",
+  reinstall_required: "دوبارہ تنصیب درکار",
+  closed: "ٹیم کا کام مکمل",
+};
+export function ExecutionPanel({
+  assignmentId,
+  actorId,
+  role,
+  language,
+  onChanged,
+  mode = "execution",
+  warehouseSection,
+  warehouseNeedId,
+  warehouseTicket,
+}: {
+  assignmentId: number;
+  actorId: number;
+  role: string;
+  language: string;
+  onChanged: () => void;
+  mode?: "execution" | "warehouse";
+  warehouseSection?: WarehouseSection;
+  warehouseNeedId?: number;
+  warehouseTicket?: AssignedTeamTicket;
+}) {
+  const l = (ar: string, en: string, ur: string) =>
+    language === "ar" ? ar : language === "ur" ? ur : en;
+  const choiceLabel = (value: Outcome) =>
+    l(
+      outcomeLabels[value],
+      {
+        ok: "OK",
+        fixed: "Repaired",
+        needs_material: "Needs materials",
+        blocked: "Obstacle",
+        external: "External maintenance",
+      }[value],
+      {
+        ok: "درست",
+        fixed: "مرمت مکمل",
+        needs_material: "مواد درکار",
+        blocked: "رکاوٹ",
+        external: "بیرونی مرمت",
+      }[value]
+    );
+  const label = (value: string) =>
+    language === "ar"
+      ? (stageLabels[value as keyof typeof stageLabels] ??
+        outcomeLabels[value as Outcome] ??
+        value)
+      : language === "ur"
+        ? (urdu[value] ?? value)
+        : (english[value] ?? value);
+  const utils = trpc.useUtils(),
+    details = trpc.ticketTeamExecution.details.useQuery(
+      { assignmentId },
+      { retry: false }
+    );
+  const [outcome, setOutcome] = useState<Outcome | null>(null),
+    [note, setNote] = useState(""),
+    [otherMaterials, setOther] = useState(""),
+    [usages, setUsages] = useState<Record<number, number>>({});
+  const [catalogNeedId, setCatalogNeedId] = useState<number | null>(null);
+  const [busy, setBusy] = useState(false),
+    [error, setError] = useState(""),
+    [message, setMessage] = useState(""),
+    [reviewNote, setReviewNote] = useState(""),
+    [recipient, setRecipient] = useState(""),
+    [requiredDate, setDate] = useState("");
+  const [resolveItems, setResolveItems] = useState<Record<number, CatalogPickerSelection>>({}),
+    [warehouseExtras, setWarehouseExtras] = useState<Record<number, string>>(
+      {}
+    ),
+    [issueRecipients, setIssueRecipients] = useState<Record<number, string>>(
+      {}
+    ),
+    [allocations, setAllocations] = useState<Record<string, number>>({});
+  const retry = useRef<{ fingerprint: string; key: string } | null>(null);
+  const state = details.data,
+    a = state?.assignments[0],
+    technician =
+      mode === "execution" &&
+      (role === "technician" || canExecuteAllTicketTeams(role)),
+    warehouse = ["warehouse", "owner", "admin"].includes(role),
+    manager =
+      mode === "execution" &&
+      canReviewTicketTeamExecution(role, actorId, a?.responsibleManagerId);
+  const catalogNeed = warehouse && a?.stage === "waiting_material" && !busy && !details.error
+    ? state?.needs.find(n => n.id === catalogNeedId && n.assignmentId === a.id && n.round === a.materialRound && n.catalogItemId == null)
+    : undefined;
+  const balances = trpc.ticketTeamExecution.balances.useQuery(
+    { assignmentId },
+    { enabled: !!a && a.stage === "waiting_material", retry: false }
+  );
+  async function openSupply(needId: number, kind: "transfer" | "purchase") {
+    if (busy) return;
+    setBusy(true);
+    setError("");
+    try {
+      const h = await utils.client.ticketTeamExecution.prepareSupply.mutate({
+        assignmentId,
+        needId,
+        kind,
+      });
+      const params = new URLSearchParams({
+        ticketTeamAssignmentId: String(h.assignmentId),
+        ticketTeamNeedId: String(h.needId),
+        ticketTeamRevision: String(h.revision),
+        ticketId: String(h.ticketId),
+        ticketItemId: String(h.ticketItemId),
+        ticketNumber: h.ticketNumber,
+      });
+      if (kind === "transfer") {
+        params.set("fromWarehouseId", String(h.mainWarehouseId));
+        params.set("toWarehouseId", String(h.warehouseId));
+        params.set("inventoryId", String(h.inventoryId));
+        params.set("quantity", String(h.quantity));
+        params.set("unit", h.unit);
+        params.set("ticketMaterialName", h.name);
+      } else {
+        const extraText = warehouseExtras[needId] ?? "0";
+        const extra = Number(extraText);
+        if (
+          !validWarehouseExtra(extra) ||
+          h.quantity + extra > MAX_TICKET_PURCHASE_QUANTITY
+        )
+          throw new Error(
+            l(
+              "أدخل كمية إضافة صحيحة وغير سالبة للمستودع",
+              "Enter a valid non-negative warehouse extra quantity",
+              "گودام کی درست غیر منفی اضافی مقدار درج کریں"
+            )
+          );
+        params.set("ticketWarehouseExtraQuantity", String(extra));
+        params.set(
+          "ticketTechnicianQuantity",
+          String(state!.needs.find(n => n.id === needId)!.requested)
+        );
+        params.set("ticketCatalogItemId", String(h.catalogItemId));
+        params.set("ticketItemName", h.name);
+        params.set("ticketUnit", h.unit);
+        params.set("ticketMinimumQuantity", String(h.quantity));
+        params.set("siteId", String(h.location.siteId));
+        params.set("sectionId", String(h.location.sectionId));
+        if (h.location.assetId)
+          params.set("assetId", String(h.location.assetId));
+        params.set(
+          "prefillNotes",
+          `مواد فريق تذكرة الصيانة ${h.ticketNumber} — الاستلام بالمستودع الرئيسي ثم التحويل لمستودع الفريق`
+        );
+      }
+      window.location.assign(
+        `${kind === "transfer" ? "/warehouse/transfer" : "/purchase-orders/new"}?${params}`
+      );
+    } catch (e: any) {
+      setError(e.message);
+      await details.refetch();
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function run(
+    kind: string,
+    payload: unknown,
+    work: (command: {
+      assignmentId: number;
+      expectedRevision: number;
+      operationKey: string;
+    }) => Promise<unknown>
+  ): Promise<boolean> {
+    if (!a || busy) return false;
+    const fingerprint = JSON.stringify({ kind, payload });
+    if (retry.current?.fingerprint !== fingerprint)
+      retry.current = { fingerprint, key: `mtt:${crypto.randomUUID()}` };
+    setBusy(true);
+    setError("");
+    setMessage("");
+    try {
+      await work({
+        assignmentId,
+        expectedRevision: a.revision,
+        operationKey: retry.current.key,
+      });
+      retry.current = null;
+      setOutcome(null);
+      setNote("");
+      setOther("");
+      setUsages({});
+      setReviewNote("");
+      setMessage(l("تم حفظ الإجراء", "Action saved", "کارروائی محفوظ ہو گئی"));
+      await Promise.all([
+        details.refetch(),
+        utils.ticketTeamExecution.balances.invalidate(),
+        utils.ticketTeamAssignments.queue.invalidate(),
+        utils.ticketTeamAssignments.warehouseRequests.invalidate(),
+      ]);
+      onChanged();
+      return true;
+    } catch (e: any) {
+      setError(
+        e.message || l("تعذر تنفيذ الإجراء", "Action failed", "کارروائی ناکام")
+      );
+      if (e.data?.code === "CONFLICT") await details.refetch();
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  }
+  if (details.isLoading)
+    return (
+      <p>
+        {l(
+          "جاري تحميل الإجراءات…",
+          "Loading actions…",
+          "کارروائیاں لوڈ ہو رہی ہیں…"
+        )}
+      </p>
+    );
+  if (details.error)
+    return (
+      <p role="alert" className="text-destructive">
+        {details.error.message}
+      </p>
+    );
+  if (!state || !a) return null;
+  const materialRecipients = state.users.filter(
+    u =>
+      u.active &&
+      (canExecuteAllTicketTeams(u.role) ||
+        (u.role === "technician" &&
+          state.memberships.some(
+            m => m.teamId === a.teamId && m.userId === u.id && m.active
+          )))
+  );
+  const current = state.needs.filter(n => n.round === a.materialRound),
+    canAct =
+      technician &&
+      ["action_required", "ready_to_repair", "reinstall_required"].includes(
+        a.stage
+      );
+  const selectClass =
+    "h-10 rounded-md border border-input bg-background px-3 text-sm w-full";
+  const review = (
+    decision:
+      | "return_to_team"
+      | "approve_result"
+      | "approve_external"
+      | "external_handover"
+  ) =>
+    void run(
+      "review",
+      {
+        decision,
+        note: reviewNote,
+        recipientId:
+          decision === "external_handover" ? Number(recipient) : undefined,
+      },
+      c =>
+        utils.client.ticketTeamExecution.review.mutate({
+          ...c,
+          decision,
+          note: reviewNote,
+          ...(decision === "external_handover"
+            ? { recipientId: Number(recipient) }
+            : {}),
+        })
+    );
+  return (
+    <div className="space-y-5" aria-busy={busy}>
+      {warehouseNeedId == null && (
+        <p className="font-medium">{label(a.stage)}</p>
+      )}
+      {error && (
+        <p role="alert" className="text-destructive">
+          {error}
+        </p>
+      )}
+      {message && (
+        <p role="status" className="text-primary">
+          {message}
+        </p>
+      )}
+      {canAct && (
+        <div className="space-y-4">
+          <div className="flex flex-wrap gap-2">
+            {outcomes
+              .filter(x => a.stage !== "reinstall_required" || x === "fixed")
+              .filter(
+                x =>
+                  x !== "ok" ||
+                  (!current.length && a.stage !== "reinstall_required")
+              )
+              .filter(x => x !== "needs_material" || !current.length)
+              .map(x => (
+                <Button
+                  key={x}
+                  disabled={busy}
+                  variant={outcome === x ? "default" : "outline"}
+                  onClick={() => {
+                    if (x === "needs_material") {
+                      void run("begin_material_need", {}, c =>
+                        utils.client.ticketTeamExecution.beginMaterialNeed.mutate(
+                          c
+                        )
+                      );
+                    } else setOutcome(x);
+                    setError("");
+                  }}
+                >
+                  {choiceLabel(x)}
+                </Button>
+              ))}
+          </div>
+          {outcome && outcome !== "needs_material" && (
+            <div className="space-y-3 rounded-lg border p-4">
+              <Label htmlFor={`note-${assignmentId}`}>
+                {outcome === "fixed"
+                  ? l(
+                      "تفاصيل الإصلاح (إلزامي)",
+                      "Repair details (required)",
+                      "مرمت کی تفصیل (ضروری)"
+                    )
+                  : outcome === "blocked"
+                    ? l(
+                        "سبب العائق (إلزامي)",
+                        "Obstacle reason (required)",
+                        "رکاوٹ کی وجہ (ضروری)"
+                      )
+                    : outcome === "external"
+                      ? l(
+                          "المطلوب من الصيانة الخارجية (إلزامي)",
+                          "External work needed (required)",
+                          "بیرونی مرمت کی ضرورت (ضروری)"
+                        )
+                      : l(
+                          "ملاحظات الفحص",
+                          "Inspection notes",
+                          "معائنے کے نوٹس"
+                        )}
+              </Label>
+              <Textarea
+                id={`note-${assignmentId}`}
+                value={note}
+                maxLength={4000}
+                disabled={busy}
+                onChange={e => setNote(e.target.value)}
+              />
+              {outcome === "fixed" && (
+                <>
+                  {current.map(n => (
+                    <div key={n.id} className="grid gap-2 sm:grid-cols-2">
+                      <Label htmlFor={`used-${n.id}`}>
+                        {n.name} — {n.unit} (
+                        {l("المصروف", "Issued", "جاری شدہ")}:{" "}
+                        {issued(state, n.id)})
+                      </Label>
+                      <Input
+                        id={`used-${n.id}`}
+                        type="number"
+                        min={0}
+                        max={
+                          issued(state, n.id) -
+                          state.deliveries
+                            .filter(d => d.needId === n.id)
+                            .reduce((s, d) => s + d.returned, 0)
+                        }
+                        step={1}
+                        disabled={busy}
+                        value={usages[n.id] ?? issued(state, n.id)}
+                        onChange={e =>
+                          setUsages({
+                            ...usages,
+                            [n.id]: Number(e.target.value),
+                          })
+                        }
+                      />
+                    </div>
+                  ))}
+                  <Label htmlFor={`other-${assignmentId}`}>
+                    {l(
+                      "مواد أخرى استُخدمت وتفاصيلها (إن وجدت)",
+                      "Other materials used and details (if any)",
+                      "دیگر استعمال شدہ مواد کی تفصیل"
+                    )}
+                  </Label>
+                  <Textarea
+                    id={`other-${assignmentId}`}
+                    value={otherMaterials}
+                    maxLength={4000}
+                    disabled={busy}
+                    onChange={e => setOther(e.target.value)}
+                  />
+                </>
+              )}
+              <Button
+                disabled={busy || (outcome !== "ok" && !note.trim())}
+                onClick={() => {
+                  const payload = {
+                    outcome,
+                    note,
+                    otherMaterials:
+                      outcome === "fixed" ? otherMaterials : undefined,
+                    usages:
+                      outcome === "fixed"
+                        ? current.map(n => ({
+                            catalogItemId: n.catalogItemId!,
+                            used: usages[n.id] ?? issued(state, n.id),
+                          }))
+                        : [],
+                  };
+                  void run("outcome", payload, c =>
+                    utils.client.ticketTeamExecution.outcome.mutate({
+                      ...c,
+                      ...payload,
+                    })
+                  );
+                }}
+              >
+                {l(
+                  "حفظ وإرسال للمسؤول",
+                  "Save and send to manager",
+                  "محفوظ کریں اور ذمہ دار کو بھیجیں"
+                )}
+              </Button>
+            </div>
+          )}
+        </div>
+      )}
+      {technician && a.stage === "waiting_material" && (
+        <TicketMaterialNeedPanel
+          assignmentId={assignmentId}
+          currentNeeds={current}
+          warehouseName={
+            state.warehouses.find(w => w.id === a.warehouseId)?.name ?? ""
+          }
+          language={language}
+          busy={busy}
+          onSubmit={(need, confirmReceipt) =>
+            run("register_material_need", { need, confirmReceipt }, c =>
+              utils.client.ticketTeamExecution.registerMaterialNeed.mutate({
+                ...c,
+                need,
+                confirmReceipt,
+              })
+            )
+          }
+        />
+      )}
+      {!!state.needs.length && (
+        <div className="space-y-3">
+          {warehouseNeedId == null && (
+            <h3 className="font-semibold">
+              {l(
+                "المواد والاستلام والاستخدام والمرتجع",
+                "Materials, receipt, usage and returns",
+                "مواد، وصولی، استعمال اور واپسی"
+              )}
+            </h3>
+          )}
+          {state.needs.map(n => {
+            if (
+              mode === "warehouse" &&
+              warehouseNeedId != null &&
+              n.id !== warehouseNeedId
+            )
+              return null;
+            const balance = balances.data?.find(b => b.needId === n.id),
+              pending = state.supplies.filter(
+                s => s.needId === n.id && s.status === "pending"
+              ),
+              left = n.requested - issued(state, n.id),
+              supplyRemaining = materialSupplyRemaining(state, n) ?? 0,
+              shortage = Math.max(
+                0,
+                left - (balance?.branch ?? 0),
+                supplyRemaining
+              ),
+              purchaseQuantity = balance
+                ? Math.max(
+                    0,
+                    shortage -
+                      balance.main -
+                      pending.reduce((sum, s) => sum + s.quantity, 0)
+                  )
+                : null,
+              extraText = warehouseExtras[n.id] ?? "0",
+              extraValid =
+                validWarehouseExtra(Number(extraText)) &&
+                n.requested + Number(extraText) <= MAX_TICKET_PURCHASE_QUANTITY,
+              returns = remainingReturn(state, n.id),
+              lots = Array.from(
+                new Set(
+                  state.deliveries
+                    .filter(d => d.needId === n.id)
+                    .map(d => d.lotId)
+                )
+              );
+            const candidate = issueRecipients[n.id] ?? String(n.requestedById);
+            const selectedRecipient = materialRecipients.some(
+              u => u.id === Number(candidate)
+            )
+              ? candidate
+              : "";
+            if (
+              warehouseSection &&
+              materialSection(state, n, balance?.branch) !== warehouseSection
+            )
+              return null;
+            return (
+              <TicketWarehouseMaterialCard
+                key={n.id}
+                state={state}
+                need={n}
+                balance={balance}
+                balanceError={balances.error?.message}
+                ticket={warehouseTicket}
+                language={language}
+                warehouse={mode === "warehouse" && warehouseNeedId != null}
+                quantityFields={
+                  <>
+                    {warehouse &&
+                      a.stage === "waiting_material" &&
+                      n.round === a.materialRound &&
+                      left > 0 && (
+                        <WarehousePurchaseQuantities
+                          id={`need-${assignmentId}-${n.id}`}
+                          technicianQuantity={n.requested}
+                          purchaseQuantity={
+                            n.catalogItemId == null ? null : purchaseQuantity
+                          }
+                          extra={extraText}
+                          unit={n.unit}
+                          language={language}
+                          disabled={busy || pending.length > 0}
+                          onExtraChange={value =>
+                            setWarehouseExtras(prev => ({
+                              ...prev,
+                              [n.id]: value,
+                            }))
+                          }
+                        />
+                      )}
+                  </>
+                }
+              >
+                {technician &&
+                  a.stage === "waiting_material" &&
+                  n.round === a.materialRound &&
+                  left > 0 &&
+                  n.catalogItemId != null && (
+                    <TicketMaterialReceiptButton
+                      name={n.name}
+                      quantity={left}
+                      unit={n.unit}
+                      warehouseName={
+                        state.warehouses.find(w => w.id === a.warehouseId)
+                          ?.name ?? ""
+                      }
+                      language={language}
+                      busy={busy}
+                      disabled={
+                        !balance || balance.branch < left || supplyRemaining > 0
+                      }
+                      onConfirm={() =>
+                        run("receive", { needId: n.id }, c =>
+                          utils.client.ticketTeamExecution.receive.mutate({
+                            ...c,
+                            needId: n.id,
+                          })
+                        )
+                      }
+                    />
+                  )}
+                {warehouse &&
+                  a.stage === "waiting_material" &&
+                  n.round === a.materialRound && (
+                    <>
+                      {n.catalogItemId == null ? (
+                        <div className="space-y-3">
+                          {warehouseNeedId != null && (
+                            <div className="space-y-2">
+                              <Label
+                                htmlFor={`match-note-${assignmentId}-${n.id}`}
+                              >
+                                {l(
+                                  "ملاحظات المطابقة (إلزامي)",
+                                  "Matching notes (required)",
+                                  "شناخت کے نوٹس (ضروری)"
+                                )}
+                              </Label>
+                              <Textarea
+                                id={`match-note-${assignmentId}-${n.id}`}
+                                value={reviewNote}
+                                maxLength={4000}
+                                disabled={busy}
+                                onChange={e => setReviewNote(e.target.value)}
+                              />
+                            </div>
+                          )}
+                          <Button
+                            type="button"
+                            variant="outline"
+                            disabled={busy || !!details.error}
+                            onClick={() => setCatalogNeedId(n.id)}
+                          >
+                            {l(
+                              "تحديد الصنف من الكتالوج",
+                              "Choose item from catalog",
+                              "کیٹلاگ سے شے منتخب کریں"
+                            )}
+                          </Button>
+                          {resolveItems[n.id] && (
+                            <p className="text-sm rounded-md border bg-muted/30 p-3">
+                              {getLocalizedCatalogName(resolveItems[n.id], language)} — {resolveItems[n.id].unit}
+                            </p>
+                          )}
+                          <Button
+                            disabled={
+                              busy || !resolveItems[n.id]?.id || !reviewNote.trim()
+                            }
+                            className="border-blue-300 bg-blue-50 text-blue-800 hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950/30 dark:text-blue-200"
+                            onClick={() =>
+                              void run(
+                                "resolve",
+                                {
+                                  needId: n.id,
+                                  catalogItemId: Number(resolveItems[n.id]?.id),
+                                  note: reviewNote,
+                                },
+                                c =>
+                                  utils.client.ticketTeamExecution.resolve.mutate(
+                                    {
+                                      ...c,
+                                      needId: n.id,
+                                      catalogItemId: Number(resolveItems[n.id]?.id),
+                                      note: reviewNote,
+                                    }
+                                  )
+                              )
+                            }
+                          >
+                            {l(
+                              "تأكيد المطابقة",
+                              "Confirm match",
+                              "شناخت کی تصدیق"
+                            )}
+                          </Button>
+                        </div>
+                      ) : (
+                        <div className="flex flex-wrap items-center gap-2">
+                          {balance &&
+                          balance.branch >= left &&
+                          left > 0 &&
+                          supplyRemaining === 0 ? (
+                            <>
+                              <select
+                                className={selectClass}
+                                aria-label={l(
+                                  "المستلم الفعلي",
+                                  "Actual recipient",
+                                  "اصل وصول کنندہ"
+                                )}
+                                value={selectedRecipient}
+                                disabled={busy}
+                                onChange={e =>
+                                  setIssueRecipients({
+                                    ...issueRecipients,
+                                    [n.id]: e.target.value,
+                                  })
+                                }
+                              >
+                                <option value="">
+                                  {l(
+                                    "اختر المستلم",
+                                    "Choose recipient",
+                                    "وصول کنندہ منتخب کریں"
+                                  )}
+                                </option>
+                                {state.users
+                                  .filter(
+                                    u =>
+                                      u.active &&
+                                      (canExecuteAllTicketTeams(u.role) ||
+                                        (u.role === "technician" &&
+                                          state.memberships.some(
+                                            m =>
+                                              m.teamId === a.teamId &&
+                                              m.userId === u.id &&
+                                              m.active
+                                          )))
+                                  )
+                                  .map(u => (
+                                    <option key={u.id} value={u.id}>
+                                      {u.name}
+                                    </option>
+                                  ))}
+                              </select>
+                              <Button
+                                disabled={busy || !Number(selectedRecipient)}
+                                className="bg-emerald-600 text-white hover:bg-emerald-700"
+                                onClick={() =>
+                                  void run(
+                                    "warehouse_issue",
+                                    {
+                                      needId: n.id,
+                                      recipientId: Number(selectedRecipient),
+                                    },
+                                    c =>
+                                      utils.client.ticketTeamExecution.issue.mutate(
+                                        {
+                                          ...c,
+                                          needId: n.id,
+                                          recipientId:
+                                            Number(selectedRecipient),
+                                        }
+                                      )
+                                  )
+                                }
+                              >
+                                {l(
+                                  "صرف إلى المستلم الفعلي",
+                                  "Issue to actual recipient",
+                                  "اصل وصول کنندہ کو جاری کریں"
+                                )}
+                              </Button>
+                            </>
+                          ) : (
+                            <>
+                              {balance &&
+                                shortage > 0 &&
+                                pending.length === 0 &&
+                                balance.main >= shortage && (
+                                  <Button
+                                    variant="outline"
+                                    disabled={
+                                      busy ||
+                                      !balance ||
+                                      shortage <= 0 ||
+                                      pending.length > 0 ||
+                                      balance.main < shortage
+                                    }
+                                    className="border-blue-300 bg-blue-50 text-blue-800 hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950/30 dark:text-blue-200"
+                                    onClick={() =>
+                                      void openSupply(n.id, "transfer")
+                                    }
+                                  >
+                                    {l(
+                                      "تحويل كامل النقص من الرئيسي",
+                                      "Transfer full shortage from main warehouse",
+                                      "مرکزی گودام سے پوری کمی منتقل کریں"
+                                    )}
+                                    {warehouseNeedId != null &&
+                                      ` — ${shortage} ${n.unit}`}
+                                  </Button>
+                                )}
+                              {balance &&
+                                purchaseQuantity != null &&
+                                purchaseQuantity > 0 && (
+                                  <Button
+                                    variant="outline"
+                                    disabled={
+                                      busy ||
+                                      !balance ||
+                                      !extraValid ||
+                                      shortage -
+                                        balance.main -
+                                        pending.reduce(
+                                          (sum, s) => sum + s.quantity,
+                                          0
+                                        ) <=
+                                        0
+                                    }
+                                    className="border-amber-300 bg-amber-50 text-amber-900 hover:bg-amber-100 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200"
+                                    onClick={() =>
+                                      void openSupply(n.id, "purchase")
+                                    }
+                                  >
+                                    {l(
+                                      "طلب شراء العجز",
+                                      "Request shortage purchase",
+                                      "کمی کی خریداری کی درخواست"
+                                    )}
+                                    {warehouseNeedId != null &&
+                                      ` — ${purchaseQuantity} ${n.unit}`}
+                                  </Button>
+                                )}
+                            </>
+                          )}
+                        </div>
+                      )}
+                      {pending
+                        .filter(s => s.kind === "purchase")
+                        .map(s => (
+                          <div key={s.id} className="flex flex-wrap gap-2">
+                            <span dir="ltr">{s.sourceNumber}</span>
+                            <Button
+                              variant="outline"
+                              disabled={busy}
+                              onClick={() =>
+                                void run(
+                                  "purchaseReceipt",
+                                  { supplyId: s.id },
+                                  c =>
+                                    utils.client.ticketTeamExecution.purchaseReceipt.mutate(
+                                      { ...c, supplyId: s.id }
+                                    )
+                                )
+                              }
+                            >
+                              {l(
+                                "تحقق من الاستلام الفعلي بالمستودع الرئيسي",
+                                "Verify actual main warehouse receipt",
+                                "مرکزی گودام کی اصل وصولی کی تصدیق"
+                              )}
+                            </Button>
+                          </div>
+                        ))}
+                    </>
+                  )}
+                {state.deliveries
+                  .filter(d => d.needId === n.id)
+                  .map(d => (
+                    <p
+                      key={d.id}
+                      className="text-sm text-muted-foreground"
+                      dir="auto"
+                    >
+                      {d.deliveryNumber} — {l("اللوت", "Lot", "لاٹ")} #{d.lotId}{" "}
+                      — {d.quantity} {n.unit} —{" "}
+                      {l("المستلم", "Recipient", "وصول کنندہ")}:{" "}
+                      {state.users.find(u => u.id === d.receivedById)?.name ??
+                        `#${d.receivedById}`}
+                    </p>
+                  ))}
+                {warehouse && returns > 0 && (
+                  <div className="space-y-2">
+                    {lots.length > 1 &&
+                      lots.map(lotId => (
+                        <label className="flex items-center gap-2" key={lotId}>
+                          {l("مرتجع اللوت", "Return from lot", "لاٹ کی واپسی")}{" "}
+                          #{lotId}
+                          <Input
+                            className="w-24"
+                            type="number"
+                            min={0}
+                            step={1}
+                            disabled={busy}
+                            value={allocations[`${n.id}:${lotId}`] ?? 0}
+                            onChange={e =>
+                              setAllocations({
+                                ...allocations,
+                                [`${n.id}:${lotId}`]: Number(e.target.value),
+                              })
+                            }
+                          />
+                        </label>
+                      ))}
+                    <Button
+                      variant="outline"
+                      disabled={busy}
+                      onClick={() => {
+                        const distribution =
+                          lots.length > 1
+                            ? lots
+                                .map(lotId => ({
+                                  lotId,
+                                  quantity:
+                                    allocations[`${n.id}:${lotId}`] ?? 0,
+                                }))
+                                .filter(x => x.quantity > 0)
+                            : undefined;
+                        void run(
+                          "return",
+                          { needId: n.id, allocations: distribution },
+                          c =>
+                            utils.client.ticketTeamExecution.returnMaterial.mutate(
+                              { ...c, needId: n.id, allocations: distribution }
+                            )
+                        );
+                      }}
+                    >
+                      {l(
+                        "تأكيد استلام المرتجع للمستودع",
+                        "Confirm physical return to warehouse",
+                        "گودام میں واپسی وصول کرنے کی تصدیق"
+                      )}
+                    </Button>
+                  </div>
+                )}
+              </TicketWarehouseMaterialCard>
+            );
+          })}
+          {balances.error && (
+            <p role="alert" className="text-destructive">
+              {balances.error.message}
+            </p>
+          )}
+        </div>
+      )}
+      {warehouseNeedId == null &&
+        ((manager &&
+          ["awaiting_review", "blocked", "external_requested"].includes(
+            a.stage
+          )) ||
+          (warehouse &&
+            ["waiting_material", "external_in_progress"].includes(
+              a.stage
+            ))) && (
+          <div className="space-y-3 rounded-lg border p-4">
+            <Label htmlFor={`review-${assignmentId}`}>
+              {l(
+                "ملاحظات المسؤول / المستودع (إلزامي)",
+                "Manager / warehouse notes (required)",
+                "ذمہ دار / گودام کے نوٹس (ضروری)"
+              )}
+            </Label>
+            <Textarea
+              id={`review-${assignmentId}`}
+              value={reviewNote}
+              maxLength={4000}
+              disabled={busy}
+              onChange={e => setReviewNote(e.target.value)}
+            />
+            <div className="flex flex-wrap gap-2">
+              {manager && a.stage === "awaiting_review" && (
+                <Button
+                  disabled={busy || !reviewNote.trim()}
+                  onClick={() => review("approve_result")}
+                >
+                  {l(
+                    "اعتماد نتيجة الفريق",
+                    "Approve team result",
+                    "ٹیم کے نتیجے کی منظوری"
+                  )}
+                </Button>
+              )}
+              {manager &&
+                ["awaiting_review", "blocked", "external_requested"].includes(
+                  a.stage
+                ) && (
+                  <Button
+                    variant="outline"
+                    disabled={busy || !reviewNote.trim()}
+                    onClick={() => review("return_to_team")}
+                  >
+                    {l("إعادة للفريق", "Return to team", "ٹیم کو واپس کریں")}
+                  </Button>
+                )}
+              {manager && a.stage === "external_requested" && (
+                <Button
+                  disabled={busy || !reviewNote.trim()}
+                  onClick={() => review("approve_external")}
+                >
+                  {l(
+                    "اعتماد الصيانة الخارجية — المسار C",
+                    "Approve external maintenance — path C",
+                    "بیرونی مرمت کی منظوری — راستہ C"
+                  )}
+                </Button>
+              )}
+            </div>
+            {warehouse && a.stage === "external_in_progress" && (
+              <>
+                <a
+                  className="text-primary underline"
+                  href="/external-maintenance"
+                >
+                  {l(
+                    "متابعة دورة الصيانة الخارجية",
+                    "Open external maintenance workflow",
+                    "بیرونی مرمت کا عمل کھولیں"
+                  )}
+                </a>
+                <select
+                  aria-label={l(
+                    "الفني المستلم",
+                    "Receiving technician",
+                    "وصول کرنے والا ٹیکنیشن"
+                  )}
+                  className={selectClass}
+                  value={recipient}
+                  disabled={busy}
+                  onChange={e => setRecipient(e.target.value)}
+                >
+                  <option value="">
+                    {l(
+                      "اختر الفني المستلم من الفريق",
+                      "Select actual team recipient",
+                      "ٹیم سے اصل وصول کنندہ منتخب کریں"
+                    )}
+                  </option>
+                  {state.memberships
+                    .filter(m => m.active)
+                    .flatMap(m =>
+                      state.users.filter(
+                        u =>
+                          u.id === m.userId &&
+                          u.active &&
+                          u.role === "technician"
+                      )
+                    )
+                    .map(u => (
+                      <option key={u.id} value={u.id}>
+                        {u.name}
+                      </option>
+                    ))}
+                </select>
+                <Button
+                  disabled={busy || !recipient || !reviewNote.trim()}
+                  onClick={() => review("external_handover")}
+                >
+                  {l(
+                    "تسليم الأصل بعد عودته لإعادة التركيب",
+                    "Hand over returned asset for reinstallation",
+                    "واپس آئے اثاثے کو دوبارہ تنصیب کے لیے حوالے کریں"
+                  )}
+                </Button>
+              </>
+            )}
+          </div>
+        )}
+      {manager && a.stage === "closed" && (
+        <a className="text-primary underline" href={`/tickets/${a.ticketId}`}>
+          {l(
+            "متابعة اعتماد وإغلاق البلاغ",
+            "Continue ticket verification and closure",
+            "ٹکٹ کی تصدیق اور بندش جاری رکھیں"
+          )}
+        </a>
+      )}
+      {warehouseNeedId == null && (
+        <details className="rounded-lg border p-3">
+          <summary className="cursor-pointer font-medium">
+            {l(
+              "سجل إجراءات الفريق",
+              "Team action history",
+              "ٹیم کی کارروائیوں کا ریکارڈ"
+            )}
+          </summary>
+          <div className="space-y-3 pt-3">
+            {state.actions.map(x => (
+              <div key={x.id} className="border-b pb-2">
+                <p className="text-sm text-muted-foreground">
+                  {state.users.find(u => u.id === x.actorId)?.name ??
+                    `#${x.actorId}`}{" "}
+                  — {x.at}
+                </p>
+                <p className="whitespace-pre-wrap">
+                  {materialActionMessage(x.note)}
+                </p>
+              </div>
+            ))}
+          </div>
+        </details>
+      )}
+      {catalogNeed && (
+        <CatalogPickerDialog
+          open
+          requiredUnit={catalogNeed.unit}
+          onClose={() => setCatalogNeedId(null)}
+          onSelect={item => {
+            if (item.unit !== catalogNeed.unit) return;
+            setResolveItems(previous => ({ ...previous, [catalogNeed.id]: item }));
+          }}
+        />
+      )}
+    </div>
+  );
+}

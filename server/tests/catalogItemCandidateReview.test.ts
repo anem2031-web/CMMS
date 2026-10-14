@@ -121,6 +121,28 @@ describe("catalog item candidate review", () => {
     ])).toBe("111-011");
   });
 
+  it("skips codes held by reclassified items outside the leaf", () => {
+    expect(nextCatalogItemCode("0007", [
+      { id: 9, code: "0007-104" },
+    ], ["0007-105"])).toBe("0007-106");
+  });
+
+  it("skips consecutive reserved codes including historical item aliases", () => {
+    expect(nextCatalogItemCode("11", [
+      { id: 2, code: "11-0004" },
+    ], ["11-0005", "11-0006", "11-0008"])).toBe("11-0007");
+  });
+
+  it("starts from the first globally unreserved code in an empty leaf", () => {
+    expect(nextCatalogItemCode("0007", [], ["0007-001", "0007-002"])).toBe("0007-003");
+  });
+
+  it("does not rewrite or adopt the format of a conflicting item in another leaf", () => {
+    expect(nextCatalogItemCode("11", [
+      { id: 1, code: "11001" },
+    ], ["11-002", "11-0003"])).toBe("11-003");
+  });
+
   it("validates new or changed item codes against the selected category prefix", () => {
     expect(isCatalogItemCodeForNode("11-001", "11")).toBe(true);
     expect(isCatalogItemCodeForNode("11-0001", "11")).toBe(true);

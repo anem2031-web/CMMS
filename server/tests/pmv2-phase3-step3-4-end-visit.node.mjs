@@ -22,9 +22,7 @@ test("Step 3.4 reuses the existing Visit endedAt field with no schema extension"
 
 test("Visit-state read remains scoped to active Team membership and exposes Leader state", () => {
   const method = readService.split("async getVisitState", 2)[1]?.split("async listTaskItems", 1)[0] ?? "";
-  assert.match(method, /eq\(pmv2TeamMembers\.teamId, pmv2Tasks\.teamId\)/);
-  assert.match(method, /eq\(pmv2TeamMembers\.userId, userId\)/);
-  assert.match(method, /eq\(pmv2TeamMembers\.isActive, 1\)/);
+  assert.match(method, /pmv2ExecutionTeamCondition\(userId, pmv2Tasks\.teamId\)/);
   assert.match(method, /isNull\(pmv2Visits\.endedAt\)/);
   assert.match(method, /eq\(pmv2VisitMembers\.userId, userId\)/);
   assert.match(method, /isLeader:/);
@@ -33,10 +31,8 @@ test("Visit-state read remains scoped to active Team membership and exposes Lead
 
 test("endVisit serializes by Task and rechecks active Team membership", () => {
   assert.match(endVisitMethod, /SELECT id FROM pmv2_tasks WHERE id = \$\{input\.taskId\} FOR UPDATE/);
-  assert.match(endVisitMethod, /eq\(pmv2TeamMembers\.teamId, pmv2Tasks\.teamId\)/);
-  assert.match(endVisitMethod, /eq\(pmv2TeamMembers\.userId, userId\)/);
-  assert.match(endVisitMethod, /eq\(pmv2TeamMembers\.isActive, 1\)/);
-  assert.match(endVisitMethod, /where\(eq\(pmv2Tasks\.id, input\.taskId\)\)/);
+  assert.match(endVisitMethod, /pmv2ExecutionTeamCondition\(userId, pmv2Tasks\.teamId\)/);
+  assert.match(endVisitMethod, /\.where\(and\(pmv2ExecutionTeamCondition\(userId, pmv2Tasks\.teamId\), eq\(pmv2Tasks\.id, input\.taskId\)\)\)/);
 });
 
 test("exactly one open Visit is required and repeated ending is rejected", () => {

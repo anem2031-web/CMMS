@@ -1,3 +1,4 @@
+import { pmv2ExecutionActor, pmv2ExecutionActorCondition, pmv2ExecutionTeamCondition } from "../security/execution-access";
 import { and, asc, desc, eq, inArray, isNull, lte, ne, or, sql } from "drizzle-orm";
 import {
   assets,
@@ -7,7 +8,6 @@ import {
   pmv2TaskItems,
   pmv2TaskTicketLinks,
   pmv2Tasks,
-  pmv2TeamMembers,
   pmv2Teams,
   pmv2VisitMembers,
   pmv2Visits,
@@ -33,7 +33,7 @@ export class Pmv2TechnicianAccessError extends Error {
 
 /**
  * Technician task/read boundary.
- * Access is derived from an active pmv2_team_members row for the task team.
+ * Active technicians require team membership; designated administrative executors may access all teams.
  * Patch 096 keeps prior non-final Tasks visible across date boundaries without mutating dueDate.
  * Patch 111 also keeps a completed prior Task visible while an explicit Visit is still open,
  * so the Visit leader can close it without reopening or mutating the Task itself.
@@ -60,12 +60,7 @@ export class Pmv2TechnicianReadService {
       })
       .from(pmv2Tasks)
       .innerJoin(
-        pmv2TeamMembers,
-        and(
-          eq(pmv2TeamMembers.teamId, pmv2Tasks.teamId),
-          eq(pmv2TeamMembers.userId, userId),
-          eq(pmv2TeamMembers.isActive, 1),
-        ),
+        pmv2ExecutionActor, pmv2ExecutionActorCondition(userId),
       )
       .innerJoin(pmv2Teams, eq(pmv2Teams.id, pmv2Tasks.teamId))
       .innerJoin(pmv2ProgramTargets, eq(pmv2ProgramTargets.id, pmv2Tasks.programTargetId))
@@ -75,6 +70,7 @@ export class Pmv2TechnicianReadService {
       .leftJoin(pmv2TaskItems, eq(pmv2TaskItems.taskId, pmv2Tasks.id))
       .where(
         and(
+          pmv2ExecutionTeamCondition(userId, pmv2Tasks.teamId),
           lte(pmv2Tasks.dueDate, date),
           ne(pmv2Tasks.status, "cancelled"),
           or(
@@ -126,14 +122,9 @@ export class Pmv2TechnicianReadService {
       .select({ id: pmv2Tasks.id })
       .from(pmv2Tasks)
       .innerJoin(
-        pmv2TeamMembers,
-        and(
-          eq(pmv2TeamMembers.teamId, pmv2Tasks.teamId),
-          eq(pmv2TeamMembers.userId, userId),
-          eq(pmv2TeamMembers.isActive, 1),
-        ),
+        pmv2ExecutionActor, pmv2ExecutionActorCondition(userId),
       )
-      .where(eq(pmv2Tasks.id, taskId))
+      .where(and(pmv2ExecutionTeamCondition(userId, pmv2Tasks.teamId), eq(pmv2Tasks.id, taskId)))
       .limit(1);
 
     if (!allowed[0]) throw new Pmv2TechnicianAccessError();
@@ -186,15 +177,11 @@ export class Pmv2TechnicianReadService {
       .from(pmv2TaskItems)
       .innerJoin(pmv2Tasks, eq(pmv2Tasks.id, pmv2TaskItems.taskId))
       .innerJoin(
-        pmv2TeamMembers,
-        and(
-          eq(pmv2TeamMembers.teamId, pmv2Tasks.teamId),
-          eq(pmv2TeamMembers.userId, userId),
-          eq(pmv2TeamMembers.isActive, 1),
-        ),
+        pmv2ExecutionActor, pmv2ExecutionActorCondition(userId),
       )
       .where(
         and(
+          pmv2ExecutionTeamCondition(userId, pmv2Tasks.teamId),
           eq(pmv2Tasks.id, taskId),
           eq(pmv2TaskItems.id, taskItemId),
           eq(pmv2TaskItems.taskId, taskId),
@@ -280,14 +267,9 @@ export class Pmv2TechnicianReadService {
       .select({ id: pmv2Tasks.id })
       .from(pmv2Tasks)
       .innerJoin(
-        pmv2TeamMembers,
-        and(
-          eq(pmv2TeamMembers.teamId, pmv2Tasks.teamId),
-          eq(pmv2TeamMembers.userId, userId),
-          eq(pmv2TeamMembers.isActive, 1),
-        ),
+        pmv2ExecutionActor, pmv2ExecutionActorCondition(userId),
       )
-      .where(eq(pmv2Tasks.id, taskId))
+      .where(and(pmv2ExecutionTeamCondition(userId, pmv2Tasks.teamId), eq(pmv2Tasks.id, taskId)))
       .limit(1);
 
     if (!allowed[0]) throw new Pmv2TechnicianAccessError();

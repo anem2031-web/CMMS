@@ -1,4 +1,5 @@
 import { trpc } from "@/lib/trpc";
+import { CatalogPickerDialog } from "@/components/catalog/CatalogPickerDialog";
 import { goBackOrFallback } from "@/lib/backStack";
 import { useLocation, useSearch, useRoute } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -9,15 +10,24 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { ArrowRight, Plus, Trash2, Loader2, ShoppingCart, Camera, Link2, Upload, BookOpen, FilePlus, Search, ChevronDown, ChevronRight, FolderOpen, Save, AlertCircle } from "lucide-react";
+import { ArrowRight, Plus, Trash2, Loader2, ShoppingCart, Camera, Link2, Upload, BookOpen, FilePlus, Save, AlertCircle } from "lucide-react";
 import DropZone, { type UploadedFile } from "@/components/common/DropZone";
 import { useState, useMemo, useRef, useEffect } from "react";
 import { toast } from "sonner";
 import { useTranslation } from "@/contexts/LanguageContext";
 import { cn } from "@/lib/utils";
 import { localizeApiError } from "@/i18n/apiError";
+import {
+  isValidPurchaseRequiredDate,
+  looksLikeRawValidationError,
+  parsePurchaseOrderValidationIssues,
+} from "@/lib/purchaseOrderValidation";
 import { getLocalizedItemField } from "@/hooks/useContentTranslation";
 import { getLocalizedCatalogDescription, getLocalizedCatalogName, getLocalizedCatalogUnitName, resolveCatalogUnit } from "@/i18n/catalogMasterData";
+import { getDefaultRequiredDate } from "@/lib/purchaseItemTiming";
+import { getLocalizedName } from "@/hooks/useTranslatedField";
+import { WarehousePurchaseQuantities } from "../maintenance-teams/WarehousePurchaseQuantities";
+import { MAX_TICKET_PURCHASE_QUANTITY, validWarehouseExtra } from "@shared/maintenance-team-tickets/purchase-quantities";
 
 type ItemForm = {
   sourceType: "catalog" | "manual";
@@ -29,6 +39,7 @@ type ItemForm = {
 
   quantity: number;
   unit: string;
+  requiredDate: string;
 
   photoUrls: string[];
   notes: string;
@@ -36,7 +47,18 @@ type ItemForm = {
   _catalogNameEn?: string;
 };
 
-const emptyItem = (defaultUnit = ""): ItemForm => ({
+type ItemValidationField = "itemName" | "quantity" | "requiredDate" | "unit";
+
+type PurchaseFormErrors = {
+  siteId?: string;
+  sectionId?: string;
+  categoryId?: string;
+  items: Record<number, Partial<Record<ItemValidationField, string>>>;
+};
+
+const emptyPurchaseFormErrors = (): PurchaseFormErrors => ({ items: {} });
+
+const emptyItem = (defaultUnit = "", requiredDate = getDefaultRequiredDate()): ItemForm => ({
   sourceType: "manual",
   catalogItemId: null,
 
@@ -45,263 +67,11 @@ const emptyItem = (defaultUnit = ""): ItemForm => ({
 
   quantity: 1,
   unit: defaultUnit,
+  requiredDate,
 
   photoUrls: [],
   notes: ""
 });
-
-// ── Catalog Item Picker Dialog ─────────────────────────────────────────────
-interface CatalogNode {
-  id: number;
-  code: string | null;
-  nameAr: string;
-  nameEn: string;
-  descriptionAr?: string | null;
-  descriptionEn?: string | null;
-  level: number;
-  parentId: number | null;
-}
-
-function CatalogPickerDialog({
-  open,
-  onClose,
-  onSelect,
-}: {
-  open: boolean;
-  onClose: () => void;
-onSelect: (item: {
-  id: number;
-  nameAr: string;
-  nameEn: string;
-  descriptionAr?: string | null;
-  descriptionEn?: string | null;
-  primaryImageUrl?: string;
-  unit?: string;
-}) => void;
-}) {
-  const { t, language, dir, isRTL } = useTranslation();
-  const [searchQuery, setSearchQuery] = useState("");
-  const [debouncedSearch, setDebouncedSearch] = useState("");
-  const [selectedNodeId, setSelectedNodeId] = useState<number | null>(null);
-  const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  // debounce: انتظر 350ms بعد توقف الكتابة ثم ابعث للسيرفر
-  useEffect(() => {
-    const t = setTimeout(() => setDebouncedSearch(searchQuery.trim()), 350);
-    return () => clearTimeout(t);
-  }, [searchQuery]);
-
-  const { data: allNodes } = trpc.catalog.nodes.list.useQuery(
-    { isActive: true },
-    { enabled: open }
-  );
-
-  const { data: catalogUnits } = trpc.catalog.units.list.useQuery(undefined, { enabled: open });
-
-  // جمع ID التصنيف المختار + كل أحفاده بشكل تكراري
-  const getDescendantIds = (nodeId: number, nodes: CatalogNode[]): number[] => {
-    const children = nodes.filter(n => n.parentId === nodeId);
-    return [nodeId, ...children.flatMap(c => getDescendantIds(c.id, nodes))];
-  };
-
-  const selectedNodeIds = useMemo(() => {
-    if (!selectedNodeId || !allNodes) return undefined;
-    return getDescendantIds(selectedNodeId, allNodes);
-  }, [selectedNodeId, allNodes]);
-
-  // ✅ البحث على السيرفر — يجلب فقط ما يطابق البحث أو التصنيف المختار
-  const { data: serverItems, isFetching } = trpc.catalog.items.list.useQuery(
-    {
-      isActive: true,
-      limit: 80,
-      search: debouncedSearch || undefined,
-      nodeIds: selectedNodeIds,
-    },
-    { enabled: open }
-  );
-
-  // إعادة ضبط الحالة عند كل فتح للنافذة
-  useEffect(() => {
-    if (open) {
-      setTimeout(() => inputRef.current?.focus(), 100);
-      setSearchQuery("");
-      setDebouncedSearch("");
-      setSelectedNodeId(null);
-    }
-  }, [open]);
-
-  const roots = useMemo(
-    () => (allNodes || []).filter((n: CatalogNode) => !n.parentId),
-    [allNodes]
-  );
-
-  const getChildren = (parentId: number) =>
-    (allNodes || []).filter((n: CatalogNode) => n.parentId === parentId);
-
-  const toggle = (id: number, e: React.MouseEvent) => {
-    e.stopPropagation();
-    setExpandedIds(prev => {
-      const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
-      return next;
-    });
-  };
-
-  const items = serverItems || [];
-
-  const renderNode = (node: CatalogNode, depth = 0): React.ReactNode => {
-    const children = getChildren(node.id);
-    const hasChildren = children.length > 0;
-    const isExpanded = expandedIds.has(node.id);
-    const isSelected = selectedNodeId === node.id;
-
-    return (
-      <div key={node.id}>
-        <div
-          className={cn(
-            "flex items-center gap-1.5 py-1.5 px-2 rounded cursor-pointer hover:bg-muted/60 transition-colors text-sm",
-            isSelected && "bg-primary/10 text-primary font-medium"
-          )}
-          style={isRTL ? { paddingRight: `${depth * 14 + 8}px` } : { paddingLeft: `${depth * 14 + 8}px` }}
-          onClick={() => setSelectedNodeId(isSelected ? null : node.id)}
-        >
-          <button
-            onClick={e => toggle(node.id, e)}
-            className={cn("w-4 h-4 shrink-0 text-muted-foreground", !hasChildren && "invisible")}
-          >
-            {isExpanded
-              ? <ChevronDown className="w-3.5 h-3.5" />
-              : <ChevronRight className={`w-3.5 h-3.5 ${isRTL ? "rotate-180" : ""}`} />}
-          </button>
-          {node.code && (
-            <span className="text-xs font-mono bg-muted px-1 py-0.5 rounded text-muted-foreground shrink-0">
-              {node.code}
-            </span>
-          )}
-          <span className="truncate" dir={language === "ar" ? "rtl" : "ltr"}>{getLocalizedCatalogName(node, language)}</span>
-        </div>
-        {isExpanded && hasChildren && (
-          <div>{children.map(child => renderNode(child, depth + 1))}</div>
-        )}
-      </div>
-    );
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={o => { if (!o) onClose(); }}>
-      <DialogContent className="!max-w-none w-[42rem] max-h-[85vh] flex flex-col p-0 resize overflow-auto min-w-[320px] min-h-[300px]">
-        <DialogHeader className="px-5 pt-5 pb-3 border-b">
-          <DialogTitle className="flex items-center gap-2">
-            <BookOpen className="w-4 h-4 text-primary" />
-            {t.workflow.purchase.catalogPickItem}
-          </DialogTitle>
-        </DialogHeader>
-
-        <div className="flex flex-1 overflow-hidden">
-
-          {/* Sidebar — شجرة التصنيفات */}
-          <div className={`w-48 shrink-0 overflow-y-auto p-2 bg-muted/20 ${isRTL ? "border-l" : "border-r"}`}>
-            <p className="text-xs text-muted-foreground px-2 pb-2 font-medium">{t.workflow.purchase.categoriesLabel}</p>
-            <button
-              onClick={() => setSelectedNodeId(null)}
-              className={cn(
-                "w-full text-start text-sm px-2 py-1.5 rounded hover:bg-muted/60 transition-colors",
-                !selectedNodeId && "bg-primary/10 text-primary font-medium"
-              )}
-            >
-              {t.common.all}
-            </button>
-            {roots.map(node => renderNode(node))}
-          </div>
-
-          {/* Main — البحث والنتائج */}
-          <div className="flex-1 flex flex-col overflow-hidden">
-            {/* Search */}
-            <div className="p-3 border-b">
-              <div className="relative">
-                <Search className={`absolute top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground ${isRTL ? "right-3" : "left-3"}`} />
-                <Input
-                  ref={inputRef}
-                  value={searchQuery}
-                  onChange={e => setSearchQuery(e.target.value)}
-                  placeholder={t.common.searchPlaceholder}
-                  className={isRTL ? "pr-9" : "pl-9"}
-                />
-              </div>
-              <p className="text-xs text-muted-foreground mt-1.5 h-4">
-                {isFetching
-                  ? t.common.loading
-                  : items.length > 0
-                    ? `${items.length} ${t.purchaseOrders.items}`
-                    : ""}
-              </p>
-            </div>
-
-            {/* Results */}
-            <div className="flex-1 overflow-y-auto p-2 space-y-1">
-              {isFetching ? (
-                <div className="text-center py-10 text-sm text-muted-foreground">
-                  <Loader2 className="w-5 h-5 animate-spin mx-auto mb-2" />
-                  {t.common.loading}
-                </div>
-              ) : items.length === 0 ? (
-                <div className="text-center py-10 text-sm text-muted-foreground">
-                  {t.common.noData}
-                </div>
-              ) : (
-                items.map((item: any) => (
-                  <button
-                    key={item.id}
-                    onClick={() => {
-                        onSelect({
-                          id: item.id,
-                          nameAr: item.nameAr,
-                          nameEn: item.nameEn,
-                          descriptionAr: item.descriptionAr,
-                          descriptionEn: item.descriptionEn,
-                          primaryImageUrl: item.primaryImageUrl || "",
-                          unit: item.unit || "",
-                        });
-
-                      onClose();
-                    }}
-
-                    className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-primary/5 hover:border-primary/20 border border-transparent transition-colors text-start"
-                  >
-                    {/* صورة */}
-                    <div className="w-10 h-10 rounded-md bg-muted shrink-0 overflow-hidden flex items-center justify-center">
-                      {item.primaryImageUrl ? (
-                        <img src={item.primaryImageUrl} alt={getLocalizedCatalogName(item, language)} className="w-full h-full object-cover" />
-                      ) : (
-                        <FolderOpen className="w-4 h-4 text-muted-foreground/40" />
-                      )}
-                    </div>
-                    {/* Info */}
-                    <div className="flex-1 min-w-0 text-start">
-                      <p className="text-sm font-medium truncate" dir={language === "ar" ? "rtl" : "ltr"}>{getLocalizedCatalogName(item, language)}</p>
-                      {getLocalizedCatalogDescription(item, language) ? (
-                        <p className="text-xs text-muted-foreground truncate" dir={language === "ar" ? "rtl" : "ltr"}>{getLocalizedCatalogDescription(item, language)}</p>
-                      ) : getLocalizedCatalogUnitName(item.unit, catalogUnits as any[] | undefined, language) ? (
-                        <p className="text-xs text-muted-foreground truncate" dir={language === "ar" ? "rtl" : "ltr"}>{getLocalizedCatalogUnitName(item.unit, catalogUnits as any[] | undefined, language)}</p>
-                      ) : null}
-                    </div>
-                    {/* Code */}
-                    {item.code && (
-                      <span className="text-xs font-mono bg-muted px-1.5 py-0.5 rounded text-muted-foreground shrink-0">
-                        {item.code}
-                      </span>
-                    )}
-                  </button>
-                ))
-              )}
-            </div>
-          </div>
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
-}
 
 // ── Add Item Choice Dialog ─────────────────────────────────────────────────
 function AddItemChoiceDialog({
@@ -357,6 +127,7 @@ function AddItemChoiceDialog({
 export default function CreatePurchaseOrder() {
   const [, setLocation] = useLocation();
   const { t, language, dir } = useTranslation();
+  const defaultRequiredDate = useMemo(() => getDefaultRequiredDate(), []);
   const searchStr = useSearch();
   const params = new URLSearchParams(searchStr);
   const ticketId = params.get("ticketId") ? parseInt(params.get("ticketId")!) : undefined;
@@ -365,30 +136,41 @@ export default function CreatePurchaseOrder() {
   const ticketItemId = params.get("ticketItemId") ? parseInt(params.get("ticketItemId")!) : undefined;
   const fromIdeaId = params.get("fromIdeaId") ? parseInt(params.get("fromIdeaId")!) : undefined;
   const prefillNotes = params.get("prefillNotes") || "";
-  const pmv2RequestItemId = params.get("pmv2RequestItemId") ? parseInt(params.get("pmv2RequestItemId")!) : undefined;
-  const pmv2RequestId = params.get("pmv2RequestId") ? parseInt(params.get("pmv2RequestId")!) : undefined;
-  const pmv2CatalogItemId = params.get("pmv2CatalogItemId") ? parseInt(params.get("pmv2CatalogItemId")!) : undefined;
-  const pmv2TaskNumber = params.get("pmv2TaskNumber") || "";
-  const pmv2ItemName = params.get("pmv2ItemName") || "";
-  const pmv2ItemCode = params.get("pmv2ItemCode") || "";
-  const pmv2Unit = params.get("pmv2Unit") || "";
-  const pmv2UnitIdRaw = Number(params.get("pmv2UnitId") || 0);
-  const pmv2UnitId = Number.isInteger(pmv2UnitIdRaw) && pmv2UnitIdRaw > 0 ? pmv2UnitIdRaw : undefined;
-  const pmv2MinimumQuantityRaw = Number(params.get("pmv2MinimumQuantity") || 0);
-  const pmv2MinimumQuantity = Number.isFinite(pmv2MinimumQuantityRaw) && pmv2MinimumQuantityRaw > 0
-    ? pmv2MinimumQuantityRaw
+  const isTicketMaterial = params.has("ticketTeamNeedId");
+  const ticketTeamAssignmentId = Number(params.get("ticketTeamAssignmentId"));
+  const ticketTeamNeedId = Number(params.get("ticketTeamNeedId"));
+  const ticketTeamRevision = Number(params.get("ticketTeamRevision"));
+  const ticketOperationKey = useRef<{ fingerprint: string; key: string } | null>(null);
+  const materialParam = (key: string) => params.get(isTicketMaterial ? ({ pmv2RequestItemId: "ticketTeamNeedId", pmv2RequestId: "ticketTeamAssignmentId", pmv2CatalogItemId: "ticketCatalogItemId", pmv2TaskNumber: "ticketNumber", pmv2ItemName: "ticketItemName", pmv2Unit: "ticketUnit", pmv2MinimumQuantity: "ticketMinimumQuantity" } as Record<string,string>)[key] ?? "__unused_ticket_parameter" : key);
+  const materialRequestItemId = materialParam("pmv2RequestItemId") ? parseInt(materialParam("pmv2RequestItemId")!) : undefined;
+  const materialRequestId = materialParam("pmv2RequestId") ? parseInt(materialParam("pmv2RequestId")!) : undefined;
+  const materialCatalogItemId = materialParam("pmv2CatalogItemId") ? parseInt(materialParam("pmv2CatalogItemId")!) : undefined;
+  const materialTaskNumber = materialParam("pmv2TaskNumber") || "";
+  const materialItemName = materialParam("pmv2ItemName") || "";
+  const materialItemCode = materialParam("pmv2ItemCode") || "";
+  const materialUnit = materialParam("pmv2Unit") || "";
+  const materialUnitIdRaw = Number(materialParam("pmv2UnitId") || 0);
+  const materialUnitId = Number.isInteger(materialUnitIdRaw) && materialUnitIdRaw > 0 ? materialUnitIdRaw : undefined;
+  const materialMinimumQuantityRaw = Number(materialParam("pmv2MinimumQuantity") || 0);
+  const materialMinimumQuantity = Number.isFinite(materialMinimumQuantityRaw) && materialMinimumQuantityRaw > 0
+    ? materialMinimumQuantityRaw
     : 0;
-  const pmv2TaskNeedQuantityRaw = Number(params.get("pmv2TaskNeedQuantity") || 0);
-  const pmv2TaskNeedQuantity = Number.isFinite(pmv2TaskNeedQuantityRaw) && pmv2TaskNeedQuantityRaw > 0
-    ? pmv2TaskNeedQuantityRaw
+  const materialTaskNeedQuantityRaw = Number(materialParam("pmv2TaskNeedQuantity") || 0);
+  const materialTaskNeedQuantity = Number.isFinite(materialTaskNeedQuantityRaw) && materialTaskNeedQuantityRaw > 0
+    ? materialTaskNeedQuantityRaw
     : 0;
-  const pmv2TeamAvailableAtRequestRaw = Number(params.get("pmv2TeamAvailableAtRequest") || -1);
-  const pmv2TeamAvailableAtRequest = Number.isFinite(pmv2TeamAvailableAtRequestRaw) && pmv2TeamAvailableAtRequestRaw >= 0
-    ? pmv2TeamAvailableAtRequestRaw
+  const materialTeamAvailableAtRequestRaw = Number(materialParam("pmv2TeamAvailableAtRequest") || -1);
+  const materialTeamAvailableAtRequest = Number.isFinite(materialTeamAvailableAtRequestRaw) && materialTeamAvailableAtRequestRaw >= 0
+    ? materialTeamAvailableAtRequestRaw
     : null;
-  const hasPmv2PurchaseContext = Boolean(pmv2RequestItemId && pmv2CatalogItemId && pmv2ItemName && pmv2MinimumQuantity > 0);
-  const pmv2MinimumPurchaseUnits = Math.max(1, Math.ceil(pmv2MinimumQuantity || 1));
-  const linkIdeaMut = trpc.improvementIdeas.linkToPurchaseOrder.useMutation();
+  const hasMaterialPurchaseContext = Boolean(materialRequestItemId && materialCatalogItemId && materialItemName && materialMinimumQuantity > 0);
+  const materialMinimumPurchaseUnits = Math.max(1, Math.ceil(materialMinimumQuantity || 1));
+  const [ticketWarehouseExtra, setTicketWarehouseExtra] = useState(() => params.get("ticketWarehouseExtraQuantity") ?? "0");
+  const ticketWarehouseExtraQuantity = Number(ticketWarehouseExtra);
+  const ticketExtraValid = validWarehouseExtra(ticketWarehouseExtraQuantity) && materialMinimumPurchaseUnits + ticketWarehouseExtraQuantity <= MAX_TICKET_PURCHASE_QUANTITY;
+  const materialPurchaseTotalUnits = isTicketMaterial && ticketExtraValid ? materialMinimumPurchaseUnits + ticketWarehouseExtraQuantity : materialMinimumPurchaseUnits;
+  const ticketTechnicianQuantityRaw = Number(params.get("ticketTechnicianQuantity"));
+  const ticketTechnicianQuantity = Number.isSafeInteger(ticketTechnicianQuantityRaw) && ticketTechnicianQuantityRaw >= materialMinimumPurchaseUnits ? ticketTechnicianQuantityRaw : materialMinimumPurchaseUnits;
 
   // قراءة draftId من الـ URL إذا كنا نعدّل مسودة
   const [matchEdit, editParams] = useRoute("/purchase-orders/edit-draft/:id");
@@ -423,13 +205,13 @@ export default function CreatePurchaseOrder() {
   const relevantMaintenancePath = linkedTicketItemId ? linkedTicketItem?.maintenancePath : ticket?.maintenancePath;
   const relevantStatus = linkedTicketItemId ? linkedTicketItem?.status : ticket?.status;
   const isLinkedTicketInvalid = Boolean(
-    linkedTicketId &&
+    !isTicketMaterial && linkedTicketId &&
     ticket &&
     (!linkedTicketItemId || linkedTicketItem) &&
     (relevantMaintenancePath !== "B" || !allowedLinkedTicketStatuses.includes(relevantStatus || ""))
   );
   const isLinkedTicketActionBlocked = Boolean(
-    linkedTicketId && (
+    !isTicketMaterial && linkedTicketId && (
       isLinkedTicketLoading || !ticket ||
       (linkedTicketItemId && !linkedTicketItem) ||
       isLinkedTicketInvalid
@@ -438,10 +220,104 @@ export default function CreatePurchaseOrder() {
 
   // ✅ وحدات القياس من الكاتلوج — تُحدّث القائمة فور إضافة وحدة جديدة من تبويب الكاتلوج
   const { data: catalogUnits } = trpc.catalog.units.list.useQuery();
-  const pmv2ResolvedCatalogUnit = useMemo(() => {
-    if (!hasPmv2PurchaseContext || !catalogUnits?.length || !pmv2UnitId) return null;
-    return (catalogUnits as any[]).find((unit: any) => Number(unit.id) === pmv2UnitId) || null;
-  }, [hasPmv2PurchaseContext, catalogUnits, pmv2UnitId]);
+  // سياق طلب الشراء: الموقع ← القسم ← الأصل، مع تصنيف ديناميكي مستقل.
+  const [siteId, setSiteId] = useState(fromIdeaId || isTicketMaterial ? params.get("siteId") || "" : "");
+  const [sectionId, setSectionId] = useState(fromIdeaId || isTicketMaterial ? params.get("sectionId") || "" : "");
+  const [assetId, setAssetId] = useState(fromIdeaId || isTicketMaterial ? params.get("assetId") || "" : "");
+  const [categoryId, setCategoryId] = useState("");
+  const { data: sites = [] } = trpc.sites.list.useQuery();
+  const { data: sections = [] } = trpc.sections.list.useQuery(
+    siteId ? { siteId: Number(siteId) } : undefined,
+    { enabled: Boolean(siteId) },
+  );
+  const { data: assets = [] } = trpc.assets.list.useQuery(
+    sectionId ? { sectionId: Number(sectionId) } : undefined,
+    { enabled: Boolean(sectionId) },
+  );
+  const { data: purchaseCategories = [] } = trpc.centerCategories.list.useQuery({ activeOnly: !draftId });
+  const materialResolvedCatalogUnit = useMemo(() => {
+    if (!hasMaterialPurchaseContext || !catalogUnits?.length || !materialUnitId) return null;
+    return (catalogUnits as any[]).find((unit: any) => Number(unit.id) === materialUnitId) || null;
+  }, [hasMaterialPurchaseContext, catalogUnits, materialUnitId]);
+
+  const [formErrors, setFormErrors] = useState<PurchaseFormErrors>(() => emptyPurchaseFormErrors());
+
+  const itemMessage = (template: string, itemIndex: number) =>
+    template.replace("{item}", String(itemIndex + 1));
+
+  const validationMessageForPath = (path: Array<string | number>): { message: string; targetId?: string; apply: (errors: PurchaseFormErrors) => void } | null => {
+    const root = path[0];
+    if (root === "siteId") {
+      return {
+        message: t.purchaseOrders.validationSiteRequired,
+        targetId: "purchase-site",
+        apply: (errors) => { errors.siteId = t.purchaseOrders.validationSiteRequired; },
+      };
+    }
+    if (root === "sectionId") {
+      return {
+        message: t.purchaseOrders.validationSectionRequired,
+        targetId: "purchase-section",
+        apply: (errors) => { errors.sectionId = t.purchaseOrders.validationSectionRequired; },
+      };
+    }
+    if (root === "categoryId") {
+      return {
+        message: t.purchaseOrders.validationCategoryRequired,
+        targetId: "purchase-category",
+        apply: (errors) => { errors.categoryId = t.purchaseOrders.validationCategoryRequired; },
+      };
+    }
+    if (root !== "items" || typeof path[1] !== "number") return null;
+
+    const itemIndex = path[1];
+    const field = path[2];
+    const map: Partial<Record<string, { field: ItemValidationField; message: string }>> = {
+      itemName: { field: "itemName", message: itemMessage(t.purchaseOrders.validationItemNameRequired, itemIndex) },
+      quantity: { field: "quantity", message: itemMessage(t.purchaseOrders.validationQuantityInvalid, itemIndex) },
+      requiredDate: { field: "requiredDate", message: itemMessage(t.purchaseOrders.validationRequiredDate, itemIndex) },
+      unit: { field: "unit", message: itemMessage(t.purchaseOrders.validationUnitRequired, itemIndex) },
+    };
+    const mapped = typeof field === "string" ? map[field] : undefined;
+    if (!mapped) return null;
+    return {
+      message: mapped.message,
+      targetId: `purchase-item-${itemIndex}-${mapped.field}`,
+      apply: (errors) => {
+        errors.items[itemIndex] = { ...(errors.items[itemIndex] || {}), [mapped.field]: mapped.message };
+      },
+    };
+  };
+
+  const focusValidationTarget = (targetId?: string) => {
+    if (!targetId) return;
+    window.setTimeout(() => {
+      const element = document.getElementById(targetId);
+      element?.scrollIntoView({ behavior: "smooth", block: "center" });
+      if (element instanceof HTMLElement) element.focus({ preventScroll: true });
+    }, 0);
+  };
+
+  const handlePurchaseMutationError = (message: unknown) => {
+    const issues = parsePurchaseOrderValidationIssues(message);
+    if (issues.length > 0) {
+      const next = emptyPurchaseFormErrors();
+      const mapped = issues.map(issue => validationMessageForPath(issue.path)).filter(Boolean) as Array<NonNullable<ReturnType<typeof validationMessageForPath>>>;
+      mapped.forEach(issue => issue.apply(next));
+      setFormErrors(next);
+      const first = mapped[0];
+      toast.error(first?.message || t.purchaseOrders.validationFailed);
+      focusValidationTarget(first?.targetId);
+      return;
+    }
+
+    const localized = localizeApiError(message, language);
+    toast.error(
+      looksLikeRawValidationError(message) || looksLikeRawValidationError(localized)
+        ? t.purchaseOrders.validationFailed
+        : (localized || t.purchaseOrders.validationFailed),
+    );
+  };
 
 
   const createMut = trpc.purchaseOrders.create.useMutation({
@@ -451,12 +327,9 @@ export default function CreatePurchaseOrder() {
           ? `${t.purchaseOrders.createNew} ${data.poNumber} — ${t.workflow.purchase.pmv2LinkedAutomatically}`
           : `${t.purchaseOrders.createNew} ${data.poNumber}`,
       );
-      if (fromIdeaId) {
-        linkIdeaMut.mutate({ id: fromIdeaId, purchaseOrderId: data.id! });
-      }
       setLocation(`/purchase-orders/${data.id}`);
     },
-    onError: (err) => toast.error(localizeApiError(err.message)),
+    onError: (err) => handlePurchaseMutationError(err.message),
   });
 
   const saveDraftMut = trpc.purchaseOrders.saveDraft.useMutation({
@@ -464,7 +337,7 @@ export default function CreatePurchaseOrder() {
       toast.success(`${t.purchaseOrders.saveDraft} — ${data.poNumber}`);
       setLocation(`/purchase-orders/${data.id}`);
     },
-    onError: (err) => toast.error(localizeApiError(err.message)),
+    onError: (err) => handlePurchaseMutationError(err.message),
   });
 
   const updateDraftMut = trpc.purchaseOrders.updateDraft.useMutation({
@@ -472,22 +345,23 @@ export default function CreatePurchaseOrder() {
       toast.success(t.purchaseOrders.saveChangesSuccess);
       setLocation(`/purchase-orders/${draftId}`);
     },
-    onError: (err) => toast.error(localizeApiError(err.message)),
+    onError: (err) => handlePurchaseMutationError(err.message),
   });
 
   const [draftLoaded, setDraftLoaded] = useState(false);
-  const [items, setItems] = useState<ItemForm[]>(() => hasPmv2PurchaseContext
+  const [items, setItems] = useState<ItemForm[]>(() => hasMaterialPurchaseContext
     ? [{
         sourceType: "catalog",
-        catalogItemId: pmv2CatalogItemId!,
-        itemName: pmv2ItemName,
+        catalogItemId: materialCatalogItemId!,
+        itemName: materialItemName,
         description: "",
-        quantity: pmv2MinimumPurchaseUnits,
-        unit: pmv2Unit,
+        quantity: materialPurchaseTotalUnits,
+        unit: materialUnit,
+        requiredDate: defaultRequiredDate,
         photoUrls: [],
-        notes: `PM V2 ${pmv2TaskNumber}${pmv2ItemCode ? ` · ${t.workflow.purchase.pmv2CodeLabel} ${pmv2ItemCode}` : ""} · ${t.workflow.purchase.pmv2ShortageLinkedQty} ${pmv2MinimumPurchaseUnits} ${pmv2Unit}`.trim(),
+        notes: `${isTicketMaterial ? "تذكرة الصيانة" : "PM V2"} ${materialTaskNumber}${materialItemCode ? ` · ${t.workflow.purchase.pmv2CodeLabel} ${materialItemCode}` : ""} · ${t.workflow.purchase.pmv2ShortageLinkedQty} ${materialMinimumPurchaseUnits} ${materialUnit}`.trim(),
       }]
-    : [emptyItem()]);
+    : [emptyItem("", defaultRequiredDate)]);
 
   // Catalog item names are governed master data. If the viewer changes the UI
   // language while the form is still open, keep the read-only catalog name in
@@ -506,45 +380,49 @@ export default function CreatePurchaseOrder() {
   // Canonicalize the bound PO item to the active Arabic unit name expected by this form.
   // If the unit cannot be resolved, keep the field editable as an explicit fallback.
   useEffect(() => {
-    if (!hasPmv2PurchaseContext || !pmv2CatalogItemId || !pmv2ResolvedCatalogUnit?.nameAr) return;
-    const canonicalUnit = String(pmv2ResolvedCatalogUnit.nameAr).trim();
+    if (!hasMaterialPurchaseContext || !materialCatalogItemId || !materialResolvedCatalogUnit?.nameAr) return;
+    const canonicalUnit = String(materialResolvedCatalogUnit.nameAr).trim();
     if (!canonicalUnit) return;
     setItems(prev => {
-      const idx = prev.findIndex(item => Number(item.catalogItemId) === pmv2CatalogItemId);
+      const idx = prev.findIndex(item => Number(item.catalogItemId) === materialCatalogItemId);
       if (idx < 0 || prev[idx].unit === canonicalUnit) return prev;
       return prev.map((item, itemIndex) => itemIndex === idx ? { ...item, unit: canonicalUnit } : item);
     });
-  }, [hasPmv2PurchaseContext, pmv2CatalogItemId, pmv2ResolvedCatalogUnit?.nameAr]);
+  }, [hasMaterialPurchaseContext, materialCatalogItemId, materialResolvedCatalogUnit?.nameAr]);
 
   // PM V2-linked Purchase is intentionally one shortage item = one Purchase item.
-  // Keep the linked identity and exact shortage quantity authoritative even if stale UI state exists.
+  // Keep identity/shortage authoritative; tickets may add separately attributed warehouse stock.
   useEffect(() => {
-    if (!hasPmv2PurchaseContext || !pmv2CatalogItemId) return;
+    if (!hasMaterialPurchaseContext || !materialCatalogItemId) return;
     setItems(prev => {
-      const current = prev.find(item => Number(item.catalogItemId) === pmv2CatalogItemId) || prev[0];
-      const canonicalUnit = String(pmv2ResolvedCatalogUnit?.nameAr || current?.unit || pmv2Unit || "").trim();
+      const current = prev.find(item => Number(item.catalogItemId) === materialCatalogItemId) || prev[0];
+      const canonicalUnit = String(materialResolvedCatalogUnit?.nameAr || current?.unit || materialUnit || "").trim();
       const lockedItem: ItemForm = {
-        ...(current || emptyItem()),
+        ...(current || emptyItem("", defaultRequiredDate)),
         sourceType: "catalog",
-        catalogItemId: pmv2CatalogItemId,
-        itemName: pmv2ItemName,
-        quantity: pmv2MinimumPurchaseUnits,
+        catalogItemId: materialCatalogItemId,
+        itemName: materialItemName,
+        quantity: materialPurchaseTotalUnits,
         unit: canonicalUnit,
       };
       const alreadyLocked = prev.length === 1
         && prev[0].sourceType === "catalog"
-        && Number(prev[0].catalogItemId) === pmv2CatalogItemId
-        && prev[0].itemName === pmv2ItemName
-        && Number(prev[0].quantity) === pmv2MinimumPurchaseUnits
+        && Number(prev[0].catalogItemId) === materialCatalogItemId
+        && prev[0].itemName === materialItemName
+        && Number(prev[0].quantity) === materialPurchaseTotalUnits
         && prev[0].unit === canonicalUnit;
       return alreadyLocked ? prev : [lockedItem];
     });
-  }, [hasPmv2PurchaseContext, pmv2CatalogItemId, pmv2ItemName, pmv2MinimumPurchaseUnits, pmv2ResolvedCatalogUnit?.nameAr, pmv2Unit, draftLoaded]);
+  }, [hasMaterialPurchaseContext, materialCatalogItemId, materialItemName, materialPurchaseTotalUnits, materialResolvedCatalogUnit?.nameAr, materialUnit, draftLoaded, defaultRequiredDate]);
 
   // تحميل أصناف المسودة عند فتح صفحة التعديل
   useEffect(() => {
     if (draftPO && !draftLoaded) {
       setNotes(draftPO.notes || "");
+      setSiteId(draftPO.siteId ? String(draftPO.siteId) : "");
+      setSectionId(draftPO.sectionId ? String(draftPO.sectionId) : "");
+      setAssetId(draftPO.assetId ? String(draftPO.assetId) : "");
+      setCategoryId(draftPO.categoryId ? String(draftPO.categoryId) : "");
       if (draftPO.items && draftPO.items.length > 0) {
         setItems(draftPO.items.map((i: any) => ({
           sourceType: i.catalogItemId ? "catalog" as const : "manual" as const,
@@ -553,6 +431,7 @@ export default function CreatePurchaseOrder() {
           description: getLocalizedItemField(i, "description", language) || i.description || "",
           quantity: i.quantity || 1,
           unit: i.unit || t.purchaseOrders.defaultUnit,
+          requiredDate: i.requiredDate || getDefaultRequiredDate(draftPO.createdAt ? new Date(draftPO.createdAt) : new Date()),
           photoUrls: i.photoUrls || (i.photoUrl ? [i.photoUrl] : []),
           notes: i.notes || "",
           _existingId: i.id, // نحفظ id الصنف الأصلي
@@ -561,6 +440,15 @@ export default function CreatePurchaseOrder() {
       setDraftLoaded(true);
     }
   }, [draftPO, draftLoaded]);
+
+  // الطلب المرتبط ببلاغ يبدأ تلقائيًا بنفس موقع/قسم/أصل البلاغ، مع بقاء الحقول قابلة للتعديل.
+  useEffect(() => {
+    if (draftId || !ticket) return;
+    setSiteId(current => current || (ticket.siteId ? String(ticket.siteId) : ""));
+    setSectionId(current => current || (ticket.sectionId ? String(ticket.sectionId) : ""));
+    setAssetId(current => current || (ticket.assetId ? String(ticket.assetId) : ""));
+  }, [draftId, ticket]);
+
   const [notes, setNotes] = useState(prefillNotes);
   const [uploadingIdx, setUploadingIdx] = useState<number | null>(null);
   const [showDropZoneIdx, setShowDropZoneIdx] = useState<number | null>(null);
@@ -572,6 +460,18 @@ export default function CreatePurchaseOrder() {
 
   const updateItem = (idx: number, field: keyof ItemForm, value: any) => {
     setItems(prev => prev.map((item, i) => i === idx ? { ...item, [field]: value } : item));
+    if (["itemName", "quantity", "requiredDate", "unit"].includes(field)) {
+      setFormErrors(prev => {
+        const current = prev.items[idx];
+        if (!current?.[field as ItemValidationField]) return prev;
+        const nextItemErrors = { ...current };
+        delete nextItemErrors[field as ItemValidationField];
+        return {
+          ...prev,
+          items: { ...prev.items, [idx]: nextItemErrors },
+        };
+      });
+    }
   };
 
 const handleUpload = async (idx: number, file: File) => {
@@ -619,35 +519,48 @@ const handleCatalogSelect = (catalogItem: any) => {
         : item
     )
   );
+  setFormErrors(prev => {
+    const current = prev.items[catalogTargetIndex];
+    if (!current) return prev;
+    const nextItemErrors = { ...current };
+    delete nextItemErrors.itemName;
+    delete nextItemErrors.unit;
+    return { ...prev, items: { ...prev.items, [catalogTargetIndex]: nextItemErrors } };
+  });
 };
 
   const purchaseItemsForSubmit = () => {
-    if (!hasPmv2PurchaseContext || !pmv2CatalogItemId) return items.filter(i => i.itemName.trim());
-    const boundItem = items.find(i => Number(i.catalogItemId) === pmv2CatalogItemId);
-    return boundItem ? [{ ...boundItem, quantity: pmv2MinimumPurchaseUnits }] : [];
+    if (!hasMaterialPurchaseContext || !materialCatalogItemId) return items;
+    const boundItem = items.find(i => Number(i.catalogItemId) === materialCatalogItemId);
+    return boundItem ? [{ ...boundItem, quantity: materialPurchaseTotalUnits }] : [];
   };
 
   const buildItemsPayload = () =>
     purchaseItemsForSubmit().map(i => ({
       catalogItemId: i.catalogItemId,
       itemName:    i.itemName,
+      requiredDate: i.requiredDate,
       description: i.description || undefined,
-      quantity:    hasPmv2PurchaseContext ? pmv2MinimumPurchaseUnits : i.quantity,
+      quantity:    hasMaterialPurchaseContext ? materialPurchaseTotalUnits : i.quantity,
       unit:        i.unit || undefined,
       photoUrl:    i.photoUrls?.[0] || undefined,
       photoUrls:   i.photoUrls?.length ? i.photoUrls : undefined,
       notes:       i.notes || undefined,
     }));
 
-  const validatePmv2LinkedPurchase = () => {
-    if (!hasPmv2PurchaseContext || !pmv2CatalogItemId) return true;
-    const boundItem = items.find((item) => Number(item.catalogItemId) === pmv2CatalogItemId);
+  const validateMaterialLinkedPurchase = () => {
+    if (isTicketMaterial && !ticketExtraValid) {
+      toast.error(language === "ar" ? "أدخل كمية إضافة صحيحة وغير سالبة للمستودع" : "Enter a valid non-negative warehouse extra quantity");
+      return false;
+    }
+    if (!hasMaterialPurchaseContext || !materialCatalogItemId) return true;
+    const boundItem = items.find((item) => Number(item.catalogItemId) === materialCatalogItemId);
     if (!boundItem || items.length !== 1 || boundItem.sourceType !== "catalog") {
       toast.error(t.workflow.purchase.pmv2SingleShortageOnly);
       return false;
     }
-    if (Number(boundItem.quantity || 0) !== pmv2MinimumPurchaseUnits) {
-      toast.error(`${t.workflow.purchase.pmv2ShortageQtyFixed} ${pmv2MinimumPurchaseUnits} ${getLocalizedCatalogUnitName(pmv2ResolvedCatalogUnit?.nameAr || pmv2Unit, catalogUnits as any[] | undefined, language)}`);
+    if (Number(boundItem.quantity || 0) !== materialPurchaseTotalUnits) {
+      toast.error(`${t.workflow.purchase.pmv2ShortageQtyFixed} ${materialPurchaseTotalUnits} ${getLocalizedCatalogUnitName(materialResolvedCatalogUnit?.nameAr || materialUnit, catalogUnits as any[] | undefined, language)}`);
       return false;
     }
     if (!String(boundItem.unit || "").trim()) {
@@ -657,23 +570,89 @@ const handleCatalogSelect = (catalogItem: any) => {
     return true;
   };
 
+  const purchaseContextPayload = () => ({
+    siteId: Number(siteId),
+    sectionId: Number(sectionId),
+    assetId: assetId ? Number(assetId) : null,
+    categoryId: categoryId ? Number(categoryId) : null,
+  });
+
+  const validatePurchaseForm = () => {
+    const next = emptyPurchaseFormErrors();
+    let firstMessage = "";
+    let firstTargetId: string | undefined;
+
+    const addContextError = (field: "siteId" | "sectionId", message: string, targetId: string) => {
+      next[field] = message;
+      if (!firstMessage) {
+        firstMessage = message;
+        firstTargetId = targetId;
+      }
+    };
+
+    const addItemError = (itemIndex: number, field: ItemValidationField, message: string) => {
+      next.items[itemIndex] = { ...(next.items[itemIndex] || {}), [field]: message };
+      if (!firstMessage) {
+        firstMessage = message;
+        firstTargetId = `purchase-item-${itemIndex}-${field}`;
+      }
+    };
+
+    if (!siteId) addContextError("siteId", t.purchaseOrders.validationSiteRequired, "purchase-site");
+    if (!sectionId) addContextError("sectionId", t.purchaseOrders.validationSectionRequired, "purchase-section");
+
+    if (items.length === 0) {
+      firstMessage ||= t.purchaseOrders.validationNoItems;
+    }
+
+    items.forEach((item, itemIndex) => {
+      if (!item.itemName.trim()) {
+        addItemError(itemIndex, "itemName", itemMessage(t.purchaseOrders.validationItemNameRequired, itemIndex));
+      }
+
+      const minimumQuantity = hasMaterialPurchaseContext && itemIndex === 0 ? materialMinimumPurchaseUnits : 1;
+      if (!Number.isFinite(Number(item.quantity)) || Number(item.quantity) < minimumQuantity) {
+        addItemError(itemIndex, "quantity", itemMessage(t.purchaseOrders.validationQuantityInvalid, itemIndex));
+      }
+
+      if (!isValidPurchaseRequiredDate(item.requiredDate)) {
+        addItemError(itemIndex, "requiredDate", itemMessage(t.purchaseOrders.validationRequiredDate, itemIndex));
+      }
+
+      if (hasMaterialPurchaseContext && itemIndex === 0 && !String(item.unit || "").trim()) {
+        addItemError(itemIndex, "unit", itemMessage(t.purchaseOrders.validationUnitRequired, itemIndex));
+      }
+    });
+
+    const hasErrors = Boolean(next.siteId || next.sectionId || next.categoryId || Object.keys(next.items).length || items.length === 0);
+    setFormErrors(next);
+    if (!hasErrors) return true;
+
+    toast.error(firstMessage || t.purchaseOrders.validationFailed);
+    focusValidationTarget(firstTargetId);
+    return false;
+  };
+
   const handleUpdateDraft = () => {
+    if (isTicketMaterial) return;
+    if (!validatePurchaseForm()) return;
     if (isLinkedTicketActionBlocked) {
       toast.error(t.workflow.purchase.linkedPoEditPathBOnly);
       return;
     }
-    if (!validatePmv2LinkedPurchase()) return;
+    if (!validateMaterialLinkedPurchase()) return;
     const sourceItems = purchaseItemsForSubmit();
-    if (sourceItems.length === 0) { toast.error(t.purchaseOrders.items); return; }
     updateDraftMut.mutate({
       id: draftId!,
+      ...purchaseContextPayload(),
       notes: notes || undefined,
       items: (sourceItems as any[]).map(i => ({
         id: i._existingId || undefined,
         catalogItemId: i.catalogItemId ?? null,
         itemName: i.itemName,
+        requiredDate: i.requiredDate,
         description: i.description || undefined,
-        quantity: hasPmv2PurchaseContext ? pmv2MinimumPurchaseUnits : i.quantity,
+        quantity: hasMaterialPurchaseContext ? materialPurchaseTotalUnits : i.quantity,
         unit: i.unit || undefined,
         photoUrl: i.photoUrls?.[0] || undefined,
         photoUrls: i.photoUrls?.length ? i.photoUrls : undefined,
@@ -683,37 +662,44 @@ const handleCatalogSelect = (catalogItem: any) => {
   };
 
   const handleSaveDraft = () => {
-    if (!validatePmv2LinkedPurchase()) return;
+    if (isTicketMaterial) return;
+    if (!validatePurchaseForm()) return;
+    if (!validateMaterialLinkedPurchase()) return;
     if (isLinkedTicketActionBlocked) {
       toast.error(t.workflow.purchase.linkedPoSavePathBOnly);
       return;
     }
     const validItems = buildItemsPayload();
-    if (validItems.length === 0) { toast.error(t.purchaseOrders.items); return; }
-    saveDraftMut.mutate({ ticketId, ticketItemId, notes: notes || undefined, items: validItems });
+    saveDraftMut.mutate({ fromIdeaId, ticketId, ticketItemId, ...purchaseContextPayload(), notes: notes || undefined, items: validItems });
   };
 
   const handleSubmit = () => {
-    if (!validatePmv2LinkedPurchase()) return;
+    if (!validatePurchaseForm()) return;
+    if (!validateMaterialLinkedPurchase()) return;
     if (isLinkedTicketActionBlocked) {
       toast.error(t.workflow.purchase.linkedPoSubmitPathBOnly);
       return;
     }
-    const validItems = purchaseItemsForSubmit();
-    if (validItems.length === 0) { toast.error(t.purchaseOrders.items); return; }
-    createMut.mutate({
+    const body = {
+      fromIdeaId,
       ticketId,
       ticketItemId,
-      pmv2RequestItemId: hasPmv2PurchaseContext ? pmv2RequestItemId : undefined,
+      pmv2RequestItemId: hasMaterialPurchaseContext && !isTicketMaterial ? materialRequestItemId : undefined,
+      ...purchaseContextPayload(),
       notes: notes || undefined,
       items: buildItemsPayload(),
-    });
+    };
+    const fingerprint = JSON.stringify({ ...body, ...(isTicketMaterial ? { warehouseExtraQuantity: ticketWarehouseExtraQuantity } : {}) });
+    if (isTicketMaterial && ticketOperationKey.current?.fingerprint !== fingerprint) ticketOperationKey.current = { fingerprint, key: 'mtt:' + crypto.randomUUID() };
+    if (isTicketMaterial && (params.has("pmv2RequestItemId") || !hasMaterialPurchaseContext || !Number.isSafeInteger(ticketTeamAssignmentId) || ticketTeamAssignmentId <= 0 || !Number.isSafeInteger(ticketTeamNeedId) || ticketTeamNeedId <= 0 || !Number.isSafeInteger(ticketTeamRevision) || ticketTeamRevision < 0)) { toast.error("سياق طلب مواد التذكرة غير صالح؛ افتح الطلب من قائمة المستودع"); return; }
+    createMut.mutate({ ...body, ...(isTicketMaterial ? { ticketTeam: { assignmentId: ticketTeamAssignmentId, needId: ticketTeamNeedId, expectedRevision: ticketTeamRevision, operationKey: ticketOperationKey.current!.key, warehouseExtraQuantity: ticketWarehouseExtraQuantity } } : {}) });
   };
 
   return (
     <div className="max-w-4xl space-y-6">
+      {isTicketMaterial && <Card><CardContent className="space-y-3 p-4"><p className="font-semibold">{language === "ar" ? "طلب شراء مواد تذكرة الصيانة" : "Maintenance ticket material purchase"} — {materialTaskNumber}</p><p>{materialItemName}</p><WarehousePurchaseQuantities id="ticket-purchase" technicianQuantity={ticketTechnicianQuantity} purchaseQuantity={materialMinimumPurchaseUnits} extra={ticketWarehouseExtra} unit={materialUnit} language={language} disabled={createMut.isPending} onExtraChange={setTicketWarehouseExtra} /></CardContent></Card>}
       <div className="flex items-center gap-3">
-        <Button variant="ghost" size="icon" onClick={() => goBackOrFallback(setLocation, linkedTicketId ? `/tickets/${linkedTicketId}` : hasPmv2PurchaseContext ? "/scheduled-maintenance/warehouse-requests" : "/purchase-orders")}>
+        <Button variant="ghost" size="icon" onClick={() => goBackOrFallback(setLocation, linkedTicketId ? `/tickets/${linkedTicketId}` : hasMaterialPurchaseContext ? "/scheduled-maintenance/warehouse-requests" : "/purchase-orders")}>
           <ArrowRight className={`w-5 h-5 ${dir === "ltr" ? "rotate-180" : ""}`} />
         </Button>
         <div>
@@ -737,7 +723,7 @@ const handleCatalogSelect = (catalogItem: any) => {
         </Card>
       )}
 
-      {hasPmv2PurchaseContext && (
+      {hasMaterialPurchaseContext && !isTicketMaterial && (
         <Card className="border-amber-200 bg-amber-50/60">
           <CardContent className="p-4 space-y-3">
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -754,18 +740,18 @@ const handleCatalogSelect = (catalogItem: any) => {
             </div>
             <div className="grid gap-2 rounded-md border border-amber-200 bg-white/60 p-3 text-sm sm:grid-cols-2">
               <p><span className="text-muted-foreground">{t.workflow.purchase.referenceLabel}</span> <span className="font-medium">PM V2</span></p>
-              <p><span className="text-muted-foreground">{t.workflow.purchase.linkedTaskLabel}</span> <span className="font-medium">{pmv2TaskNumber}</span></p>
+              <p><span className="text-muted-foreground">{t.workflow.purchase.linkedTaskLabel}</span> <span className="font-medium">{materialTaskNumber}</span></p>
               <p><span className="text-muted-foreground">{t.workflow.purchase.requestReasonLabel}</span> <span className="font-medium">{t.workflow.purchase.scheduledMaterialShortage}</span></p>
-              <p><span className="text-muted-foreground">{t.workflow.purchase.linkedItemLabel}</span> <span className="font-medium">{pmv2ItemName}{pmv2ItemCode ? ` · ${pmv2ItemCode}` : ""}</span></p>
-              {pmv2TaskNeedQuantity > 0 && (
-                <p><span className="text-muted-foreground">{t.workflow.purchase.taskNeedLabel}</span> <span className="font-medium">{pmv2TaskNeedQuantity} {pmv2Unit}</span></p>
+              <p><span className="text-muted-foreground">{t.workflow.purchase.linkedItemLabel}</span> <span className="font-medium">{materialItemName}{materialItemCode ? ` · ${materialItemCode}` : ""}</span></p>
+              {materialTaskNeedQuantity > 0 && (
+                <p><span className="text-muted-foreground">{t.workflow.purchase.taskNeedLabel}</span> <span className="font-medium">{materialTaskNeedQuantity} {materialUnit}</span></p>
               )}
-              {pmv2TeamAvailableAtRequest != null && (
-                <p><span className="text-muted-foreground">{t.workflow.purchase.teamAvailableAtShortage}</span> <span className="font-medium">{pmv2TeamAvailableAtRequest} {pmv2Unit}</span></p>
+              {materialTeamAvailableAtRequest != null && (
+                <p><span className="text-muted-foreground">{t.workflow.purchase.teamAvailableAtShortage}</span> <span className="font-medium">{materialTeamAvailableAtRequest} {materialUnit}</span></p>
               )}
-              <p><span className="text-muted-foreground">{t.workflow.purchase.purchaseQtyLabel}</span> <span className="font-semibold text-amber-900">{pmv2MinimumPurchaseUnits} {getLocalizedCatalogUnitName(pmv2ResolvedCatalogUnit?.nameAr || pmv2Unit, catalogUnits as any[] | undefined, language)}</span></p>
-              {pmv2RequestId && pmv2RequestItemId && (
-                <p><span className="text-muted-foreground">{t.workflow.purchase.pmv2MaterialReference}</span> <span className="font-medium">{t.workflow.purchase.requestNumber} #{pmv2RequestId} · {t.workflow.purchase.itemNumber} #{pmv2RequestItemId}</span></p>
+              <p><span className="text-muted-foreground">{t.workflow.purchase.purchaseQtyLabel}</span> <span className="font-semibold text-amber-900">{materialMinimumPurchaseUnits} {getLocalizedCatalogUnitName(materialResolvedCatalogUnit?.nameAr || materialUnit, catalogUnits as any[] | undefined, language)}</span></p>
+              {materialRequestId && materialRequestItemId && (
+                <p><span className="text-muted-foreground">{t.workflow.purchase.pmv2MaterialReference}</span> <span className="font-medium">{t.workflow.purchase.requestNumber} #{materialRequestId} · {t.workflow.purchase.itemNumber} #{materialRequestItemId}</span></p>
               )}
             </div>
             <p className="text-xs text-amber-800">
@@ -790,25 +776,134 @@ const handleCatalogSelect = (catalogItem: any) => {
         </Card>
       )}
 
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base">{t.purchaseOrders.requestContext}</CardTitle>
+        </CardHeader>
+        <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <Label>{t.tickets.site} *</Label>
+            <Select
+              value={siteId}
+              onValueChange={(value) => {
+                setSiteId(value);
+                setSectionId("");
+                setAssetId("");
+                setFormErrors(prev => ({ ...prev, siteId: undefined, sectionId: undefined }));
+              }}
+            >
+              <SelectTrigger
+                id="purchase-site"
+                aria-invalid={Boolean(formErrors.siteId)}
+                className={cn(formErrors.siteId && "border-destructive focus:ring-destructive")}
+              >
+                <SelectValue placeholder={t.workflow.ticket.chooseSite} />
+              </SelectTrigger>
+              <SelectContent>
+                {(sites as any[]).map((site: any) => (
+                  <SelectItem key={site.id} value={String(site.id)}>{getLocalizedName(site, language)}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {formErrors.siteId && <p className="text-xs text-destructive">{formErrors.siteId}</p>}
+          </div>
+
+          <div className="space-y-2">
+            <Label>{t.tickets.section} *</Label>
+            <Select
+              value={sectionId}
+              disabled={!siteId}
+              onValueChange={(value) => {
+                setSectionId(value);
+                setAssetId("");
+                setFormErrors(prev => ({ ...prev, sectionId: undefined }));
+              }}
+            >
+              <SelectTrigger
+                id="purchase-section"
+                aria-invalid={Boolean(formErrors.sectionId)}
+                className={cn(formErrors.sectionId && "border-destructive focus:ring-destructive")}
+              >
+                <SelectValue placeholder={siteId ? t.workflow.ticket.chooseSection : t.tickets.selectSiteFirst} />
+              </SelectTrigger>
+              <SelectContent>
+                {(sections as any[]).map((section: any) => (
+                  <SelectItem key={section.id} value={String(section.id)}>{getLocalizedName(section, language)}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {formErrors.sectionId && <p className="text-xs text-destructive">{formErrors.sectionId}</p>}
+          </div>
+
+          <div className="space-y-2">
+            <Label>{t.tickets.asset}</Label>
+            <Select value={assetId || "__none__"} disabled={!sectionId} onValueChange={(value) => setAssetId(value === "__none__" ? "" : value)}>
+              <SelectTrigger><SelectValue placeholder={t.purchaseOrders.selectAssetOptional} /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__none__">{t.purchaseOrders.withoutAsset}</SelectItem>
+                {(assets as any[]).map((asset: any) => (
+                  <SelectItem key={asset.id} value={String(asset.id)}>{asset.assetNumber ? `${asset.assetNumber} — ` : ""}{asset.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-2">
+            <Label>{t.tickets.category}</Label>
+            <Select
+              value={categoryId || "__none__"}
+              onValueChange={(value) => {
+                setCategoryId(value === "__none__" ? "" : value);
+                setFormErrors(prev => ({ ...prev, categoryId: undefined }));
+              }}
+            >
+              <SelectTrigger
+                id="purchase-category"
+                aria-invalid={Boolean(formErrors.categoryId)}
+                className={cn(formErrors.categoryId && "border-destructive focus:ring-destructive")}
+              >
+                <SelectValue placeholder={t.purchaseOrders.selectCategoryOptional} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__none__">{t.purchaseOrders.withoutCategory}</SelectItem>
+                {(purchaseCategories as any[]).map((category: any) => (
+                  <SelectItem key={category.id} value={String(category.id)} disabled={!category.isActive}>
+                    {category.name}{!category.isActive ? ` (${t.purchaseOrders.inactiveCategory})` : ""}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {formErrors.categoryId && <p className="text-xs text-destructive">{formErrors.categoryId}</p>}
+            {purchaseCategories.length === 0 && (
+              <p className="text-xs text-muted-foreground">{t.purchaseOrders.noActiveCategories}</p>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
 {items.map((item, idx) => {
-  const isPmv2BoundItem = Boolean(hasPmv2PurchaseContext && idx === 0 && item.catalogItemId === pmv2CatalogItemId);
-  const minimumQuantity = isPmv2BoundItem ? pmv2MinimumPurchaseUnits : 1;
+  const isMaterialBoundItem = Boolean(hasMaterialPurchaseContext && idx === 0 && item.catalogItemId === materialCatalogItemId);
+  const minimumQuantity = isMaterialBoundItem ? materialMinimumPurchaseUnits : 1;
+  const itemErrors = formErrors.items[idx] || {};
   return (
-  <Card key={idx}>
+  <Card key={idx} className={cn(Object.keys(itemErrors).length > 0 && "border-destructive/70")}>
     <CardHeader className="pb-3">
       <div className="flex items-center justify-between">
         <CardTitle className="text-sm">
           {t.purchaseOrders.itemName} #{idx + 1}
         </CardTitle>
 
-        {items.length > 1 && !isPmv2BoundItem && (
+        {items.length > 1 && !isMaterialBoundItem && (
           <Button
             variant="ghost"
             size="icon"
             className="h-7 w-7 text-destructive hover:text-destructive"
-            onClick={() =>
-              setItems(prev => prev.filter((_, i) => i !== idx))
-            }
+            onClick={() => {
+              setItems(prev => prev.filter((_, i) => i !== idx));
+              // بعد حذف صف تتغير أرقام الأصناف؛ امسح أخطاء الأصناف القديمة كي لا
+              // تنتقل رسالة الصنف المحذوف إلى الصنف الذي يليه.
+              setFormErrors(prev => ({ ...prev, items: {} }));
+            }}
           >
             <Trash2 className="w-3.5 h-3.5" />
           </Button>
@@ -824,7 +919,7 @@ const handleCatalogSelect = (catalogItem: any) => {
 
         <select
           value={item.sourceType}
-          disabled={isPmv2BoundItem}
+          disabled={isMaterialBoundItem}
           onChange={(e) => {
             const value = e.target.value as "catalog" | "manual";
 
@@ -857,13 +952,16 @@ const handleCatalogSelect = (catalogItem: any) => {
         <Label>{t.purchaseOrders.itemName} *</Label>
 
         <Textarea
+          id={`purchase-item-${idx}-itemName`}
           dir="auto"
           value={item.itemName}
           readOnly={item.sourceType === "catalog"}
           maxLength={300}
           rows={2}
+          aria-invalid={Boolean(itemErrors.itemName)}
+          className={cn(itemErrors.itemName && "border-destructive focus-visible:ring-destructive")}
           onClick={() => {
-            if (item.sourceType === "catalog" && !isPmv2BoundItem) {
+            if (item.sourceType === "catalog" && !isMaterialBoundItem) {
               setCatalogTargetIndex(idx);
               setShowCatalogPicker(true);
             }
@@ -872,6 +970,7 @@ const handleCatalogSelect = (catalogItem: any) => {
             updateItem(idx, "itemName", e.target.value.slice(0, 300))
           }
         />
+        {itemErrors.itemName && <p className="text-xs text-destructive">{itemErrors.itemName}</p>}
         <p className="text-[11px] text-muted-foreground text-start">
           {item.itemName.length} / 300
         </p>
@@ -879,7 +978,7 @@ const handleCatalogSelect = (catalogItem: any) => {
 
       {/* الوصف */}
       <div className="space-y-2">
-        <Label>{t.tickets.description}</Label>
+        <Label>{t.purchaseOrders.details}</Label>
 
         <Textarea
           dir="auto"
@@ -895,6 +994,22 @@ const handleCatalogSelect = (catalogItem: any) => {
         </p>
       </div>
 
+      {/* تاريخ الاحتياج — افتراضيًا بعد 4 أيام تقويمية ويمكن تعديله لكل صنف */}
+      <div className="space-y-2">
+        <Label>{t.purchaseOrders.requiredDate} *</Label>
+        <Input
+          id={`purchase-item-${idx}-requiredDate`}
+          type="date"
+          value={item.requiredDate}
+          required
+          aria-invalid={Boolean(itemErrors.requiredDate)}
+          className={cn(itemErrors.requiredDate && "border-destructive focus-visible:ring-destructive")}
+          onChange={e => updateItem(idx, "requiredDate", e.target.value)}
+        />
+        {itemErrors.requiredDate && <p className="text-xs text-destructive">{itemErrors.requiredDate}</p>}
+        <p className="text-[11px] text-muted-foreground">{t.purchaseOrders.requiredDateDefaultHint}</p>
+      </div>
+
       {/* الكمية والوحدة والصورة */}
       <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
 
@@ -903,10 +1018,13 @@ const handleCatalogSelect = (catalogItem: any) => {
           <Label>{t.purchaseOrders.quantity} *</Label>
 
           <Input
+            id={`purchase-item-${idx}-quantity`}
             type="number"
             min={minimumQuantity}
             value={item.quantity}
-            disabled={isPmv2BoundItem}
+            disabled={isMaterialBoundItem}
+            aria-invalid={Boolean(itemErrors.quantity)}
+            className={cn(isTicketMaterial && isMaterialBoundItem && "border-emerald-300 bg-emerald-50/50 font-semibold text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950/20 dark:text-emerald-100", itemErrors.quantity && "border-destructive focus-visible:ring-destructive")}
             onChange={e =>
               updateItem(
                 idx,
@@ -915,7 +1033,8 @@ const handleCatalogSelect = (catalogItem: any) => {
               )
             }
           />
-          {isPmv2BoundItem && (
+          {itemErrors.quantity && <p className="text-xs text-destructive">{itemErrors.quantity}</p>}
+          {isMaterialBoundItem && (
             <p className="text-xs text-muted-foreground">{t.workflow.purchase.pmv2QtyFixed}</p>
           )}
         </div>
@@ -927,9 +1046,14 @@ const handleCatalogSelect = (catalogItem: any) => {
           <Select
             value={item.unit}
             onValueChange={value => updateItem(idx, "unit", value)}
-            disabled={isPmv2BoundItem && Boolean(pmv2ResolvedCatalogUnit)}
+            disabled={isMaterialBoundItem && Boolean(materialResolvedCatalogUnit)}
           >
-            <SelectTrigger dir="auto">
+            <SelectTrigger
+              id={`purchase-item-${idx}-unit`}
+              dir="auto"
+              aria-invalid={Boolean(itemErrors.unit)}
+              className={cn(itemErrors.unit && "border-destructive focus:ring-destructive")}
+            >
               <SelectValue placeholder={t.purchaseOrders.unit} />
             </SelectTrigger>
             <SelectContent>
@@ -944,7 +1068,8 @@ const handleCatalogSelect = (catalogItem: any) => {
               )}
             </SelectContent>
           </Select>
-          {isPmv2BoundItem && !pmv2ResolvedCatalogUnit && (
+          {itemErrors.unit && <p className="text-xs text-destructive">{itemErrors.unit}</p>}
+          {isMaterialBoundItem && !materialResolvedCatalogUnit && (
             <p className="text-xs text-amber-700">
               {t.workflow.purchase.pmv2UnitNeedsSelection}
             </p>
@@ -1075,10 +1200,10 @@ const handleCatalogSelect = (catalogItem: any) => {
 })}
 
 {/* طلب PM V2 المرتبط = عجز واحد / صنف واحد، لذلك لا يظهر زر إضافة صنف. */}
-{!hasPmv2PurchaseContext && (
+{!hasMaterialPurchaseContext && (
   <Button
     variant="outline"
-    onClick={() => setItems(prev => [...prev, emptyItem()])}
+    onClick={() => setItems(prev => [...prev, emptyItem("", defaultRequiredDate)])}
     className="w-full gap-2 border-dashed h-12"
   >
     <Plus className="w-4 h-4" /> {t.common.add}
@@ -1116,7 +1241,7 @@ const handleCatalogSelect = (catalogItem: any) => {
               </Button>
             ) : (
             <div className="flex gap-2">
-              {!hasPmv2PurchaseContext && (
+              {!hasMaterialPurchaseContext && (
                 <Button
                   variant="outline"
                   onClick={handleSaveDraft}
@@ -1132,8 +1257,8 @@ const handleCatalogSelect = (catalogItem: any) => {
               )}
               <Button
                 onClick={handleSubmit}
-                disabled={createMut.isPending || saveDraftMut.isPending || isLinkedTicketActionBlocked}
-                className="flex-1 gap-2"
+                disabled={createMut.isPending || saveDraftMut.isPending || isLinkedTicketActionBlocked || (isTicketMaterial && !ticketExtraValid)}
+                className={cn("flex-1 gap-2", isTicketMaterial && "bg-amber-600 text-white hover:bg-amber-700")}
                 size="lg"
               >
                 {createMut.isPending

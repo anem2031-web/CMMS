@@ -1,3 +1,4 @@
+import { pmv2ExecutionActor, pmv2ExecutionActorCondition, pmv2ExecutionTeamCondition } from "../security/execution-access";
 import { and, asc, eq, inArray, or } from "drizzle-orm";
 import {
   auditLogs,
@@ -8,7 +9,6 @@ import {
   pmv2TaskItems,
   pmv2TaskTicketLinks,
   pmv2Tasks,
-  pmv2TeamMembers,
   pmv2Visits,
   purchaseOrderItems,
   purchaseOrders,
@@ -241,8 +241,8 @@ export class Pmv2TaskTimelineService {
       ? await db
           .select({ id: pmv2Tasks.id, taskNumber: pmv2Tasks.taskNumber, status: pmv2Tasks.status, dueDate: pmv2Tasks.dueDate, teamId: pmv2Tasks.teamId })
           .from(pmv2Tasks)
-          .innerJoin(pmv2TeamMembers, and(eq(pmv2TeamMembers.teamId, pmv2Tasks.teamId), eq(pmv2TeamMembers.userId, Number(technicianUserId)), eq(pmv2TeamMembers.isActive, 1)))
-          .where(eq(pmv2Tasks.id, taskId))
+          .innerJoin(pmv2ExecutionActor, pmv2ExecutionActorCondition(Number(technicianUserId)))
+          .where(and(pmv2ExecutionTeamCondition(Number(technicianUserId), pmv2Tasks.teamId), eq(pmv2Tasks.id, taskId)))
           .limit(1)
       : await db
           .select({ id: pmv2Tasks.id, taskNumber: pmv2Tasks.taskNumber, status: pmv2Tasks.status, dueDate: pmv2Tasks.dueDate, teamId: pmv2Tasks.teamId })

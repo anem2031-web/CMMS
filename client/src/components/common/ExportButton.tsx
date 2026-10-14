@@ -9,11 +9,12 @@ interface ExportButtonProps {
   filename: string;
   label?: string;
   params?: Record<string, string>;
+  payload?: unknown;
   variant?: "default" | "outline" | "ghost" | "secondary";
   size?: "default" | "sm" | "lg" | "icon";
 }
 
-export function ExportButton({ endpoint, filename, label, params, variant = "outline", size = "sm" }: ExportButtonProps) {
+export function ExportButton({ endpoint, filename, label, params, payload, variant = "outline", size = "sm" }: ExportButtonProps) {
   const [loading, setLoading] = useState(false);
   const { t } = useTranslation();
 
@@ -21,7 +22,11 @@ export function ExportButton({ endpoint, filename, label, params, variant = "out
     setLoading(true);
     try {
       const queryStr = params ? "?" + new URLSearchParams(params).toString() : "";
-      const response = await fetch(`/api/export/${endpoint}${queryStr}`);
+      const response = await fetch(`/api/export/${endpoint}${queryStr}`, payload === undefined ? undefined : {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
       if (!response.ok) throw new Error("Export failed");
       const blob = await response.blob();
       const url = window.URL.createObjectURL(blob);

@@ -48,11 +48,70 @@ import {
   purchasePackages,
   purchasePackageNumberCounter,
   purchasePackageSubmissions,
+  centerCategories,
 } from "../../../drizzle/schema";
 import { ENV } from '../env';
 
 
 import { getDb } from "./client";
+
+// ============================================================
+// CENTER CATEGORIES
+// ============================================================
+export async function listCenterCategories(activeOnly = false) {
+  const db = await getDb();
+  if (!db) return [];
+  const query = db.select().from(centerCategories);
+  if (activeOnly) {
+    return query.where(eq(centerCategories.isActive, 1)).orderBy(asc(centerCategories.name));
+  }
+  return query.orderBy(desc(centerCategories.isActive), asc(centerCategories.name));
+}
+
+export async function getCenterCategoryById(id: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db.select().from(centerCategories).where(eq(centerCategories.id, id)).limit(1);
+  return rows[0] ?? null;
+}
+
+export async function createCenterCategory(name: string) {
+  const db = await getDb();
+  if (!db) return null;
+  const result = await db.insert(centerCategories).values({ name: name.trim(), isActive: 1, systemKey: null });
+  return { id: Number(result[0].insertId), name: name.trim(), systemKey: null, isActive: 1 };
+}
+
+export async function updateCenterCategory(id: number, data: { name?: string; isActive?: boolean }) {
+  const db = await getDb();
+  if (!db) return null;
+  const payload: Record<string, any> = {};
+  if (data.name !== undefined) payload.name = data.name.trim();
+  if (data.isActive !== undefined) payload.isActive = data.isActive ? 1 : 0;
+  if (Object.keys(payload).length > 0) {
+    await db.update(centerCategories).set(payload).where(eq(centerCategories.id, id));
+  }
+  return getCenterCategoryById(id);
+}
+
+export async function getCenterCategoryUsageCount(id: number) {
+  const db = await getDb();
+  if (!db) return { purchaseOrders: 0, tickets: 0, total: 0 };
+  const [poRows, ticketRows] = await Promise.all([
+    db.select({ total: count(purchaseOrders.id) }).from(purchaseOrders).where(eq(purchaseOrders.categoryId, id)),
+    db.select({ total: count(tickets.id) }).from(tickets).where(eq(tickets.categoryId, id)),
+  ]);
+  const purchaseOrderCount = Number(poRows[0]?.total ?? 0);
+  const ticketCount = Number(ticketRows[0]?.total ?? 0);
+  return { purchaseOrders: purchaseOrderCount, tickets: ticketCount, total: purchaseOrderCount + ticketCount };
+}
+
+export async function deleteCenterCategory(id: number) {
+  const db = await getDb();
+  if (!db) return null;
+  await db.delete(centerCategories).where(eq(centerCategories.id, id));
+  return { id };
+}
 
 // ============================================================
 // PROCUREMENT COMMENT OPERATIONS
@@ -132,6 +191,7 @@ async function readPOItemHistorySnapshot(writer: any, id: number) {
       purchaseOrderId: purchaseOrderItems.purchaseOrderId,
       status: purchaseOrderItems.status,
       delegateId: purchaseOrderItems.delegateId,
+      delegateAssignedAt: purchaseOrderItems.delegateAssignedAt,
       batchId: purchaseOrderItems.batchId,
       delegateChangeRequestedAt: purchaseOrderItems.delegateChangeRequestedAt,
       estimatedUnitCost: purchaseOrderItems.estimatedUnitCost,
@@ -648,6 +708,52 @@ export async function getPOItemsByDelegate(delegateId: number) {
   return db.select().from(purchaseOrderItems).where(eq(purchaseOrderItems.delegateId, delegateId)).orderBy(desc(purchaseOrderItems.createdAt));
 }
 
+/**
+ * Flat source for the «متابعة التوريد» tab. Draft orders are intentionally
+ * excluded because their required dates are not operational commitments yet.
+ * Passing delegateId enforces delegate scope at query level.
+ */
+export async function getPurchaseSupplyTrackingItems(delegateId?: number) {
+  const db = await getDb();
+  if (!db) return [];
+  const delegateUser = alias(users, "supplyTrackingDelegate");
+  const requesterUser = alias(users, "supplyTrackingRequester");
+  // «متابعة التوريد» تتابع مسؤولية المندوب حتى التسليم الفعلي للمستودع.
+  // لذلك: لا نعرض ما لم يُسند لمندوب، ونبقي purchased ظاهراً، ثم نخفي
+  // الصنف فقط بعد وصوله للمستودع أو إذا خرج نهائياً من دورة المندوب.
+  const conditions: any[] = [
+    ne(purchaseOrders.status, "draft" as any),
+    isNotNull(purchaseOrderItems.delegateId),
+    notInArray(purchaseOrderItems.status, [
+      "delivered_to_warehouse",
+      "delivered_to_requester",
+      "rejected",
+      "cancelled",
+      "needs_item_revision",
+      "purchase_cancelled",
+    ] as any),
+  ];
+  if (delegateId) conditions.push(eq(purchaseOrderItems.delegateId, delegateId));
+
+  return db
+    .select({
+      ...getTableColumns(purchaseOrderItems),
+      purchaseOrderNumber: purchaseOrders.poNumber,
+      purchaseOrderStatus: purchaseOrders.status,
+      purchaseOrderCreatedAt: purchaseOrders.createdAt,
+      purchaseOrderSubmittedAt: purchaseOrders.submittedAt,
+      requestedById: purchaseOrders.requestedById,
+      requestedByName: requesterUser.name,
+      delegateName: delegateUser.name,
+    })
+    .from(purchaseOrderItems)
+    .innerJoin(purchaseOrders, eq(purchaseOrderItems.purchaseOrderId, purchaseOrders.id))
+    .leftJoin(delegateUser, eq(purchaseOrderItems.delegateId, delegateUser.id))
+    .leftJoin(requesterUser, eq(purchaseOrders.requestedById, requesterUser.id))
+    .where(and(...conditions))
+    .orderBy(asc(purchaseOrderItems.requiredDate), asc(purchaseOrderItems.id));
+}
+
 
 /** جميع أصناف طلبات الشراء التي أنشأها مستخدم معيّن، لواجهة «متابعة أصنافي». */
 export async function getPOItemsRequestedBy(requestedById: number) {
@@ -1109,6 +1215,7 @@ export async function resolvePOItemDelegateChangeAtomic(input: {
   const before = await readPOItemHistorySnapshot(db, input.itemId);
   const patch = {
     delegateId: input.newDelegateId,
+    ...(before?.delegateId !== input.newDelegateId ? { delegateAssignedAt: new Date() } : {}),
     status: "pending",
     batchId: null,
     delegateChangeRequestedById: null,

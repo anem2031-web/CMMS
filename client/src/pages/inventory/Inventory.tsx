@@ -530,7 +530,11 @@ export default function Inventory() {
           <p className="text-sm text-muted-foreground mt-1">{t.common.description}</p>
         </div>
         <div className="flex gap-2 flex-wrap">
-          <ExportButton endpoint="inventory" filename="inventory" />
+          <ExportButton
+            endpoint="inventory"
+            filename="inventory"
+            payload={{ itemIds: filteredItems.map((item: any) => Number(item.id)) }}
+          />
           {isWarehouse && (
             <Button className="gap-2" onClick={() => navigate("/inventory/receive")}>
               <Plus className="w-4 h-4" /> {t.common.add}
@@ -1076,7 +1080,7 @@ export default function Inventory() {
                   onValueChange={setDeliverToId}
                   placeholder="اختر الفني..."
                   options={(allUsers as any[])
-                    .filter((u: any) => ["technician", "supervisor", "maintenance_manager"].includes(u.role))
+                    .filter((u: any) => ["technician", "supervisor", "maintenance_manager", "it_manager", "it_member"].includes(u.role))
                     .map((u: any) => ({ value: String(u.id), label: `${u.name} (${u.role})` }))}
                 />
               </div>

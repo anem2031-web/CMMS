@@ -1,0 +1,22 @@
+[
+  {
+    "file": "client/src/pages/maintenance-teams/ExecutionPanel.tsx",
+    "backup": "tools/ticket-transfer-issue/artifacts/client__src__pages__maintenance-teams__ExecutionPanel.tsx.before",
+    "hash": "3262591AFD51D8F8F91D3D43DA6276856746FFA4C2F30D76581B54C458CFB320"
+  },
+  {
+    "file": "client/src/pages/maintenance-teams/TicketWarehouseMaterialCard.tsx",
+    "backup": "tools/ticket-transfer-issue/artifacts/client__src__pages__maintenance-teams__TicketWarehouseMaterialCard.tsx.before",
+    "hash": "C7116BFD3BFDEC5D8E9C3A0A21E58F0C34A8EAEE30805D410C5A970FCD753F29"
+  },
+  {
+    "file": "tools/maintenance-team-tickets/execution-ui.test.tsx",
+    "backup": "tools/ticket-transfer-issue/artifacts/tools__maintenance-team-tickets__execution-ui.test.tsx.before",
+    "hash": "F0C525D2077C9BC7C41A2E41A4163D8BF52E0FCCBD7193D92AB0F3234F133F2C"
+  },
+  {
+    "file": "tools/maintenance-team-tickets/warehouse-extra-ui.test.tsx",
+    "backup": "tools/ticket-transfer-issue/artifacts/tools__maintenance-team-tickets__warehouse-extra-ui.test.tsx.before",
+    "hash": "FA984831C83A81AAE92B0A7D751C6D853AD2CC44CFC5005C349F4F5C15DE524C"
+  }
+]

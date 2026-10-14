@@ -1,0 +1,347 @@
+/** Explicit page/data-source registry. Paths never become table names or SQL. */
+export type ObserverDataset = { source: string; filter?: string };
+export type ObserverPage = {
+  path: string;
+  title: string;
+  datasets: ObserverDataset[];
+};
+const page = (
+  path: string,
+  title: string,
+  sources: string[],
+  filter?: string
+): ObserverPage => ({
+  path,
+  title,
+  datasets: sources.map((source, index) => ({
+    source,
+    ...(index === 0 && filter ? { filter } : {}),
+  })),
+});
+export const OBSERVER_PAGES: ObserverPage[] = [
+  page("/", "لوحة التحكم", [
+    "tickets",
+    "purchaseOrders",
+    "assets",
+    "inventory",
+  ]),
+  page("/maintenance-teams", "فرق الصيانة", [
+    "maintenance_teams",
+    "maintenance_team_members",
+  ]),
+  page("/maintenance-team-tickets", "تذاكر فرق الصيانة", [
+    "ticket_team_assignments",
+    "ticket_team_material_needs",
+    "ticket_team_actions",
+    "ticket_team_supply_links",
+    "ticket_team_delivery_links",
+    "ticket_team_return_links",
+  ]),
+  ...[
+    "/tickets",
+    "/tickets/inbox",
+    "/tickets/new",
+    "/triage",
+    "/construction/tickets",
+  ].map(path =>
+    page(path, "تذاكر الصيانة", [
+      "tickets",
+      "ticketItems",
+      "ticketDepartments",
+      "ticketTasks",
+    ])
+  ),
+  page(
+    "/tickets/:id",
+    "تفاصيل تذكرة الصيانة",
+    ["tickets", "ticketItems", "ticketStatusHistory", "inspectionResults"],
+    "id"
+  ),
+  page("/improvement-ideas", "مركز التحسين والتطوير", ["improvementIdeas"]),
+  ...["/purchase-orders", "/purchase-orders/new", "/purchase-cycle"].map(path =>
+    page(path, "طلبات الشراء", [
+      "purchaseOrders",
+      "purchaseOrderItems",
+      "purchaseOrderItemHistory",
+      "purchasePackages",
+    ])
+  ),
+  page(
+    "/purchase-orders/edit-draft/:id",
+    "مسودة طلب الشراء",
+    ["purchaseOrders", "purchaseOrderItems"],
+    "id"
+  ),
+  page(
+    "/purchase-orders/:id",
+    "تفاصيل طلب الشراء",
+    ["purchaseOrders", "purchaseOrderItems", "purchaseOrderItemHistory"],
+    "id"
+  ),
+  page(
+    "/purchase-packages/:id",
+    "حزمة الشراء",
+    ["purchasePackages", "purchasePackageSubmissions"],
+    "id"
+  ),
+  page("/external-maintenance", "الصيانة الخارجية", [
+    "externalMaintenanceJobs",
+  ]),
+  page("/documents", "مركز المستندات", [
+    "warehouseReceipts",
+    "deliveryDocuments",
+    "returnDocuments",
+    "warehouseTransferBatches",
+    "warehouseIssueBatches",
+  ]),
+  ...["/item-tracker", "/my-items"].map(path =>
+    page(path, "تتبع المواد", [
+      "purchaseOrderItems",
+      "inventoryLots",
+      "deliveryDocuments",
+    ])
+  ),
+  page("/inventory", "المخزون", [
+    "inventory",
+    "inventoryLots",
+    "inventoryLotBalances",
+  ]),
+  page("/inventory-operations", "عمليات المخزون", [
+    "inventoryTransactions",
+    "inventoryCountOperations",
+    "inventorySettlements",
+    "disposalOperations",
+  ]),
+  page("/inventory/reconciliation", "مطابقة المخزون", [
+    "inventory",
+    "inventoryLotBalances",
+    "inventoryTransactions",
+  ]),
+  ...[
+    "/inventory/reports",
+    "/inventory/reports/stock-balance",
+    "/inventory/reports/valuation",
+    "/inventory/reports/analytics",
+  ].map(path =>
+    page(path, "تقارير المخزون", [
+      "inventory",
+      "inventoryLots",
+      "inventoryLotBalances",
+      "inventoryIssueCostAllocations",
+    ])
+  ),
+  page("/inventory/reports/movements", "حركات المخزون", [
+    "inventoryTransactions",
+  ]),
+  page("/reports", "التقارير", [
+    "tickets",
+    "purchaseOrders",
+    "inventoryTransactions",
+    "assetMetrics",
+  ]),
+  page("/reports/technicians", "أداء الفنيين", [
+    "technicians",
+    "tickets",
+    "pmv2ItemActions",
+  ]),
+  page("/reports/purchase-cycle", "دورة الشراء", [
+    "purchaseOrders",
+    "purchaseOrderItems",
+    "purchaseOrderItemHistory",
+  ]),
+  page("/reports/maintenance-cycle", "دورة الصيانة", [
+    "tickets",
+    "ticketItems",
+    "ticketStatusHistory",
+  ]),
+  page("/reports/section-report", "تقرير الأقسام", [
+    "sections",
+    "tickets",
+    "assets",
+  ]),
+  page("/reports/preventive", "تقرير الصيانة الوقائية", [
+    "preventivePlans",
+    "pmWorkOrders",
+    "pmExecutionResults",
+  ]),
+  page("/reports/cost", "سجلات التكلفة", [
+    "purchaseOrderItems",
+    "inventoryIssueCostAllocations",
+    "inventoryTransactions",
+  ]),
+  page("/users", "المستخدمون", ["users"]),
+  page("/sites", "المواقع", ["sites"]),
+  page("/sections", "الأقسام", ["sections"]),
+  page("/technicians", "الفنيون", ["technicians"]),
+  page("/notifications", "الإشعارات", ["notifications"]),
+  page("/audit-log", "سجل التدقيق", ["auditLogs"]),
+  page("/ai-assistant", "سجل المساعد الذكي", ["aiResponseCache"]),
+  page("/translation-monitor", "متابعة الترجمة", [
+    "translationJobs",
+    "entityTranslations",
+    "translationVersions",
+  ]),
+  page("/backup", "بيانات النسخ الاحتياطية", ["backups"]),
+  ...["/assets", "/scan-asset"].map(path =>
+    page(path, "الأصول", ["assets", "assetCategories"])
+  ),
+  page("/assets/history", "تاريخ الأصول", [
+    "tickets",
+    "assetSpareParts",
+    "assetMetrics",
+  ]),
+  page("/assets/metrics", "مؤشرات الأصول", ["assetMetrics"]),
+  page(
+    "/asset/:id",
+    "تفاصيل الأصل",
+    ["assets", "assetMetrics", "assetSpareParts"],
+    "id"
+  ),
+  page("/tag/:rfidTag", "الأصل المرتبط بالوسم", ["assets"], "rfidTag"),
+  page("/asset-categories", "تصنيفات الأصول", ["assetCategories"]),
+  ...["/center-categories", "/purchase-categories"].map(path =>
+    page(path, "التصنيفات المركزية", ["centerCategories"])
+  ),
+  page("/preventive", "الصيانة الوقائية", [
+    "preventivePlans",
+    "pmMainPlans",
+    "pmSubPlans",
+    "pmWorkOrders",
+  ]),
+  page("/scheduled-maintenance", "إدارة الصيانة المجدولة PMV2", [
+    "pmv2Programs",
+    "pmv2ProgramTargets",
+    "pmv2Teams",
+    "pmv2TeamMembers",
+    "pmv2Checklists",
+    "pmv2ChecklistItems",
+    "pmv2SlaRules",
+  ]),
+  page("/scheduled-maintenance/my-tasks", "مهام الصيانة", [
+    "pmv2Tasks",
+    "pmv2TaskItems",
+    "pmv2Visits",
+    "pmv2ItemActions",
+    "ticket_team_assignments",
+  ]),
+  page("/scheduled-maintenance/warehouse-requests", "طلبات مواد الصيانة", [
+    "pmv2MaterialRequests",
+    "pmv2MaterialRequestItems",
+    "pmv2MaterialPurchaseLinks",
+    "ticket_team_material_needs",
+    "ticket_team_supply_links",
+    "ticket_team_delivery_links",
+    "ticket_team_return_links",
+  ]),
+  page("/scheduled-maintenance/reports", "تقارير الصيانة المجدولة", [
+    "pmv2Tasks",
+    "pmv2TaskItems",
+    "pmv2Visits",
+    "pmv2DailyReportReviews",
+  ]),
+  page("/gate-security", "سجلات الحراسة", [
+    "pmWorkOrders",
+    "externalMaintenanceJobs",
+    "deliveryDocuments",
+  ]),
+  ...["/warehouse/receive-v2", "/inventory/receive"].map(path =>
+    page(path, "الاستلام", ["warehouseReceipts", "warehouseReceiptItems"])
+  ),
+  page("/warehouse/return", "سجلات المرتجع", [
+    "warehouseReturns",
+    "returnDocuments",
+  ]),
+  page("/warehouse/returns", "مرتجعات المستودع", [
+    "warehouseReturns",
+    "returnDocuments",
+  ]),
+  page("/warehouses", "المستودعات", ["warehouses"]),
+  page("/warehouse/transfer", "التحويل", [
+    "warehouseTransferBatches",
+    "warehouseTransfers",
+  ]),
+  page("/warehouse/issue", "الصرف", [
+    "warehouseIssueBatches",
+    "warehouseIssueBatchItems",
+    "deliveryDocuments",
+  ]),
+  page("/inspection-dashboard", "الفحوصات", ["inspectionResults"]),
+  page("/catalog", "الكتالوج", [
+    "catalogItems",
+    "catalogNodes",
+    "catalogUnits",
+    "catalogItemSpecs",
+    "catalogItemAlternatives",
+    "catalogItemCompatibility",
+    "catalogSuppliers",
+    "catalogSupplierPrices",
+    "catalogKnowledge",
+  ]),
+  ...[
+    "/construction",
+    "/construction/projects",
+    "/construction/projects/new",
+    "/construction/reports",
+  ].map(path =>
+    page(path, "الإنشاءات", [
+      "constructionProjects",
+      "constructionTasks",
+      "constructionDailyReports",
+      "constructionGoals",
+      "constructionPhases",
+      "constructionChangeOrders",
+      "constructionQuantityTracking",
+    ])
+  ),
+  page(
+    "/construction/projects/:id",
+    "تفاصيل مشروع الإنشاءات",
+    ["constructionProjects", "constructionTasks", "constructionDailyReports"],
+    "id"
+  ),
+  page(
+    "/construction/projects/:id/edit",
+    "بيانات مشروع الإنشاءات",
+    ["constructionProjects", "constructionTasks"],
+    "id"
+  ),
+];
+
+export function findObserverPage(
+  path: string
+): { page: ObserverPage; parameter?: string | number } | null {
+  const pathname = path.split(/[?#]/, 1)[0].replace(/\/$/, "") || "/";
+  const segments = pathname.split("/");
+  for (const entry of OBSERVER_PAGES) {
+    const parts = entry.path.split("/");
+    if (parts.length !== segments.length) continue;
+    let parameter: string | number | undefined,
+      matches = true;
+    for (let i = 0; i < parts.length; i++) {
+      if (!parts[i].startsWith(":")) {
+        if (parts[i] !== segments[i]) matches = false;
+        continue;
+      }
+      let value: string;
+      try {
+        value = decodeURIComponent(segments[i]);
+      } catch {
+        matches = false;
+        break;
+      }
+      if (!value || value.length > 100 || /[\\/\u0000-\u001f]/.test(value)) {
+        matches = false;
+        break;
+      }
+      if (parts[i] === ":id") {
+        if (!/^[1-9]\d*$/.test(value) || Number(value) > 2147483647) {
+          matches = false;
+          break;
+        }
+        parameter = Number(value);
+      } else parameter = value;
+    }
+    if (matches) return { page: entry, parameter };
+  }
+  return null;
+}

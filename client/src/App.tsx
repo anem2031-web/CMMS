@@ -48,12 +48,14 @@ import SectionReport from "@/pages/reports/SectionReport";
 import PreventiveReport from "@/pages/reports/PreventiveReport";
 import Backup from "@/pages/admin/Backup";
 import Assets from "@/pages/assets/Assets";
+import MaintenanceTeams from "@/pages/maintenance-teams/MaintenanceTeams";
+import AssignedMaintenanceTickets from "@/pages/maintenance-teams/AssignedMaintenanceTickets";
 import AssetHistory from "@/pages/assets/AssetHistory";
 import AssetMetrics from "@/pages/assets/AssetMetrics";
 import PreventiveMaintenance from "@/pages/preventive/PreventiveMaintenance";
 import ScheduledMaintenance from "@/pages/pmv2/ScheduledMaintenance";
-import Pmv2MyTasks from "@/pages/pmv2/Pmv2MyTasks";
-import Pmv2WarehouseQueue from "@/pages/pmv2/Pmv2WarehouseQueue";
+import MyTasksPage from "@/pages/pmv2/MyTasksPage";
+import WarehouseRequestsPage from "@/pages/pmv2/WarehouseRequestsPage";
 import Pmv2MaintenanceReports from "@/pages/pmv2/Pmv2MaintenanceReports";
 import TriageDashboard from "@/pages/tickets/TriageDashboard";
 import GateSecurity from "@/pages/assets/GateSecurity";
@@ -63,6 +65,7 @@ import Dashboard from "@/pages/dashboard/Dashboard";
 import AssetDetail from "@/pages/assets/AssetDetail";
 import NfcRedirect from "@/pages/assets/NfcRedirect";
 import AssetCategories from "@/pages/assets/AssetCategories";
+import PurchaseCategories from "@/pages/purchase/PurchaseCategories";
 import WarehouseReceive from "@/pages/inventory/WarehouseReceive";
 import WarehouseReceiveV2 from "@/pages/inventory/WarehouseReceiveV2";
 import InventoryStandaloneReceive from "@/pages/inventory/InventoryStandaloneReceive";
@@ -90,6 +93,8 @@ function Router() {
         <DashboardLayout>
           <Switch>
             <Route path="/" component={Home} />
+            <Route path="/maintenance-teams" component={MaintenanceTeams} />
+            <Route path="/maintenance-team-tickets" component={AssignedMaintenanceTickets} />
             <Route path="/tickets" component={Tickets} />
             <Route path="/improvement-ideas" component={ImprovementIdeas} />
             <Route path="/tickets/new" component={CreateTicket} />
@@ -135,8 +140,8 @@ function Router() {
             <Route path="/assets/history" component={AssetHistory} />
             <Route path="/assets/metrics" component={AssetMetrics} />
             <Route path="/preventive" component={PreventiveMaintenance} />
-            <Route path="/scheduled-maintenance/my-tasks" component={Pmv2MyTasks} />
-            <Route path="/scheduled-maintenance/warehouse-requests" component={Pmv2WarehouseQueue} />
+            <Route path="/scheduled-maintenance/my-tasks" component={MyTasksPage} />
+            <Route path="/scheduled-maintenance/warehouse-requests" component={WarehouseRequestsPage} />
             <Route path="/scheduled-maintenance/reports" component={Pmv2MaintenanceReports} />
             <Route path="/scheduled-maintenance" component={ScheduledMaintenance} />
             <Route path="/triage" component={TriageDashboard} />
@@ -146,6 +151,8 @@ function Router() {
             <Route path="/asset/:id" component={AssetDetail} />
             <Route path="/tag/:rfidTag" component={NfcRedirect} />
             <Route path="/asset-categories" component={AssetCategories} />
+            <Route path="/center-categories" component={PurchaseCategories} />
+            <Route path="/purchase-categories" component={PurchaseCategories} />
             {/* ⛔ مُعطّلة مؤقتاً (قيد الاختبار قبل الحذف النهائي) — استُبدلت بـ WarehouseReceiveV2 */}
             <Route path="/warehouse/receive" component={NotFound} />
             <Route path="/warehouse/receive-v2" component={WarehouseReceiveV2} />

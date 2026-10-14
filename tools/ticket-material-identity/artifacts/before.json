@@ -1,0 +1,22 @@
+[
+  {
+    "file": "client/src/pages/pmv2/Pmv2WarehouseQueue.tsx",
+    "backup": "C:\\Users\\mh\\Desktop\\CMMSFINAL\\tools\\ticket-material-identity\\artifacts\\client__src__pages__pmv2__Pmv2WarehouseQueue.tsx.before"
+  },
+  {
+    "file": "client/src/pages/maintenance-teams/ExecutionPanel.tsx",
+    "backup": "C:\\Users\\mh\\Desktop\\CMMSFINAL\\tools\\ticket-material-identity\\artifacts\\client__src__pages__maintenance-teams__ExecutionPanel.tsx.before"
+  },
+  {
+    "file": "server/routers/maintenance-teams/execution.router.ts",
+    "backup": "C:\\Users\\mh\\Desktop\\CMMSFINAL\\tools\\ticket-material-identity\\artifacts\\server__routers__maintenance-teams__execution.router.ts.before"
+  },
+  {
+    "file": "server/maintenance-team-tickets/service.ts",
+    "backup": "C:\\Users\\mh\\Desktop\\CMMSFINAL\\tools\\ticket-material-identity\\artifacts\\server__maintenance-team-tickets__service.ts.before"
+  },
+  {
+    "file": "client/src/pages/maintenance-teams/TicketWarehouseMaterialCard.tsx",
+    "backup": "C:\\Users\\mh\\Desktop\\CMMSFINAL\\tools\\ticket-material-identity\\artifacts\\client__src__pages__maintenance-teams__TicketWarehouseMaterialCard.tsx.before"
+  }
+]

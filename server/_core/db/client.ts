@@ -44,6 +44,7 @@ import {
   inventorySettlementNumberCounter,
 } from "../../../drizzle/schema";
 import { ENV } from '../env';
+import { guardObserverSqlClient } from '../authz/observer-read-scope';
 
 
 
@@ -63,7 +64,7 @@ export async function getDb() {
         keepAliveInitialDelay: 30000,
         connectTimeout:     60000,
       });
-      _db = drizzle(_pool as any);
+      _db = drizzle(guardObserverSqlClient(_pool) as any);
       console.log("[Database] Pool created successfully");
     } catch (error) {
       console.warn("[Database] Failed to connect:", error);

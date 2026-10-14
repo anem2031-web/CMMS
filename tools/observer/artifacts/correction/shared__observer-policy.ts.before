@@ -1,0 +1,48 @@
+/** A distinct read-only role. Never substitute its authenticated role with owner/admin. */
+export const OBSERVER_ROLE = "observer";
+export const isObserver = (role?: string | null) => role === OBSERVER_ROLE;
+export const OBSERVER_READ_RPC_PATHS = [
+  "auth.me",
+  "observer.readPage",
+] as const;
+export function observerRpcAllowed(
+  role: string | null | undefined,
+  type: string,
+  path: string
+): boolean {
+  if (!isObserver(role)) return true;
+  return (
+    (type === "query" &&
+      (OBSERVER_READ_RPC_PATHS as readonly string[]).includes(path)) ||
+    (type === "mutation" && path === "auth.logout")
+  );
+}
+/** Legacy protected REST endpoints are not used by the observer reader. Default deny. */
+export function observerHttpAllowed(role?: string | null): boolean {
+  return !isObserver(role);
+}
+const secretKey =
+  /password|secret|token|apikey|privatekey|credential|backupcodes|openid|signature|filekey|filepath|authorization|cookie|bearer|nonce/i;
+export const observerFieldAllowed = (key: string) => !secretKey.test(key);
+/** Also remove nested credentials from existing audit JSON, without altering stored records. */
+export function redactObserverValue(value: unknown, depth = 0): unknown {
+  if (depth > 12) return "[محتوى متداخل محجوب]";
+  if (value == null || typeof value !== "object") {
+    if (typeof value === "string" && /^[\s]*[\[{]/.test(value)) {
+      try {
+        return redactObserverValue(JSON.parse(value), depth + 1);
+      } catch {
+        return "[محتوى غير صالح للعرض]";
+      }
+    }
+    return value;
+  }
+  if (value instanceof Date) return value;
+  if (Array.isArray(value))
+    return value.map(v => redactObserverValue(v, depth + 1));
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([key]) => observerFieldAllowed(key))
+      .map(([key, v]) => [key, redactObserverValue(v, depth + 1)])
+  );
+}

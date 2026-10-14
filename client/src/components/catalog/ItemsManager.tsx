@@ -25,6 +25,7 @@ import {
   Hash,
   Eye,
   Pencil,
+  Copy,
   RotateCcw,
   Search,
   X,
@@ -287,6 +288,38 @@ export default function ItemsManager() {
     refetch();
   };
 
+  const handleDuplicateFrom = (item: any) => {
+    // "إضافة من" تنشئ صنفًا جديدًا مستقلًا اعتمادًا على البيانات الأساسية
+    // للصنف الحالي. لا ننسخ الكود أو الصورة أو الموردين؛ الكود يعاد توليده
+    // تلقائيًا من التصنيف المختار بنفس آلية الإضافة العادية.
+    const itemNode = (catalogNodes as CatalogNode[]).find(
+      (node) => Number(node.id) === Number(item.nodeId),
+    );
+
+    if (!itemNode) {
+      toast.error("تعذر تحميل بيانات تصنيف الصنف. أعد فتح الصفحة وحاول مرة أخرى.");
+      return;
+    }
+
+    setEditingItem(null);
+    setSelectedNode(itemNode);
+    setFormData({
+      nameAr: item.nameAr || "",
+      nameEn: item.nameEn || "",
+      nameUr: item.nameUr || "",
+      unit: item.unit || "",
+      manufacturer: item.manufacturer || "",
+    });
+    setGeneratedCode("");
+    setCustomCode("");
+    setCodeEdited(false);
+    setSelectedImage(null);
+    setImageUploadProgress(0);
+    setImageSaveStage("idle");
+    setImageSaveMessage("");
+    setIsDialogOpen(true);
+  };
+
   const attachmentMut = trpc.attachments.add.useMutation();
 
   // نجاح إنشاء/تعديل الصنف لا يُعلن للمستخدم قبل اكتمال ربط الصورة الاختيارية.
@@ -484,6 +517,7 @@ export default function ItemsManager() {
           code: codeEdited ? (trimmedCode || undefined) : undefined,
           nodeId: selectedNode.id,
           unit: formData.unit || undefined,
+          manufacturer: formData.manufacturer || undefined,
         });
         itemSaved = true;
 
@@ -643,6 +677,7 @@ export default function ItemsManager() {
                 setCodeEdited(true);
                 setIsDialogOpen(true);
               }}
+              onDuplicate={handleDuplicateFrom}
               canDelete={isCatalogAdmin || canManageLifecycle}
               canReactivate={isCatalogAdmin || canManageLifecycle}
               onDelete={id => {
@@ -1007,6 +1042,7 @@ function ItemCard({
   onView,
   onImagePreview,
   onEdit,
+  onDuplicate,
 }: {
   item: any;
   categoryPath?: string;
@@ -1017,6 +1053,7 @@ function ItemCard({
   onView: (item: any) => void;
   onImagePreview: (item: any) => void;
   onEdit: (item: any) => void;
+  onDuplicate: (item: any) => void;
 }) {
   const { t } = useTranslation();
   return (
@@ -1067,17 +1104,21 @@ function ItemCard({
           )}
         </div>
 
-        <div className="flex gap-2 mt-3">
-          <Button variant="secondary" size="sm" className="flex-1 gap-1.5" onClick={() => onView(item)}>
+        <div className="grid grid-cols-2 gap-2 mt-3">
+          <Button variant="secondary" size="sm" className="gap-1.5" onClick={() => onView(item)}>
             <Eye className="w-3.5 h-3.5" />
             استعراض
           </Button>
-          <Button variant="default" size="sm" className="flex-1 gap-1.5" onClick={() => onEdit(item)}>
+          <Button variant="default" size="sm" className="gap-1.5" onClick={() => onEdit(item)}>
             <Pencil className="w-3.5 h-3.5" />
             تعديل
           </Button>
+          <Button variant="outline" size="sm" className="gap-1.5" onClick={() => onDuplicate(item)}>
+            <Copy className="w-3.5 h-3.5" />
+            {t.catalog.items.addFrom}
+          </Button>
           {canDelete && Number(item.isActive) === 1 && (
-            <Button variant="outline" size="sm" className="flex-1 gap-1.5" onClick={() => onDelete(item.id)}>
+            <Button variant="outline" size="sm" className="gap-1.5" onClick={() => onDelete(item.id)}>
               <Trash2 className="w-3.5 h-3.5" />
               تعطيل
             </Button>
@@ -1086,7 +1127,7 @@ function ItemCard({
             <Button
               variant="outline"
               size="sm"
-              className="flex-1 gap-1.5"
+              className="gap-1.5"
               onClick={() => onReactivate(item.id)}
             >
               <RotateCcw className="w-3.5 h-3.5" />

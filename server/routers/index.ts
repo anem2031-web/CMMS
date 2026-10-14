@@ -1,4 +1,5 @@
 import { router } from "./_shared/procedures";
+import { maintenanceTeamsRouter, ticketTeamAssignmentsRouter, ticketTeamExecutionRouter } from "./maintenance-teams";
 import { systemRouter } from "../_core/systemRouter";
 import { translationRouter } from "./translation/translation.router";
 
@@ -16,6 +17,7 @@ import { returnDocumentsRouter } from "./inventory/return-documents.router";
 import { approvalsRouter } from "./purchase/approvals.router";
 import { vendorsRouter } from "./purchase/vendors.router";
 import { purchasePackagesRouter } from "./purchase/purchase-packages.router";
+import { centerCategoriesRouter } from "./purchase/purchase-categories.router";
 
 import { inventoryRouter } from "./inventory/inventory.router";
 // ⚠️ receiptsRouter (v1) لا يزال مسجَّلاً لأن الإجراء scanBarcode بداخله لا يزال
@@ -95,6 +97,9 @@ purchaseOrders: router({
   // purchaseOrders عمدًا: الحزمة مستوى أعلى من الطلب، ودمجها كان سيوحي
   // بأنها إجراء على طلب واحد. صفر تأثير على التسجيل القائم أعلاه.
   purchasePackages: purchasePackagesRouter,
+  centerCategories: centerCategoriesRouter,
+  // Backward-compatible API alias for clients deployed before Center Categories rename.
+  purchaseCategories: centerCategoriesRouter,
 
   deliveryDocuments: deliveryDocumentsRouter,
   returnDocuments: returnDocumentsRouter,
@@ -156,6 +161,9 @@ purchaseOrders: router({
 
   // PM V2 bounded-module namespace — additive registration only.
   pmv2: pmv2Router,
+  maintenanceTeams: maintenanceTeamsRouter,
+  ticketTeamAssignments: ticketTeamAssignmentsRouter,
+  ticketTeamExecution: ticketTeamExecutionRouter,
 });
 
 export type AppRouter = typeof appRouter;

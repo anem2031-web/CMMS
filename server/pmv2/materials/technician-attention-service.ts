@@ -1,3 +1,6 @@
+import { pmv2ExecutionActor, pmv2ExecutionActorCondition, pmv2ExecutionTeamCondition } from "../security/execution-access";
+import { canRoleExecuteAllPmv2Teams } from "../../../shared/roles";
+import { observerReadActorRole } from "../../_core/authz/observer-read-scope";
 import { and, desc, eq, inArray, lte, ne } from "drizzle-orm";
 import {
   pmv2ItemActions,
@@ -5,7 +8,6 @@ import {
   pmv2MaterialRequests,
   pmv2TaskItems,
   pmv2Tasks,
-  pmv2TeamMembers,
 } from "../../../drizzle/schema";
 import { getDb } from "../../_core/db/client";
 import { currentCatalogAdapter } from "../adapters/current-system";
@@ -131,19 +133,16 @@ export class Pmv2TechnicianMaterialAttentionService {
         dueDate: pmv2Tasks.dueDate,
         taskItemId: pmv2TaskItems.id,
         taskItemTitle: pmv2TaskItems.titleSnapshot,
+        executionRole: pmv2ExecutionActor.role,
       })
       .from(pmv2ItemActions)
       .innerJoin(pmv2TaskItems, eq(pmv2TaskItems.id, pmv2ItemActions.taskItemId))
       .innerJoin(pmv2Tasks, eq(pmv2Tasks.id, pmv2TaskItems.taskId))
       .innerJoin(
-        pmv2TeamMembers,
-        and(
-          eq(pmv2TeamMembers.teamId, pmv2Tasks.teamId),
-          eq(pmv2TeamMembers.userId, userId),
-          eq(pmv2TeamMembers.isActive, 1),
-        ),
+        pmv2ExecutionActor, pmv2ExecutionActorCondition(userId),
       )
       .where(and(
+        pmv2ExecutionTeamCondition(userId, pmv2Tasks.teamId),
         eq(pmv2ItemActions.action, MATERIAL_ROUTE_DECISION_ACTION),
         eq(pmv2TaskItems.status, "waiting_material"),
         eq(pmv2TaskItems.result, "needs_material"),
@@ -153,6 +152,7 @@ export class Pmv2TechnicianMaterialAttentionService {
       .orderBy(desc(pmv2ItemActions.id));
 
     if (!routeRows.length) return { count: 0, actionableCount: 0, items: [] };
+    const allTeams = canRoleExecuteAllPmv2Teams(observerReadActorRole(userId, routeRows[0].executionRole));
 
     const taskItemIds = [...new Set(routeRows.map((row) => Number(row.taskItemId)))];
     const identityRows = await db
@@ -202,7 +202,7 @@ export class Pmv2TechnicianMaterialAttentionService {
     const readyQueue = await pmv2TeamIssueHandoffService.listReadyToIssueQueue();
     const readyByRouteAction = new Map(
       readyQueue
-        .filter((item: any) => item.technicians?.some((technician: any) => Number(technician.id) === userId))
+        .filter((item: any) => allTeams || item.technicians?.some((technician: any) => Number(technician.id) === userId))
         .map((item: any) => [Number(item.routeDecisionActionId), item]),
     );
 
@@ -233,7 +233,7 @@ export class Pmv2TechnicianMaterialAttentionService {
 
       const request = requestItemId ? requestById.get(Number(requestItemId)) ?? null : null;
       const ownerUserId = request ? Number(request.requestedById) : Number(row.performedById);
-      if (ownerUserId !== userId) continue;
+      if (!allTeams && ownerUserId !== userId) continue;
 
       const ready = readyByRouteAction.get(actionId) ?? null;
       const requestStatus = request ? String(request.status) : null;
@@ -244,7 +244,7 @@ export class Pmv2TechnicianMaterialAttentionService {
 
       let attentionStatus: "waiting_identity" | "waiting_warehouse" | "waiting_purchase" | "waiting_transfer" | "ready_to_receive" | "ready_blocked";
       if (ready) {
-        attentionStatus = ready.canIssue ? "ready_to_receive" : "ready_blocked";
+        attentionStatus = ready.canIssue || (allTeams && ready.canIssueToAuthorizedExecutor) ? "ready_to_receive" : "ready_blocked";
       } else if (snapshot.catalogItemId == null) {
         attentionStatus = "waiting_identity";
       } else if (requestStatus === "external_purchase") {
@@ -287,8 +287,8 @@ export class Pmv2TechnicianMaterialAttentionService {
         warehouseReceivedQuantity,
         warehouseIssuedToTeamQuantity,
         requestStatus,
-        canReceive: Boolean(ready?.canIssue),
-        blocker: ready?.blocker || null,
+        canReceive: Boolean(ready?.canIssue || (allTeams && ready?.canIssueToAuthorizedExecutor)),
+        blocker: allTeams && ready?.canIssueToAuthorizedExecutor ? null : ready?.blocker || null,
       });
     }
 

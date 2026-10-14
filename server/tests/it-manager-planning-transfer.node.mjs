@@ -6,7 +6,12 @@ const read = (path) => fs.readFileSync(new URL(`../../${path}`, import.meta.url)
 
 const router = read("server/routers/tickets/tickets.router.ts");
 const workflow = read("server/routers/tickets/tickets.workflow.ts");
+const teamRouter = read("server/routers/tickets/it-team.router.ts");
+const teamService = read("server/routers/tickets/it-team.service.ts");
+const purchaseWorkflow = read("server/routers/purchase/ticket-purchase-workflow.ts");
+const purchaseRouter = read("server/routers/purchase/purchase-orders.router.ts");
 const detail = read("client/src/pages/tickets/TicketDetail.tsx");
+const teamPanel = read("client/src/pages/tickets/ItTeamPanel.tsx");
 
 function block(source, start, end) {
   const from = source.indexOf(start);
@@ -16,63 +21,80 @@ function block(source, start, end) {
   return source.slice(from, to);
 }
 
-test("IT ticket creation stops at department planning and does not auto-create a task/sub-ticket", () => {
+test("direct IT creation enters an unclaimed shared department queue", () => {
   const helper = block(router, "async function createDirectItPlanningTicket", "async function recordDirectItRouting");
   assert.match(helper, /status:\s*"department_planning"/);
   assert.match(helper, /department:\s*MAINTENANCE_RESPONSIBLE_DEPARTMENT\.IT/);
-  assert.match(helper, /status:\s*"planning"/);
+  assert.match(helper, /assignedToId:\s*null/);
+  assert.doesNotMatch(helper, /claimedById:/);
   assert.doesNotMatch(helper, /createTicketTask/);
-  assert.doesNotMatch(helper, /workflowModel:\s*"sub_ticket"/);
-  assert.doesNotMatch(helper, /allocateNextSubTicketSequence/);
 });
 
-test("new IT notification points to the parent planning ticket", () => {
+test("ticket arrival notifies the active IT manager and active IT members through the single explicit opt-in", () => {
+  assert.match(teamService, /getUsersByRole\(APP_ROLE\.IT_MANAGER\)/);
+  assert.match(teamService, /getUsersByRole\(APP_ROLE\.IT_MEMBER\)/);
+  assert.match(teamService, /user\.isActive !== 0/);
+  assert.match(teamService, /for \(const user of recipients\.values\(\)\)/);
+  assert.match(teamService, /userId:\s*user\.id/);
+  assert.match(teamService, /allowItManager:\s*true/);
   const recorder = block(router, "async function recordDirectItRouting", "export const ticketsRouter");
-  assert.match(recorder, /title:\s*"بلاغ تقنية معلومات جديد"/);
-  assert.match(recorder, /relatedTicketId:\s*args\.parentId/);
-  assert.match(recorder, /allowItManager:\s*true/);
-  assert.doesNotMatch(recorder, /childTicket/);
+  assert.match(recorder, /notifyItTeamArrival\(args\.parentId, args\.ticketNumber\)/);
 });
 
-test("IT manager creates multiple tasks without technician triage; each task auto-assigns to the IT manager", () => {
+test("first claim wins atomically and becomes the operational assignee", () => {
+  const claim = block(teamRouter, "claimItTicket:", "handoverItTicket:");
+  assert.match(claim, /lockTicketForSubTicketSequence/);
+  assert.match(claim, /lockTicketDepartmentForTaskSequence/);
+  assert.match(claim, /isNull\(ticketDepartments\.claimedById\)/);
+  assert.match(claim, /affectedRows !== 1/);
+  assert.match(claim, /assignedToId:\s*ctx\.user\.id/);
+  assert.match(claim, /syncSingleTicketItem/);
+});
+
+test("IT tasks can be assigned to exactly one active team member without assignment notification", () => {
   const createTask = block(workflow, "createDepartmentTask:", "assignDepartmentTask:");
-  assert.match(createTask, /isItDepartment/);
-  assert.match(createTask, /status:\s*isItDepartment\s*\?\s*"assigned"\s*:\s*"pending_assignment"/);
-  assert.match(createTask, /replaceTicketTaskAssignees\(Number\(createdTaskId\), \[department\.responsibleManagerId\]/);
-  assert.match(createTask, /autoAssignedToId/);
-
+  assert.match(createTask, /freshDepartment\.claimedById/);
+  assert.match(createTask, /autoAssignedToItTeamMember/);
   const assignTask = block(workflow, "assignDepartmentTask:", "promoteDepartmentTask:");
-  assert.match(assignTask, /department\.department === MAINTENANCE_RESPONSIBLE_DEPARTMENT\.IT/);
-  assert.match(assignTask, /تُسند تلقائيًا إلى مدير تقنية المعلومات/);
+  assert.match(assignTask, /input\.technicianIds\.length !== 1/);
+  assert.match(assignTask, /assertActiveItUser/);
+  assert.match(assignTask, /department\.department !== MAINTENANCE_RESPONSIBLE_DEPARTMENT\.IT/);
 });
 
-test("IT task promotion still creates the normal executable child for A/B/C", () => {
+test("assigned manager or member executes the normal child A/B/C workflow and self-approves inspection", () => {
   const promote = block(workflow, "promoteDepartmentTask:", "تصحيح بلاغ صُنّف IT بالخطأ");
+  assert.match(promote, /isItTeamRole\(ctx\.user\.role\)/);
   assert.match(promote, /workflowModel:\s*"sub_ticket"/);
-  assert.match(promote, /status:\s*"under_inspection"/);
   assert.match(promote, /inspectionWorkflowStatus:\s*MAINTENANCE_INSPECTION_WORKFLOW_STATUS\.PENDING_SUBMISSION/);
+  assert.match(workflow, /shouldAutoApproveRecordedInspection/);
+  assert.match(detail, /isItTeamRole\(role\)/);
+  assert.match(teamPanel, /t\.workflow\.ticket\.startTaskCreateSubTicket/);
 });
 
-test("IT manager may transfer a planning ticket to general maintenance/construction only with justification", () => {
-  const transfer = block(workflow, "transferItTicket:", "triageTicket:");
-  assert.match(transfer, /justification:\s*z\.string\(\)\.trim\(\)\.min\(5/);
-  assert.match(transfer, /ctx\.user\.role !== APP_ROLE\.IT_MANAGER/);
-  assert.match(transfer, /ticket\.maintenanceResponsibleDepartment !== MAINTENANCE_RESPONSIBLE_DEPARTMENT\.IT/);
-  assert.match(transfer, /ticket\.maintenanceResponsibleManagerId !== ctx\.user\.id/);
-  assert.match(transfer, /task\.convertedTicketId/);
-  assert.match(transfer, /updateTicketDepartment\(itDepartment\.id/);
-  assert.match(transfer, /replaceTicketTaskAssignees\(task\.id, \[\]/);
-  assert.match(transfer, /action:\s*"transfer_it_ticket_department"/);
-  assert.match(transfer, /title:\s*"بلاغ محول من تقنية المعلومات"/);
+test("member raises a purchase need while only the responsible manager creates the formal order", () => {
+  assert.match(purchaseWorkflow, /user\.role === APP_ROLE\.IT_MEMBER/);
+  assert.match(purchaseWorkflow, /ارفع احتياج الشراء إلى مدير تقنية المعلومات/);
+  const submit = block(teamRouter, "submitItPurchaseNeed:", "returnItPurchaseNeed:");
+  assert.match(submit, /ctx\.user\.role !== APP_ROLE\.IT_MEMBER/);
+  assert.match(submit, /maintenancePath !== "B"/);
+  assert.match(submit, /itPurchaseNeeds/);
+  const create = block(purchaseRouter, "create: protectedProcedure", "delete: protectedProcedure");
+  assert.match(create, /itPurchaseNeedId/);
+  assert.match(create, /ctx\.user\.role !== APP_ROLE\.IT_MANAGER/);
+  assert.match(create, /status:\s*"ordered"/);
+  assert.match(teamPanel, /t\.workflow\.ticket\.submitNeedToItManager/);
+  assert.match(teamPanel, /t\.workflow\.ticket\.createOfficialPo/);
 });
 
-test("IT UI exposes task creation/self-execution and transfer with a required reason, without technician picker for IT", () => {
-  assert.match(detail, /dept\.department === MAINTENANCE_RESPONSIBLE_DEPARTMENT\.IT[\s\S]*role === APP_ROLE\.IT_MANAGER/);
-  assert.match(detail, /المهمة مسندة تلقائيًا إلى مدير تقنية المعلومات/);
-  assert.match(detail, /لا توجد خطوة فرز أو اختيار فني لمهام IT/);
-  assert.match(detail, /بدء تنفيذ المهمة/);
-  assert.match(detail, /تحويل إلى الصيانة \/ الإنشاءات/);
-  assert.match(detail, /سبب التحويل \*/);
-  assert.match(detail, /itTransferJustification\.trim\(\)\.length < 5/);
-  assert.match(detail, /trpc\.tickets\.transferItTicket\.useMutation/);
+test("maintenance and construction managers can reroute an untouched maintenance ticket to the IT queue", () => {
+  const transfer = block(teamRouter, "routeGeneralTicketToIt:", "itPurchaseNeeds:");
+  assert.match(transfer, /GENERAL_MAINTENANCE_MANAGER/);
+  assert.match(transfer, /CONSTRUCTION_PROCUREMENT_MANAGER/);
+  assert.match(transfer, /DEPT\.GENERAL, DEPT\.CONSTRUCTION/);
+  assert.match(transfer, /!\["pending_triage", "department_planning", "under_inspection"\]\.includes/);
+  assert.match(transfer, /purchase_orders/);
+  assert.match(transfer, /department:\s*DEPT\.IT/);
+  assert.match(transfer, /claimedById:\s*null/);
+  assert.match(transfer, /notifyItTeamArrival/);
+  assert.match(teamPanel, /APP_ROLE\.CONSTRUCTION_PROCUREMENT_MANAGER/);
 });

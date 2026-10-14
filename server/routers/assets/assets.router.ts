@@ -3,7 +3,8 @@ import { z } from "zod";
 import { router, protectedProcedure, managerProcedure } from "../_shared/procedures";
 import { translateFields, detectLanguage, type SupportedLanguage } from "../../services/translation/translation";
 import { storageRename } from "../../_core/storage";
-import { translationCache } from "../../services/translation/translationEngine";
+import { queueTranslation, translationCache } from "../../services/translation/translationEngine";
+import { localizeNamedRecords } from "../../services/translation/localizedMasterData";
 import * as db from "../../_core/db";
 
 export const assetsRouter = router({
@@ -12,14 +13,16 @@ export const assetsRouter = router({
     sectionId: z.number().optional(),
     status: z.string().optional(),
     search: z.string().optional(),
-  }).optional()).query(async ({ input }) => {
-    return db.listAssets(input ?? {});
+  }).optional()).query(async ({ input, ctx }) => {
+    const rows = await db.listAssets(input ?? {});
+    return localizeNamedRecords("ASSET", rows as any[], (ctx.user.preferredLanguage || "ar") as any);
   }),
 
-  getById: protectedProcedure.input(z.object({ id: z.number() })).query(async ({ input }) => {
+  getById: protectedProcedure.input(z.object({ id: z.number() })).query(async ({ input, ctx }) => {
     const asset = await db.getAssetById(input.id);
     if (!asset) throw new TRPCError({ code: "NOT_FOUND", message: "الأصل غير موجود" });
-    return asset;
+    const [localized] = await localizeNamedRecords("ASSET", [asset as any], (ctx.user.preferredLanguage || "ar") as any);
+    return localized;
   }),
 
   create: managerProcedure.input(z.object({
@@ -76,6 +79,11 @@ export const assetsRouter = router({
       status: input.status ?? "active",
       createdById: ctx.user.id,
     });
+    if (result?.id && input.name?.trim()) {
+      const sourceLanguage = await detectLanguage(input.name);
+      void queueTranslation({ entityType: "ASSET", entityId: result.id, fields: [{ fieldName: "name", text: input.name.trim() }], sourceLanguage, userId: ctx.user.id })
+        .catch((error) => console.error("[ASSET] name translation queue failed:", error));
+    }
     // ── إعادة تسمية صورة الأصل بقيمة RFID إذا توفر كلاهما ──────────────
     if (result && input.rfidTag && input.photoUrl) {
       try {
@@ -117,7 +125,7 @@ export const assetsRouter = router({
     notes: z.string().optional(),
     rfidTag: z.string().optional(),
     categoryId: z.number().optional(),
-  })).mutation(async ({ input }) => {
+  })).mutation(async ({ input, ctx }) => {
     const { id, ...data } = input;
     // Auto-translate updated text fields to all 3 languages
     let assetTranslation: Record<string, any> = {};
@@ -191,6 +199,11 @@ const updateResult = await db.updateAsset(id, {
 if (Object.keys(assetTranslation).length > 0) {
   translationCache.invalidate("ASSET", id);
 }
+if (data.name?.trim()) {
+  const sourceLanguage = await detectLanguage(data.name);
+  void queueTranslation({ entityType: "ASSET", entityId: id, fields: [{ fieldName: "name", text: data.name.trim() }], sourceLanguage, userId: ctx.user.id })
+    .catch((error) => console.error("[ASSET] name re-translation queue failed:", error));
+}
 
 return updateResult;
   }),
@@ -201,10 +214,11 @@ return updateResult;
 
   getByRfid: protectedProcedure.input(z.object({
     rfidTag: z.string().min(1),
-  })).query(async ({ input }) => {
+  })).query(async ({ input, ctx }) => {
     const asset = await db.getAssetByRfidTag(input.rfidTag);
     if (!asset) throw new TRPCError({ code: "NOT_FOUND", message: "الأصل بهذا الـ RFID غير موجود" });
-    return asset;
+    const [localized] = await localizeNamedRecords("ASSET", [asset as any], (ctx.user.preferredLanguage || "ar") as any);
+    return localized;
   }),
 
   updateRfid: managerProcedure.input(z.object({

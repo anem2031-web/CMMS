@@ -1,0 +1,72 @@
+[
+  {
+    "file": "shared/roles.ts",
+    "backup": "C:\\Users\\mh\\Desktop\\CMMSFINAL\\tools\\observer\\artifacts\\before\\shared__roles.ts.before",
+    "hash": "2D2D337974CED93559E4B013D6D212B3C64ABD8ACCD7E696A99BC5365FCBC65F"
+  },
+  {
+    "file": "shared/types.ts",
+    "backup": "C:\\Users\\mh\\Desktop\\CMMSFINAL\\tools\\observer\\artifacts\\before\\shared__types.ts.before",
+    "hash": "7D896B673CFA5EF3E99E1188FB82415670429C2A5D1AC24EAF0F17C79D304C30"
+  },
+  {
+    "file": "drizzle/schema.ts",
+    "backup": "C:\\Users\\mh\\Desktop\\CMMSFINAL\\tools\\observer\\artifacts\\before\\drizzle__schema.ts.before",
+    "hash": "D7485E2CD33BB3650CFD4AA5C0189B781E9BE8C3AF284577BDF4C28D0CFD8ACB"
+  },
+  {
+    "file": "server/_core/trpc.ts",
+    "backup": "C:\\Users\\mh\\Desktop\\CMMSFINAL\\tools\\observer\\artifacts\\before\\server___core__trpc.ts.before",
+    "hash": "604293DDC10DDBF47067A3BFD6AE2DA4F8B82189622474BE7E916B6F6F14FE49"
+  },
+  {
+    "file": "server/_core/index.ts",
+    "backup": "C:\\Users\\mh\\Desktop\\CMMSFINAL\\tools\\observer\\artifacts\\before\\server___core__index.ts.before",
+    "hash": "A22206AE35AA6796E1DC274D129842E5A30A9048733B5B6DED3F3CCB6CD2A847"
+  },
+  {
+    "file": "server/routers/index.ts",
+    "backup": "C:\\Users\\mh\\Desktop\\CMMSFINAL\\tools\\observer\\artifacts\\before\\server__routers__index.ts.before",
+    "hash": "E1EC9FC082D969981C3689C1F8874A38CBEC14C32531DF145AB3A134EEE6B23C"
+  },
+  {
+    "file": "client/src/App.tsx",
+    "backup": "C:\\Users\\mh\\Desktop\\CMMSFINAL\\tools\\observer\\artifacts\\before\\client__src__App.tsx.before",
+    "hash": "EC58105B7B1CBA70D84D0F51817C3E33DE3943F5857256586F6142C958D7E6CE"
+  },
+  {
+    "file": "client/src/components/layout/DashboardLayout.tsx",
+    "backup": "C:\\Users\\mh\\Desktop\\CMMSFINAL\\tools\\observer\\artifacts\\before\\client__src__components__layout__DashboardLayout.tsx.before",
+    "hash": "25C9DBCD465D6834FE2FA6BA0A928E0F8479FC43DD4DEF93B130B060C39BD237"
+  },
+  {
+    "file": "client/src/hooks/usePushNotifications.ts",
+    "backup": "C:\\Users\\mh\\Desktop\\CMMSFINAL\\tools\\observer\\artifacts\\before\\client__src__hooks__usePushNotifications.ts.before",
+    "hash": "F4903AD39A8777118FB54300433CD6A6B8A8527C5129F39DCC5EEA39BAD3065A"
+  },
+  {
+    "file": "client/src/components/system/AppUpdateBanner.tsx",
+    "backup": "C:\\Users\\mh\\Desktop\\CMMSFINAL\\tools\\observer\\artifacts\\before\\client__src__components__system__AppUpdateBanner.tsx.before",
+    "hash": "8BF67DF107B9EB01A386B0C29AFFA7A9D4F239B5B3B6EF5CFD138DB916668A31"
+  },
+  {
+    "file": "client/src/pages/admin/Users.tsx",
+    "backup": "C:\\Users\\mh\\Desktop\\CMMSFINAL\\tools\\observer\\artifacts\\before\\client__src__pages__admin__Users.tsx.before",
+    "hash": "B8CCF166D237495CD5552E0C83105C96780E640838DDA77B64DDF5F64C09DB6E"
+  },
+  {
+    "file": "client/src/i18n/ar.ts",
+    "backup": "C:\\Users\\mh\\Desktop\\CMMSFINAL\\tools\\observer\\artifacts\\before\\client__src__i18n__ar.ts.before",
+    "hash": "C8356B72A514FD2CE96DDDF0A99C968EB45762E92C3BE5ECC7C558677699EA89"
+  },
+  {
+    "file": "client/src/i18n/en.ts",
+    "backup": "C:\\Users\\mh\\Desktop\\CMMSFINAL\\tools\\observer\\artifacts\\before\\client__src__i18n__en.ts.before",
+    "hash": "F0FE5CEAB8753BB1D8A1D89FF1C1F0A6AA9A099D2870BB979DE8FC2CB3840F61"
+  },
+  {
+    "file": "client/src/i18n/ur.ts",
+    "backup": "C:\\Users\\mh\\Desktop\\CMMSFINAL\\tools\\observer\\artifacts\\before\\client__src__i18n__ur.ts.before",
+    "hash": "54ECB85D8764BD45F49E4C7F995EA74BFCA919AF99141C16D53D385F8A923547"
+  }
+]

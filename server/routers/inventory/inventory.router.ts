@@ -7,6 +7,7 @@ import { isInventoryLotsEnabled, resolveInventoryLotForIssue } from "../../_core
 import { catalogSuppliers, inventory, inventoryLotBalances, inventoryLots, warehouseReceipts } from "../../../drizzle/schema";
 import { and, desc, eq, gt, or, sql } from "drizzle-orm";
 import { issueCostAllocationsSchema } from "./issue-cost-allocation.schema";
+import { isItTeamRole, MAINTENANCE_RESPONSIBLE_DEPARTMENT } from "@shared/roles";
 
 export const inventoryRouter = router({
   list: inventoryReadProcedure.query(async () => {
@@ -349,14 +350,19 @@ export const inventoryRouter = router({
         throw new TRPCError({ code: "BAD_REQUEST", message: "صنف المخزون غير مرتبط ببند طلب الشراء المحدد" });
       }
 
-      const recipient = await db.getUserById(input.deliveredToId);
-      if (!recipient || (recipient as any).isActive === 0 || recipient.role !== "technician") {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "يجب اختيار فني مستلم فعلي نشط" });
-      }
-
       const po = await db.getPurchaseOrderById(input.purchaseOrderId);
       if (!po) throw new TRPCError({ code: "NOT_FOUND", message: "طلب الشراء غير موجود" });
       const ticket = po.ticketId ? await db.getTicketById(po.ticketId) : null;
+
+      const recipient = await db.getUserById(input.deliveredToId);
+      const isAllowedItRecipient =
+        !!recipient &&
+        isItTeamRole((recipient as any).role) &&
+        ticket?.maintenancePath === "B" &&
+        ticket?.maintenanceResponsibleDepartment === MAINTENANCE_RESPONSIBLE_DEPARTMENT.IT;
+      if (!recipient || (recipient as any).isActive === 0 || (recipient.role !== "technician" && !isAllowedItRecipient)) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "يجب اختيار فني مستلم فعلي نشط" });
+      }
       if (ticket?.maintenancePath === "B" && !ticket.assignedToId) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "لا يوجد فني مسند للبلاغ المرتبط" });
       }

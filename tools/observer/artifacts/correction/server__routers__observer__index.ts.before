@@ -1,0 +1,26 @@
+import { z } from "zod";
+import { router, protectedProcedure } from "../_shared/procedures";
+import { ObserverReadService } from "../../services/observer/read-service";
+import { assertObserverReader } from "../../_core/authz/observer-guard";
+export function createObserverRouter(
+  read: () => ObserverReadService = () => new ObserverReadService()
+) {
+  return router({
+    readPage: protectedProcedure
+      .input(
+        z
+          .object({
+            path: z.string().min(1).max(250),
+            dataset: z.number().int().min(0).max(20).default(0),
+            page: z.number().int().min(1).max(100000).default(1),
+            search: z.string().trim().max(100).default(""),
+          })
+          .strict()
+      )
+      .query(({ input, ctx }) => {
+        assertObserverReader(ctx.user);
+        return read().read(ctx.user, input);
+      }),
+  });
+}
+export const observerRouter = createObserverRouter();

@@ -63,7 +63,7 @@ export default function Sections() {
 
   const openEdit = (section: any) => {
     setSelectedSection(section);
-    setEditForm({ name: section.name, description: section.description || "", isActive: section.isActive });
+    setEditForm({ name: section.sourceName || section.name, description: section.description || "", isActive: section.isActive });
     setEditOpen(true);
   };
 

@@ -267,6 +267,27 @@
     - **Current stop: 5.4.3 is OFFICIALLY CLOSED after Runtime UI verification (`53/53` PASS, zero exceptions) and owner confirmation that the PDF user-guide download button works. Do not start 5.4.4 automatically.**
     - References: `docs/CMMS_PHASE5_STEP4_INVENTORY_RECONCILIATION_APPROVED_SCOPE_2026-08-23.md` and `docs/CMMS_PHASE5_STEP4_1_INVENTORY_INTEGRITY_RULES_CLOSURE_2026-08-23.md`.
 
+21. **بلاغات تقنية المعلومات تعمل بطابور فريق مشترك مع فصل التنفيذ عن الشراء (2026-10-04).**
+    - `it_manager` و`it_member` يريان بلاغات جهة IT، وأول عضو ينفذ `claimItTicket` يصبح المسؤول التشغيلي. حجز الرأس والجهة والتحديث الشرطي على `claimedById IS NULL` متطلبات ذرية لا تُفصل.
+    - التنفيذ والفحص والإغلاق والمواد/الأصل يتبع العضو المسند إليه البلاغ أو المهمة تحديدًا. عضو الفريق يعتمد فحصه ويغلق عمله بنفس مسار مدير IT الحالي.
+    - `it_manager` وحده ينشئ طلب الشراء الرسمي. `it_member` يرفع سجلًا في `it_purchase_needs` والمدير يراجعه أو يعيده أو يحوله ذريًا إلى طلب شراء.
+    - إشعار فريق IT الوحيد هو دخول بلاغ جديد إلى طابور الفريق، سواء جاء من التصنيف أو الفرز/التحويل. لا تضف إشعارات إسناد أو شراء أو مستودع أو إغلاق لفريق IT.
+    - مدير IT يبقى `responsibleManagerId` للرقابة والشراء حتى عندما يكون `claimedById` أو منفذ المهمة عضوًا آخر. لا تستبدل أحد الحقلين بالآخر.
+
+22. **سياق طلب الشراء أصبح Site → Section → optional Asset + Purchase Category ديناميكيًا (2026-10-04).**
+    - إنشاء/حفظ مسودة طلب شراء جديد يتطلب `siteId` و`sectionId`; `assetId` اختياري، والخادم يجب أن يتحقق دائمًا أن القسم تابع للموقع وأن الأصل — إن وُجد — تابع للقسم والموقع. لا تعتمد على فلترة الواجهة وحدها.
+    - تغيير الموقع في الواجهة يجب أن يمسح القسم والأصل، وتغيير القسم يجب أن يمسح الأصل، حتى لا يبقى معرّف قديم لا ينتمي للسياق الجديد.
+    - `center_categories` هو Master Data المركزي المشترك بين طلبات الشراء والبلاغات الجديدة. `purchase_orders.categoryId` و`tickets.categoryId` يرتبطان به بـ`ON DELETE RESTRICT`. عمود `tickets.category` القديم يبقى مؤقتًا كما هو للتاريخ/التوافق ولا تُرحّل قيمه آليًا في هذه المرحلة. `systemKey='it'` محجوز لمسار تقنية المعلومات في الصيانة فقط؛ طلبات الشراء تتعامل معه كتصنيف عادي.
+    - الطلب المرتبط ببلاغ يستطيع وراثة الموقع/القسم والأصل عند غيابها للحفاظ على مسار IT المباشر، لكن `assetId: null` الصريح يعني “بدون أصل” ولا يجوز استبداله تلقائيًا بأصل البلاغ.
+    - `purchase_orders.siteId/sectionId` قديمان ومستخدمان في تقارير/توزيع تكلفة لاحق؛ لا تنشئ حقول موقع/قسم موازية لطلب الشراء.
+
+
+24. **لوحة متابعة المالك/الأدمن (2026-10-13) تفصل البلاغات عن التنفيذ والتكلفة المستلمة عن تكلفة الصيانة.**
+    - مصدرها `shared/dashboard-overview.ts` عبر `dashboard.overview/details`: الرئيسي التنظيمي لا يضاف إلى تنفيذ الفرعيات؛ `closed` و`requester_confirmed` منجزان، ووقت الإنجاز `closedAt`.
+    - «قيمة المشتريات المستلمة» تجمع `actualTotalCost` للأصناف المستلمة فقط، بلا تقديرات أو ازدواج شراء/صرف؛ تفاصيلها من نفس القواعد. لا تحولها إلى تكلفة تنفيذ الصيانة، فهذا مؤجل.
+    - وقت الانتظار عند المدير لا يساوي عمر التذكرة؛ افصل الجهات الأخرى والمسؤولية المتعددة، ولا تخمن تاريخ انتقال غير مسجل. الوقائي وPMV2 خارج هذه اللوحة.
+    - القراءة فقط من الجداول القائمة؛ لا تعديل ورك فلو أو بيانات لإصلاح العداد. راجع `docs/dashboard/IMPLEMENTATION_REPORT_AR.md` قبل تغيير قواعدها.
+    - تفاصيل البطاقات تعيد استخدام نتيجة قراءة قصيرة عبر `server/services/dashboard/snapshots.ts`، مرتبطة بالحساب والدور الفعلي والفلاتر؛ افحص الصلاحيات قبل إعادة الاستخدام دائمًا. التحديث يقرأ المصدر مجددًا، ولا يسمح معرف النتيجة بتجاوز الحارس. راجع `docs/dashboard/DETAILS_LOADING_FIX_AR.md`.
 
 ## 📂 أين أجد التفاصيل الكاملة
 
@@ -340,3 +361,10 @@
 - No deliberate Live DB exception was introduced to test a failing row; this is an accepted limit because data must not be corrupted for UAT.
 - **5.4.3 = IMPLEMENTED / TARGETED CHECKS PASSED / RUNTIME UI VERIFICATION PASSED / OFFICIALLY CLOSED.**
 - **Exact current stop: after 5.4.3 closure and before 5.4.4 Runtime UAT & Closure. Do not start 5.4.4 automatically.**
+
+23. **IT Manager notifications + persisted localized Master Data display (2026-10-05, superseded/extended later the same day).**
+    - `notifications.eventKey='it_ticket_arrival'` is the explicit IT Manager inbox event. Do not broaden the IT Manager notification inbox to generic system notifications; ticket-arrival cards must target the specific `/tickets/:id` when `relatedTicketId` exists.
+    - `/notifications` is an allowed route for both IT team roles. Removing it from `canRoleAccessPath` makes the client route guard silently redirect the notification-center click back to `/tickets`.
+    - Dynamic localization is display-only. Never overwrite canonical Site/Section/Asset/Center Category/Asset Category/User names merely because a translated label was shown. Admin edit screens must use the canonical/source value (`sourceName` where provided).
+    - `entity_translations` is the shared persisted translation source for Site/Section/Asset/Center Category/Asset Category/User display names. Existing `sites.nameEn/nameUr` and `sections.nameEn/nameUr` remain compatibility/seed values only; on first localized read they may be copied into `entity_translations`, not treated as a second source of truth.
+    - Missing master-name translations are generated through the external translation engine in batches, stored once in `entity_translations`, and reused. User display names must be transliterated, not semantically translated. Language changes refetch display data rather than mutate source records.

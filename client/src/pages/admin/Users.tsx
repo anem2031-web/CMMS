@@ -17,6 +17,7 @@ import { useTranslation } from "@/contexts/LanguageContext";
 import { useStaticLabels } from "@/hooks/useContentTranslation";
 
 const ROLE_COLORS: Record<string, string> = {
+  observer: "bg-slate-100 text-slate-700",
   admin: "bg-red-100 text-red-700",
   owner: "bg-purple-100 text-purple-700",
   maintenance_manager: "bg-blue-100 text-blue-700",
@@ -179,7 +180,7 @@ export default function UsersPage() {
 
   const openEdit = (u: any) => {
     setSelectedUser(u);
-    setEditForm({ name: u.name || "", email: u.email || "", role: u.role, phone: u.phone || "", department: u.department || "" });
+    setEditForm({ name: u.sourceName || u.name || "", email: u.email || "", role: u.role, phone: u.phone || "", department: u.department || "" });
     setEditOpen(true);
   };
 

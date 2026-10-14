@@ -1,0 +1,17 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "baseUrl": "../..",
+    "paths": { "@/*": ["client/src/*"], "@shared/*": ["shared/*"] }
+  },
+  "exclude": [],
+  "include": [
+    "../../shared/maintenance-team-tickets/**/*.ts",
+    "../../server/maintenance-team-tickets/team-management/**/*.ts",
+    "../../server/maintenance-team-tickets/assignment/**/*.ts",
+    "../../server/routers/maintenance-teams/**/*.ts",
+    "../../server/maintenance-team-tickets/testing/team-management.node.tsx",
+    "../../server/maintenance-team-tickets/testing/assignment.node.tsx",
+    "../../client/src/features/maintenance-team-tickets/TeamsManagementView.tsx"
+  ]
+}

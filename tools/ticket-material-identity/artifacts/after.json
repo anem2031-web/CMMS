@@ -1,0 +1,38 @@
+[
+  {
+    "file": "client/src/pages/pmv2/Pmv2WarehouseQueue.tsx",
+    "sha256": "d50cd3e8a8057154c16d4b6650d6b5fa3d979241a6dd91e72551296afd5dfdde"
+  },
+  {
+    "file": "client/src/pages/maintenance-teams/ExecutionPanel.tsx",
+    "sha256": "3262591afd51d8f8f91d3d43da6276856746ffa4c2f30d76581b54c458cfb320"
+  },
+  {
+    "file": "server/routers/maintenance-teams/execution.router.ts",
+    "sha256": "1c85a528b526903e59a1b7757806533ea236a6909dd316601901d6fff9dbe86d"
+  },
+  {
+    "file": "server/maintenance-team-tickets/service.ts",
+    "sha256": "09361c956e79f708fb4a1b544da61eb4b6c652bca80e2dd34aabadee457f56ab"
+  },
+  {
+    "file": "client/src/pages/maintenance-teams/TicketWarehouseMaterialCard.tsx",
+    "sha256": "c7116bfd3bfdec5d8e9c3a0a21e58f0c34a8eaee30805d410c5a970fcd753f29"
+  },
+  {
+    "file": "shared/catalog-material-identity.ts",
+    "sha256": "97aefbbd709617767b1e196c586b3ac711f3731eea4bf9a025ae9dacc4bc4a05"
+  },
+  {
+    "file": "client/src/components/catalog/MaterialIdentityDialog.tsx",
+    "sha256": "e6dfac6753d56a32735f1b6543b7da1a3778003303d11f197f71e735ba198faa"
+  },
+  {
+    "file": "client/src/pages/maintenance-teams/TicketMaterialIdentityResolver.tsx",
+    "sha256": "74ebe168b9d86759b46999e2a6bc36274e282066ee5debb8d4adb783a80a2b06"
+  },
+  {
+    "file": "server/maintenance-team-tickets/material-identity-reader.ts",
+    "sha256": "ed6c49bf45b7b05f93b34d8d45eb7cd29bb52f18b29bddcff2915512c458793d"
+  }
+]

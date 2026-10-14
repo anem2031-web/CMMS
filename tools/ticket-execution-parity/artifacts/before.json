@@ -1,0 +1,30 @@
+[
+  {
+    "file": "server/maintenance-team-tickets/service.ts",
+    "backup": "C:\\Users\\mh\\Desktop\\CMMSFINAL\\tools\\ticket-execution-parity\\artifacts\\server__maintenance-team-tickets__service.ts.before"
+  },
+  {
+    "file": "server/routers/maintenance-teams/execution.router.ts",
+    "backup": "C:\\Users\\mh\\Desktop\\CMMSFINAL\\tools\\ticket-execution-parity\\artifacts\\server__routers__maintenance-teams__execution.router.ts.before"
+  },
+  {
+    "file": "server/routers/maintenance-teams/assignment.repository.ts",
+    "backup": "C:\\Users\\mh\\Desktop\\CMMSFINAL\\tools\\ticket-execution-parity\\artifacts\\server__routers__maintenance-teams__assignment.repository.ts.before"
+  },
+  {
+    "file": "client/src/pages/maintenance-teams/ExecutionPanel.tsx",
+    "backup": "C:\\Users\\mh\\Desktop\\CMMSFINAL\\tools\\ticket-execution-parity\\artifacts\\client__src__pages__maintenance-teams__ExecutionPanel.tsx.before"
+  },
+  {
+    "file": "client/src/pages/maintenance-teams/AssignedMaintenanceTickets.tsx",
+    "backup": "C:\\Users\\mh\\Desktop\\CMMSFINAL\\tools\\ticket-execution-parity\\artifacts\\client__src__pages__maintenance-teams__AssignedMaintenanceTickets.tsx.before"
+  },
+  {
+    "file": "client/src/pages/maintenance-teams/TicketMaterialNeedPanel.tsx",
+    "backup": "C:\\Users\\mh\\Desktop\\CMMSFINAL\\tools\\ticket-execution-parity\\artifacts\\client__src__pages__maintenance-teams__TicketMaterialNeedPanel.tsx.before"
+  },
+  {
+    "file": "shared/maintenance-team-tickets/assignment.ts",
+    "backup": "C:\\Users\\mh\\Desktop\\CMMSFINAL\\tools\\ticket-execution-parity\\artifacts\\shared__maintenance-team-tickets__assignment.ts.before"
+  }
+]

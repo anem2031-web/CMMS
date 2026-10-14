@@ -1,0 +1,285 @@
+import { getTableColumns, getTableName, sql, type SQL } from "drizzle-orm";
+import { TRPCError } from "@trpc/server";
+import * as schema from "../../../drizzle/schema";
+import {
+  OBSERVER_PAGES,
+  findObserverPage,
+} from "../../../shared/observer-pages";
+import {
+  observerFieldAllowed,
+  redactObserverValue,
+} from "../../../shared/observer-policy";
+import { assertObserverReader } from "../../_core/authz/observer-guard";
+
+type Column = { key: string; name: string; text: boolean };
+export type ObserverSource = { table: string; columns: Column[] };
+export type ObserverReadInput = {
+  path: string;
+  dataset: number;
+  page: number;
+  search: string;
+};
+export type ObserverExecutor = (query: SQL) => Promise<any>;
+const rawSources: Record<string, string[]> = {
+  maintenance_teams: [
+    "id",
+    "name",
+    "warehouseId",
+    "isActive",
+    "createdById",
+    "updatedById",
+    "createdAt",
+    "updatedAt",
+  ],
+  maintenance_team_members: [
+    "id",
+    "teamId",
+    "userId",
+    "isActive",
+    "joinedAt",
+    "leftAt",
+    "updatedById",
+  ],
+  ticket_team_assignments: [
+    "id",
+    "ticketId",
+    "ticketItemId",
+    "ticketNumber",
+    "titleSnapshot",
+    "teamId",
+    "warehouseId",
+    "responsibleManagerId",
+    "siteId",
+    "sectionId",
+    "assetId",
+    "stage",
+    "outcome",
+    "revision",
+    "materialRound",
+    "assignedById",
+    "createdAt",
+    "updatedAt",
+  ],
+  ticket_team_material_needs: [
+    "id",
+    "assignmentId",
+    "materialRound",
+    "catalogItemId",
+    "itemNameSnapshot",
+    "originalItemName",
+    "unitSnapshot",
+    "requestedQuantity",
+    "usedQuantity",
+    "requestedById",
+    "warehouseId",
+    "createdAt",
+  ],
+  ticket_team_actions: [
+    "id",
+    "assignmentId",
+    "actorId",
+    "kind",
+    "note",
+    "revision",
+    "createdAt",
+  ],
+  ticket_team_supply_links: [
+    "id",
+    "needId",
+    "sourceKind",
+    "sourceId",
+    "sourceNumber",
+    "linkedQuantity",
+    "status",
+    "createdAt",
+  ],
+  ticket_team_delivery_links: [
+    "id",
+    "needId",
+    "deliveryDocumentId",
+    "deliveryNumber",
+    "lotId",
+    "inventoryTransactionId",
+    "issuedQuantity",
+    "usedQuantity",
+    "returnedQuantity",
+    "receivedById",
+    "createdAt",
+  ],
+  ticket_team_return_links: [
+    "id",
+    "deliveryLinkId",
+    "sourceDeliveryDocumentId",
+    "warehouseReturnId",
+    "returnNumber",
+    "quantity",
+    "actorId",
+    "createdAt",
+  ],
+};
+function identifier(value: string): SQL {
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(value))
+    throw new Error("Invalid static observer identifier");
+  return sql.raw(`\`${value}\``);
+}
+export function observerSources(): Record<string, ObserverSource> {
+  const sources: Record<string, ObserverSource> = {};
+  for (const key of Array.from(
+    new Set(OBSERVER_PAGES.flatMap(p => p.datasets.map(d => d.source)))
+  )) {
+    if (rawSources[key])
+      sources[key] = {
+        table: key,
+        columns: rawSources[key].map(name => ({
+          key: name,
+          name,
+          text: /name|note|number|stage|outcome|kind|status/i.test(name),
+        })),
+      };
+    else {
+      const table = (schema as any)[key];
+      if (!table) throw new Error(`Missing observer source: ${key}`);
+      const columns = Object.entries(getTableColumns(table))
+        .filter(
+          ([name]) =>
+            observerFieldAllowed(name) &&
+            !(key === "backups" && /fileurl/i.test(name))
+        )
+        .map(([name, value]) => ({
+          key: name,
+          name: (value as any).name as string,
+          text: ["string", "json"].includes((value as any).dataType),
+        }));
+      sources[key] = { table: getTableName(table), columns };
+    }
+  }
+  return sources;
+}
+async function applicationRead(query: SQL) {
+  const { getDb } = await import("../../_core/db/client");
+  const db = await getDb();
+  if (!db)
+    throw new TRPCError({
+      code: "INTERNAL_SERVER_ERROR",
+      message: "تعذر فتح بيانات القراءة",
+    });
+  return db.execute(query);
+}
+export class ObserverReadService {
+  constructor(
+    private execute: ObserverExecutor = applicationRead,
+    private sources: Record<string, ObserverSource> = observerSources()
+  ) {}
+  async read(
+    user: { role: string; isActive?: number } | null,
+    input: ObserverReadInput
+  ) {
+    assertObserverReader(user);
+    if (
+      !Number.isInteger(input.dataset) ||
+      input.dataset < 0 ||
+      !Number.isInteger(input.page) ||
+      input.page < 1 ||
+      input.page > 100000 ||
+      typeof input.search !== "string" ||
+      input.search.length > 100 ||
+      typeof input.path !== "string" ||
+      input.path.length > 250
+    )
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: "مدخلات عرض المراقب غير صالحة",
+      });
+    const selection = findObserverPage(input.path);
+    if (!selection)
+      throw new TRPCError({
+        code: "NOT_FOUND",
+        message: "الصفحة غير موجودة في عرض المراقب",
+      });
+    const { page, parameter } = selection;
+    const dataset = page.datasets[input.dataset];
+    if (!dataset)
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: "قسم البيانات غير صالح",
+      });
+    const source = this.sources[dataset.source];
+    if (!source?.columns.length)
+      throw new TRPCError({
+        code: "INTERNAL_SERVER_ERROR",
+        message: "تعذر تحديد حقول القراءة",
+      });
+    const conditions: SQL[] = [];
+    if (parameter !== undefined) {
+      let filter = dataset.filter;
+      if (!filter) {
+        const candidates: Record<string, string[]> = {
+          tickets: ["ticketId"],
+          purchaseOrders: ["purchaseOrderId"],
+          purchasePackages: ["packageId", "purchasePackageId"],
+          assets: ["assetId"],
+          constructionProjects: ["projectId"],
+        };
+        filter = (candidates[page.datasets[0].source] ?? []).find(name =>
+          source.columns.some(c => c.key === name)
+        );
+      }
+      const column = source.columns.find(c => c.key === filter);
+      if (!column)
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "الربط التفصيلي لهذا القسم غير متاح",
+        });
+      conditions.push(sql`${identifier(column.name)} = ${parameter}`);
+    }
+    if (input.search) {
+      const searchable = source.columns.filter(c => c.text).slice(0, 12);
+      if (searchable.length)
+        conditions.push(
+          sql`(${sql.join(
+            searchable.map(
+              c => sql`${identifier(c.name)} LIKE ${`%${input.search}%`}`
+            ),
+            sql` OR `
+          )})`
+        );
+      else
+        conditions.push(
+          sql`${identifier(source.columns[0].name)} = ${input.search}`
+        );
+    }
+    const where = conditions.length
+      ? sql` WHERE ${sql.join(conditions, sql` AND `)}`
+      : sql``;
+    const columns = sql.join(
+      source.columns.map(
+        c => sql`${identifier(c.name)} AS ${identifier(c.key)}`
+      ),
+      sql`, `
+    );
+    const order = source.columns.find(c => c.key === "id") ?? source.columns[0];
+    let count: any, data: any;
+    try {
+      count = await this.execute(
+        sql`SELECT COUNT(*) AS total FROM ${identifier(source.table)}${where}`
+      );
+      data = await this.execute(
+        sql`SELECT ${columns} FROM ${identifier(source.table)}${where} ORDER BY ${identifier(order.name)} DESC LIMIT ${25} OFFSET ${(input.page - 1) * 25}`
+      );
+    } catch {
+      throw new TRPCError({
+        code: "INTERNAL_SERVER_ERROR",
+        message: "تعذر عرض بيانات هذا القسم؛ راجع المسؤول",
+      });
+    }
+    return {
+      title: page.title,
+      sources: page.datasets.map(d => d.source),
+      columns: source.columns.map(c => c.key),
+      total: Number(count[0]?.[0]?.total ?? 0),
+      page: input.page,
+      pageSize: 25,
+      rows: redactObserverValue(data[0]) as Record<string, unknown>[],
+    };
+  }
+}

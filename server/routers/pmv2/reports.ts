@@ -2,11 +2,16 @@ import { z } from "zod";
 import { router } from "../_shared/procedures";
 import { pmv2ManagementProcedure } from "../../pmv2/security/procedures";
 import { pmv2DailyReportService } from "../../pmv2/reports/daily-report-service";
+import { localizeMasterDataReferences } from "../../services/translation/localizedMasterData";
+import type { SupportedLanguage } from "../../services/translation/translation";
 
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 
 export const pmv2ReportsRouter = router({
-  filters: pmv2ManagementProcedure.query(() => pmv2DailyReportService.listFilters()),
+  filters: pmv2ManagementProcedure.query(async ({ ctx }) => localizeMasterDataReferences(
+    await pmv2DailyReportService.listFilters(),
+    (ctx.user.preferredLanguage || "ar") as SupportedLanguage,
+  )),
 
   daily: pmv2ManagementProcedure
     .input(z.object({
@@ -14,7 +19,10 @@ export const pmv2ReportsRouter = router({
       teamId: z.number().int().positive().optional(),
       technicianUserId: z.number().int().positive().optional(),
     }))
-    .query(({ input }) => pmv2DailyReportService.getDailyReport(input)),
+    .query(async ({ input, ctx }) => localizeMasterDataReferences(
+      await pmv2DailyReportService.getDailyReport(input),
+      (ctx.user.preferredLanguage || "ar") as SupportedLanguage,
+    )),
 
   markReviewed: pmv2ManagementProcedure
     .input(z.object({

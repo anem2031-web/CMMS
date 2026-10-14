@@ -10,9 +10,11 @@ export * from "./roles";
 // Shared types and constants for CMMS
 
 export const ROLE_LABELS: Record<string, string> = {
+  observer: "المراقب",
   operator: "موظف تشغيل",
   technician: "فني صيانة",
   it_manager: "مدير تقنية المعلومات",
+  it_member: "عضو فريق تقنية المعلومات",
   maintenance_manager: "مدير صيانة",
   general_maintenance_manager: "مدير الصيانة العامة والتشغيل",
   construction_procurement_manager: "مدير الإنشاءات والمشتريات",
@@ -116,6 +118,7 @@ export const STATUS_COLORS: Record<string, string> = {
 export const ROLE_PERMISSIONS: Record<string, string[]> = {
   operator: ["create_ticket", "view_own_tickets"],
   it_manager: ["create_ticket", "view_assigned_tickets"],
+  it_member: ["create_ticket", "view_assigned_tickets"],
   technician: ["view_assigned_tickets", "update_ticket_repair", "use_inventory"],
   maintenance_manager: ["view_all_tickets", "approve_ticket", "assign_ticket", "create_purchase_order", "close_ticket"],
   general_maintenance_manager: ["view_all_tickets", "approve_ticket", "assign_ticket", "create_purchase_order", "close_ticket"],

@@ -1,0 +1,26 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "strict": true,
+    "jsx": "react-jsx",
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "types": ["node", "vite/client"]
+  },
+  "exclude": [
+    "../../server/maintenance-team-tickets/testing/team-management.node.tsx",
+    "../../server/maintenance-team-tickets/testing/assignment.node.tsx"
+  ],
+  "include": [
+    "../../shared/maintenance-team-tickets/**/*.ts",
+    "../../server/maintenance-team-tickets/**/*.ts",
+    "../../server/maintenance-team-tickets/**/*.tsx",
+    "../../client/src/features/maintenance-team-tickets/**/*.tsx",
+    "../../client/src/features/maintenance-team-tickets/**/*.ts",
+    "./vite.config.ts"
+  ]
+}

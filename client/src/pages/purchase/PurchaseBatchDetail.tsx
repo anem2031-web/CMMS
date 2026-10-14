@@ -16,6 +16,8 @@ import { useStaticLabels, useBatchTranslation, useEntityTranslation, getLocalize
 import { useTranslation } from "@/contexts/LanguageContext";
 import { localizeApiError } from "@/i18n/apiError";
 import { getLocalizedCatalogUnitName } from "@/i18n/catalogMasterData";
+import { formatAvailableDuration, formatDateOnly, getAvailableCalendarDays } from "@/lib/purchaseItemTiming";
+import { formatPurchaseSubmissionTime } from "@shared/purchaseSubmissionTime";
 
 // ============================================================
 // [PB-P2] صفحة تفاصيل حزمة الشراء — المندوب والحسابات (2026-08-30/31)
@@ -517,7 +519,7 @@ export default function PurchaseBatchDetail() {
                       <CalendarDays className="w-5 h-5 text-muted-foreground shrink-0" />
                       <div>
                         <div className="text-[11px] text-muted-foreground">{t.workflow.purchase.requestDate}</div>
-                        <div className="text-sm font-semibold">{new Date(po.createdAt).toLocaleDateString(locale)}</div>
+                        <div className="text-sm font-semibold">{formatPurchaseSubmissionTime(po, locale)}</div>
                       </div>
                     </div>
                     <div className="border rounded-xl p-3 min-h-[78px] flex items-center gap-3">
@@ -547,6 +549,7 @@ export default function PurchaseBatchDetail() {
                       const delegate = (users as any[]).find((u: any) => u.id === item.delegateId);
                       const itemBelongsToMe = isMyItem(item);
                       const isCancelled = item.status === "cancelled" || item.status === "purchase_cancelled";
+                      const availableDays = getAvailableCalendarDays(item.requiredDate, item.delegateAssignedAt);
 
                       return (
                         <div
@@ -571,6 +574,9 @@ export default function PurchaseBatchDetail() {
                               <div className="flex gap-x-4 gap-y-1 flex-wrap text-xs text-muted-foreground mt-2">
                                 <span>{t.workflow.purchase.quantityLabel} <strong>{item.quantity} {displayUnit(item.unit)}</strong></span>
                                 {delegate && <span>{t.workflow.purchase.delegateLabelColon} <strong>{delegate.name || delegate.username}</strong></span>}
+                                {item.requiredDate && <span>{t.purchaseOrders.requiredDate}: <strong>{formatDateOnly(item.requiredDate, locale)}</strong></span>}
+                                {item.delegateAssignedAt && <span>{t.purchaseOrders.delegateAssignedDate}: <strong>{formatDateOnly(item.delegateAssignedAt, locale)}</strong></span>}
+                                {availableDays != null && <span className={availableDays < 0 ? "text-red-600" : ""}>{t.purchaseOrders.availableDuration}: <strong>{formatAvailableDuration(availableDays, language)}</strong></span>}
                               </div>
                             </div>
                           </div>
@@ -1176,6 +1182,7 @@ function PackageSubmissions({
                     {(b.items ?? []).length > 0 && (
                       <div className="space-y-1.5 pt-1">
                         {(b.items ?? []).map((item: any) => {
+                          const availableDays = getAvailableCalendarDays(item.requiredDate, item.delegateAssignedAt);
                           const canRejectAccountingItem = isAccountant &&
                             b.status === "pending_accounting" &&
                             !["rejected", "cancelled"].includes(item.status);
@@ -1201,6 +1208,13 @@ function PackageSubmissions({
                                     {item.quantity} {displayUnit(item.unit)}
                                     {item.estimatedTotalCost ? ` · ${Number(item.estimatedTotalCost).toLocaleString(locale)} ${currency}` : ""}
                                   </div>
+                                  {(item.requiredDate || item.delegateAssignedAt) && (
+                                    <div className="text-[11px] text-muted-foreground mt-1 flex flex-wrap gap-x-3 gap-y-0.5">
+                                      {item.requiredDate && <span>{t.purchaseOrders.requiredDate}: {formatDateOnly(item.requiredDate, locale)}</span>}
+                                      {item.delegateAssignedAt && <span>{t.purchaseOrders.delegateAssignedDate}: {formatDateOnly(item.delegateAssignedAt, locale)}</span>}
+                                      {availableDays != null && <span className={availableDays < 0 ? "text-red-600" : ""}>{t.purchaseOrders.availableDuration}: {formatAvailableDuration(availableDays, language)}</span>}
+                                    </div>
+                                  )}
                                 </div>
                                 {isMarkedForManagementRejection ? (
                                   <Button

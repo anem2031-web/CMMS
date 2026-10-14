@@ -4982,3 +4982,321 @@ owner/admin، توافق رجعي بلا `reviewedById`) وحُدِّث اختب
 - The four existing single-issue screens remain unchanged by explicit product decision.
 - **Status: WIS CLOSED / PASS.** PM V2 Phase 4 remains IN PROGRESS; next focus is Unlisted/non-Catalog material resolution.
 - Reference: `docs/pmv2/PHASE4_WIS_MULTI_ISSUE_CLOSURE_2026-09-22.md`.
+
+## 2026-10-04 — IT shared team queue, self execution, and manager controlled purchasing
+
+- **Files:** `shared/roles.ts`, `shared/itTeamWorkflow.ts`, `drizzle/schema.ts`, `scripts/migrate-it-team.mjs`, ticket/access/workflow routers, purchase and warehouse handoff routers, ticket UI, role translations, and targeted tests.
+- **Problem:** IT tickets were tied directly to the single IT manager, while actual work could be completed by any available manager or assistant and reported outside the system. General maintenance also lacked a safe program path to return an untouched general ticket to IT. Giving every assistant the manager role would incorrectly grant formal purchasing authority.
+- **Solution:** added the separate `it_member` role and an unclaimed IT department queue. Direct classification, multi department triage, and eligible general to IT transfers all create an unclaimed queue entry and send the one allowed arrival notification to every active IT manager/member.
+- **Atomic claim:** `claimItTicket` locks the parent and department and updates only when `claimedById IS NULL`; the winner becomes the ticket/item operational assignee. The manager can hand over queue ownership while task assignees remain explicit.
+- **Execution:** the claimant can create tasks, and each IT task can be assigned to exactly one active manager/member. The assigned member uses the existing A/B/C inspection, self approval, repair, closure, material receipt, external asset handover, and PM V2 technician execution paths.
+- **Purchase authority:** members cannot create a formal ticket linked purchase order. They submit `it_purchase_needs`; the responsible `it_manager` reviews editable items, returns the need with a reason, or atomically creates the formal purchase order and marks the need `ordered`. Active IT linked orders are serialized under the ticket lock.
+- **Notification policy:** IT manager/member notifications are default denied. The only explicit opt in is `notifyItTeamArrival`; task assignment, scheduled maintenance, purchase, warehouse, and completion do not create IT team notifications.
+- **Compatibility:** the existing `it_manager` role and account remain unchanged. Migration `it-team-v1` adds `it_member`, claim columns, and `it_purchase_needs`, then backfills existing IT department tickets to their historical manager so old ownership is preserved. New tickets remain unclaimed.
+- **Deletion safety:** ticket deletion removes `it_purchase_needs` before `ticket_items` to satisfy the new restrictive foreign keys.
+- **Verification:** IT workflow source contract tests passed 13/13; server router imports passed with validation only environment values; IT access runtime assertions passed; client production build passed. The repository wide TypeScript check still reports the same pre existing project errors, with no errors in the new IT team modules.
+
+## 2026-10-04 — Purchase Order Site/Section/Asset context + dynamic Purchase Categories
+
+- **Files:** `drizzle/schema.ts`, `drizzle/2026_10_04_purchase_order_location_categories.sql`, `server/_core/db/purchase.ts`, `server/routers/purchase/purchase-orders.router.ts`, `server/routers/purchase/purchase-categories.router.ts`, `server/routers/index.ts`, `client/src/pages/purchase/CreatePurchaseOrder.tsx`, `client/src/pages/purchase/PurchaseOrderDetail.tsx`, `client/src/pages/purchase/PurchaseCategories.tsx`, `client/src/components/layout/DashboardLayout.tsx`, `client/src/App.tsx`, and AR/EN/UR translations.
+- **Requirement:** Purchase Orders must capture the same operational location hierarchy used by maintenance tickets: required **Site → Section**, with optional **Asset** filtered by the selected Section. Purchase categories must no longer be hard-coded maintenance-ticket categories; they are an independent, administrator-managed master list exposed in the sidebar and used as a Purchase Order dropdown.
+- **Existing schema preserved:** `purchase_orders.siteId` and `purchase_orders.sectionId` already existed and are reused. New nullable `assetId` and `categoryId` columns were added so historical orders remain valid without backfill.
+- **Hierarchy behavior:** changing Site clears Section + Asset; changing Section clears Asset. The server independently validates that the Section belongs to the Site and, when present, the Asset belongs to both the selected Section and Site. This is not a UI-only constraint.
+- **Ticket-linked compatibility:** ticket-linked Purchase Orders may inherit missing Site/Section and an omitted Asset from the linked ticket so the IT-manager direct purchase path remains compatible. An explicitly submitted `assetId: null` is treated as “no asset” and is not overwritten by ticket inheritance.
+- **Dynamic categories:** new `purchase_categories` master table stores name + active state. The `/purchase-categories` page supports create, rename, enable/disable and delete. Only active categories are offered on a new Purchase Order; an existing draft may continue displaying its previously selected inactive category.
+- **Deletion integrity:** `purchase_orders.categoryId → purchase_categories.id` is a new `ON DELETE RESTRICT` foreign key. The API also checks usage before delete and converts a concurrent FK rejection into a clear “disable instead” message. This constraint applies only to this new relationship and does not alter deferred broad legacy FK hardening.
+- **Purchase creation safety preserved:** both `create` and `saveDraft` still create the Purchase Order header + items inside the existing `db.withTransaction(...)` atomic transaction; the new context is persisted as part of the same header insert.
+- **UI:** Purchase Order create/edit now contains Site, Section, Asset and Category selectors; Purchase Order details display the stored context. Sidebar Management places **التصنيفات / Purchase Categories** directly under Asset Management.
+- **Migration status:** migration file is included but was **not applied to any live database** in the packaging environment. It must be applied before deploying code that reads/writes `assetId`, `categoryId` or `purchase_categories`.
+- **Verification:** targeted source-contract test `server/tests/purchaseOrderLocationCategories.node.mjs` = **6/6 PASS**; changed TypeScript/TSX files pass TypeScript `transpileModule` syntax checks. Full repository typecheck/build could not be executed because the uploaded package contains incomplete `node_modules` and the environment could not download the declared pnpm version. Existing `pmv2-patch121-atomic-purchase-create.node.mjs` has two source-contract failures on the uploaded baseline itself; the same two failures reproduce without this change and are not claimed as regressions from this feature.
+
+
+## 2026-10-04 — Center Categories for Purchase Orders + New Maintenance Tickets
+
+- Promoted the purchase-only `purchase_categories` master to shared `center_categories`; existing category rows are preserved by table rename.
+- Added nullable `tickets.categoryId` linked to `center_categories.id` with `ON DELETE RESTRICT`. **No historical ticket row is updated by this migration**; existing `tickets.category` ENUM values remain untouched.
+- New maintenance-ticket creation now reads categories from Center Categories. The legacy `tickets.category` column is written only as a compatibility shadow (`it` for the protected IT system category, `general` for ordinary Center Categories) until historical migration is explicitly scheduled later.
+- Preserved IT routing behavior: new tickets detect IT by immutable `center_categories.systemKey = 'it'`; legacy tickets continue to be recognized by `tickets.category = 'it'`. The IT category cannot be disabled or deleted from the category-management API, but its display name may be changed.
+- Purchase orders and maintenance tickets now share the same category-management page/API. The sidebar route is `/center-categories`; `/purchase-categories` remains as a compatibility route and the old tRPC namespace remains as a compatibility alias.
+- Ticket list/detail responses expose `centerCategoryName` when `categoryId` exists, while UIs fall back to the legacy translated ENUM label when `categoryId` is NULL.
+- Incremental migration: `drizzle/2026_10_04_center_categories_ticket_transition.sql`. It assumes the earlier purchase-category migration has already been applied.
+
+## 2026-10-05 — IT notification isolation + localized maintenance workflow/master-data display
+
+- **Scope:** IT notification inbox/navigation, IT ticket workflow labels, and language-aware display of Sites, Sections, Assets, Center Categories, Asset Categories and user display names across maintenance, purchase, reports, NFC and primary PM V2 read surfaces.
+- **IT notifications:** added nullable `notifications.eventKey` and the system event `it_ticket_arrival`. The IT Manager notification list/count/read-all endpoints are restricted to that event, while the existing first-claim IT queue can still notify active IT team members on ticket arrival. Generic notifications are not admitted to the IT Manager inbox. Notification cards with `relatedTicketId` now navigate directly to `/tickets/:id`.
+- **Ticket i18n:** removed hard-coded Arabic from `ItTeamPanel`; handover/return-to-team, assignment, task execution/sub-ticket actions and IT purchase-need labels now use the existing AR/EN/UR i18n dictionaries. Existing `TicketDetail` task numbering continues through `workflow.ticket.task`.
+- **Dynamic master data:** existing `entity_translations` is reused for Asset, Center Category, Asset Category and User display-name translations; Site/Section continue to use their existing direct `nameEn/nameUr` columns. Canonical source names are not rewritten. Responses expose `sourceName` where admin edit screens need the original value, preventing a translated label from being saved back as the canonical name.
+- **Language switching:** changing the persisted user language invalidates/refetches active master/domain queries so translated display labels update without changing stored source data.
+- **Historical safety:** migration `drizzle/2026_10_05_it_notification_event_key.sql` is additive only. It adds a nullable column and index; it performs no historical notification/ticket/master-data UPDATE or DELETE.
+- **Verification:** targeted source-contract tests for Center Categories, Purchase Order context, IT planning/phase-3, and the new IT notification/master-localization layer pass 33/33. Modified TS/TSX sources pass `transpileModule` syntax validation. Repository-wide `tsc --noEmit` is not claimed because the uploaded dependency tree is incomplete (`node` and `vite/client` type definitions are missing).
+
+
+## 2026-10-05 — Fix IT notification-center redirect + persisted central Master Data translations
+
+- **Files:** `shared/roles.ts`, `server/services/translation/translationEngine.ts`, `server/services/translation/localizedMasterData.ts`, `server/routers/sites/sites.router.ts`, `server/routers/sections/sections.router.ts`, `server/routers/assets/nfc.router.ts`, `server/routers/reports/reports.router.ts`, `server/routers/reports/maintenance-reports.router.ts`, and targeted tests.
+- **Notification-center root cause:** the Sidebar correctly navigated to `/notifications`, but `canRoleAccessPath()` denied that route for both IT team roles. `DashboardLayout` therefore immediately redirected the user to its fallback `/tickets`. `/notifications` is now explicitly allowed for `it_manager` and `it_member`. The Notifications page still opens `/tickets/:id` only after the user clicks a notification card carrying `relatedTicketId`.
+- **Central persisted translation behavior:** Site, Section, Asset, Center Category, Asset Category and User display names now resolve through `entity_translations`. A completed/approved stored value is reused; only a missing target-language name is sent to the external translation engine. Missing names are translated in batches (up to 30 labels per request) and the result is stored as `completed`, including translation-version history.
+- **User-name rule:** `USER.name` uses transliteration into the target writing system rather than semantic translation. Other master-data names use professional CMMS label translation while preserving codes/acronyms/model-style identifiers.
+- **Sites/Sections compatibility:** the existing `nameEn/nameUr` columns are retained unchanged. If a persisted central translation is missing, those legacy values are imported into `entity_translations` on first read, avoiding a paid/external retranslation. New/edited Sites and Sections continue their existing translation step and also persist the resulting AR/EN/UR names centrally.
+- **Canonical-data safety:** localized responses still expose `sourceName`; no canonical Site/Section/Asset/Category/User name is overwritten by a display translation. No historical business row is migrated or rewritten.
+- **Cache correctness:** scheduling a retranslation now invalidates the in-memory translation cache for the changed field so an old label cannot survive for the previous 30-minute cache TTL after a name edit.
+- **Database impact:** no new schema change or migration is required for this follow-up; it reuses the already-existing `entity_translations`/`translation_versions` tables and the previously-applied `notifications.eventKey` column.
+- **Verification:** targeted IT/Center Category/Purchase Order source-contract suite = 33/33 PASS; dedicated notification/localization contract = 7/7 PASS; direct runtime assertions confirm both IT roles can access `/notifications` while `it_member` remains denied Purchase Orders; all changed TS/TSX sources pass `transpileModule` syntax validation. Repository-wide `tsc --noEmit` remains blocked by the uploaded package missing `node` and `vite/client` type definitions.
+
+## 2026-10-10 — Center Categories: remove deletion from the management page
+
+- Removed the Delete button, delete mutation hook, icon and unused AR/EN/UR delete messages from `client/src/pages/purchase/PurchaseCategories.tsx`, which serves `/center-categories` and its compatibility route. Activation/deactivation and name editing remain available; protected system-category restrictions are unchanged.
+- Scope is UI only. No server deletion endpoint, database table, data or migration was changed; no database connection or live application startup was performed. The modified page passes TypeScript syntax validation.
+
+## 2026-10-10 — Explicit team save, expandable rows and atomic membership editing
+
+### Follow-up — restore the application's visual identity
+
+- Removed preview-only CSS import and `mtt-app` wrapper from the production MaintenanceTeams page. TeamsManagementView now uses the existing application theme tokens, typography, spacing, borders, field/control dimensions and light/dark colors rather than the independent preview palette. Team save/edit/add/disable behavior and all server code are unchanged.
+- Added an explicit Tailwind source entry for TeamsManagementView in `client/src/index.css`; no existing theme values or CSS rules were changed. The isolated preview loads the application's stylesheet and Tailwind compiler for visual verification without starting the main app or connecting to a database.
+- Validation: management suite **31/31 PASS**, independent typecheck PASS, preview build **41 modules PASS**, and browser mock inspection confirms application-style cards and edit controls with cancellation intact. Live DB testing remains owner-operated.
+
+- Maintenance-team management now creates a local draft containing name, existing branch warehouse and selected existing technicians. Only Save submits it. Teams display as expandable rows; details expose linked technicians, Edit team, Add technicians and enable/disable controls. Cancel discards the draft.
+- Added a protected `maintenanceTeams.save` mutation. Team profile and all membership changes commit with audit in one transaction. Existing single-membership endpoints remain compatible but are no longer used by the production management view. Create now accepts optional selected members and saves them with the new team atomically.
+- Save locks the parent team and reads current memberships with row locks. An expected snapshot prevents stale name/warehouse/status/membership drafts from overwriting concurrent edits. Open executions protect the final valid technician and prohibit warehouse changes; a valid technician replacement can be saved as one group. No new schema or database command is needed.
+- Scope: shared team-management contracts; team-management service; its router/repository; TeamsManagementView, page wrapper and scoped CSS; targeted tests and explicit preview memory adapter. Ticket triage/name assignment, PMV2, inventory and purchase workflow code are unchanged.
+- Verification: isolated suite **55/55 PASS**, management suite **31/31 PASS**, independent typecheck PASS and preview build **40 modules PASS**. Browser mock verifies create/cancel/edit/save and disable/reactivate. Integration typecheck reports 267 existing dependency diagnostics and none in team-layer files; full repository typecheck/live TiDB behavior are not claimed as verified. No database connection, live query, migration or main-server startup was performed.
+- Report and owner acceptance steps: `docs/maintenance-team-tickets/TEAM_CARDS_SAVE_AR.md`.
+
+## 2026-10-08 — Maintenance-ticket team management integration only
+
+- Added `/maintenance-teams` under Assets and an independent `maintenanceTeams` tRPC namespace for listing/creating ticket maintenance teams, linking existing active technicians, and enabling/disabling teams. Existing active branch warehouses are reused; no users or warehouses are created and no PMV2 task is fabricated.
+- Added shared management contracts, an injected domain service, a lazy SQL repository, protected router factory, a pure localized view, and its authenticated application wrapper. Only the new team/membership tables and existing audit log are written by this API. Open execution protection reads the new assignment table.
+- Server authentication supplies the audit actor. Team row locks serialize membership changes; open executions prevent team deactivation and removal of the final valid technician. Audit writes share the mutation transaction. Existing application tables and PMV2/inventory/purchase/ticket workflow services were not modified.
+- Existing-file changes are limited to App route registration, Sidebar link, three nav translations, scoped role-path guard, router registration, and this log. Earlier owner edits were preserved; tracked-file SHA256 comparison identifies only these eight changed files relative to the start of this integration step.
+- Database tables were created manually by the owner and checked from supplied local CSVs. The agent made no database connection, query, migration, or live application startup. No additional DDL is required for this CRUD step. Runtime SQL tests use an explicitly injected fake executor, never the default application provider.
+- Verification: existing isolated suite **55/55 PASS**; new management/API/SQL/view suite **18/18 PASS**; independent domain typecheck and independent preview build (**37 modules**) pass. Browser preview confirms create/link/disable/reactivate with memory-only data. Repository-wide typecheck remains unsuccessful (**662 diagnostics**, including existing schema/SDK definitions and target configuration); none occur in the new CRUD integration files or seven runtime registration files. Actual MySQL execution and root application build are not claimed as verified.
+- Ticket triage by team, technician production execution, and actual materials/stock integration remain pending separate approval. Detailed scope, affected files, limitations, and owner acceptance steps: `docs/maintenance-team-tickets/TEAM_MANAGEMENT_INTEGRATION_AR.md`.
+
+## 2026-10-10 — Maintenance-ticket team assignment and assignment queue
+
+- Added a By name / By maintenance team selector at the existing general-maintenance department task distribution point. The existing name editor and server name assignment/promotion procedures are unchanged. Tasks already distributed by name cannot switch to the team branch.
+- Added independent `ticketTeamAssignments` contracts/service/router/lazy SQL adapter. The team branch reuses the current ticket/sub-ticket sequence and ticket/item creation helpers in one transaction, then creates `ticket_team_assignments`, promotes the organizational task, and writes status history and audit in that same transaction. No primary named technician, copied task assignees, fabricated PMV2 task, or new schema is introduced.
+- Parent/department/task locks use the current promotion ordering; a team parent lock serializes against team management. Active branch warehouse, active technician membership, responsible manager scope, task/ticket/department ownership, cancelled tasks, closed parents, duplicate and concurrent requests are checked. Failures, including audit failures, roll back the entire operation.
+- Added `/maintenance-team-tickets` and the Maintenance Tickets sidebar window. Technician reads require current active team membership; general-maintenance manager reads use responsible-manager scope. The latest 200 assignments are shown, with title, ticket number, team, warehouse, location and description. This is an assignment-only window; technician outcomes, material gateways and review are pending the next separately approved stage. Legacy execution isolation on team tickets is required before activating those outcomes.
+- Runtime registration/UI edits: TicketDetail wrapper, App, DashboardLayout, shared path guard, three nav translations, explicit Tailwind sources, team router registration and root namespace registration. PMV2, purchase, inventory, original ticket workflow router implementations and schema were not edited. Earlier working-tree changes remain intact.
+- Verification: **15/15 assignment tests**, **31/31 team-management tests**, **55/55 independent domain/isolation/view tests** pass (**101 total**). Independent typecheck and isolated preview build pass; production wrappers/TicketDetail/App syntax checks pass. Full/integration typechecks remain blocked by existing project diagnostics, with none reported in the new assignment files. A separate direct esbuild UI-bundle attempt failed on filesystem directory access and is not claimed as passed. No main application runtime or live TiDB test was run.
+- Agent performed no database connection, SQL execution, migration or main server startup. No new DDL is needed; the adapter uses the tables previously created manually by the owner. Runtime UAT remains with the owner. Report and practical acceptance steps: `docs/maintenance-team-tickets/TEAM_ASSIGNMENT_INTEGRATION_AR.md`.
+
+## 2026-10-10 — Fix duplicate maintenance team assignment router registration
+
+- Removed duplicate imports and the duplicate ticketTeamAssignmentsRouter declaration in server/routers/maintenance-teams/index.ts in both CMMSFINAL and the owner's CMMSFINAL - Copy (2) checkout. The copied file was verified to differ only by the reviewed duplicates before correction.
+- Kept one registration of each router. No behavior, workflow, schema or improvement-center feature changes.
+- Verification: esbuild transform passed independently for both corrected files, including the Copy (2) tsx-bundled esbuild; checked that imports are unique and ticketTeamAssignmentsRouter has exactly one exported declaration. No application startup, database connection, query or migration was performed. Full application startup remains for the owner to verify.
+
+## 2026-10-10 — Improvement center execution references and actual cost tracking
+
+- Owner explicitly authorized implementation. Work is in CMMSFINAL only; Copy (2) was not updated with this feature. No database connection/query/migration or main server startup was performed.
+- New ideas require description, expected benefit, site and section, with an optional asset validated against that hierarchy. Existing v3 objectives, classification, study, plan, management decisions, role boundaries and notification policies remain. Study author/asset names are joined for display, and senior-management approval lists wait for completed studies on newly tracked ideas.
+- Added executionTrackingVersion (manual additive DDL, default 0); create sets 1 only for new ideas. Historical study/approval/manual-cost/closure rules remain on version 0. Prior v3 DDL presence must be confirmed by the owner before deploying the new code; provided an owner-only column inspection script and conditional one-column DDL. No historical backfill.
+- fromIdeaId creation locks the approved idea and creates the ticket/default item or PO/header/items together with the source link and audit in one transaction. Browser post-create linking was removed. Original by-name/team, B, IT, PMV2, purchasing approvals and inventory writers remain in their established branches. Source reference traverses ticket ancestors for B POs and is visible on document pages, with existing document read guards.
+- Added isolated SQL execution reader and pure financial aggregation. Actual PO-item values, valued stock issues/returns and recorded maintenance control totals are reconciled without counting purchase plus issue twice; lot source fallback and transaction-ID dedup handle inherited sources/document joins. Missing/invalid values mark partial totals and prevent closing. Organizational parent totals are excluded as duplicate control totals. No financial posting, valuation or estimated-cost fallback is introduced.
+- New idea completion requires terminal linked documents, complete cost data and mandatory result evaluation; stored actual amount is computed by the server and finalized with audit inside the same transaction. New linked source documents/ideas cannot be deleted and direct linked PO draft location cannot drift. Ordinary/legacy document behavior is retained. Financial detail queries load on demand; senior-management summary respects existing PO visibility stages.
+- Verification: 22 pure/injected-SQL tests + 11 fully mocked controller tests + 19 existing static contract checks pass (52 total). Scoped typecheck and esbuild syntax transform for 14 runtime source files pass. Whole-project typecheck remains unsuccessful with 660 diagnostics in the current working tree; no full-build/runtime-success claim. Tests do not import the root application or real DB/auth/storage boundaries.
+- Owner report with before/after comparison, file risks, manual SQL sequence, financial limits and operational acceptance steps: docs/improvement-center/IMPLEMENTATION_REPORT_AR.md. Actual procurement/service costs must be present in original records; no invented missing cost or automatic supplier refund is claimed. Live follow-up totals can change after source corrections; closure amount remains stored in the idea. Pending unrelated inventory/numbering work remains deferred.
+
+
+## 2026-10-10 — Ticket-team technician execution integration
+
+- Owner explicitly authorized the next phase after assignment UAT. Changes are in CMMSFINAL only; Copy (2) was not updated. No live database query, migration, or main-server startup was performed. Existing nine manually created team tables are reused; no new DDL.
+- Added a lazy SQL execution adapter, strict authenticated router and a production UI panel with five initial technician outcomes. Materials use real catalog and current issueDelivery, warehouse transfer and recipient-return writers, keeping original lots, actual recipient and cost allocations. Procurement header/item/source links and operation/audit records share the outer transaction. Transfer/return and external handover writers accept an optional existing transaction while preserving default callers.
+- Responsible-manager review bridges the sole sub-ticket item/head to ready_for_closure in A/B, or keeps the genuine C exit/purchase/entry/handover/reinstall lifecycle. Team stage closed means execution completed only. Actual closure remains with existing ticket procedures. Remaining returns are independent.
+- Added team-only legacy execution guards, including direct/batch PO delivery and B status synchronization, so the by-name workflow continues and cannot override team execution. Material availability does not replace original count-freeze safeguards. Integer quantities remain the existing contract.
+- Verification: 101 previous domain/management/assignment tests + 18 isolated execution-boundary tests + 4 fully mocked UI tests pass (123). TypeScript full-project check still fails on existing diagnostics; no full-build or live-runtime success is claimed. One preliminary UI runner configuration accidentally collected broader tests and encountered missing environment configuration; final runner has a specific test filter and blocks DB/environment module loading.
+- Detailed owner report, changed-file risks, limits and practical UAT: docs/maintenance-team-tickets/TEAM_EXECUTION_INTEGRATION_AR.md.
+
+
+## 2026-10-11 — Administrative execution of all maintenance-ticket teams
+
+- Explicit owner authorization: owner, admin, maintenance_manager, general_maintenance_manager and construction_procurement_manager can execute technician actions for all teams in the independent maintenance-ticket execution window, without adding memberships or changing the responsible manager.
+- Shared pure policy is applied to the execution service, authenticated router/SQL access, queue, route guard and UI. Technician membership and active-account/team checks remain; responsible-manager approvals, warehouse actions, original named-ticket authorization, external asset recipient validation, PMV2 and inventory writers are unchanged.
+- Actual executor/recipient IDs remain in actions, audit and canonical material issues. Later reads load referenced history names without using those display records to grant authorization. UI review buttons remain scoped to the assigned manager, except existing owner/admin authority.
+- Verification: 150 isolated Node tests and 12 mocked UI tests pass (162); focused TypeScript check for the pure policy/services/new tests and syntax transforms for 10 runtime files pass. Full-project typecheck still has 663 diagnostics. Wider pure-test typecheck also exposes 3 existing SupplyResult union diagnostics in older domain tests; these are outside this change. No live database access, DDL, main-server startup or Copy (2) update.
+- Updated scope, risks, verification limits and UAT: docs/maintenance-team-tickets/TEAM_EXECUTION_INTEGRATION_AR.md.
+
+
+## 2026-10-11 — Maintenance-ticket material tab in warehouse requests
+
+- Explicit user authorization adds source tabs at /scheduled-maintenance/warehouse-requests: PMV2 remains default and its existing Pmv2WarehouseQueue component/endpoints are unchanged; Maintenance Tickets loads a warehouse-only materials-filtered assignment query. Existing list limit (200 matching assignments) is retained, including completed requests for pending original-source returns.
+- New WarehouseRequestsPage and TicketWarehouseRequests reuse the current execution material panel in warehouse mode; technician actions/manager approvals are hidden in that context. Original transfer, purchase, receipt, lot and return writers are unchanged. Technician execution remains in its existing window. No fabricated PMV2 task or duplicate request/stock record.
+- Material-request notifications have a specific varchar event key and open the ticket source tab with the original ticket card selected, through both notification list and popup. Other team events retain their execution-window routing; historical notifications are not rewritten. Queue/panel caches refresh after existing actions.
+- Verification: 156 isolated Node tests + 24 mocked UI tests pass (180), including actual unchanged PMV2 component rendering against mock endpoints. Focused pure-service/navigation TypeScript check and 13 source syntax transforms pass. Root typecheck still reports 663 diagnostics; no new tab/queue diagnostics. Separate legacy PATCH136/137 static checks have 11 pre-existing failures from searching translated Arabic literals in the unchanged PMV2 source (3 pass); preserved in warehouse-pmv2-legacy-contracts.log and not counted as passing regression checks.
+- No live DB access, migrations/SQL changes, main-server startup or Copy (2) update. Detailed scope, limits, affected files and UAT: docs/maintenance-team-tickets/TEAM_EXECUTION_INTEGRATION_AR.md.
+
+
+## 2026-10-11 — مطابقة دورة مواد فرق تذاكر الصيانة مع مستودع PMV2
+
+- تبويب تذاكر الصيانة في warehouse-requests: معالجة، جاهزة للصرف، مرتجعات، وتصنيف مجمع للمواد والرصيد ضمن حد القائمة الحالي.
+- فتح WarehouseTransfer وCreatePurchaseOrder بسياق تذكرة مستقل؛ إعادة التحقق من النقص والصنف والمستودعات عند الحفظ، دون طلبات PMV2 وهمية. ربط الشراء داخل معاملة الرأس والبند الأصلية، بمعرف عملية يمنع التكرار.
+- صرف المستودع إلى المستلم الفعلي بعد التحقق من نشاطه وعضويته أو صلاحية التنفيذ العامة وقفل المستخدم؛ إشعار المستلم، دون تأكيد فني مكرر. تبقى آلية التأكيد الأولي للرصيد المتوفر كما هي.
+- إعادة قراءة الاستلام الفعلي لبند الشراء ولوتاته في الرئيسي قبل إتاحة التحويل. المرتجع إلى سند الصرف واللوت الأصليين، مع متابعة الاستخدام من نافذة الفني.
+- createWarehouseTransferBatch يقبل معاملة اختيارية فقط للوتات بطاقة مخزون واحدة في احتياج الفريق. يرفض بطاقات مختلفة بهذا الخيار؛ التحويل المعتاد وPMV2 يحتفظان بمعاملة مستقلة لكل بند، ونتائج النجاح الجزئي. لا تغيير في صفحة PMV2 الأصلية أو حراس الإسناد بالاسم وB والإغلاق.
+- تقرير الملفات والمخاطر والمقارنة: docs/maintenance-team-tickets/WAREHOUSE_PMV2_PARITY_AR.md. التحقق: 174 Node و26 واجهة ناجحة (200 معزول)، وفحص TypeScript للخدمات النقية. فحص المشروع الكامل: 663 تشخيصًا سابقًا، وليس بناء ناجحًا.
+- لم يُستدعَ موفر قاعدة البيانات أو تشغيل التطبيق أو تنفيذ SQL أو تعديل مخطط القاعدة. لا أوامر SQL جديدة مطلوبة؛ الاختبار العملي للمستخدم في CMMSFINAL.
+
+
+## 2026-10-11 — وقت إرسال طلب الشراء بتوقيت الرياض فقط
+
+- الطلب المعتمد من المستخدم يقتصر على وقت إرسال طلب الشراء لدى المرسل والمستقبل. عرض التاريخ والساعة والمنطقة Asia/Riyadh في قائمة الطلبات، تفاصيل الطلب، وبيانات الطلب داخل الحزمة.
+- shared/purchaseSubmissionTime.ts يضيف submittedAtIso للعرض في استجابات قراءة الطلب والحزمة فقط؛ يحل النص غير المحدد المنطقة على الخادم بنفس ساعة الكاتب الحالي (البيئة الحالية Asia/Riyadh)، ثم ترسل اللحظة بصيغة ISO محددة المنطقة. يعتمد submittedAt ثم createdAt للطلبات القديمة، ولا يغير الحقول الأصلية أو وقت الإرسال المحفوظ.
+- لا تغيير لمسار الإرسال أو الاعتماد أو المهلة أو وقت الإسناد أو تواريخ الإجراءات الأخرى أو عرض المسودات. لا إعداد TZ عام، ولا SQL أو تغيير مخطط، ولا اتصال بقاعدة البيانات أو تشغيل التطبيق.
+- التحقق المعزول: 36 تحققًا عبر الرياض وUTC ولوس أنجلوس وطوكيو وبالعربية والإنجليزية والأردية، بما فيها تجاوز منتصف الليل، الحفاظ على اللحظة، الطلب القديم، التاريخ غير الصالح، المسودات، ومسار القراءة مع ترجمة الأسماء وبدونها. فحص TypeScript للدالة النقية ومسار القراءة المعزول، وتحويل بناء المصدر للملفات الستة نجحت.
+- فحص TypeScript الشامل ما زال يعرض 663 تشخيصًا، مثل العدد السابق؛ لا تشخيص في الدالة الجديدة أو مواضع التعديل. راجع فرق هذه المهمة مقابل نسخ الملفات قبل التعديل؛ مسارات الكتابة والصلاحيات والتوقيتات الأخرى كما هي.
+
+## 2026-10-11 — تنفيذ جميع فرق PM V2 للحسابات الإدارية المخوّلة
+
+- بموافقة المستخدم الصريحة: owner وadmin وmaintenance_manager وgeneral_maintenance_manager وconstruction_procurement_manager يدخلون «مهامي» وينفذون مهام جميع فرق PM V2 دون إضافة عضويات دائمة. الفني ومدير IT وعضو IT يظلون مقيدين بالعضوية النشطة لفريق المهمة.
+- فحص موحد يعتمد على الحساب الفعلي النشط ودوره في users، مع EXISTS للعضوية للفنيين، ويطبق على القراءة والبدء والاستكمال والنتائج والمواد وسياق البلاغ والمرفقات وسجل المهمة. ربط حساب منفرد يمنع تضاعف صفوف المهام ويعمل للفريق الذي لا يضم أعضاء.
+- الطلب والاستلام الذاتي وسند الصرف واستخدام المادة والمرفقات والتدقيق يحتفظون بمعرف المنفذ الحقيقي. قائمة مستلمي المستودع تحتفظ بالفنيين الحاليين وتضيف مقدم الاحتياج الإداري النشط فقط. استلام إداري ذاتي لفريق بلا فني نشط يتجاوز عائق غياب المستلم فقط؛ تبقى حواجز الرصيد واللوتات والهدف وإعادة الربط فعالة.
+- إدارة PM V2 وصلاحيات المستودع والشراء والمرتجع لم تتوسع. حالات المهمة والبنود، المعاملات والأقفال، كاتب المخزون الأصلي، والزيارة الواحدة وقائدها وشرط إضافة المرفق لإجراء المستخدم نفسه أثناء الزيارة المفتوحة باقية.
+- 37 اختبارًا معزولًا ناجحًا لخدمات المصدر الفعلية مع حدود محاكاة مغلقة، منها توليد SQL بالفحص المحلي دون اتصال. فحوص PM V2/IT القديمة المختارة: 87 ناجحة و24 إخفاقًا سابقًا دون إخفاق جديد بعد تحديث فحوص موقع الصلاحيات؛ فحص تحويل المصدر لـ11 ملفًا نجح. مقارنة TypeScript باستخدام نسخ المصدر قبل هذه المهمة وبعدها: 663 تشخيصًا في الحالتين، دون تشخيص جديد أو محذوف بعد تجاهل تغير أرقام السطور؛ لا ادعاء بنجاح البناء الكامل أو الاختبار الحي.
+- لا اتصال أو استعلام بقاعدة البيانات، لا SQL تنفيذي أو تغيير مخطط، لا تشغيل للتطبيق ولا تعديل Copy (2). نطاق الملفات وخطوات الاختبار العملي في docs/pmv2/ADMINISTRATIVE_EXECUTION_AR.md.
+
+## 2026-10-11 — إصلاح توافق فحص تنفيذ PM V2 مع TiDB
+
+- المستخدم أبلغ عن فشل استعلامي مهام اليوم وانتباه المواد بعد توسيع التنفيذ، ووافق صراحة على الإصلاح. النمط المضاف سابقًا وضع EXISTS داخل JOIN ON؛ توليد SQL العام واختبارات الصلاحيات السابقة لم تكشف عدم توافق هذا الموضع مع TiDB.
+- فصل ربط الحساب النشط (pmv2ExecutionActorCondition، بلا استعلام فرعي) عن إثبات صلاحية الفريق في WHERE (pmv2ExecutionTeamCondition). نقل الإثبات في 16 استعلامًا عبر القراءة والتنفيذ وطلب المواد والاستلام وسياق البلاغ والسجل. المرفقات تحتفظ بربط حساب اختياري وتتحقق من صلاحية فريق البند باستعلام WHERE منفصل، مع الإبقاء على استثناء مراجعة الإدارة وشروط إجراء المستخدم نفسه والزيارة المفتوحة.
+- لا تغيير للأدوار أو عضوية الفني أو قائد الزيارة أو انتقال الحالات أو معاملات التنفيذ أو كاتب الصرف واللوتات والاعتمادات. لا اتصال أو استعلام أو تعديل لقاعدة البيانات، ولا تشغيل للتطبيق بواسطة الوكيل.
+- أضيف فحص محاكاة يرفض الاستعلام الفرعي في أي JOIN ON قبل تقييم النتائج؛ كشف 26 إخفاقًا من 37 قبل إصلاح المصدر. بعد الإصلاح: 39 اختبارًا معزولًا ناجحًا، تشمل توليد استعلامي الصفحة كاملين باستخدام Drizzle دون جلسة اتصال والتحقق من موضع الصلاحية، ونطاق مرفقات الفني والإدارة. فحوص المصدر القديمة المختارة بقيت 87 ناجحة و24 إخفاقًا سابقًا دون زيادة؛ تحويل مصدر ملفات التشغيل التسعة نجح. مقارنة TypeScript للمصدر قبل الإصلاح وبعده: 663 تشخيصًا في الحالتين، دون تشخيص جديد أو محذوف؛ ليس بناءً شاملًا ناجحًا أو اختبارًا حيًا.
+- أصلح المصدر في CMMSFINAL. لأن سجل المستخدم يثبت تشغيل CMMSFINAL - Copy (2)، فُحصت تعليمات النسخة وتطابق الملفات التسعة مع نسخها قبل الإصلاح؛ ثم طبقت ملفات التشغيل التسعة المصححة فقط في Copy (2) بعد اجتياز مراجعة صلاحية الكتابة خارج مساحة العمل. تطابق SHA-256 لكل ملف مع المصدر المختبَر، ولم تنقل ملفات أخرى أو إعدادات اتصال. الاختبارات والتقرير محفوظة في CMMSFINAL.
+
+## 2026-10-11 — تبويبا مهام التذاكر والصيانة المجدولة
+
+- بموافقة المستخدم، أصبحت `/scheduled-maintenance/my-tasks` تعرض تبويب «تذاكر الصيانة» أولًا لمهام فرق التذاكر، وتبويب «الصيانة المجدولة» ثانيًا لمهام PM V2 الحالية. التذاكر هي التبويب الافتراضي للحسابات المخولة، ويُحفظ التبويب المختار في `source=tickets|pmv2` بالرابط مع إبقاء معاملات الرابط الأخرى.
+- أضيفت `client/src/pages/pmv2/MyTasksPage.tsx` لاحتواء الواجهتين الأصليتين `AssignedMaintenanceTickets` و`Pmv2MyTasks`. تغير في `App.tsx` سطر الاستيراد وسطر ربط الصفحة فقط مقارنة بالنسخة قبل هذه المهمة. بقي رابط `/maintenance-team-tickets` القديم فعالًا.
+- لا تغيير لخدمات السيرفر أو إجراءات التنفيذ أو صلاحياتها أو مصدر بياناتها. يعطل تبويب التذاكر لأدوار IT التي لا تملك صلاحية التذاكر أصلًا، وتفتح لها مهام PM V2. لا يحمّل محتوى التبويب الآخر، ولا تُحمّل واجهات الاستعلام قبل اكتمال الدخول أو للحسابات غير المخولة/غير النشطة.
+- الهوية البصرية والترجمات مستمدة من مكونات Tabs وتسميات البرنامج الحالية. لا وصول إلى قاعدة البيانات، لا SQL ولا تغيير مخطط، ولا تشغيل للسيرفر أو اختبار حي.
+- اجتاز `node tools/maintenance-team-tickets/my-tasks-tabs.node.mjs` خمسة عشر اختبارًا معزولًا بحدود API محاكاة. اجتازت اختبارات واجهات التنفيذ والمستودع الحالية 26 اختبارًا. نجح تحويل TSX للملفين التشغيليين. فحص TypeScript العام يعرض 663 تشخيصًا سابقًا؛ لا توجد أخطاء في ملفات هذا التعديل، ولا يُعد ذلك نجاحًا للفحص العام.
+- مقارنة TypeScript ببرنامج المترجم نفسه ومصدر `App.tsx` المحفوظ قبل المهمة واستبعاد الصفحة الجديدة من نسخة المقارنة: 663 تشخيصًا قبل/بعد، دون تشخيص جديد أو محذوف بعد تجاهل أرقام السطور. بقي الفحص العام غير ناجح بسبب أخطاء المشروع القائمة.
+- طُبّق ملفا الواجهة المختبران فقط في `CMMSFINAL - Copy (2)` بعد التحقق من تطابق `App.tsx` مع النسخة قبل المهمة وعدم وجود الملف الجديد، وتطابق اعتماداتهما بين النسختين. اجتازت الكتابة مراجعة الصلاحية، وتطابق SHA-256 للملفين بعد النقل. لم تنقل إعدادات أو ملفات أخرى.
+
+## 2026-10-11 — تجربة تحتاج مواد للفني في فرق تذاكر الصيانة
+
+- بموافقة المستخدم، اختيار تحتاج مواد يحفظ الانتظار ثم يسجل مادة واحدة في كل إجراء، مع بحث مرتب حسب المتوفر والسجل، وحدة الكتالوج، وفحص تلقائي للرصيد. المتوفر كاملًا يتطلب نافذة تأكيد الاستلام؛ النقص يسجل دون صرف الجزء المتوفر تلقائيًا. يظل حد الجولة وعقد الكميات الصحيحة القائمان للتذاكر.
+- واجهة مستقلة للتذاكر تستعمل إجراءاتها المصادق عليها؛ لا مهام PMV2 وهمية ولا تغيير لخدماته. يظل كل احتياج مرتبطًا بالتذكرة وبندها وإسناد الفريق. حفظ النقص الأولي في سجل الإجراء القائم يسمح بتمييز وصول التحويل الخاص بالاحتياج دون تغيير مخطط. الاحتياجات التاريخية النصية لا ترحّل.
+- الاستلام الذاتي بعد وصول التوفير متاح، مع إبقاء صرف المستودع لمستلم فعلي ومنع التكرار. استقبال شراء في الرئيسي وحده لا يتيح استلام الفني. كتاب الصرف والتحويل والشراء والمرتجع الأصليون، اللوتات والفاعل الحقيقي، مراجعة المسؤول وصلاحيات B والإغلاق والإسناد بالاسم لم تعدل.
+- إشعارات تسجيل المادة تحتفظ بالمستلمين وتبويب المستودع، وتعرض نصًا مقروءًا بدل بيانات الربط الداخلية. اختيار تحتاج مواد وحده لا يرسل طلبًا فارغًا للمستودع.
+- التحقق: 189 Node و56 واجهة، أي 245 اختبارًا معزولًا ناجحًا، مع حارس منع استيراد اتصال القاعدة. أعيدت اختبارات جسر التذاكر بعد مراجعة نص الإشعار. مقارنة TypeScript: 663 تشخيصًا قبل وبعد، دون زيادة أو حذف؛ ليس نجاحًا للفحص العام أو اختبارًا حيًا.
+- لا اتصال بالقاعدة أو SQL تنفيذي أو تعديل مخطط أو تشغيل التطبيق. سبعة ملفات تشغيل فقط تُنقل إلى Copy (2) بعد التحقق من النسخ الأصلية والاعتماديات ومطابقة SHA-256. التقرير والمقارنة والمخاطر وخطوات الاختبار: docs/maintenance-team-tickets/TECHNICIAN_MATERIAL_PMV2_PARITY_AR.md.
+- اكتمل نقل ملفات التشغيل السبعة فقط إلى Copy (2)؛ تطابقت الملفات الخمسة الحالية مع النسخ المحفوظة قبل التعديل، ولم يوجد الملفان الجديدان سابقًا. تطابقت الاعتماديات المختارة وSHA-256 لكل ملف بعد النقل. نجح تحويل المصدر للملفات السبعة. لا تغيير إعدادات أو تشغيل سيرفر.
+
+## 2026-10-11 — كمية إضافية للتخزين عند شراء مواد فريق التذكرة
+
+- بموافقة المستخدم، داخل CMMSFINAL فقط: كمية الفني الثابتة بالأزرق، إضافة المستودع بالكهرماني، إجمالي الشراء بالأخضر. أزرار المطابقة والتحويل أزرق، الصرف أخضر، طلب الشراء كهرماني ضمن الهوية الحالية.
+- مثال عجز 5 + إضافة 3 = بند شراء 8. حساب العجز والرصيد والطلبات المعلقة يبقى؛ التوفير المرتبط بالتذكرة هو العجز فقط، والإضافة تبقى مخزونًا بالرئيسي. نموذج الشراء الحالي يعرض التفصيل والإجمالي، والسيرفر يعيد التحقق ويولد ملاحظات الرأس والبند وسجل الإجراء من الكميات الموثوقة داخل المعاملة الأصلية.
+- ربط الشراء يحتفظ linkedQuantity لحصة التذكرة، بينما كمية البند الأصلية هي الإجمالي. لا تغيير لكتاب الاستلام/التحويل/الصرف/المرتجع أو اللوتات أو حقيقة المستلم. إعادة المحاولة بلا إضافة تحافظ على بصمتها القديمة؛ معرف عملية مختلف مطلوب لتغيير الإضافة.
+- قراءة تكلفة التحسين المرتبط بالتذكرة تستخدم حصة الربط الرقمية من تكلفة الشراء الفعلية؛ لا تحميل تكلفة التخزين على الفكرة ولا تغيير التكلفة العامة أو تقييم المخزون. صرف الإضافة لاحقًا للمشروع يحتسب فقط صافي المصروف فوق حصة الشراء المحسوبة، مع منع تكرار الحركات. شروط اكتمال المالية والاعتماد والإغلاق الحالية محفوظة.
+- لا اتصال بالقاعدة أو تشغيل للتطبيق أو SQL تنفيذي أو تعديل مخطط، ولا حاجة لأوامر SQL يدوية. لم يقرأ أو يعدل Copy (2) أو ينقل إليه أي ملف. التغيير التشغيلي في 10 ملفات بالمجلد المصرح فقط.
+- 225 اختبار Node و49 واجهة محاكاة نجحت (274)، تشمل 5+3=8، بقاء 3 بالمخزون بعد صرف 5، المصدر والكمية الموثوقين، إعادة المحاولة/الفشل الذري، الصلاحيات، الأسعار الفعلية والحدود. تحويل مصدر الملفات العشرة نجح. مقارنة TypeScript محفوظة بالمصادر السابقة؛ لا ادعاء باختبار قاعدة حي أو فحص عام ناجح.
+- التقرير والمقارنة والمخاطر وخطوات الاختبار: docs/maintenance-team-tickets/WAREHOUSE_EXTRA_PURCHASE_QUANTITY_AR.md.
+- اكتملت مقارنة TypeScript النهائية: 663 تشخيصًا قبل وبعد؛ introduced=[] وresolved=[]، مع تجاهل أرقام السطور. لا نجاح للفحص العام بسبب أخطاء المشروع السابقة.
+
+## 2026-10-12 — بطاقات احتياجات مواد التذاكر مثل تنظيم PMV2
+
+- موافقة صريحة من المستخدم، داخل CMMSFINAL فقط. تبويب المستودع يعرض بطاقة لكل احتياج مادة ومعرفها ومرجع التذكرة؛ العدادات تحسب الاحتياجات. أقسام الكميات والمخزون والوجهة وتفاصيل الحالة والإجراء تستخدم Card/Badge/Button الحالية، مع عرض/إخفاء التفاصيل.
+- يظهر الإجراء المتاح: مطابقة مع ملاحظات إلزامية، تحويل كامل النقص عند كفاية الرئيسي، شراء العجز عند عدم كفايته، صرف لمستلم فعلي عند جاهزية الفريق، أو تأكيد مرتجع بالسند واللوت الحاليين. نفس الإجراءات المصادق عليها والمعاملات والكتاب والمرجع والفاعل الحقيقي؛ لا مهمة PMV2 وهمية ولا تغيير للخارجي أو B أو الإغلاق أو الإسناد بالاسم.
+- التطوير السابق محفوظ: كمية الفني الأزرق ثابتة، إضافة المستودع الكهرماني، الإجمالي الأخضر = كمية الفني + الإضافة فورًا، حتى قبل المطابقة. الحقل الفارغ أو صفر إضافة يعطي كمية الفني. التفصيل النصي وحصة التخزين المالية وربط الشراء محفوظان؛ عجز الشراء بعد الرصيد والتوفير المعلق يظهر منفصلًا عن إجمالي الاحتياج، ولا يشترى الرصيد المغطى مرة أخرى.
+- قائمة المستودع تضيف بيانات عرض الاحتياجات وقراءتين مجمعتين للإجراءات والتحويلات المستلمة ضمن IDs القائمة المصرح بها. التصنيف لا يعتبر رصيدًا وصل لاحتياج آخر توفيرًا لهذا الاحتياج. قائمة الفريق العادية تبقى قراءتها الأصلية. العرض الأولي 20 بطاقة ثم المزيد؛ نفس مفاتيح استعلام الإسناد في React Query لتشارك تفاصيله ورصيده.
+- 226 اختبار Node و57 واجهة محاكاة ناجحة (283)، تشمل العدادات والحد الأولي، إجراء التحويل/الشراء/الصرف، المطابقة، الإجمالي قبل المطابقة والحقل الفارغ، استقلال الاحتياج، السند واللوت، رفض البلاغ المغلق، الربط والتكلفة، وعرض PMV2 الأصلي. تحويل مصدر الملفات التشغيلية الثمانية نجح؛ لا اختبار متصفح أو قاعدة حي.
+- لا اتصال بالقاعدة أو تشغيل التطبيق أو SQL تنفيذي أو تغيير مخطط، ولا أوامر SQL يدوية مطلوبة. لم يقرأ أو يعدل Copy (2) أو ينقل إليه شيء. التقرير والمقارنة والملفات والمخاطر والاختبار العملي: docs/maintenance-team-tickets/WAREHOUSE_MATERIAL_CARDS_AR.md.
+- مقارنة TypeScript النهائية بالمصادر قبل هذه المهمة: 663 تشخيصًا قبل وبعد، introduced=[] وresolved=[] بعد تجاهل أرقام السطور. لا أخطاء جديدة، والفحص العام يبقى غير ناجح لأخطائه السابقة.
+
+## 2026-10-12 — دور المراقب والقراءة عبر الحارس العام
+
+- بموافقة «موافق نفذ الان»، أضيف observer باسم المراقب دون ضمه إلى عائلات الإدارة أو التنفيذ ودون استبدال دوره بالمالك أو الأدمن. الحارس في قاعدة public/protected/admin إجراءات tRPC يمنع كل إجراء للمراقب افتراضيًا، ويجيز فقط auth.me وobserver.readPage للقراءة وauth.logout لإنهاء الجلسة. تستخدم الصلاحية الحساب المصادق عليه، لا مدخلات الدور من العميل. الرفع وREST المحمية بالمصادقة ترفض المراقب، وقوائم التصدير السابقة لا تتوسع.
+- عرض قراءة مستقل داخل مسارات البرنامج باستخدام مكوناته الحالية: مصادر ثابتة، SELECT بمعاملات، بحث و25 سجلًا بالصفحة وتصفية تفاصيل المستند. حُجبت حقول الاعتماد والنسخ الكاملة ونُقِّي JSON المتداخل. هذه جداول للسجلات؛ لا تعيد إنتاج نماذج التشغيل ورسوم أو حسابات التقارير الأصلية. الراوتر والقائمة وعائلات صلاحيات الأدوار القديمة محفوظة باختبارات المقارنة.
+- 20 ملف تشغيل (14 حاليًا و6 جديدة). نجحت 381 حالة معزولة: 15 Node للمراقب، 9 واجهة، 74 صلاحيات مركزية سابقة، 226 Node للمسارات الحالية، 57 واجهة مواد وPMV2. تحويل ملفات التشغيل نجح. TypeScript بقي 663 تشخيصًا قبل وبعد دون تشخيص جديد؛ ليس فحصًا عامًا ناجحًا أو اختبارًا حيًا.
+- لا اتصال بالقاعدة أو تشغيل تطبيق أو تنفيذ SQL أو قراءة/تعديل Copy (2). أضيفت قيمة observer في تعريف المخطط بالكود فقط؛ التفعيل ينتظر المستخدم. أعدت أوامر فحص وتوليد ALTER من ENUM الفعلي والتحقق ليدويًا، دون جدول جديد أو تحديث الأدوار القائمة. التفاصيل والمقارنة والمخاطر وخطوات التفعيل: docs/observer/IMPLEMENTATION_REPORT_AR.md.
+
+## 2026-10-12 — تصحيح المراقب إلى واجهات الأدمن الأصلية للاستعراض
+
+- المستخدم رفض العرض العام المنفصل وحدد: نفس صفحات وواجهات الأدمن، والفرق صلاحية الاستعراض فقط، مع منع الإضافة والتعديل والحذف والاستيراد والتصدير. أُزيلت ملفات العرض المستقل الأربعة وتسجيله وفرعه في App، وبقي الراوتر الأصلي. التقرير السابق تاريخي واستُبدل بـdocs/observer/NATIVE_READ_ONLY_AR.md.
+- الجلسة والقاعدة وauth.me تحتفظ بالدور الفعلي observer ورقم المستخدم الحقيقي. الواجهة تحصل على نطاق عرض الأدمن مع علم isReadOnly؛ السيرفر يجيز نطاق الأدمن للاستعلام الأصلي فقط بعد فحص الهوية النشطة ونوع الإجراء والمسار الصريح، ويحفظ authenticatedUser الأصلي لمنع التصعيد باستدعاء داخلي. لا تغيير لحساب إداري أو عضوية فريق أو عائلات المنفذين.
+- 286 استعلامًا أصليًا مسجلًا؛ الافتراضي منع المسارات الجديدة. auth.logout ينهي الجلسة وnfc.scanTag بحث أصل بلا كتابة. بقية mutations والتصدير والطباعة والاستيراد والرفع مرفوضة. الحارس عند السيرفر مستقل عن حماية العميل وتعطيل الأزرار والـportals والنماذج وروابط التنزيل المحلي. ضوابط البحث والتبويبات والقراءة باقية، ونماذج الروابط المباشرة تعرض الحقول الأصلية معطلة.
+- قيد SQL داخل سياق المراقب فقط يمنع الكتابة قبل الدرايفر ويجيز معاملة القراءة. تُتجاوز فقط آثار قراءة المراقب الخاصة بتجهيز ترجمة سجل وإغلاق دفعات تسعير فارغة؛ سلوك الأدوار الأخرى باقٍ. قراءة PMV2 والفريق تتعرف على المراقب المصادق عليه داخل هذا السياق دون صلاحية تنفيذ. JSON النصي يحتفظ بنوعه مع إخفاء مفاتيح الاعتماد؛ روابط النسخ الكاملة محجوبة.
+- نجحت 422 حالة معزولة: 14 Node للمراقب، 12 واجهة أصلية وحماية، 74 صلاحيات مركزية، 226 Node للمسارات السابقة، 57 واجهة مواد، 39 تنفيذ PMV2. اختُبرت معاملة Drizzle الحقيقية فوق درايفر وهمي دون تحميل mysql2 أو الإعدادات. حاضنة PMV2 أضيف إليها حقن ملفات الحماية النقية الجديدة فقط، وبقيت التحققات الأصلية. تحويل 32 مصدر تشغيل نجح؛ TypeScript بقي 663 تشخيصًا قبل وبعد دون جديد أو محذوف، والفحص العام غير ناجح لأخطائه السابقة.
+- هذه المرحلة: 19 ملف تشغيل حاليًا مصححًا، 6 ملفات جديدة، 4 ملفات العرض البديل محذوفة. لا تشغيل تطبيق أو اتصال بالقاعدة أو تنفيذ SQL أو عمل خارج CMMSFINAL أو في Copy (2). المستخدم أضاف observer يدويًا وأرسل نتيجة تؤكد وجوده؛ لا SQL إضافي لهذا التصحيح. النسخ والبصمات والنتائج في tools/observer/artifacts/correction.
+
+## 2026-10-12 — إصلاح تسجيل الخروج للمراقب
+
+- أبلغ المستخدم عن عدم عمل الخروج. حماية عناصر القائمة المنبثقة كانت تعامل «تسجيل الخروج» كإجراء تسجيل ممنوع، ولم تميز تسميتي الإنجليزية والأردية أيضًا؛ مسار auth.logout كان مسموحًا أصلًا عند العميل والسيرفر.
+- أضيفت علامة data-observer-action="logout" إلى عنصر الخروج الأصلي في DashboardLayout.tsx، وأجيز هذا العنصر تحديدًا في observer-controls.ts دون اعتماد على الترجمة. راقب الحارس تغيّر العلامة ليعيد تمكين العنصر إذا كان معطلًا من قبل. لا تغيير لحراس السيرفر أو منع الكتابة والاستيراد والتصدير، ولا لصلاحيات الأدوار الأخرى.
+- اختبار جديد كشف الخطأ قبل الإصلاح (1 إخفاق و86 نجاحًا)، وبعده نجحت 87 حالة واجهة وصلاحيات، و14 حالة API معزولة (101 إجمالًا). شمل الفحص اللغات الثلاث، وجود العلامة على زر الخروج الفعلي، وتمرير auth.logout عبر الرابط الوسيط مع استمرار رفض الكتابة والتصدير. تحويل صيغة 32 مصدر تشغيل نجح. لا تشغيل تطبيق أو اتصال بالقاعدة أو SQL أو تعديل خارج CMMSFINAL؛ الأدلة في tools/observer/artifacts/logout-fix.
+
+## 2026-10-13 — قصر تطبيق تسوية المخزون على المالك والأدمن
+
+- **الطلب:** منع دور `warehouse` من تطبيق التسوية من الجرد أو التسوية المستقلة، مع استمرار إجراء الجرد وتسجيل الكميات وحفظه النهائي واستعراض التسويات. التنفيذ بموافقة المستخدم الصريحة «نفذ الان».
+- **الخادم:** تغير حارس `inventoryCount.applySettlement` وحده من `warehouseProcedure` إلى `adminOwnerProcedure` الموجود. يرفض API دور المستودع حتى مع إرسال دور أو معرف منفذ مزور ضمن المدخلات؛ يبقى المنفذ من الجلسة. لم تتغير إجراءات الجرد أو القراءة أو حارس المستودع المشترك أو منطق ترحيل التسوية.
+- **الواجهة:** في `client/src/pages/inventory/InventoryOperations.tsx` يظهر فتح التسوية من الجرد وإنشاء التسوية المستقلة للمالك والأدمن فقط، مع استبعاد نطاق استعراض المراقب. نافذة التسوية وزر التطبيق يتحققان من الصلاحية أيضًا. تبويب الأرشيف وقائمة التسويات وأزرار الجرد باقية. قيد إيقاف التسوية المستقلة عند تفعيل Lots باقٍ.
+- **التحقق:** نجحت 40 حالة معزولة عبر `node tools/inventory-settlement-permissions/run.mjs`: 29 حالة لحارس tRPC الفعلي مع تخزين وهمي، و6 للصفحة الفعلية ببيانات وهمية، و5 لاختبارات واجهة التسويات المالية السابقة. غُطّي المنع لكلا المصدرين، استمرار صلاحية المالك والأدمن، استبعاد بقية الأدوار والمراقب، واستمرار جرد المستودع وقراءته. إعداد الاختبارات يمنع تحميل ملفات قاعدة البيانات والإعدادات الحية ويعطّل تحميل ملفات البيئة.
+- **الحدود:** تعديل ملفي تشغيل فقط، مع اختبارات وتوثيق. لا SQL أو ترحيل أو تعديل مخطط أو اتصال مباشر بالقاعدة، ولا تشغيل التطبيق أو تنفيذ تسوية حقيقية، ولا تعديل أي مجلد خارج `CMMSFINAL`.
+
+## 2026-10-13 — لوحة متابعة المالك والأدمن وتصحيح البلاغات وقيمة الاستلام
+
+- بموافقة المستخدم: صفحة Home أصبحت لوحة استعراض بثماني بطاقات وفلاتر الفترة والموقع والجهة، وجدول المديرين وجهات الانتظار وقائمة متابعة وتفاصيل العدادات. احتُفظ بمكونات البرنامج وهويته، واستُبعد ملخص الوقائي وPMV2 من الصفحة دون تغيير خدماتهما.
+- فصل الرئيسي التنظيمي عن التنفيذ الفرعي والأحادي، وعدّ closed وrequester_confirmed منجزين؛ الإنجاز بتاريخ closedAt. الجديد حسب الإنشاء، المنجز والاستلام حسب الفترة بتوقيت الرياض؛ المفتوح والانتظار يشملان الأعمال السابقة. نقص التواريخ/القيم يظهر صراحة، وفشل القراءة لا يعرض أصفارًا بديلة.
+- متابعة المديرين تطابق الجهة ومعرف المسؤول معًا، وتفصل انتظار المستودع والمشتريات والمحاسبة والإدارة والخارجي والبوابة عن مدة البقاء داخل جهة التنفيذ. معيار المتابعة 48 ساعة ظاهر؛ المسؤولية المتعددة أو البداية غير المسجلة لا تُنسب كتأخير مدير مفترض. إسناد الفريق المغلق لا يغلق التذكرة وحده، وروابط المواد تخص الجولة الحالية.
+- بطاقة «قيمة المشتريات المستلمة» في اللغات الثلاث تجمع actualTotalCost للأصناف delivered_to_warehouse/delivered_to_requester مرة واحدة، دون تقديرات أو جمع الشراء مع الصرف. تفاصيل البطاقة من نفس المصدر والفلاتر بدل reports/cost. تكلفة تنفيذ الصيانة مؤجلة ومسجلة في PENDING_TASKS.
+- أربعة ملفات تشغيل جديدة وستة حالية: واجهة وقواعد وقارئ SELECT فقط واستعلاما overview/details؛ حارس adminOwner للمصدر الجديد والإحصاء القديم، وتسجيل مساري قراءة للمراقب دون صلاحية كتابة. صفحات الفحص والإنشاءات المستقلة، المساعد الذكي، تقرير التكلفة العام، وورك فلو التشغيل باقية.
+- نجحت 190 حالة معزولة: 36 حسابات، 30 API، 4 قارئ وهمي، 17 واجهة، 74 صلاحيات مركزية، و29 استمرار منع تسوية المستودع. الحاضنة تمنع تحميل القاعدة والإعدادات والبيئة. TypeScript: 663 تشخيصًا قبل وبعد دون جديد؛ الفحص العام ليس ناجحًا لأخطائه السابقة.
+- عُوينت الواجهة الفعلية ومكونات البرنامج وCSS الحالي في المتصفح كعرض ثابت ببيانات اختبار، على سطح المكتب وعرض ضيق؛ التفاعل اختُبر بالحاضنة، وليس عبر قاعدة حية. الصور والسجلات في tools/dashboard-development/artifacts. التقرير والمقارنة والملفات والمخاطر وخطوات المطابقة العملية: docs/dashboard/IMPLEMENTATION_REPORT_AR.md.
+- لا اتصال مباشر بالقاعدة أو تشغيل التطبيق أو SQL تنفيذي أو تعديل مخطط/بيانات؛ لا أوامر يدوية مطلوبة، ولا عمل خارج CMMSFINAL أو في Copy (2). الخطر على العرض متوسط ويحتاج مطابقة في بيئة المستخدم؛ زمن القراءة على الحجم الفعلي لم يُقَس.
+
+## 2026-10-13 — تصحيح تحميل تفاصيل بطاقات اللوحة وعرضها
+
+- أبلغ المستخدم عن بطء البطاقات وتفاصيل ضيقة؛ التفويض «نفذ الان». سبب تكرار الحمل أن كل details يعيد 12 قراءة وحساب كامل اللوحة. مصدر ضيق العرض: max-w-6xl محلي لا يلغي sm:max-w-lg من DialogContent المشترك.
+- طبقة جديدة محدودة للقراءة في server/services/dashboard/snapshots.ts: نتائج مؤقتة بمعرف عشوائي، حد صلاحية دقيقتين وسعة 12، وعزل بمعرف المستخدم ودوره المصادق عليه والفلاتر، ومشاركة الطلب الجاري المتطابق. الحارس الحالي يعمل قبل كل طلب؛ المراقب يستخدم هويته الأصلية. overview يحدث من المصدر، وdetails يعيد استخدام النتيجة إن توفرت، وإلا يعيد قراءة مصرح بها. لا تغيير للكاش العام أو الحارس أو مخطط القاعدة.
+- نافذة واسعة محليًا دون تعديل المكون العام، والأعمدة كاملة على سطح المكتب، مع تمرير داخلي على الشاشة الصغيرة. رقم المستند رابط فعلي يحافظ على Ctrl/النقر المعدل، وزرا إغلاق وتحديث واضحان، والإغلاق متاح أثناء التحميل. تخزين العميل للتفاصيل 60 ثانية بمفتاح يتضمن معرف قراءة اللوحة.
+- عرض موقع البلاغ القديم يستخدم اسم الموقع ثم locationDetail المسجل في البلاغ/رئيسيه، ويطبّق الوراثة للمشتريات المرتبطة. لا اختراع siteId أو كتابة بيانات؛ غير المسجل يبقى ظاهرًا عند غياب المصدر الحقيقي. قواعد العد والقيمة المالية باقية.
+- خمسة ملفات تشغيل حالية وملف جديد. نجحت 211 حالة معزولة: 38 حسابات، 35 API، 8 نتائج مؤقتة، 4 قارئ، 23 واجهة، 74 صلاحيات مركزية، 29 منع تسوية المستودع. حاضنة الواجهة تستخدم DialogContent الأصلي ودمج فئاته بدل استبداله بالكامل، مع primitives وهمية للبوابة/التركيز.
+- المتصفح عاين ناتجًا ثابتًا من الواجهة وCSS الأصلي ببيانات اختبار: مساحة الجدول وعرضه 1198px، والأعمدة السبعة مرئية؛ في العرض الضيق الصفحة 602px والنافذة 585px وزر الإغلاق داخلها والجدول قابل للتمرير. لا اختبار متصفح متصل بالقاعدة أو قياس زمن حي. القراءة الأولى للوحة باقية؛ التحسين يزيل تكرارها عند التفاصيل إذا كانت النتيجة متاحة.
+- لا اتصال مباشر بالقاعدة أو SQL تنفيذي عليها أو تعديل مخطط/بيانات أو أوامر يدوية مطلوبة أو تشغيل تطبيق متصل أو عمل خارج CMMSFINAL أو في Copy (2). التقرير والحدود وخطوات المطابقة: docs/dashboard/DETAILS_LOADING_FIX_AR.md. النسخ والسجلات والصور في tools/dashboard-development/artifacts/details-fix.
+- مقارنة TypeScript النهائية بعد التصحيح: 663 تشخيصًا قبل وبعد، introduced=[]؛ الأخطاء السابقة باقية والفحص العام ليس ناجحًا. الأدلة محفوظة في tools/dashboard-development/artifacts/details-fix/typecheck-comparison.json. تصحيح وراثة موقع الرئيسي للمشتريات المرتبطة بفرعية بلا siteId قد يصحح ظهورها عند فلتر الموقع؛ لا يحوّل النص الحر إلى معرف ولا يغير إجمالي الكل أو معادلة الاستلام.
+
+## 2026-10-13 — نافذة الكتالوج المشتركة لشراء المواد ومطابقة احتياج التذكرة
+
+- بموافقة «نفذ الان»، داخل CMMSFINAL فقط: استُخرج CatalogPickerDialog المحلي من CreatePurchaseOrder إلى client/src/components/catalog/CatalogPickerDialog.tsx. صفحة الشراء وبطاقة احتياج المواد تستخدمان نفس المكون، بنفس شجرة التصنيفات والبحث على السيرفر بعد 350ms و80 نتيجة والأسماء والصور والأكواد والوحدات والهوية الأصلية.
+- ExecutionPanel يستبدل قائمة المطابقة وحقل البحث بزر «تحديد الصنف من الكتالوج». اختيار الصنف لا يحفظه تلقائيًا: الملاحظة الإلزامية وزر تأكيد المطابقة ونفس API والمراجعة ومعرفات الإسناد/الاحتياج ومفتاح العملية باقية. الاختيار مستقل لكل احتياج، والنتائج في المطابقة تطابق وحدة الاحتياج؛ حارس الخادم لنشاط الصنف والوحدة وعدم التحويل التلقائي محفوظ.
+- كمية الفني وإضافة المستودع والإجمالي والألوان وشراء العجز والتحويل والصرف والمرتجع واللوتات والتكلفة باقية. لا بحث كتالوج من البطاقة قبل فتح النافذة، ولا تعديل APIs أو حراس أو خدمات PMV2 أو مشروع آخر. ثلاثة ملفات تشغيل فقط: مكون جديد وصفحتان حاليتان؛ باقي نموذج إنشاء طلب الشراء مطابق حرفيًا للنسخة السابقة بعد إخراج المكون والاستيرادات اللازمة.
+- نجحت 72 حالة معزولة: 15 للمكون وربطه، و57 لواجهات التنفيذ والمستودع والإضافة والفني وPMV2 السابقة. غُطي البحث والتصنيف واللغات والوحدة، الحفظ المنفصل، 5+3=8، عدم تداخل الاحتياجات، ورفض البلاغ المغلق. الحاضنة تمنع تحميل القاعدة والإعدادات والبيئة.
+- TypeScript: 663 تشخيصًا قبل وبعد، introduced=[] وresolved=[]؛ الأخطاء السابقة باقية والفحص العام غير ناجح. عُرضت نافذة الكتالوج الفعلية داخل بطاقة المادة في متصفح بمعاينة ثابتة ببيانات اختبار وCSS البرنامج؛ لا تفاعل متصفح أو قاعدة حية. الأدلة والنسخ والبصمات في tools/catalog-picker/artifacts.
+- لا اتصال مباشر بالقاعدة أو SQL تنفيذي أو تعديل بيانات/مخطط أو أوامر قاعدة يدوية مطلوبة أو تشغيل التطبيق المتصل، ولا قراءة/تعديل/نقل إلى Copy (2). التقرير والمقارنة والملفات والمخاطر وخطوات الاستخدام: docs/maintenance-team-tickets/SHARED_CATALOG_PICKER_AR.md.
+
+
+## 2026-10-13 — تنفيذ فرق تذاكر الصيانة بتجربة PMV2
+
+- تطبيق بطاقات المهام والتفاصيل وأزرار سليم/الإصلاح/المواد وبطاقات الاستلام والاستخدام بتنسيق PMV2؛ ربط مستقل بالتذكرة وبندها، دون تغيير ملفات PMV2.
+- حفظ بداية/استكمال/انضمام/إنهاء الزيارة في سجل ticket_team_actions الحالي. القائد أول منفذ؛ لا إنهاء أثناء العمل، ولا تجاوز البداية/المشاركة عبر APIs القديمة للإسنادات الجديدة.
+- إضافة execution_protocol للإسنادات الجديدة داخل معاملة الإسناد نفسها؛ بلا تعديل schema أو Backfill. الإسناد التاريخي متوافق، والإسناد بالاسم والورك فلو الحالي والمراجعة/الإغلاق والعائق والخارجي محفوظة.
+- كمية الفني وإضافة المستودع والإجمالي والألوان وحساب الكلفة والصرف والتحويل والمرتجع بالـLots تبقى قائمة. البحث عن مواد الفني أصبح داخل Combobox مثل PMV2 مع الرصيد ومنع التكرار.
+- اختبارات الذاكرة وReact مع منع استيراد عميل القاعدة، ومقارنة TypeScript 663 قبل/بعد بلا تشخيصات جديدة. PMV2: الإخفاقات العشرة نفسها قبل/بعد، بلا تغييرات خارج النطاق.
+- لا اتصال بالقاعدة ولا تشغيل التطبيق الحقيقي أو نسخ إلى مجلد آخر. لا SQL يدوي مطلوب. المعاينة ثابتة ببيانات وهمية.
+- التقرير والمقارنة والاختبار العملي: docs/maintenance-team-tickets/EXECUTION_PMV2_PARITY_AR.md؛ الأدلة: tools/ticket-execution-parity/artifacts/.
+
+
+## 2026-10-13 — مطابقة المادة غير المدرجة: نفس نافذة PMV2 للتذاكر
+
+- استخراج قالب نافذة تحديد المادة من الدليل إلى MaterialIdentityDialog واستخدامه من PMV2 والتذاكر. قالب مشترك، ومرجع وAPI مستقل لكل احتياج. باقي منطق صفحة PMV2 مطابق للنسخة السابقة بفحص آلي.
+- وصف الفني والكمية والوحدة ومرجع التذكرة، بحث مستقل وزر وصف الفني الاختياري، اسم/كود/وحدة الصنف ورصيد الفريق والرئيسي، معاينة وتأكيد الربط وإلغاء وفتح الدليل، كلها بنفس تصميم PMV2.
+- قراءة مرشحين للتذاكر بصلاحيات المستودع/مالك/أدمن ومن سياق احتياج متحقق منه؛ استخدام قراءات المخزون والدليل الحالية بلا خدمات مهام PMV2 أو كتابة مخزون.
+- إزالة تصفية النتائج بوحدة الفني؛ الحارس الحالي يتحقق من الوحدة عند التأكيد. المطابقة تحفظ الوصف الأصلي ولا تنشئ شراء أو صرف؛ تسجل ملاحظة مقروءة تلقائيًا وتستكمل المسار الحالي.
+- كمية الفني وإضافة المستودع والإجمالي والألوان والكلفة محفوظة، وكتالوج إنشاء طلب الشراء مستقل دون تغيير.
+- 206 اختبارات معزولة ناجحة؛ TypeScript 663 قبل/بعد بلا تشخيصات جديدة. اختبارات Patch131 القديمة: 5 ناجحة و3 إخفاقات نفسها قبل/بعد.
+- لا اتصال بالقاعدة ولا schema أو SQL يدوي. العمل داخل CMMSFINAL فقط، والمعاينة ببيانات وهمية.
+- التقرير: docs/maintenance-team-tickets/MATERIAL_IDENTITY_PMV2_PARITY_AR.md؛ الأدلة: tools/ticket-material-identity/artifacts/.
+
+## 2026-10-14 — مطابقة عرض وأزرار التحويل والصرف لتذاكر الفريق مع PMV2
+
+- اعتماد المستخدم إبقاء الكميات الصحيحة الحالية ومطابقة الواجهة فقط؛ لا دعم كسور أو schema أو SQL في هذه المرحلة.
+- التحويل زر رئيسي بعرض القسم وأيقونة التحويل، والشراء زر بإطار وأيقونة الشراء؛ كلاهما يستخدم نصوص وكميات PMV2 باللغات الثلاث.
+- الصرف من شبكة المستلم الفعلي وزر صرف كامل الاحتياج، مع تمييز طالب المادة وملخص بطاقة الجاهز للصرف بنفس أسلوب PMV2.
+- كمية الفني وإضافة المستودع والإجمالي والألوان محفوظة. إجراءات التحويل والصرف والشراء والمستلم والمعاملة والـLots والصلاحيات والمراجعة والمرتجع لم تتغير.
+- ملفا تشغيل فقط: ExecutionPanel.tsx وTicketWarehouseMaterialCard.tsx. لم تعدل صفحة PMV2 أو خدمات الخادم أو مخطط القاعدة أو نماذج التحويل والشراء الأصلية.
+- 210 اختبارات معزولة ناجحة: 107 واجهة و103 خدمات. TypeScript: 663 قبل/بعد، دون تشخيصات جديدة. لا اتصال بالقاعدة أو تشغيل التطبيق الحقيقي، والعمل داخل CMMSFINAL فقط.
+- التقرير واختبار المستخدم العملي: docs/maintenance-team-tickets/TRANSFER_ISSUE_PMV2_PARITY_AR.md؛ نسخ ما قبل التعديل والأدلة: tools/ticket-transfer-issue/artifacts/.

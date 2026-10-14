@@ -8,6 +8,7 @@ import { notifyOwner } from "../../_core/notification";
 import { detectLanguage, type SupportedLanguage } from "../../services/translation/translation";
 import { queueTranslation, translationCache } from "../../services/translation/translationEngine";
 import { DEFAULT_SECTION_TITLES, getDefaultChecklistFor } from "../../_core/pmDefaultChecklists";
+import { localizeMasterDataReferences } from "../../services/translation/localizedMasterData";
 
 export const preventiveRouter = router({
   // ─── Branch Tree (شجرة فروع الصيانة الدورية) ──────────────────────────
@@ -352,14 +353,17 @@ export const preventiveRouter = router({
     assetId: z.number().optional(),
     status: z.string().optional(),
     assignedToId: z.number().optional(),
-  }).optional()).query(async ({ input }) => {
-    return db.listPMWorkOrders(input ?? {});
+  }).optional()).query(async ({ input, ctx }) => {
+    return localizeMasterDataReferences(
+      await db.listPMWorkOrders(input ?? {}),
+      (ctx.user.preferredLanguage || "ar") as SupportedLanguage,
+    );
   }),
 
-  getWorkOrderById: protectedProcedure.input(z.object({ id: z.number() })).query(async ({ input }) => {
+  getWorkOrderById: protectedProcedure.input(z.object({ id: z.number() })).query(async ({ input, ctx }) => {
     const wo = await db.getPMWorkOrderById(input.id);
     if (!wo) throw new TRPCError({ code: "NOT_FOUND", message: "أمر العمل غير موجود" });
-    return wo;
+    return localizeMasterDataReferences(wo, (ctx.user.preferredLanguage || "ar") as SupportedLanguage);
   }),
 
   // يحذف أمر عمل — مسموح فقط طالما لم يبدأ الفحص فعلياً (انظر db.deletePMWorkOrder)

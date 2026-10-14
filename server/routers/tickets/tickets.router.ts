@@ -1,10 +1,14 @@
+import { notifyItTeamArrival } from "./it-team.service";
+import { isItTeamRole } from "@shared/roles";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { router, protectedProcedure, ticketProcedure } from "../_shared/procedures";
 import { APP_ROLE, MAINTENANCE_MANAGER_FAMILY, MAINTENANCE_RESPONSIBLE_DEPARTMENT } from "@shared/roles";
 import { detectLanguage, type SupportedLanguage } from "../../services/translation/translation";
 import { queueTranslation, translationCache } from "../../services/translation/translationEngine";
+import { localizeNamedRecords } from "../../services/translation/localizedMasterData";
 import * as db from "../../_core/db";
+import { prepareIdeaExecution, linkCreatedExecution, assertNotTrackedIdeaSource } from "../../services/improvement-ideas/execution";
 import { assertTicketReadable, isRoleDeniedFromTickets } from "./tickets.access";
 import { Pmv2TicketHandoffError, pmv2TicketHandoffService } from "../../pmv2/tickets/handoff-service";
 
@@ -43,12 +47,84 @@ async function resolveSingleActiveItManager() {
   return managers[0];
 }
 
+
+async function resolveCenterCategoryForTicket(categoryId?: number | null) {
+  if (!categoryId) return null;
+  const category = await db.getCenterCategoryById(categoryId);
+  if (!category) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "التصنيف المحدد غير موجود" });
+  }
+  if (!category.isActive) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "التصنيف المحدد غير نشط" });
+  }
+  return category;
+}
+
+function legacyCategoryForCenterCategory(category: any) {
+  // Keep the legacy ENUM only as a compatibility shadow until historical migration.
+  // IT must remain `it` because existing routing/report code still relies on it; all
+  // ordinary Center Categories use `general` in the legacy column.
+  return category?.systemKey === "it" ? "it" : "general";
+}
+
+async function localizeTicketDisplayRows(rows: any[], language: SupportedLanguage) {
+  if (!rows.length) return rows;
+
+  const userSources = new Map<number, string>();
+  const categorySources = new Map<number, string>();
+  const collect = (ticket: any) => {
+    if (ticket?.assignedToId && ticket.assignedToUserName) userSources.set(Number(ticket.assignedToId), String(ticket.assignedToUserName));
+    if (ticket?.reportedById && ticket.reportedByName) userSources.set(Number(ticket.reportedById), String(ticket.reportedByName));
+    if (ticket?.categoryId && ticket.centerCategoryName) categorySources.set(Number(ticket.categoryId), String(ticket.centerCategoryName));
+    if (Array.isArray(ticket?.children)) ticket.children.forEach(collect);
+  };
+  rows.forEach(collect);
+
+  const localizedUsers = await localizeNamedRecords(
+    "USER",
+    Array.from(userSources, ([id, name]) => ({ id, name })),
+    language,
+  );
+  const localizedCategories = await localizeNamedRecords(
+    "CENTER_CATEGORY",
+    Array.from(categorySources, ([id, name]) => ({ id, name })),
+    language,
+  );
+  const userNameById = new Map(localizedUsers.map((entry) => [entry.id, entry.name]));
+  const categoryNameById = new Map(localizedCategories.map((entry) => [entry.id, entry.name]));
+
+  const apply = (ticket: any): any => ({
+    ...ticket,
+    ...(ticket?.assignedToId && userNameById.has(Number(ticket.assignedToId))
+      ? { assignedToUserName: userNameById.get(Number(ticket.assignedToId)) }
+      : {}),
+    ...(ticket?.reportedById && userNameById.has(Number(ticket.reportedById))
+      ? { reportedByName: userNameById.get(Number(ticket.reportedById)) }
+      : {}),
+    ...(ticket?.categoryId && categoryNameById.has(Number(ticket.categoryId))
+      ? { centerCategoryName: categoryNameById.get(Number(ticket.categoryId)) }
+      : {}),
+    ...(Array.isArray(ticket?.children) ? { children: ticket.children.map(apply) } : {}),
+  });
+  return rows.map(apply);
+}
+
+async function localizeTicketDetail(ticket: any, language: SupportedLanguage) {
+  if (!ticket?.categoryId || !ticket?.centerCategoryName) return ticket;
+  const [category] = await localizeNamedRecords(
+    "CENTER_CATEGORY",
+    [{ id: Number(ticket.categoryId), name: String(ticket.centerCategoryName) }],
+    language,
+  );
+  return { ...ticket, centerCategoryName: category?.name || ticket.centerCategoryName };
+}
+
 /**
  * توجيه بلاغ IT إلى مرحلة تخطيط المهام فقط.
  *
- * لا ننشئ مهمة أو بلاغًا فرعيًا هنا: مدير تقنية المعلومات هو من يقسم البلاغ
- * إلى مهمة واحدة أو عدة مهام لاحقًا. كل مهمة IT تُسند له تلقائيًا عند إنشائها
- * ثم يمكن تحويلها إلى بلاغ فرعي يدخل نفس A/B/C الحالي.
+ * لا ننشئ مهمة أو بلاغًا فرعيًا هنا: يصل البلاغ أولًا إلى طابور فريق IT.
+ * أول عضو يستلمه يصبح المسؤول التشغيلي، ثم يقسمه إلى مهمة أو مهام يمكن
+ * توزيعها على أعضاء الفريق وتحويلها إلى بلاغات فرعية تدخل A/B/C الحالي.
  */
 async function createDirectItPlanningTicket(args: {
   tx: any;
@@ -78,7 +154,7 @@ async function createDirectItPlanningTicket(args: {
   }, tx);
   if (!parentId) throw new Error("تعذر إنشاء بلاغ تقنية المعلومات");
 
-  // بند توافق واحد للرأس فقط. المهمة/المهام الحقيقية ينشئها مدير IT بنفسه.
+  // بند توافق واحد للرأس فقط. المهمة/المهام الحقيقية ينشئها الفريق بعد الاستلام.
   await db.createTicketItem({
     ticketId: Number(parentId),
     itemNumber: 1,
@@ -133,14 +209,7 @@ async function recordDirectItRouting(args: {
     entityId: args.parentId,
     newValues: { itManagerId: args.itManagerId, workflowModel: "department_tasks" },
   });
-  await db.createNotification({
-    userId: args.itManagerId,
-    title: "بلاغ تقنية معلومات جديد",
-    message: `تم توجيه البلاغ ${args.ticketNumber} - ${args.title} إليك. راجع البلاغ وأنشئ مهمة واحدة أو عدة مهام حسب الحاجة.`,
-    type: "info",
-    relatedTicketId: args.parentId,
-    allowItManager: true,
-  });
+  await notifyItTeamArrival(args.parentId, args.ticketNumber);
 }
 
 export const ticketsRouter = router({
@@ -151,6 +220,7 @@ export const ticketsRouter = router({
     sectionId: z.number().optional(),
     assetId: z.number().optional(),
     search: z.string().optional(),
+    categoryId: z.number().int().positive().optional(),
     category: z.string().optional(),
     assignedTechnicianId: z.number().optional(),
     assignedToId: z.number().optional(), // Phase 2: filter by user-based assignment
@@ -166,11 +236,12 @@ export const ticketsRouter = router({
     let filters: any = { ...(input || {}) };
     if (role === APP_ROLE.OPERATOR) filters.reportedById = ctx.user.id;
     else if (role === APP_ROLE.TECHNICIAN) filters.assignedToId = ctx.user.id;
-    else if (role === APP_ROLE.IT_MANAGER) filters.itManagerScopeUserId = ctx.user.id;
+    else if (isItTeamRole(role)) filters.itManagerScopeUserId = ctx.user.id;
     // ⚠️ 2026-08-13: أُزيل فرع CONSTRUCTION_PROCUREMENT_MANAGER هنا عمدًا —
     // يرى الآن كل البلاغات بلا تضييق بقاعدة البيانات، مطابقًا لتوسيع الرؤية في
     // isTicketVisible. راجع docs/CONSTRUCTION_MANAGER_TICKET_READ_ACCESS.md.
-    return db.getTickets(filters);
+    const rows = await db.getTickets(filters);
+    return localizeTicketDisplayRows(rows as any[], (ctx.user.preferredLanguage || "ar") as SupportedLanguage);
   }),
 
   // صفحات حقيقية لقائمة البلاغات (10 بلاغات/صفحة افتراضياً) — لا تؤثر على list الأصلي
@@ -181,6 +252,7 @@ export const ticketsRouter = router({
     sectionId: z.number().optional(),
     assetId: z.number().optional(),
     search: z.string().optional(),
+    categoryId: z.number().int().positive().optional(),
     category: z.string().optional(),
     assignedTechnicianId: z.number().optional(),
     assignedToId: z.number().optional(),
@@ -211,18 +283,22 @@ export const ticketsRouter = router({
     } else if (role === APP_ROLE.TECHNICIAN) {
       filters.assignedToId = ctx.user.id;
       childVisibilityFilters.assignedToId = ctx.user.id;
-    } else if (role === APP_ROLE.IT_MANAGER) {
+    } else if (isItTeamRole(role)) {
       filters.itManagerScopeUserId = ctx.user.id;
       childVisibilityFilters.itManagerScopeUserId = ctx.user.id;
     }
     // ⚠️ 2026-08-13: أُزيل فرع CONSTRUCTION_PROCUREMENT_MANAGER هنا عمدًا —
     // نفس السبب أعلاه في list.
-    return db.getTicketsPaginated(filters, page, pageSize, {
+    const result = await db.getTicketsPaginated(filters, page, pageSize, {
       quickFilter: quickFilter === "all" ? undefined : quickFilter,
       sort,
       groupSubTickets,
       childVisibilityFilters,
     });
+    return {
+      ...result,
+      tickets: await localizeTicketDisplayRows(result.tickets as any[], (ctx.user.preferredLanguage || "ar") as SupportedLanguage),
+    };
   }),
 
   // عدادات الفلاتر السريعة لصندوق البلاغات — نفس الفلاتر ونفس نطاق الصلاحيات
@@ -246,7 +322,7 @@ export const ticketsRouter = router({
     let filters: any = { ...(input || {}) };
     if (role === APP_ROLE.OPERATOR) filters.reportedById = ctx.user.id;
     else if (role === APP_ROLE.TECHNICIAN) filters.assignedToId = ctx.user.id;
-    else if (role === APP_ROLE.IT_MANAGER) filters.itManagerScopeUserId = ctx.user.id;
+    else if (isItTeamRole(role)) filters.itManagerScopeUserId = ctx.user.id;
     // ⚠️ 2026-08-13: أُزيل فرع CONSTRUCTION_PROCUREMENT_MANAGER هنا عمدًا —
     // نفس السبب أعلاه في list.
     return db.getTicketsInboxCounts(filters);
@@ -258,10 +334,11 @@ export const ticketsRouter = router({
     // القاعدة العامة تطابق القائمة. مدير الإنشاءات والمشتريات يملك استثناء
     // قراءة فقط عندما يكون البلاغ مرتبطًا بطلب شراء.
     await assertTicketReadable(ctx.user, ticket as any);
-    const currentUserTaskAssignee = [APP_ROLE.TECHNICIAN, APP_ROLE.IT_MANAGER].includes(ctx.user.role as any) && ticket.sourceTaskId
+    const currentUserTaskAssignee = [APP_ROLE.TECHNICIAN, APP_ROLE.IT_MANAGER, APP_ROLE.IT_MEMBER].includes(ctx.user.role as any) && ticket.sourceTaskId
       ? await db.isUserAssignedToTicketTasks(ticket.id, ticket.sourceTaskId, ctx.user.id)
       : false;
-    return { ...ticket, currentUserTaskAssignee };
+    const localizedTicket = await localizeTicketDetail(ticket, (ctx.user.preferredLanguage || "ar") as SupportedLanguage);
+    return { ...localizedTicket, currentUserTaskAssignee };
   }),
 
   /**
@@ -296,13 +373,17 @@ export const ticketsRouter = router({
     title: z.string().min(1),
     description: z.string().optional(),
     priority: z.string().default("medium"),
-    category: z.string().default("general"),
+    // categoryId is the new Center Categories source. `category` is accepted only
+    // for backward-compatible clients during the transition period.
+    categoryId: z.number().int().positive().optional(),
+    category: z.string().optional(),
     siteId: z.number().optional(),
     sectionId: z.number().optional(),
     assetId: z.number().optional(),
     locationDetail: z.string().optional(),
     beforePhotoUrl: z.string().optional(),
     pmv2TaskItemId: z.number().int().positive().optional(),
+    fromIdeaId: z.number().int().positive().optional(),
   })).mutation(async ({ input, ctx }) => {
     if (!input.siteId || !input.sectionId) {
       throw new TRPCError({ code: "BAD_REQUEST", message: "يرجى اختيار الموقع والقسم" });
@@ -311,8 +392,19 @@ export const ticketsRouter = router({
       throw new TRPCError({ code: "BAD_REQUEST", message: "يرجى إضافة صورة واحدة على الأقل للبلاغ" });
     }
 
-    const { pmv2TaskItemId, ...ticketInput } = input;
-    const isItTicket = ticketInput.category === "it";
+    const { pmv2TaskItemId, fromIdeaId, ...rawTicketInput } = input;
+    if (fromIdeaId && pmv2TaskItemId) throw new TRPCError({ code: "BAD_REQUEST", message: "لا يمكن الجمع بين مصدر فكرة تحسين ومهمة PMV2" });
+    const centerCategory = await resolveCenterCategoryForTicket(rawTicketInput.categoryId);
+    if (!centerCategory && !rawTicketInput.category) {
+      throw new TRPCError({ code: "BAD_REQUEST", message: "يرجى اختيار التصنيف" });
+    }
+    const isItTicket = centerCategory ? centerCategory.systemKey === "it" : rawTicketInput.category === "it";
+    const ticketInput = {
+      ...rawTicketInput,
+      categoryId: centerCategory?.id ?? null,
+      // Never overwrite historical tickets here; this value is only written for the new row.
+      category: centerCategory ? legacyCategoryForCenterCategory(centerCategory) : (rawTicketInput.category || "general"),
+    };
     const itManager = isItTicket ? await resolveSingleActiveItManager() : null;
 
     // كشف اللغة فقط — الترجمة تحدث في الخلفية
@@ -321,7 +413,28 @@ export const ticketsRouter = router({
     let id: number | null = null;
     let ticketNumber = "";
 
-    if (pmv2TaskItemId) {
+    if (fromIdeaId) {
+      const created = await db.withTransaction(async tx => {
+        const idea = await prepareIdeaExecution(tx, fromIdeaId, ctx.user, ticketInput);
+        const atomicTicketNumber = await db.getNextTicketNumber(tx);
+        let result: { id: number; ticketNumber: string };
+        if (itManager) {
+          result = await createDirectItPlanningTicket({ tx, ticketNumber: atomicTicketNumber, actorUserId: ctx.user.id, itManager,
+            ticketData: { ...ticketInput, originalLanguage: detectedLang, reportedById: ctx.user.id } });
+        } else {
+          const childId = await db.createTicket({ ...ticketInput, originalLanguage: detectedLang, ticketNumber: atomicTicketNumber,
+            reportedById: ctx.user.id, status: "pending_triage", workflowModel: "department_tasks" }, tx);
+          if (!childId) throw new Error("تعذر إنشاء تذكرة الفكرة");
+          await db.createTicketItem({ ticketId: childId, itemNumber: 1, title: ticketInput.title,
+            description: ticketInput.description ?? null, descriptionAr: ticketInput.description ?? null,
+            assetId: ticketInput.assetId ?? null, status: "pending_triage", isLegacySingleItem: 1, createdById: ctx.user.id }, tx);
+          result = { id: Number(childId), ticketNumber: atomicTicketNumber };
+        }
+        await linkCreatedExecution(tx, idea, "ticket", result.id, ctx.user.id);
+        return result;
+      });
+      id = created.id; ticketNumber = created.ticketNumber;
+    } else if (pmv2TaskItemId) {
       try {
         const created = await db.withTransaction(async (tx) => {
           await pmv2TicketHandoffService.prepareAtomicTicketCreation(
@@ -439,7 +552,7 @@ export const ticketsRouter = router({
 
     // بند افتراضي للتوافق الرجعي مع ticket_items. في نموذج الجهات/المهام الجديد
     // لا يمثل هذا البند جهة أو مهمة؛ يبقى بند توافق واحد يعكس حالة الرأس.
-    try {
+    if (!fromIdeaId) try {
       await db.createTicketItem({
         ticketId: id,
         itemNumber: 1,
@@ -472,6 +585,7 @@ export const ticketsRouter = router({
     title: z.string().optional(),
     description: z.string().optional(),
     priority: z.string().optional(),
+    categoryId: z.number().int().positive().nullable().optional(),
     category: z.string().optional(),
     siteId: z.number().optional(),
     locationDetail: z.string().optional(),
@@ -496,13 +610,40 @@ export const ticketsRouter = router({
     if (ticket.status !== "pending_triage") {
       throw new TRPCError({ code: "BAD_REQUEST", message: "لا يمكن تعديل البلاغ بعد تصنيفه" });
     }
-    const { id, ...updateData } = input;
+
+    const selectedCenterCategory = input.categoryId ? await resolveCenterCategoryForTicket(input.categoryId) : null;
+    const currentCenterCategory = ticket.categoryId ? await db.getCenterCategoryById(ticket.categoryId) : null;
+    const currentIsIt = currentCenterCategory ? currentCenterCategory.systemKey === "it" : ticket.category === "it";
+    const nextIsIt = selectedCenterCategory
+      ? selectedCenterCategory.systemKey === "it"
+      : (input.category !== undefined ? input.category === "it" : currentIsIt);
+    if (currentIsIt !== nextIsIt) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: "لا يمكن تغيير مسار البلاغ من/إلى تقنية المعلومات عن طريق تعديل التصنيف. أنشئ البلاغ بالتصنيف الصحيح من البداية.",
+      });
+    }
+
+    const { id, ...updateDataRaw } = input;
+    const updateData: any = { ...updateDataRaw };
+    if (selectedCenterCategory) {
+      updateData.categoryId = selectedCenterCategory.id;
+      updateData.category = legacyCategoryForCenterCategory(selectedCenterCategory);
+    } else if (input.categoryId === null) {
+      updateData.categoryId = null;
+    }
     const oldValues: any = {};
     const newValues: any = {};
     if (input.title && input.title !== ticket.title) { oldValues.title = ticket.title; newValues.title = input.title; }
     if (input.description && input.description !== ticket.description) { oldValues.description = ticket.description; newValues.description = input.description; }
     if (input.priority && input.priority !== ticket.priority) { oldValues.priority = ticket.priority; newValues.priority = input.priority; }
-    if (input.category && input.category !== ticket.category) { oldValues.category = ticket.category; newValues.category = input.category; }
+    if (input.categoryId !== undefined && input.categoryId !== ticket.categoryId) {
+      oldValues.categoryId = ticket.categoryId;
+      newValues.categoryId = input.categoryId;
+    } else if (input.category && input.category !== ticket.category) {
+      oldValues.category = ticket.category;
+      newValues.category = input.category;
+    }
     if (input.siteId && input.siteId !== ticket.siteId) { oldValues.siteId = ticket.siteId; newValues.siteId = input.siteId; }
     // تحديث التذكرة فوراً
     await db.updateTicket(id, { ...updateData });
@@ -558,6 +699,7 @@ await db.createAuditLog({ userId: ctx.user.id, action: "update_ticket", entityTy
         });
       }
     }
+    await db.withTransaction(tx => assertNotTrackedIdeaSource(tx, "ticket", input.id));
     await db.deleteTicket(input.id);
     await db.createAuditLog({ userId: ctx.user.id, action: "delete_ticket", entityType: "ticket", entityId: input.id, oldValues: { ticketNumber: ticket.ticketNumber, title: ticket.title, status: ticket.status } });
     // Notify managers about ticket deletion
@@ -583,13 +725,24 @@ await db.createAuditLog({ userId: ctx.user.id, action: "update_ticket", entityTy
     title: z.string(),
     description: z.string().optional(),
     priority: z.enum(["low", "medium", "high", "critical"]),
-    category: z.enum(["electrical", "plumbing", "hvac", "structural", "mechanical", "general", "safety", "cleaning", "it"]),
+    categoryId: z.number().int().positive().optional(),
+    category: z.enum(["electrical", "plumbing", "hvac", "structural", "mechanical", "general", "safety", "cleaning", "it"]).optional(),
     siteId: z.number().optional(),
     assetId: z.number().optional(),
     locationDetail: z.string().optional(),
   })).mutation(async ({ input, ctx }) => {
     const ticketNumber = `TK-${Date.now()}`;
-    if (input.category === "it") {
+    const centerCategory = await resolveCenterCategoryForTicket(input.categoryId);
+    if (!centerCategory && !input.category) {
+      throw new TRPCError({ code: "BAD_REQUEST", message: "يرجى اختيار التصنيف" });
+    }
+    const isItTicket = centerCategory ? centerCategory.systemKey === "it" : input.category === "it";
+    const normalizedInput = {
+      ...input,
+      categoryId: centerCategory?.id ?? null,
+      category: centerCategory ? legacyCategoryForCenterCategory(centerCategory) : (input.category || "general"),
+    };
+    if (isItTicket) {
       const itManager = await resolveSingleActiveItManager();
       const created = await db.withTransaction(async (tx) => createDirectItPlanningTicket({
         tx,
@@ -597,7 +750,7 @@ await db.createAuditLog({ userId: ctx.user.id, action: "update_ticket", entityTy
         actorUserId: ctx.user.id,
         itManager,
         ticketData: {
-          ...input,
+          ...normalizedInput,
           reportedById: ctx.user.id,
           originalLanguage: "ar",
         },
@@ -607,7 +760,7 @@ await db.createAuditLog({ userId: ctx.user.id, action: "update_ticket", entityTy
         actorUserId: ctx.user.id,
         parentId: created.id,
         ticketNumber: created.ticketNumber,
-        title: input.title,
+        title: normalizedInput.title,
         itManagerId: itManager.id,
       });
       return created.id;
@@ -615,13 +768,14 @@ await db.createAuditLog({ userId: ctx.user.id, action: "update_ticket", entityTy
 
     const ticket = await db.createTicket({
       ticketNumber,
-      title: input.title,
-      description: input.description,
-      priority: input.priority as any,
-      category: input.category as any,
-      siteId: input.siteId,
-      assetId: input.assetId,
-      locationDetail: input.locationDetail,
+      title: normalizedInput.title,
+      description: normalizedInput.description,
+      priority: normalizedInput.priority as any,
+      categoryId: normalizedInput.categoryId,
+      category: normalizedInput.category as any,
+      siteId: normalizedInput.siteId,
+      assetId: normalizedInput.assetId,
+      locationDetail: normalizedInput.locationDetail,
       reportedById: ctx.user.id,
       status: "pending_triage",
       workflowModel: "department_tasks",

@@ -17,7 +17,7 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array<ArrayBuffer> {
 
 export type PushPermission = "default" | "granted" | "denied" | "unsupported";
 
-export function usePushNotifications() {
+export function usePushNotifications(enabled = true) {
   const [permission, setPermission] = useState<PushPermission>("default");
   const [isSubscribed, setIsSubscribed] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -32,6 +32,7 @@ export function usePushNotifications() {
   const unsubscribeMut = trpc.push.unsubscribe.useMutation();
 
   const isSupported =
+    enabled &&
     "serviceWorker" in navigator &&
     "PushManager" in window &&
     !!VAPID_PUBLIC_KEY;

@@ -1,0 +1,34 @@
+[
+  {
+    "file": "client/src/pages/maintenance-teams/TicketWarehouseRequests.tsx",
+    "hash": "2A7AD3D2B5861CE24A846158268CE06F24A4BC23823B88993394749F552CF4A5"
+  },
+  {
+    "file": "client/src/pages/maintenance-teams/ExecutionPanel.tsx",
+    "hash": "ECF527CD367B532586E18608B3095FD63F030FC0456B0F61EE6440ED2CEDE03B"
+  },
+  {
+    "file": "client/src/pages/maintenance-teams/WarehousePurchaseQuantities.tsx",
+    "hash": "2802E9265CF7F1E2F167A7048814FC523B0816BDA40014F6760FE4C635613B58"
+  },
+  {
+    "file": "shared/maintenance-team-tickets/assignment.ts",
+    "hash": "39014CAFB522644AF067A9FC813E59342FF7B34EC36C448A1474D78AA86E51CB"
+  },
+  {
+    "file": "server/routers/maintenance-teams/assignment.repository.ts",
+    "hash": "A676377A43A341149D4ADF28C4AB1200145BA6D12111BE708D82650D6B1C1E77"
+  },
+  {
+    "file": "shared/maintenance-team-tickets/material-routing.ts",
+    "hash": "E27463377DB906B9DFD91EE68F0EDF5FBDD2FAFE60F2C3F750C9CEA1306078E9"
+  },
+  {
+    "file": "client/src/pages/purchase/CreatePurchaseOrder.tsx",
+    "hash": "E668557917DAB499B24079331EBDA10A2BE2DA826BB8522F5D72D4C19BD4846C"
+  },
+  {
+    "file": "client/src/pages/maintenance-teams/TicketWarehouseMaterialCard.tsx",
+    "hash": "23F6112DDA7E54B25386047D7F9AF6032BEB446C293CF639DBB19911153BB838"
+  }
+]

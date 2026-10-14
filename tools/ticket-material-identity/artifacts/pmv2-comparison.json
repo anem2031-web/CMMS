@@ -1,0 +1,13 @@
+{
+  "tests": 8,
+  "baselinePass": 5,
+  "baselineFail": 3,
+  "currentPass": 5,
+  "currentFail": 3,
+  "sameFailures": true,
+  "failures": [
+    "✖ Patch 131 gives warehouse an explicit identity-resolution action without changing technician free-text capture",
+    "✖ full Team-Warehouse stock closes only the obsolete warehouse request and creates a normal self-receive route",
+    "✖ technician sees the warehouse recognition and receives an in-app/push notification"
+  ]
+}

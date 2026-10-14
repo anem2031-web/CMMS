@@ -1,0 +1,10 @@
+import fs from "node:fs";
+import path from "node:path";
+import { compile } from "@tailwindcss/node";
+const root = process.cwd();
+const artifacts = path.join(root, "tools/ticket-execution-parity/artifacts");
+const html = fs.readFileSync(path.join(artifacts, "preview.html"), "utf8");
+const classes = Array.from(new Set(Array.from(html.matchAll(/class="([^"]*)"/g)).flatMap(match => match[1].split(/\s+/))));
+const compiler = await compile(fs.readFileSync(path.join(root, "client/src/index.css"), "utf8"), { base: path.join(root, "client/src"), onDependency() {} });
+fs.writeFileSync(path.join(artifacts, "preview.css"), compiler.build(classes));
+console.log(`Rendered program CSS for ${classes.length} classes.`);

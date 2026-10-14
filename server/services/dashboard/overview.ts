@@ -1,0 +1,71 @@
+import { sql, type SQL } from "drizzle-orm";
+import { TRPCError } from "@trpc/server";
+import { buildDashboard, type DashboardData, type DashboardFilters } from "../../../shared/dashboard-overview";
+
+export interface DashboardReader {
+  execute(statement: SQL): Promise<unknown>;
+  transaction?<T>(work: (reader: DashboardReader) => Promise<T>): Promise<T>;
+}
+const number = (value: unknown) => Number(value);
+const nullable = (value: unknown): number | null => value == null || !Number.isFinite(Number(value)) ? null : Number(value);
+function rows(result: unknown): any[] {
+  if (!Array.isArray(result) || !Array.isArray(result[0])) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر قراءة بيانات لوحة المتابعة" });
+  return result[0];
+}
+function json(value: unknown): any {
+  if (typeof value !== "string") return value ?? {};
+  try { return JSON.parse(value); } catch { return {}; }
+}
+
+/** Minimal SELECT-only datasets; no per-ticket queries or translation writes. */
+export async function readDashboardData(database: DashboardReader): Promise<DashboardData> {
+  const select = async (statement: SQL) => rows(await database.execute(statement));
+  const [ticketRows, itemScopes, departmentScopes, orderRows, itemRows, users, sites, entries, teamRows, links, audit, externalJobs] = await Promise.all([
+    select(sql`SELECT id,ticketNumber,title,title_ar AS titleAr,title_en AS titleEn,title_ur AS titleUr,status,priority,workflowModel,parentTicketId,siteId,locationDetail,maintenanceResponsibleDepartment AS department,maintenanceResponsibleManagerId AS managerId,assignedToId,supervisorId,maintenancePath,UNIX_TIMESTAMP(createdAt)*1000 AS createdAt,UNIX_TIMESTAMP(closedAt)*1000 AS closedAt,UNIX_TIMESTAMP(assignedAt)*1000 AS assignedAt FROM tickets`),
+    select(sql`SELECT ticketId,responsibleDepartment AS department,responsibleManagerId AS managerId FROM ticket_items`),
+    select(sql`SELECT ticketId,department,responsibleManagerId AS managerId FROM ticket_departments`),
+    select(sql`SELECT id,poNumber,status,ticketId,siteId,requestedById FROM purchase_orders`),
+    select(sql`SELECT id,purchaseOrderId AS orderId,itemName,status,quantity,receivedQuantity,unit,actualTotalCost,UNIX_TIMESTAMP(receivedAt)*1000 AS receivedAt,UNIX_TIMESTAMP(purchasedAt)*1000 AS purchasedAt,delegateId FROM purchase_order_items`),
+    select(sql`SELECT id,name,role FROM users`),
+    select(sql`SELECT id,name FROM sites ORDER BY name`),
+    select(sql`SELECT h.ticketId,UNIX_TIMESTAMP(h.createdAt)*1000 AS enteredAt,h.notes AS note FROM ticket_status_history h INNER JOIN (SELECT h2.ticketId,MAX(h2.id) AS currentId FROM ticket_status_history h2 INNER JOIN tickets t ON t.id=h2.ticketId AND t.status=h2.toStatus GROUP BY h2.ticketId) latest ON latest.currentId=h.id`),
+    select(sql`SELECT a.id,a.ticketId,a.responsibleManagerId AS managerId,a.stage,a.revision,UNIX_TIMESTAMP(a.createdAt)*1000 AS createdAt,t.name AS teamName FROM ticket_team_assignments a INNER JOIN maintenance_teams t ON t.id=a.teamId`),
+    select(sql`SELECT DISTINCT a.ticketId,s.sourceId AS purchaseItemId FROM ticket_team_supply_links s INNER JOIN ticket_team_material_needs n ON n.id=s.needId INNER JOIN ticket_team_assignments a ON a.id=n.assignmentId AND a.materialRound=n.materialRound WHERE s.sourceKind='purchase' AND s.status<>'cancelled'`),
+    select(sql`SELECT entityId,oldValues,newValues,UNIX_TIMESTAMP(createdAt)*1000 AS createdAt FROM audit_logs WHERE entityType='ticket_team_assignment' ORDER BY id DESC`),
+    select(sql`SELECT ticketId,status,delegateId,purchaseOrderId,actualRecipientId,UNIX_TIMESTAMP(createdAt)*1000 AS createdAt,UNIX_TIMESTAMP(warehousePreparedAt)*1000 AS warehousePreparedAt,UNIX_TIMESTAMP(gateExitApprovedAt)*1000 AS gateExitApprovedAt,UNIX_TIMESTAMP(delegateReadyForReturnAt)*1000 AS delegateReadyForReturnAt,UNIX_TIMESTAMP(gateEntryApprovedAt)*1000 AS gateEntryApprovedAt,UNIX_TIMESTAMP(warehouseReceivedAt)*1000 AS warehouseReceivedAt,UNIX_TIMESTAMP(handoverAt)*1000 AS handoverAt FROM external_maintenance_jobs WHERE status<>'closed'`),
+  ]);
+  const transitions = audit.map(a => ({ id: number(a.entityId), old: json(a.oldValues), next: json(a.newValues), at: nullable(a.createdAt) }));
+  const stageStarts = new Map<string, (typeof transitions)[number]>();
+  for (const transition of transitions) {
+    const key = `${transition.id}:${transition.next.stage}`;
+    if (transition.old.stage !== transition.next.stage && !stageStarts.has(key)) stageStarts.set(key, transition);
+  }
+  const scopes = (source: any[]) => source.map(s => ({ ticketId: number(s.ticketId), department: s.department ?? null, managerId: nullable(s.managerId) }));
+  return {
+    tickets: ticketRows.map(t => ({ ...t, id: number(t.id), parentTicketId: nullable(t.parentTicketId), siteId: nullable(t.siteId), managerId: nullable(t.managerId), assignedToId: nullable(t.assignedToId), supervisorId: nullable(t.supervisorId), createdAt: nullable(t.createdAt), closedAt: nullable(t.closedAt), assignedAt: nullable(t.assignedAt) })),
+    itemScopes: scopes(itemScopes), departmentScopes: scopes(departmentScopes),
+    orders: orderRows.map(o => ({ ...o, id: number(o.id), ticketId: nullable(o.ticketId), siteId: nullable(o.siteId), requestedById: number(o.requestedById) })),
+    purchases: itemRows.map(i => ({ ...i, id: number(i.id), orderId: number(i.orderId), quantity: number(i.quantity), receivedQuantity: nullable(i.receivedQuantity), receivedAt: nullable(i.receivedAt), purchasedAt: nullable(i.purchasedAt), delegateId: nullable(i.delegateId) })),
+    users: users.map(u => ({ ...u, id: number(u.id) })), sites: sites.map(s => ({ ...s, id: number(s.id) })),
+    statusEntries: entries.map(e => ({ ticketId: number(e.ticketId), enteredAt: nullable(e.enteredAt), note: e.note ?? null })),
+    teams: teamRows.map(t => {
+      const transition = stageStarts.get(`${number(t.id)}:${t.stage}`);
+      return { id: number(t.id), ticketId: number(t.ticketId), managerId: number(t.managerId), stage: t.stage, teamName: t.teamName, createdAt: nullable(t.createdAt), enteredAt: transition?.at ?? (number(t.revision) === 0 ? nullable(t.createdAt) : null), note: typeof transition?.next.note === "string" ? transition.next.note : null };
+    }),
+    teamPurchaseLinks: links.map(l => ({ ticketId: number(l.ticketId), purchaseItemId: number(l.purchaseItemId) })),
+    externalJobs: externalJobs.map(j => ({ ...j, ticketId: number(j.ticketId), delegateId: nullable(j.delegateId), purchaseOrderId: nullable(j.purchaseOrderId), actualRecipientId: nullable(j.actualRecipientId), createdAt: nullable(j.createdAt), warehousePreparedAt: nullable(j.warehousePreparedAt), gateExitApprovedAt: nullable(j.gateExitApprovedAt), delegateReadyForReturnAt: nullable(j.delegateReadyForReturnAt), gateEntryApprovedAt: nullable(j.gateEntryApprovedAt), warehouseReceivedAt: nullable(j.warehouseReceivedAt), handoverAt: nullable(j.handoverAt) })),
+  };
+}
+export async function loadDashboard(filters: DashboardFilters, reader?: DashboardReader, now = Date.now()) {
+  let database = reader;
+  if (!database) {
+    // The database module is loaded only for an authorized application read.
+    const { getDb } = await import("../../_core/db/client");
+    database = await getDb() as DashboardReader | undefined;
+  }
+  if (!database) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "بيانات لوحة المتابعة غير متاحة؛ لا يمكن عرض أصفار بديلة" });
+  const data = database.transaction
+    ? await database.transaction(transaction => readDashboardData(transaction))
+    : await readDashboardData(database);
+  return buildDashboard(data, filters, now);
+}

@@ -3,6 +3,7 @@ import ar, { type TranslationKeys } from "@/i18n/ar";
 import en from "@/i18n/en";
 import ur from "@/i18n/ur";
 import { trpc } from "@/lib/trpc";
+import { useQueryClient } from "@tanstack/react-query";
 
 export type SupportedLanguage = "ar" | "en" | "ur";
 
@@ -63,6 +64,7 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
   });
 
   const utils = trpc.useUtils();
+  const queryClient = useQueryClient();
   const meQuery = trpc.auth.me.useQuery(undefined, {
     retry: false,
     refetchOnWindowFocus: false,
@@ -88,9 +90,28 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
       current ? { ...current, preferredLanguage: lang } : current
     );
 
-    // Update user preference in DB (fire and forget)
-    setLanguageMutation.mutate({ language: lang });
-  }, [setLanguageMutation, utils]);
+    // Persist the preference, then refetch master-data queries whose display
+    // names are localized by the server using the user's preferred language.
+    if (meQuery.data?.role === "observer") return;
+    setLanguageMutation.mutate({ language: lang }, {
+      onSuccess: () => {
+        void utils.sites.list.invalidate();
+        void utils.sections.list.invalidate();
+        void utils.assets.list.invalidate();
+        void utils.assets.getById.invalidate();
+        void utils.assetCategories.list.invalidate();
+        void utils.centerCategories.list.invalidate();
+        void utils.users.list.invalidate();
+        void utils.users.byRole.invalidate();
+        void utils.users.listTechnicians.invalidate();
+        // Domain responses can embed localized master-data labels (ticket lists,
+        // purchase views, PM V2, reports, etc.). Invalidate the remaining active
+        // queries once the server-side language preference is persisted so every
+        // visible label is refetched in the newly selected language.
+        void queryClient.invalidateQueries();
+      },
+    });
+  }, [queryClient, setLanguageMutation, utils, meQuery.data?.role]);
 
   // Apply direction and lang to document
   useEffect(() => {

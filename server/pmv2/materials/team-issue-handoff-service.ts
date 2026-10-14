@@ -1,3 +1,4 @@
+import { canUserExecuteAllPmv2Teams, pmv2ExecutionActor, pmv2ExecutionActorCondition, pmv2ExecutionTeamCondition } from "../security/execution-access";
 import { and, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import {
   pmv2ItemActions,
@@ -22,7 +23,7 @@ import {
 import { writePmv2AuditWithDb } from "../audit/service";
 import { validatePmv2MaterialUsageWrite } from "./usage-validation";
 import { getPmv2MaterialQuantityValidationMessage } from "../../../shared/pmv2MaterialQuantity";
-import { PMV2_TECHNICIAN_EXECUTION_ROLES } from "../../../shared/roles";
+import { PMV2_ALL_TEAM_EXECUTION_ROLES, PMV2_TECHNICIAN_EXECUTION_ROLES, canRoleExecuteAllPmv2Teams } from "../../../shared/roles";
 
 const MATERIAL_ROUTE_DECISION_ACTION = "material_route_decision";
 const MATERIAL_ISSUE_LINK_ACTION = "material_issue_linked";
@@ -594,6 +595,13 @@ export class Pmv2TeamIssueHandoffService {
       : [];
     const materialRequestById = new Map(materialRequestRows.map((row) => [Number(row.id), row]));
 
+    // Include only the actual active global executor who requested this material,
+    // without registering that account as a permanent team member.
+    const requesterIds = Array.from(new Set(Array.from(latest.values()).map(item => item.requesterUserId)));
+    const globalRequesters = requesterIds.length ? await db.select({ id: users.id, name: users.name }).from(users)
+      .where(and(inArray(users.id, requesterIds), eq(users.isActive, 1), inArray(users.role, [...PMV2_ALL_TEAM_EXECUTION_ROLES]))) : [];
+    const globalRequesterById = new Map<number, { id: number; name: string }>(globalRequesters.map(row => [Number(row.id), { id: Number(row.id), name: String(row.name || "فني") }]));
+
     const techRows = await listActiveTeamTechnicians(db, [...new Set([...latest.values()].map((item) => item.teamId))]);
     const techByTeam = new Map<number, Array<{ id: number; name: string }>>();
     for (const row of techRows as any[]) {
@@ -625,7 +633,9 @@ export class Pmv2TeamIssueHandoffService {
       const pendingRelink = pendingLinks[0] || null;
       const availability = await currentInventoryAdapter.getCatalogAvailability(Number(requirement.catalogItemId), requirement.teamWarehouseId);
       const target = await resolveTarget(requirement.programTargetId);
-      const technicians = techByTeam.get(requirement.teamId) || [];
+      const technicians = [...(techByTeam.get(requirement.teamId) || [])];
+      const globalRequester = globalRequesterById.get(requirement.requesterUserId);
+      if (globalRequester && !technicians.some(item => item.id === globalRequester.id)) technicians.push(globalRequester);
       const requester = technicians.find((item) => item.id === requirement.requesterUserId) || null;
       const inventoryId = availability.ambiguous ? null : availability.inventoryId;
       const lots = inventoryId ? await currentInventoryAdapter.listAvailableLots(inventoryId) : [];
@@ -636,7 +646,8 @@ export class Pmv2TeamIssueHandoffService {
       else if (!inventoryId) blocker ||= "الصنف غير موجود في مخزن الفريق";
       else if (Number(availability.availableQuantity || 0) + 0.0005 < remainingQuantity) blocker ||= "الرصيد الحالي لا يغطي كامل احتياج المهمة";
       else if (planned.remaining > 0.0005) blocker ||= "أرصدة الـLots لا تغطي كامل احتياج المهمة";
-      else if (!requester && technicians.length === 0) blocker ||= "لا يوجد فني نشط في فريق المهمة يمكنه الاستلام";
+      const canIssueToAuthorizedExecutor = !blocker;
+      if (!requester && technicians.length === 0) blocker ||= "لا يوجد فني نشط في فريق المهمة يمكنه الاستلام";
 
       const catalog = catalogById.get(Number(requirement.catalogItemId));
       result.push({
@@ -649,7 +660,7 @@ export class Pmv2TeamIssueHandoffService {
         availableQuantity: roundQuantity(Number(availability.availableQuantity || 0)), inventoryId,
         requesterUserId: requirement.requesterUserId, requesterName: requester?.name || `#${requirement.requesterUserId}`,
         defaultRecipientUserId: requester?.id || technicians[0]?.id || null, technicians,
-        targetLabel: target.label, canIssue: !blocker, blocker,
+        targetLabel: target.label, canIssue: !blocker, canIssueToAuthorizedExecutor, blocker,
         pendingRelink: pendingRelink ? {
           actionId: pendingRelink.id,
           deliveryNumber: pendingRelink.note.deliveryNumber,
@@ -667,12 +678,13 @@ export class Pmv2TeamIssueHandoffService {
   }
 
   async listTechnicianReadyReceipts(userId: number, taskId: number, taskItemId: number) {
+    const allTeams = await canUserExecuteAllPmv2Teams(await requireDb(), userId);
     const queue = await this.listReadyToIssueQueue();
     return queue
       .filter((item) =>
         item.taskId === taskId &&
         item.taskItemId === taskItemId &&
-        item.technicians.some((technician: any) => technician.id === userId),
+        (allTeams || item.technicians.some((technician: any) => technician.id === userId)),
       )
       .map((item) => ({
         routeDecisionActionId: item.routeDecisionActionId,
@@ -686,8 +698,8 @@ export class Pmv2TeamIssueHandoffService {
         remainingQuantity: item.remainingQuantity,
         availableQuantity: item.availableQuantity,
         warehouseId: item.warehouseId,
-        canReceive: Boolean(item.canIssue),
-        blocker: item.blocker || null,
+        canReceive: Boolean(item.canIssue || (allTeams && item.canIssueToAuthorizedExecutor)),
+        blocker: allTeams && item.canIssueToAuthorizedExecutor ? null : item.blocker || null,
         pendingRelink: item.pendingRelink,
         lotAllocations: item.lotAllocations,
       }));
@@ -708,12 +720,18 @@ export class Pmv2TeamIssueHandoffService {
     const queue = await this.listReadyToIssueQueue();
     const candidate = queue.find((item) => item.routeDecisionActionId === input.routeDecisionActionId);
     if (!candidate) throw new Pmv2TeamIssueHandoffError("احتياج المادة لم يعد متاحًا للصرف؛ حدّث الشاشة");
-    if (!candidate.canIssue || !candidate.inventoryId) throw new Pmv2TeamIssueHandoffError(candidate.blocker || "المادة غير جاهزة للصرف");
     const deliveredToId = Number(input.deliveredToId || candidate.defaultRecipientUserId || 0);
-    if (!candidate.technicians.some((item: any) => item.id === deliveredToId)) throw new Pmv2TeamIssueHandoffError("المستلم الفعلي يجب أن يكون منفذًا نشطًا في فريق المهمة");
+    const db = await requireDb();
+    const recipient = await db.select({ id: pmv2ExecutionActor.id, role: pmv2ExecutionActor.role }).from(pmv2ExecutionActor)
+      .where(pmv2ExecutionTeamCondition(deliveredToId, candidate.teamId)).limit(1);
+    if (!recipient[0]) throw new Pmv2TeamIssueHandoffError("المستلم الفعلي يجب أن يكون منفذًا مخوّلًا نشطًا للمهمة");
+    const authorizedSelfRecipient = actorUserId === deliveredToId && canRoleExecuteAllPmv2Teams(recipient[0].role);
+    if (!candidate.inventoryId || !(candidate.canIssue || (authorizedSelfRecipient && candidate.canIssueToAuthorizedExecutor))) {
+      throw new Pmv2TeamIssueHandoffError(candidate.blocker || "المادة غير جاهزة للصرف");
+    }
     const technicianSelfService = actorUserId === deliveredToId;
 
-    const requirement = await loadRequirementByRouteAction(await requireDb(), candidate.routeDecisionActionId);
+    const requirement = await loadRequirementByRouteAction(db, candidate.routeDecisionActionId);
     if (!requirement) throw new Pmv2TeamIssueHandoffError("تعذر استعادة احتياج المادة");
     const target = await resolveTarget(requirement.programTargetId);
     if (!target.costTarget) throw new Pmv2TeamIssueHandoffError(target.blocker || "تعذر تحديد جهة تحميل تكلفة الصرف");
@@ -788,9 +806,9 @@ export class Pmv2TeamIssueHandoffService {
       if (delivery.catalogItemId !== requirement.catalogItemId || delivery.warehouseId !== requirement.teamWarehouseId) throw new Pmv2TeamIssueHandoffError("سند الصرف لا يطابق صنف/مخزن احتياج PM V2");
       if (normalizeUnit(delivery.unit) && normalizeUnit(requirement.unit) !== normalizeUnit(delivery.unit)) throw new Pmv2TeamIssueHandoffError("وحدة سند الصرف لا تطابق وحدة الاحتياج");
       if (!delivery.deliveredToId) throw new Pmv2TeamIssueHandoffError("سند الصرف لا يحتوي مستلمًا فعليًا");
-      const recipient = await tx.select({ id: pmv2TeamMembers.id }).from(pmv2TeamMembers).innerJoin(users, eq(users.id, pmv2TeamMembers.userId))
-        .where(and(eq(pmv2TeamMembers.teamId, requirement.teamId), eq(pmv2TeamMembers.userId, delivery.deliveredToId), eq(pmv2TeamMembers.isActive, 1), eq(users.isActive, 1), inArray(users.role, [...PMV2_TECHNICIAN_EXECUTION_ROLES] as any))).limit(1);
-      if (!recipient[0]) throw new Pmv2TeamIssueHandoffError("المستلم ليس عضو تنفيذ نشطًا في فريق المهمة");
+      const recipient = await tx.select({ id: pmv2ExecutionActor.id }).from(pmv2ExecutionActor)
+        .where(pmv2ExecutionTeamCondition(delivery.deliveredToId, requirement.teamId)).limit(1);
+      if (!recipient[0]) throw new Pmv2TeamIssueHandoffError("المستلم ليس منفذًا مخوّلًا نشطًا للمهمة");
 
       const issuedBefore = await sumIssuedForRoute(tx, requirement.taskItemId, routeDecisionActionId);
       const remainingBefore = roundQuantity(requirement.requestedQuantity - issuedBefore);
@@ -839,8 +857,8 @@ export class Pmv2TeamIssueHandoffService {
   async listCompletionMaterials(userId: number, taskId: number, taskItemId: number) {
     const db = await requireDb();
     const allowed = await db.select({ id: pmv2TaskItems.id }).from(pmv2TaskItems).innerJoin(pmv2Tasks, eq(pmv2Tasks.id, pmv2TaskItems.taskId))
-      .innerJoin(pmv2TeamMembers, and(eq(pmv2TeamMembers.teamId, pmv2Tasks.teamId), eq(pmv2TeamMembers.userId, userId), eq(pmv2TeamMembers.isActive, 1)))
-      .where(and(eq(pmv2Tasks.id, taskId), eq(pmv2TaskItems.id, taskItemId))).limit(1);
+      .innerJoin(pmv2ExecutionActor, pmv2ExecutionActorCondition(userId))
+      .where(and(pmv2ExecutionTeamCondition(userId, pmv2Tasks.teamId), eq(pmv2Tasks.id, taskId), eq(pmv2TaskItems.id, taskItemId))).limit(1);
     if (!allowed[0]) throw new Pmv2TeamIssueHandoffError("المهمة غير موجودة ضمن مهامك");
     const { latest } = await loadLatestRequirementsForTaskItem(db, taskItemId);
     const catalogs = await currentCatalogAdapter.getItemsByIds([...latest.keys()]);

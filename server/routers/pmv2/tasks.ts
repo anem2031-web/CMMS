@@ -2,6 +2,8 @@ import { z } from "zod";
 import { router } from "../_shared/procedures";
 import { pmv2ManagementProcedure } from "../../pmv2/security/procedures";
 import { pmv2TaskReadService } from "../../pmv2/tasks/read-service";
+import { localizeMasterDataReferences } from "../../services/translation/localizedMasterData";
+import type { SupportedLanguage } from "../../services/translation/translation";
 
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 
@@ -16,7 +18,10 @@ export const pmv2TasksRouter = router({
       message: "نطاق التاريخ غير صالح",
       path: ["dateTo"],
     }))
-    .query(({ input }) => pmv2TaskReadService.listDailyTeamWorkload(input)),
+    .query(async ({ input, ctx }) => localizeMasterDataReferences(
+      await pmv2TaskReadService.listDailyTeamWorkload(input),
+      (ctx.user.preferredLanguage || "ar") as SupportedLanguage,
+    )),
 
   list: pmv2ManagementProcedure
     .input(z.object({
@@ -30,9 +35,15 @@ export const pmv2TasksRouter = router({
       excludeFinished: z.boolean().optional(),
       excludeCancelled: z.boolean().optional(),
     }).optional())
-    .query(({ input }) => pmv2TaskReadService.listTasks(input ?? {})),
+    .query(async ({ input, ctx }) => localizeMasterDataReferences(
+      await pmv2TaskReadService.listTasks(input ?? {}),
+      (ctx.user.preferredLanguage || "ar") as SupportedLanguage,
+    )),
 
   items: pmv2ManagementProcedure
     .input(z.object({ taskId: z.number().int().positive() }))
-    .query(({ input }) => pmv2TaskReadService.listTaskItems(input.taskId)),
+    .query(async ({ input, ctx }) => localizeMasterDataReferences(
+      await pmv2TaskReadService.listTaskItems(input.taskId),
+      (ctx.user.preferredLanguage || "ar") as SupportedLanguage,
+    )),
 });

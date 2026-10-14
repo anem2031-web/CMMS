@@ -1,10 +1,45 @@
 import { z } from "zod";
 import { eq, and, asc, gte, lte } from "drizzle-orm";
-import { router, protectedProcedure } from "../_shared/procedures";
+import { router, protectedProcedure, adminOwnerProcedure } from "../_shared/procedures";
 import * as db from "../../_core/db";
+import { dashboardSnapshots } from "../../services/dashboard/snapshots";
+import { DASHBOARD_METRICS, dashboardPeriod, dashboardSummary, dashboardDetails, type DashboardFilters } from "../../../shared/dashboard-overview";
+
+const defaultFilters: DashboardFilters = { period: "month", department: "all" };
+const filterShape = z.object({
+  period: z.enum(["month", "year", "all", "custom"]).default("month"),
+  dateFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  dateTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  siteId: z.number().int().positive().optional(),
+  department: z.enum(["all", "general", "construction", "it", "unclassified"]).default("all"),
+});
+const validatePeriod = (input: DashboardFilters, context: z.RefinementCtx) => {
+  try { dashboardPeriod(input, Date.now()); }
+  catch { context.addIssue({ code: "custom", message: "حدد فترة صحيحة وبداية لا تتجاوز النهاية" }); }
+};
 
 export const dashboardRouter = router({
-  stats: protectedProcedure.query(async () => {
+  // These queries expose administrative data only; the observer central guard
+  // grants the admin read projection for their explicitly registered paths.
+  overview: adminOwnerProcedure.input(filterShape.superRefine(validatePeriod).optional()).query(async ({ ctx, input }) => {
+    const actor = ctx.authenticatedUser ?? ctx.user;
+    const snapshot = await dashboardSnapshots.create(actor, input ?? defaultFilters);
+    return { ...dashboardSummary(snapshot.report), snapshotId: snapshot.id };
+  }),
+  details: adminOwnerProcedure.input(filterShape.extend({
+    metric: z.enum(DASHBOARD_METRICS),
+    page: z.number().int().min(1).max(100000).default(1),
+    managerKey: z.string().regex(/^(general|construction|it|unclassified):(\d+|unassigned)$/).optional(),
+    managerBucket: z.enum(["all", "waiting_elsewhere", "aged_inside", "unknown_wait"]).default("all"),
+    snapshotId: z.string().uuid().optional(),
+  }).superRefine(validatePeriod)).query(async ({ ctx, input }) => {
+    const { metric, page, managerKey, managerBucket, snapshotId, ...filters } = input;
+    const actor = ctx.authenticatedUser ?? ctx.user;
+    const snapshot = await dashboardSnapshots.resolve(actor, filters, snapshotId);
+    return { ...dashboardDetails(snapshot.report, metric, page, managerKey, managerBucket), snapshotId: snapshot.id };
+  }),
+
+  stats: adminOwnerProcedure.query(async () => {
     return db.getDashboardStats();
   }),
 

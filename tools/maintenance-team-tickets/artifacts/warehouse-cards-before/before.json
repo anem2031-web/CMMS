@@ -1,0 +1,37 @@
+[
+  {
+    "file": "client/src/pages/maintenance-teams/TicketWarehouseRequests.tsx",
+    "backup": "C:\\Users\\mh\\Desktop\\CMMSFINAL\\tools\\maintenance-team-tickets\\artifacts\\warehouse-cards-before\\client__src__pages__maintenance-teams__TicketWarehouseRequests.tsx.before",
+    "hash": "67FF048525F6B727051A411FDAF909289E34A9775D56E73434D08B97F939A2D6"
+  },
+  {
+    "file": "client/src/pages/maintenance-teams/ExecutionPanel.tsx",
+    "backup": "C:\\Users\\mh\\Desktop\\CMMSFINAL\\tools\\maintenance-team-tickets\\artifacts\\warehouse-cards-before\\client__src__pages__maintenance-teams__ExecutionPanel.tsx.before",
+    "hash": "6D4B2E49895A2CDE03F89CC9CCDE571E4DB61F590F00BD141353319E32978B51"
+  },
+  {
+    "file": "client/src/pages/maintenance-teams/WarehousePurchaseQuantities.tsx",
+    "backup": "C:\\Users\\mh\\Desktop\\CMMSFINAL\\tools\\maintenance-team-tickets\\artifacts\\warehouse-cards-before\\client__src__pages__maintenance-teams__WarehousePurchaseQuantities.tsx.before",
+    "hash": "EBBA39CE473F945807FC54985E90A81B85130CE229A3539EBA76F140F374EF2D"
+  },
+  {
+    "file": "shared/maintenance-team-tickets/assignment.ts",
+    "backup": "C:\\Users\\mh\\Desktop\\CMMSFINAL\\tools\\maintenance-team-tickets\\artifacts\\warehouse-cards-before\\shared__maintenance-team-tickets__assignment.ts.before",
+    "hash": "6B79C8F6845F70AEB079505938E3C9804A2B397602D4135ACC602835208DCA3C"
+  },
+  {
+    "file": "server/routers/maintenance-teams/assignment.repository.ts",
+    "backup": "C:\\Users\\mh\\Desktop\\CMMSFINAL\\tools\\maintenance-team-tickets\\artifacts\\warehouse-cards-before\\server__routers__maintenance-teams__assignment.repository.ts.before",
+    "hash": "097541E0C0C03F33D2241CC7E617C7276C208EFA94363356C59DB9EE101088C5"
+  },
+  {
+    "file": "shared/maintenance-team-tickets/material-routing.ts",
+    "backup": "C:\\Users\\mh\\Desktop\\CMMSFINAL\\tools\\maintenance-team-tickets\\artifacts\\warehouse-cards-before\\shared__maintenance-team-tickets__material-routing.ts.before",
+    "hash": "FCEF358BFDD440C9F263DDFBBC943CBD073F3026E322C87564A7DFDF146D5651"
+  },
+  {
+    "file": "client/src/pages/purchase/CreatePurchaseOrder.tsx",
+    "backup": "C:\\Users\\mh\\Desktop\\CMMSFINAL\\tools\\maintenance-team-tickets\\artifacts\\warehouse-cards-before\\client__src__pages__purchase__CreatePurchaseOrder.tsx.before",
+    "hash": "B5B269CFAFB2D67687400720A0F613111988F384E201B3EB3FB65D6F1B5FBA3D"
+  }
+]

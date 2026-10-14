@@ -29,16 +29,14 @@ test("generic attachment allowlist explicitly admits pmv2_item_action", () => {
 
 test("PM V2 evidence write access requires technician role, active Task-Team membership, own action, and open Visit", () => {
   assert.match(evidenceAccess, /canAccessPmv2TechnicianExecution\(user\.role\)/);
-  assert.match(evidenceAccess, /eq\(pmv2TeamMembers\.teamId, pmv2Tasks\.teamId\)/);
-  assert.match(evidenceAccess, /eq\(pmv2TeamMembers\.userId, user\.id\)/);
-  assert.match(evidenceAccess, /eq\(pmv2TeamMembers\.isActive, 1\)/);
+  assert.match(evidenceAccess, /\.where\(pmv2ExecutionTeamCondition\(user\.id, Number\(row\.teamId\)\)\)/);
   assert.match(evidenceAccess, /Number\(row\.performedById\) !== Number\(user\.id\)/);
   assert.match(evidenceAccess, /row\.visitEndedAt != null/);
   assert.match(evidenceAccess, /يمكنك إضافة دليل فقط إلى إجراء نفذته أنت/);
   assert.match(evidenceAccess, /لا يمكن إضافة دليل بعد إنهاء الزيارة/);
 });
 
-test("PM V2 managers receive review-only evidence access without gaining upload permission", () => {
+test("PM V2 manager review and executor upload retain separate evidence guards", () => {
   assert.match(evidenceAccess, /mode === "read" && canManagePmv2Foundation\(user\.role\)/);
   const writeBlock = evidenceAccess.split('if (mode === "write")', 2)[1] ?? "";
   assert.match(writeBlock, /performedById/);
@@ -58,8 +56,7 @@ test("technician evidence read rechecks exact Task Item ownership and active Tea
   assert.match(method, /eq\(pmv2Tasks\.id, taskId\)/);
   assert.match(method, /eq\(pmv2TaskItems\.id, taskItemId\)/);
   assert.match(method, /eq\(pmv2TaskItems\.taskId, taskId\)/);
-  assert.match(method, /eq\(pmv2TeamMembers\.userId, userId\)/);
-  assert.match(method, /eq\(pmv2TeamMembers\.isActive, 1\)/);
+  assert.match(method, /pmv2ExecutionTeamCondition\(userId, pmv2Tasks\.teamId\)/);
 });
 
 test("evidence listing spans all Item Actions while upload target stays on the technician's action in exactly one open Visit", () => {

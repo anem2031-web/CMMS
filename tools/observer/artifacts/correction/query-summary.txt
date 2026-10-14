@@ -1,0 +1,289 @@
+observer.readPage :: assertObserverReader, read
+system.health :: 
+translation.getEntityTranslations :: getEntityTranslations
+translation.getBatchTranslations :: getBatchTranslations
+translation.getVersionHistory :: getTranslationVersions
+translation.getStats :: getTranslationStats
+translation.getJobs :: getTranslationJobsList
+translation.getEntityFieldMap :: 
+auth.me :: 
+users.list :: cacheManager.getOrCompute, cacheKeys.users, db.getAllUsers, localizeNamedRecords
+users.byRole :: cacheManager.getOrCompute, cacheKeys.usersByRole, db.getUsersByRole, localizeNamedRecords
+users.listTechnicians :: cacheManager.getOrCompute, cacheKeys.usersByRole, db.getUsersByRole, localizeNamedRecords
+sites.list :: cacheManager.getOrCompute, cacheKeys.sites, db.getAllSites, localizeNamedRecords
+sections.list :: db.getSections, localizeNamedRecords
+technicians.list :: db.getAllTechnicians
+technicians.getOpenTicketCounts :: db.getTechnicianOpenTicketCounts
+tickets.itPurchaseNeeds :: assertTeam, db.getTicketById, fail, assertTicketReadable, db.getDb, predicates.push, database.select
+tickets.list :: isRoleDeniedFromTickets, isItTeamRole, db.getTickets, localizeTicketDisplayRows
+tickets.listPaginated :: isRoleDeniedFromTickets, isItTeamRole, db.getTicketsPaginated, localizeTicketDisplayRows
+tickets.inboxCounts :: isRoleDeniedFromTickets, isItTeamRole, db.getTicketsInboxCounts
+tickets.getById :: db.getTicketById, assertTicketReadable, db.isUserAssignedToTicketTasks, localizeTicketDetail
+tickets.items :: db.getTicketById, assertTicketReadable, db.getTicketItems
+tickets.myItemsForTickets :: db.getMyTicketItemsForTickets
+tickets.history :: db.getTicketById, assertTicketReadable, db.getTicketHistory, queueTicketHistoryTranslations
+tickets.departmentPlan :: db.getTicketById, assertTicketReadable, db.getTicketDepartments, db.getTicketTasks, db.getTaskAssigneesForTasks, tasks.map, isItTeamRole, departments.filter, departments.map, tasks.filter, ids.has, assignees.filter, taskIds.has, visibleTaskIds.has, deptIds.has, db.getSubTicketsByParent, summarizeSubTicketFamily
+tickets.getConfirmation :: db.getTicketById, assertTicketReadable, db.getTicketConfirmation, db.getUserById
+tickets.listForGate :: 
+tickets.history :: db.getTicketById, assertTicketReadable, db.getTicketHistory, detectLanguage, queueTranslation, console.error
+purchaseOrders.listPricingBatches :: rejectEmptyPendingPricingBatches, db.getPOPricingBatches
+purchaseOrders.actionableForMe :: db.getPurchaseOrders, filterVisiblePurchaseOrders, db.getPOItemsForPOs, visible.map, computeActionablePOs, localizePurchaseUserNames
+purchaseOrders.getById :: db.getPurchaseOrderById, assertCanViewPurchaseOrder, db.getPOItems, db.getProcurementComments, localizePurchaseUserNames
+purchaseOrders.list :: OWN_REQUESTS_ONLY_ROLES.includes, db.getPurchaseOrders, localizePurchaseUserNames, filterVisiblePurchaseOrders, db.getPOItemsByDelegate, myItemCountByPO.set, myItemCountByPO.get, visible.map
+purchaseOrders.myItems :: db.getAllPOItems, db.getPOItemsByDelegate
+purchaseOrders.myRequestedItems :: db.getPOItemsRequestedBy, localizePurchaseUserNames
+purchaseOrders.supplyTracking :: db.getPurchaseSupplyTrackingItems, localizePurchaseUserNames, canRoleViewAllPurchaseSupplyTracking
+purchaseOrders.itemHistory :: db.getPOItemById, db.getPurchaseOrderById, assertCanViewPurchaseOrder, db.getPOItemTimeline, localizePurchaseUserNames
+purchaseOrders.actionableItemsForMe :: db.getPOItemsByDelegate, enrichPurchaseCycleItemsBatch, enriched.flatMap, getDelegateItemActionMode
+purchaseOrders.pendingEstimateItems :: allItems.filter, enrichPurchaseCycleItemsBatch, enriched.filter, excludedPoStatuses.has, db.getPackageInfoForPOs, Array.from, visible.map, packageMap.get, Promise.all, db.getPOItemsByStatus, collectEligibleItems, db.getPOItemsByDelegate
+purchaseOrders.pendingDeliveryItems :: db.getPOItemsPendingInventoryEntry, db.getPurchaseOrderTicketContextBatch, items.map, contextMap.get
+purchaseOrders.inventoryReadyForDelivery :: db.getDb, database.execute, seenInventoryIds.has, seenInventoryIds.add, shouldExposeTicketMaterialLink, result.push
+purchaseOrders.pendingPurchaseItems :: db.getPOItemsByStatus, db.getPOItemsByDelegate, mine.filter, enrichPurchaseCycleItemsBatch
+purchaseOrders.pendingWarehouseItems :: db.getPOItemsByStatus, enrichPurchaseCycleItemsBatch, enriched.filter
+purchaseOrders.searchItemNames :: db.searchItemNames
+purchaseOrders.trackItem :: db.trackItemHistory
+purchasePackages.getById :: assertCanPerformPOAction, db.getPurchasePackageById, getVisiblePackageOrdersWithItems, ordersWithItems.map
+purchasePackages.list :: assertCanPerformPOAction, Promise.all, db.getPurchasePackagesList, db.getPurchaseOrders, filterVisiblePurchaseOrders, packages.filter, visiblePackageIds.has
+purchasePackages.cards :: assertCanPerformPOAction, db.getPurchaseCards, cards.flatMap, filterVisiblePurchaseOrders, visibleOrders.map, visibleOrderIds.has, card.orders.filter
+purchasePackages.actionableSubmissionsForMe :: assertCanPerformPOAction, Promise.all, db.getPurchasePackagesList, db.getPurchaseOrders, filterVisiblePurchaseOrders, visibleOrders.map, visiblePoIdsByPackage.get, ids.add, visiblePoIdsByPackage.set, db.getPackageSubmissionsWithBatches, visiblePoIds.has, Array.from, actionableBatches.map, visibleOrderById.get, actionableBatches.reduce, batchesTotal.toFixed, items.push, items.sort
+purchasePackages.submissions :: assertCanPerformPOAction, db.getPurchasePackageById, db.getPurchaseOrdersByPackage, filterVisiblePurchaseOrders, visibleOrders.map, db.getPackageSubmissionsWithBatches, Promise.all, subs.map, visiblePoIds.has, visibleBatches.map, db.getPurchaseOrderById, db.getPOItems, enriched.filter
+centerCategories.list :: db.listCenterCategories, localizeNamedRecords
+purchaseCategories.list :: db.listCenterCategories, localizeNamedRecords
+deliveryDocuments.list :: db.getDeliveryDocuments
+returnDocuments.list :: db.getReturnDocuments
+vendors.list :: db.getAllVendors
+vendors.getById :: db.getVendorById
+inventory.list :: db.getInventoryItems
+inventory.taxonomy :: db.getInventoryCatalogTaxonomy
+inventory.lotSummaries :: isInventoryLotsEnabled, db.getDb, rows.map
+inventory.listLots :: isInventoryLotsEnabled, db.getDb, db.getInventoryItemById, rows.map
+inventory.getTransactions :: db.getInventoryTransactions
+inventory.issueCostAllocations :: db.getIssueCostAllocations
+inventory.scanBarcode :: db.getInventoryByBarcode
+inventory.getItemSummary :: db.getInventoryItemById, db.getInventoryItems, allItems.find
+inventory.getPurchaseHistory :: db.getInventoryPurchaseHistory
+inventory.getLedger :: db.getInventoryLedger
+warehouseReceipts.list :: db.listWarehouseReceipts
+warehouseReceipts.getById :: db.getWarehouseReceiptById
+warehouseReceipts.getForPrint :: db.getWarehouseReceiptForPrint
+warehouseReceipts.getByPO :: db.getWarehouseReceiptByPO
+warehouseReceipts.searchInventory :: db.getInventoryBySearch
+warehouseReceiptsV2.purchaseReceiptContext :: getDatabase, getPurchaseReceiptContext
+warehouseReceiptsV2.checkDuplicate :: db.checkDuplicateInvoice
+warehouseReceiptsV2.findSimilarItems :: db.findSimilarInventoryItems
+warehouseReceiptsV2.listV2 :: db.listWarehouseReceiptsV2
+warehouseReceiptsV2.getByIdV2 :: db.getWarehouseReceiptWithItems
+warehouseReceiptsV2.scanBarcode :: db.getInventoryByBarcode
+warehouseReceiptsV2.searchInventory :: db.getInventoryBySearch
+invoiceDraft.getDraft :: db.getWarehouseReceiptDraft
+invoiceDraft.listDrafts :: db.listDraftReceipts
+invoiceDraft.getOcrJobs :: db.getOcrJobsByPO
+inventoryCount.lotTrackingStatus :: isInventoryLotsEnabled
+inventoryCount.searchCandidates :: db.searchInventoryCountCandidates
+inventoryCount.uncountedItems :: db.getUncountedItems
+inventoryCount.operationDetails :: db.getCountOperationDetails
+inventoryCount.listOperations :: db.listCountOperations
+inventoryCount.countDiscrepancies :: db.getCountDiscrepancies
+inventoryCount.listSettlements :: db.listSettlements
+inventoryCount.settlementDetails :: db.getSettlementDetails
+warehouseReturns.list :: db.getWarehouseReturns
+warehouseReturns.search :: db.getInventoryBySearch
+warehouseReturns.getReturnSources :: db.getReturnSources
+stock.getTransactions :: db.getInventoryTransactions
+stock.getLowStockItems :: db.getLowStockInventoryItems
+warehouse.list :: db.getAllWarehouses
+warehouse.getAvailableCategories :: db.getAvailableLevel1CatalogNodes
+warehouseIssueBatches.list :: db.getWarehouseIssueBatches
+warehouseIssueBatches.getById :: db.getWarehouseIssueBatchById
+transfers.listCards :: db.getWarehouseTransferBatchCards
+transfers.getBatchDetail :: db.getWarehouseTransferBatchDetail
+disposal.list :: db.listDisposalOperations
+disposal.getById :: db.getDisposalById
+inventoryReconciliation.run :: runInventoryReconciliation
+assets.list :: db.listAssets, localizeNamedRecords
+assets.getById :: db.getAssetById, localizeNamedRecords
+assets.getByRfid :: db.getAssetByRfidTag, localizeNamedRecords
+assets.getMaintenanceHistory :: db.getAssetById, db.getAssetMaintenanceHistory
+assets.getMaintenanceStats :: db.getAssetById, db.getAssetMaintenanceStats
+assets.getSpareParts :: db.getAssetSpareParts
+assets.getMetrics :: db.getAssetMetricsById
+assets.getAllMetrics :: db.getAllAssetMetrics
+assets.getLowStockAlerts :: db.getInventoryAlerts
+assets.getAssetSparePartsWithLowStock :: db.getAssetSparePartsWithLowStock
+assetHistory.getMaintenanceHistory :: db.getAssetMaintenanceHistory
+assetHistory.getMaintenanceStats :: db.getAssetMaintenanceStats
+assetHistory.getInspectionHistory :: db.getInspectionResultsByAsset
+nfc.lookupTag :: db.getAssetByRfidTag, db.getSiteById, localizeNamedRecords
+inspectionResults.listByTicket :: db.getTicketById, assertTicketReadable, db.getInspectionResultsByTicket
+inspectionResults.listByAsset :: db.getInspectionResultsByAsset
+inspectionResults.dashboardStats :: db.getInspectionDashboardStats
+assetCategories.list :: db.listAssetCategories, localizeNamedRecords
+notifications.list :: db.getUserNotifications, isItTeamRole
+notifications.unreadCount :: db.getUnreadNotificationCount, isItTeamRole
+push.getVapidPublicKey :: 
+push.getStatus :: db.getPushSubscriptionsByUser
+attachments.listByType :: allowedRoles.includes, db.getDelegatePricingAttachmentsWithDelegate, rows.filter, financialRoles.includes, db.getFinancialBatchAttachmentsWithDelegate
+attachments.list :: assertCanAccessAttachments, db.getAttachments
+reports.ticketsByStatus :: db.getTickets, allTickets.forEach, Object.entries
+reports.ticketsByCategory :: db.getTickets, allTickets.forEach, Object.entries
+reports.ticketsByPriority :: db.getTickets, allTickets.forEach, Object.entries
+reports.costComparison :: db.getPurchaseOrders, pos.map, parseFloat
+reports.monthlySummary :: db.getTickets, allTickets.forEach, Object.entries, a.month.localeCompare
+reports.technicianPerformance :: dateTo.setHours, dateFrom.setDate, dateFrom.getDate, dateFrom.setMonth, dateFrom.getMonth, dateFrom.setFullYear, dateFrom.getFullYear, db.getTechnicianPerformance, localizeNamedRecords, rows.map, localizedTechnicians.map, db.listCenterCategories, localizedCategories.map, technicianNameById.get, Object.fromEntries, Object.entries, categoryNameMap.get
+reports.externalTechnicianPerformance :: dateTo.setHours, dateFrom.setDate, dateFrom.getDate, dateFrom.setMonth, dateFrom.getMonth, dateFrom.setFullYear, dateFrom.getFullYear, db.getExternalTechnicianPerformance
+reports.purchaseCycleReport :: Promise.all, db.getPurchaseOrders, db.getAllUsers, db.getAllPOItems, db.getTickets, db.getAllWarehouseReceiptItemsMinimal, localizeNamedRecords, pos.filter, to.setHours, Math.round, invoiceSavedAtByItemId.has, invoiceSavedAtByItemId.set, pos.map, allItems.filter, allTickets.find, allUsers.find, computePurchaseOrderPhases, items.map, invoiceSavedAtByItemId.get, msToHours, parseFloat, itemsReport.filter, completedItems.reduce, result.filter, completedPOs.reduce, phaseNames.map, result.flatMap, r.items.flatMap, i.phases.filter, durations.reduce
+reports.maintenanceCycleReport :: Promise.all, db.getTickets, db.getAllUsers, db.getAllSites, localizeNamedRecords, tickets.filter, to.setHours, Math.round, tickets.map, db.getTicketHistory, ticketHistories.map, historyMap.get, allUsers.find, allSites.find, msToHours, endAt.getTime, startAt.getTime, phases.push, endTime.getTime, createdAt.getTime, phases.reduce, result.filter, closedTickets.reduce, result.flatMap, r.phases.map, Array.from, allPhaseLabels.map, r.phases.filter, durations.reduce
+reports.sectionReport :: localizeNamedRecords, db.getSections, db.getTickets, db.listAssets, db.listPMWorkOrders, allTickets.filter, allPMWorkOrders.filter, allAssets.forEach, assetSectionMap.set, filteredTickets.filter, allAssets.filter, sectionTickets.filter, sectionTickets.reduce, parseFloat, closed.reduce, Math.round, filteredPMWOs.filter, assetSectionMap.get, sectionPMWOs.filter
+reports.costReport :: dateTo.setHours, dateFrom.setMonth, dateFrom.getMonth, dateFrom.setFullYear, dateFrom.getFullYear, Promise.all, db.getTickets, db.getAllSites, db.getSections, db.getPurchaseOrders, db.getAllPOItems, localizeNamedRecords, allTickets.filter, allPOItems.filter, allPOs.forEach, poMap.set, d.setDate, d.setMonth, d.getMonth, d.toISOString, d.getFullYear, parseFloat, monthlyTrend.push, Math.round, allSites.map, filteredTickets.filter, deliveredItems.filter, poMap.get, siteTickets.reduce, siteItems.reduce, siteTickets.filter, unclassifiedTickets.reduce, unclassifiedItems.reduce, groups.push, unclassifiedTickets.filter, allSections.map, secTickets.reduce, secItems.reduce, allSites.find, secTickets.filter, groups.sort, groups.reduce, groups.map
+reports.technicianMonthlyReport :: db.getDb, import, db.getAllUsers, localizeNamedRecords, allUsers.filter, ddb.select, db.getTickets, allTickets.filter, t.description.includes, now.getFullYear, now.getMonth, months.push, d.getFullYear, d.getMonth, technicians.map, sessions.filter, months.map, month.split, techSessions.filter, monthSessions.map, results.filter, sessionIds.includes, sessionResults.filter, pmSourceTickets.filter, Math.round, techSessions.some
+analytics.ticketsByStatus :: db.getTickets, allTickets.forEach, Object.entries
+analytics.ticketsByCategory :: db.getTickets, allTickets.forEach, Object.entries
+analytics.ticketsByPriority :: db.getTickets, allTickets.forEach, Object.entries
+analytics.monthlySummary :: db.getTickets, allTickets.forEach, Object.entries, a.month.localeCompare
+analytics.costComparison :: db.getPurchaseOrders, pos.map, parseFloat
+maintenanceReports.technicianPerformance :: dateTo.setHours, dateFrom.setDate, dateFrom.getDate, dateFrom.setMonth, dateFrom.getMonth, dateFrom.setFullYear, dateFrom.getFullYear, db.getTechnicianPerformance, localizeNamedRecords, rows.map, localizedTechnicians.map, db.listCenterCategories, localizedCategories.map, technicianNameById.get, Object.fromEntries, Object.entries, categoryNameMap.get
+maintenanceReports.sectionReport :: localizeNamedRecords, db.getSections, db.getTickets, db.listAssets, db.listPMWorkOrders, allTickets.filter, allPMWorkOrders.filter, allAssets.forEach, assetSectionMap.set, filteredTickets.filter, allAssets.filter, sectionTickets.filter, sectionTickets.reduce, parseFloat, closed.reduce, Math.round, filteredPMWOs.filter, assetSectionMap.get, sectionPMWOs.filter
+maintenanceReports.technicianMonthlyReport :: db.getDb, import, db.getAllUsers, localizeNamedRecords, allUsers.filter, ddb.select, db.getTickets, allTickets.filter, t.description.includes, now.getFullYear, now.getMonth, months.push, d.getFullYear, d.getMonth, technicians.map, sessions.filter, months.map, month.split, techSessions.filter, monthSessions.map, results.filter, sessionIds.includes, sessionResults.filter, pmSourceTickets.filter, Math.round, techSessions.some
+maintenanceReports.maintenanceCycleReport :: Promise.all, db.getTickets, db.getAllUsers, db.getAllSites, localizeNamedRecords, tickets.filter, to.setHours, Math.round, tickets.map, db.getTicketHistory, ticketHistories.map, historyMap.get, allUsers.find, allSites.find, msToHours, endAt.getTime, startAt.getTime, phases.push, endTime.getTime, createdAt.getTime, phases.reduce, result.filter, closedTickets.reduce, result.flatMap, r.phases.map, Array.from, allPhaseLabels.map, r.phases.filter, durations.reduce
+inventoryReports.stockBalance :: loadInventoryStockBalanceReport
+inventoryReports.valuation :: loadInventoryValuationReport
+inventoryReports.valueDistribution :: loadInventoryValueDistributionReport
+inventoryReports.accountingReview :: loadInventoryAccountingReviewReport
+inventoryReports.analytics :: loadInventoryAnalyticsReport
+inventoryReports.movementMeta :: loadInventoryMovementMeta
+inventoryReports.movements :: loadInventoryMovementReport
+inventoryReports.externalTechnicianPerformance :: dateTo.setHours, dateFrom.setDate, dateFrom.getDate, dateFrom.setMonth, dateFrom.getMonth, dateFrom.setFullYear, dateFrom.getFullYear, db.getExternalTechnicianPerformance
+dashboard.stats :: db.getDashboardStats
+dashboard.pmMonthlySummary :: db.getDb, import, ddb.select, now.getFullYear, now.getMonth, allWOs.filter, thisMonthWOs.filter, Math.round
+kpi.getTicketTimelines :: db.getDb, import, Date.now, descOp, rows.map, Math.round
+kpi.getPOTimelines :: db.getDb, import, Date.now, descOp2, rows.map, Math.round
+audit.list :: d.setHours, db.getAuditLogsEnhanced
+backups.list :: db.getBackups
+preventive.listTree :: db.listBranchTree
+preventive.getBranch :: db.getBranchWithChildren
+preventive.getBranchPath :: db.getBranchPath
+preventive.getBranchDeletionBlockers :: db.getBranchDeletionBlockers
+preventive.getSuggestedChecklist :: getDefaultChecklistFor
+preventive.listPlans :: db.listPreventivePlans
+preventive.getPlanById :: db.getPreventivePlanById
+preventive.listWorkOrders :: localizeMasterDataReferences, db.listPMWorkOrders
+preventive.getWorkOrderById :: db.getPMWorkOrderById, localizeMasterDataReferences
+preventive.previewWorkOrderCandidates :: db.getExecutableDescendants
+preventive.previewChecklistItems :: db.getChecklistItemsForPlanIds
+preventive.getChecklistItems :: db.getDb, import, ddb.select
+preventive.getExecutionProgress :: db.getDb, import, db.getPMWorkOrderById, db.getWorkOrderChecklistItems, ddb.select
+preventive.getDetectionRateReport :: db.getDb, import, Date.now, db.listPMWorkOrders, workOrders.filter, filteredWOs.map, ddb.select, allResults.concat, allResults.filter, db.getTickets, allTickets.filter, rangeTickets.filter, Math.round, from.toISOString, to.toISOString
+preventive.getAssetInspectionHistory :: db.getDb, import, db.listPMWorkOrders, workOrders.map, woIds.slice, ddb.select, workOrders.find, sessions.push, results.filter, sessions.sort
+preventive.getReport :: db.listPreventivePlans, db.listPMWorkOrders, workOrders.filter, plans.filter, filteredWOs.filter, Math.round, filteredWOs.forEach, Array.isArray, wo.checklistResults.filter, plans.forEach, filteredWOs.slice
+pmPlans.listMainPlans :: db.listMainPlans
+pmPlans.listOperationalBranchesWithoutMainPlan :: db.listOperationalBranchesWithoutMainPlan
+pmPlans.listSubPlans :: db.listSubPlans
+pmPlans.listSectionOptionsForMainPlan :: db.listSectionOptionsForMainPlan
+pmPlans.getSubPlanDetail :: db.getSubPlanById, db.getSubPlanChecklist
+catalog.audit.list :: getDb, conditions.push, rows.map
+catalog.nodes.list :: getDb, conditions.push, db.select, FOOD_WAREHOUSE_ROLES.includes, getFoodWarehouseNodeIds, results.filter, allowedIds.has
+catalog.nodes.getById :: getDb
+catalog.nodes.getChildren :: getDb
+catalog.items.count :: getDb
+catalog.items.list :: getDb, conditions.push, FOOD_WAREHOUSE_ROLES.includes, getFoodWarehouseNodeIds, effectiveNodeIds.filter, allowedIds.includes, like, db.select, query.where, results.map, imagesByItemId.set, imagesByItemId.get
+catalog.items.getById :: getDb, imageAttachments.map
+catalog.items.previewNextCode :: getDb, getLeafCategoryCodeState
+catalog.itemCandidates.listPending :: getDb, Math.min, Math.max, db.select, hiddenSecondaryIds.add, hiddenSecondaryIds.has, candidates.map, suppliers.map, purchaseOrdersRows.map, supplierMap.get, poMap.get
+catalog.itemCandidates.previewNextCode :: getDb, getLeafCategoryCodeState
+catalog.settings.list :: getDb, db.select
+catalog.settings.get :: getDb
+catalog.units.list :: getDb, db.select
+catalog.suppliers.match :: getDb, db.select, aliasesBySupplier.get, list.push, aliasesBySupplier.set, matchSuppliers
+catalog.suppliers.list :: getDb, conditions.push, db.select, query.where
+catalog.suppliers.getById :: getDb
+catalog.suppliers.candidates.listPending :: getDb
+catalog.suppliers.stats :: getDb
+catalog.itemSuppliers.listByItem :: getDb
+improvementIdeas.listPaginated :: FULL_VISIBILITY_ROLES.includes, ideasDb.getImprovementIdeasPaginated, result.ideas.map
+improvementIdeas.getById :: ideasDb.getImprovementIdeaById, FULL_VISIBILITY_ROLES.includes, sanitizeForEmployee
+improvementIdeas.getGroupedClassifiedCounts :: FULL_VISIBILITY_ROLES.includes, ideasDb.getGroupedClassifiedCounts
+improvementIdeas.getClassifiedByGroup :: FULL_VISIBILITY_ROLES.includes, ideasDb.getClassifiedIdeasByGroup
+improvementIdeas.getApproved :: ideasDb.getApprovedIdeas
+improvementIdeas.executionSummary :: FULL_VISIBILITY_ROLES.includes, ideasDb.getImprovementIdeaById, db.withTransaction, improvementExecutionSummary, filterVisiblePurchaseOrders
+improvementIdeas.executionReference :: db.getTicketById, assertTicketReadable, db.getPurchaseOrderById, assertCanViewPurchaseOrder, db.withTransaction, executionReference
+construction.projects.list :: getDb, conditions.push, like, Promise.all, db.select, Math.ceil
+construction.projects.getById :: getDb, assertProjectAccess, Promise.all, db.select
+construction.projects.portfolioStats :: getDb, db.select, allProjects.reduce, Math.round
+construction.phases.list :: getDb, db.select, Object.fromEntries, taskCounts.map, phases.map
+construction.phases.getById :: assertPhaseAccess
+construction.activities.list :: getDb, db.select, Object.fromEntries, taskCounts.map, activities.map
+construction.activities.listByProject :: getDb, db.select
+construction.tasks.list :: getDb, conditions.push, like, Promise.all, db.select, Math.ceil
+construction.tasks.kanban :: getDb, conditions.push, db.select
+construction.tasks.gantt :: getDb, db.select
+construction.tasks.getById :: getDb, db.select, Promise.all, timeLogs.reduce
+construction.taskComments.list :: getDb, db.select
+construction.taskDependencies.list :: getDb, db.select
+construction.members.list :: getDb, db.select
+construction.members.workload :: getDb, db.select, Promise.all, members.map
+construction.timeLogs.list :: getDb, db.select
+construction.timeLogs.projectSummary :: getDb, db.select
+construction.customFields.list :: getDb, db.select
+construction.automations.list :: getDb, db.select
+construction.goals.list :: getDb, db.select
+construction.dailyReports.list :: getDb, Promise.all, db.select, Math.ceil
+construction.dailyReports.getByDate :: getDb, db.select
+construction.quantityTracking.list :: getDb, db.select
+construction.quantityTracking.listByProject :: getDb, db.select
+construction.changeOrders.list :: getDb, db.select
+construction.safetyLogs.list :: getDb, Promise.all, db.select, Math.ceil
+construction.reports.delayAnalysis :: getDb, db.select
+construction.reports.teamPerformance :: getDb, db.select
+construction.reports.budgetSummary :: getDb, db.select
+construction.reports.quantitySummary :: getDb, db.select
+construction.reports.safetySummary :: getDb, db.select
+externalMaintenance.getByTicket :: db.getTicketById, assertTicketReadable, db.getExternalMaintenanceJobByTicketId
+externalMaintenance.listForWarehouse :: Promise.all, db.listPathCTicketsWaitingWarehousePreparation, db.listExternalMaintenanceJobs
+externalMaintenance.listForGate :: db.listExternalMaintenanceJobs
+pmv2.organization.references.users :: localizeMasterDataReferences, pmv2OrganizationService.listActiveUsers
+pmv2.organization.references.warehouses :: pmv2OrganizationService.listActiveWarehouses
+pmv2.organization.specialties.list :: pmv2OrganizationService.listSpecialties
+pmv2.organization.teams.list :: localizeMasterDataReferences, pmv2OrganizationService.listTeams
+pmv2.organization.teams.members.list :: localizeMasterDataReferences, pmv2OrganizationService.listTeamMembers
+pmv2.targets.sites :: currentMaintenanceTargetAdapter.listSites
+pmv2.targets.sections :: currentMaintenanceTargetAdapter.listSections
+pmv2.targets.assets :: currentMaintenanceTargetAdapter.listAssets
+pmv2.targets.validate :: currentMaintenanceTargetAdapter.validateTarget
+pmv2.checklists.list :: pmv2ChecklistService.listChecklists
+pmv2.checklists.get :: pmv2ChecklistService.getChecklist, pmv2ChecklistService.listItems
+pmv2.checklists.items.list :: pmv2ChecklistService.listItems
+pmv2.programs.list :: localizeMasterDataReferences, pmv2ProgramService.listPrograms
+pmv2.programs.get :: localizeMasterDataReferences, pmv2ProgramService.getProgram, pmv2ProgramService.listTargets
+pmv2.programs.targets.list :: localizeMasterDataReferences, pmv2ProgramService.listTargets
+pmv2.scheduler.duePrograms :: pmv2SchedulerService.listDueProgramsForDate
+pmv2.tasks.dailyWorkload :: localizeMasterDataReferences, pmv2TaskReadService.listDailyTeamWorkload
+pmv2.tasks.list :: localizeMasterDataReferences, pmv2TaskReadService.listTasks
+pmv2.tasks.items :: localizeMasterDataReferences, pmv2TaskReadService.listTaskItems
+pmv2.technician.today :: localizeMasterDataReferences, pmv2TechnicianReadService.listTodayTasks
+pmv2.technician.materialAttention :: pmv2TechnicianMaterialAttentionService.list
+pmv2.technician.items :: pmv2TechnicianReadService.listTaskItems, mapTechnicianError
+pmv2.technician.ticketHandoffContext :: pmv2TicketHandoffService.getCreateContext, mapTechnicianError
+pmv2.technician.evidence :: pmv2TechnicianReadService.getItemEvidence, mapTechnicianError
+pmv2.technician.materialCatalog :: pmv2MaterialRequestService.searchCatalog, mapTechnicianError
+pmv2.technician.completionMaterials :: pmv2TeamIssueHandoffService.listCompletionMaterials, mapTechnicianError
+pmv2.technician.materialState :: pmv2MaterialRequestService.getItemMaterialState, mapTechnicianError
+pmv2.technician.readyMaterialReceipts :: pmv2TeamIssueHandoffService.listTechnicianReadyReceipts, mapTechnicianError
+pmv2.technician.visitState :: pmv2TechnicianReadService.getVisitState, mapTechnicianError
+pmv2.technician.timeline :: pmv2TaskTimelineService.getForTechnician, mapTechnicianError
+pmv2.warehouse.waitingMaterialQueue :: pmv2WarehouseQueueService.listWaitingMaterialItems, mapWarehouseQueueError
+pmv2.warehouse.searchMaterialIdentityCandidates :: pmv2MaterialIdentityResolutionService.searchCandidates, mapWarehouseQueueError
+pmv2.warehouse.readyToIssueQueue :: pmv2TeamIssueHandoffService.listReadyToIssueQueue, mapWarehouseQueueError
+pmv2.warehouse.pendingReturns :: pmv2TeamIssueHandoffService.listPendingReturns, mapWarehouseQueueError
+pmv2.monitoring.overview :: localizeMasterDataReferences, pmv2MonitoringService.getOverview
+pmv2.monitoring.taskDetail :: localizeMasterDataReferences, pmv2MonitoringService.getTaskDetail
+pmv2.monitoring.slaRules :: pmv2SlaService.listRules
+pmv2.reports.filters :: localizeMasterDataReferences, pmv2DailyReportService.listFilters
+pmv2.reports.daily :: localizeMasterDataReferences, pmv2DailyReportService.getDailyReport
+maintenanceTeams.list :: result, service.list, actor
+ticketTeamAssignments.candidates :: result, service.candidates, actor
+ticketTeamAssignments.queue :: result, service.queue, actor
+ticketTeamAssignments.warehouseRequests :: result, service.warehouseRequests, actor
+ticketTeamExecution.details :: result, service
+ticketTeamExecution.balances :: result, service, actor, effects.mainWarehouseId, s.needs.filter, balances.push, effects.availability
+ticketTeamExecution.preview :: result, service, input.needs.flatMap
+ticketTeamExecution.catalog :: result, service, snapshot.assignments.find, import, getDb, selectRows, rows.map

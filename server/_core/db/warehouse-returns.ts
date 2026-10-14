@@ -716,8 +716,8 @@ export async function createRecipientWarehouseReturn(params: {
   returnedQuantity: number;
   reason: string;
   returnedById: number;
-}) {
-  const database = await getDb();
+}, existingTx?: any) {
+  const database = existingTx || await getDb();
   if (!database) throw new Error("تعذر الاتصال بقاعدة البيانات");
 
   const returnedQuantity = normalizeInventoryQuantity(params.returnedQuantity);
@@ -729,7 +729,7 @@ export async function createRecipientWarehouseReturn(params: {
   }
   if (!String(params.reason || "").trim()) throw new Error("سبب الإرجاع مطلوب");
 
-  return database.transaction(async (tx: any) => {
+  const executeReturn = async (tx: any) => {
     // Serialize every return against the same original delivery so two concurrent
     // partial returns cannot both pass the over-return check.
     await tx.execute(sql`SELECT id FROM delivery_documents WHERE id = ${params.sourceDeliveryDocumentId} FOR UPDATE`);
@@ -895,7 +895,8 @@ export async function createRecipientWarehouseReturn(params: {
       warehouseId: source.warehouseId,
       warehouseName: source.warehouseName,
     };
-  });
+  };
+  return existingTx ? executeReturn(existingTx) : database.transaction(executeReturn);
 }
 
 export async function getInventoryTransactions(inventoryId?: number) {

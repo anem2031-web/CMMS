@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useTranslation } from "@/contexts/LanguageContext";
 import { useLocation } from "wouter";
+import { ticketTeamNotificationPath } from "@shared/maintenance-team-tickets/warehouse-navigation";
 import { usePushNotifications } from "@/hooks/usePushNotifications";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -379,7 +380,12 @@ export default function Notifications() {
                 getTypeBg(n.type || "info", n.isRead),
                 !n.isRead && "ring-2 ring-primary/20"
               )}
-              onClick={() => { if (!n.isRead) markReadMut.mutate({ id: n.id }); }}
+              onClick={() => {
+                if (!n.isRead) markReadMut.mutate({ id: n.id });
+                if (ticketTeamNotificationPath(n.eventKey, n.relatedTicketId)) setLocation(ticketTeamNotificationPath(n.eventKey, n.relatedTicketId)!);
+                else if (n.relatedTicketId) setLocation(`/tickets/${n.relatedTicketId}`);
+                else if (n.relatedPoId) setLocation(`/purchase-orders/${n.relatedPoId}`);
+              }}
             >
               {/* Unread dot */}
               {!n.isRead && (
@@ -434,7 +440,7 @@ export default function Notifications() {
                         onClick={(e) => {
                           e.stopPropagation();
                           if (!n.isRead) markReadMut.mutate({ id: n.id });
-                          setLocation(`/tickets/${n.relatedTicketId}`);
+                          setLocation(ticketTeamNotificationPath(n.eventKey, n.relatedTicketId) ?? `/tickets/${n.relatedTicketId}`);
                         }}
                         className="text-xs text-primary hover:underline flex items-center gap-1 font-medium"
                       >

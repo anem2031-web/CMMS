@@ -123,7 +123,7 @@ export default function WarehouseIssue() {
   );
   const technicianOptions = useMemo(
     () => (allUsers as any[])
-      .filter((user: any) => user.role === "technician" && Number(user.isActive ?? 1) !== 0)
+      .filter((user: any) => ["technician", "it_manager", "it_member"].includes(user.role) && Number(user.isActive ?? 1) !== 0)
       .map((user: any) => ({ value: String(user.id), label: user.name })),
     [allUsers],
   );

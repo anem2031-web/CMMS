@@ -2,6 +2,8 @@ import { z } from "zod";
 import { router, protectedProcedure, managerProcedure } from "../_shared/procedures";
 import * as db from "../../_core/db";
 import { computePurchaseOrderPhases } from "../../services/reports/purchaseCyclePhases";
+import { localizeNamedRecords } from "../../services/translation/localizedMasterData";
+import type { SupportedLanguage } from "../../services/translation/translation";
 
 export const reportsRouter = router({
   ticketsByStatus: protectedProcedure.query(async () => {
@@ -53,7 +55,7 @@ export const reportsRouter = router({
     siteId: z.number().optional(),
     sectionId: z.number().optional(),
     technicianName: z.string().optional(),
-  }).optional()).query(async ({ input }) => {
+  }).optional()).query(async ({ input, ctx }) => {
     const period = input?.period || "all";
     let dateFrom: Date | undefined;
     let dateTo: Date | undefined;
@@ -81,12 +83,36 @@ export const reportsRouter = router({
       }
     }
 
-    return db.getTechnicianPerformance({
+    const rows = await db.getTechnicianPerformance({
       ...(period !== "all" ? { dateFrom, dateTo } : {}),
       siteId: input?.siteId,
       sectionId: input?.sectionId,
       technicianName: input?.technicianName,
     });
+    const reportLanguage = (ctx.user.preferredLanguage || "ar") as SupportedLanguage;
+    const localizedTechnicians = await localizeNamedRecords(
+      "USER",
+      rows.map((row: any) => row.technician).filter(Boolean),
+      reportLanguage,
+    );
+    const technicianNameById = new Map(localizedTechnicians.map((tech: any) => [Number(tech.id), tech.name]));
+    const localizedCategories = await localizeNamedRecords(
+      "CENTER_CATEGORY",
+      await db.listCenterCategories(false) as any[],
+      reportLanguage,
+    );
+    const categoryNameMap = new Map(
+      localizedCategories.map((category: any) => [category.sourceName || category.name, category.name]),
+    );
+    return rows.map((row: any) => ({
+      ...row,
+      technician: row.technician
+        ? { ...row.technician, name: technicianNameById.get(Number(row.technician.id)) || row.technician.name }
+        : row.technician,
+      categoryBreakdown: Object.fromEntries(
+        Object.entries(row.categoryBreakdown || {}).map(([name, count]) => [categoryNameMap.get(name) || name, count]),
+      ),
+    }));
   }),
 
   externalTechnicianPerformance: protectedProcedure.input(z.object({
@@ -118,14 +144,19 @@ export const reportsRouter = router({
     dateFrom: z.string().optional(),
     dateTo: z.string().optional(),
     poId: z.number().optional(),
-  }).optional()).query(async ({ input }) => {
-    const [allPOs, allUsers, allItems, allTickets, allWarehouseReceiptItems] = await Promise.all([
+  }).optional()).query(async ({ input, ctx }) => {
+    const [allPOs, rawUsers, allItems, allTickets, allWarehouseReceiptItems] = await Promise.all([
       db.getPurchaseOrders(),
       db.getAllUsers(),
       db.getAllPOItems(),
       db.getTickets(),
       db.getAllWarehouseReceiptItemsMinimal(),
     ]);
+    const allUsers = await localizeNamedRecords(
+      "USER",
+      rawUsers as any[],
+      (ctx.user.preferredLanguage || "ar") as SupportedLanguage,
+    );
 
     let pos = allPOs;
     if (input?.dateFrom) {
@@ -243,12 +274,15 @@ export const reportsRouter = router({
     dateTo: z.string().optional(),
     ticketId: z.number().optional(),
     status: z.string().optional(),
-  }).optional()).query(async ({ input }) => {
-    const [allTickets, allUsers, allSites] = await Promise.all([
+  }).optional()).query(async ({ input, ctx }) => {
+    const [allTickets, rawUsers, rawSites] = await Promise.all([
       db.getTickets(),
       db.getAllUsers(),
       db.getAllSites(),
     ]);
+    const reportLanguage = (ctx.user.preferredLanguage || "ar") as SupportedLanguage;
+    const allUsers = await localizeNamedRecords("USER", rawUsers as any[], reportLanguage);
+    const allSites = await localizeNamedRecords("SITE", rawSites as any[], reportLanguage);
 
     let tickets = allTickets;
     if (input?.dateFrom) { const from = new Date(input.dateFrom); tickets = tickets.filter(t => new Date(t.createdAt) >= from); }
@@ -308,7 +342,7 @@ export const reportsRouter = router({
 
       return {
         ticketId: ticket.id, ticketNumber: ticket.ticketNumber, title: ticket.title,
-        status: ticket.status, priority: ticket.priority, category: ticket.category,
+        status: ticket.status, priority: ticket.priority, category: ticket.centerCategoryName || ticket.category,
         site, reportedBy, assignedTo, maintenancePath: ticket.maintenancePath,
         createdAt: new Date(ticket.createdAt), closedAt: ticket.closedAt ? new Date(ticket.closedAt) : null,
         totalHours, totalDays, phases,
@@ -336,8 +370,8 @@ export const reportsRouter = router({
     siteId: z.number().optional(),
     dateFrom: z.string().optional(),
     dateTo: z.string().optional(),
-  }).optional()).query(async ({ input }) => {
-    const allSections = await db.getSections();
+  }).optional()).query(async ({ input, ctx }) => {
+    const allSections = await localizeNamedRecords("SECTION", await db.getSections() as any[], (ctx.user.preferredLanguage || "ar") as SupportedLanguage);
     const allTickets = await db.getTickets({});
     const allAssets = await db.listAssets({});
     const allPMWorkOrders = await db.listPMWorkOrders();
@@ -413,7 +447,7 @@ export const reportsRouter = router({
     period: z.enum(["month", "quarter", "year", "all", "custom"]).default("all"),
     dateFrom: z.string().optional(),
     dateTo: z.string().optional(),
-  }).optional()).query(async ({ input }) => {
+  }).optional()).query(async ({ input, ctx }) => {
     const groupBy = input?.groupBy ?? "site";
     const period = input?.period ?? "all";
     let dateFrom: Date | undefined;
@@ -430,13 +464,16 @@ export const reportsRouter = router({
       else if (period === "year") dateFrom.setFullYear(dateFrom.getFullYear() - 1);
     }
     // جلب البيانات: البلاغات + أصناف الشراء المستلمة (المصدر الموحد) + المواقع + الأقسام
-    const [allTickets, allSites, allSections, allPOs, allPOItems] = await Promise.all([
+    const [allTickets, rawSites, rawSections, allPOs, allPOItems] = await Promise.all([
       db.getTickets({}),
       db.getAllSites(),
       db.getSections(),
       db.getPurchaseOrders(),
       db.getAllPOItems(),
     ]);
+    const reportLanguage = (ctx.user.preferredLanguage || "ar") as SupportedLanguage;
+    const allSites = await localizeNamedRecords("SITE", rawSites as any[], reportLanguage);
+    const allSections = await localizeNamedRecords("SECTION", rawSections as any[], reportLanguage);
     // فلترة البلاغات حسب التاريخ
     const filteredTickets = allTickets.filter((t: any) => {
       if (dateFrom && new Date(t.createdAt) < dateFrom) return false;
@@ -528,13 +565,18 @@ export const reportsRouter = router({
 
   technicianMonthlyReport: protectedProcedure.input(z.object({
     monthsBack: z.number().min(1).max(12).default(6),
-  }).optional()).query(async () => {
+  }).optional()).query(async ({ ctx }) => {
     const ddb = await db.getDb();
     if (!ddb) return { technicians: [], months: [] };
 
     const { pmExecutionSessions: execSessions, pmExecutionResults: execResults } = await import("../../../drizzle/schema");
 
-    const allUsers = await db.getAllUsers();
+    const rawUsers = await db.getAllUsers();
+    const allUsers = await localizeNamedRecords(
+      "USER",
+      rawUsers as any[],
+      (ctx.user.preferredLanguage || "ar") as SupportedLanguage,
+    );
     const technicians = allUsers.filter((u: any) => u.role === "technician");
 
     const sessions = await ddb

@@ -15,6 +15,7 @@ import { notifyItemRejection } from "../_shared/router-helpers";
 import { generatePurchaseRequestPDF } from "../../services/export/exportService";
 import { storagePut } from "../../_core/storage";
 import { queuePurchaseTranslation } from "./translation-queue";
+import { withPurchaseSubmissionTime } from "../../../shared/purchaseSubmissionTime";
 
 // ============================================================
 // [PB] راوتر حزمة الشراء — حاوية عليا فوق طلبات الشراء (2026-08-29)
@@ -252,7 +253,7 @@ export const purchasePackagesRouter = router({
         });
       }
 
-      return { ...pkg, orders: ordersWithItems };
+      return { ...pkg, orders: ordersWithItems.map(withPurchaseSubmissionTime) };
     }),
 
   /** قائمة الحزم (بلا طلباتها) — للاستخدام الإداري/التشخيصي. */

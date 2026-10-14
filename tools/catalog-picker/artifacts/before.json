@@ -1,0 +1,12 @@
+[
+  {
+    "file": "client/src/pages/purchase/CreatePurchaseOrder.tsx",
+    "backup": "C:\\Users\\mh\\Desktop\\CMMSFINAL\\tools\\catalog-picker\\artifacts\\CreatePurchaseOrder.tsx.before",
+    "sha256": "e668557917dab499b24079331ebda10a2be2da826bb8522f5d72d4c19bd4846c"
+  },
+  {
+    "file": "client/src/pages/maintenance-teams/ExecutionPanel.tsx",
+    "backup": "C:\\Users\\mh\\Desktop\\CMMSFINAL\\tools\\catalog-picker\\artifacts\\ExecutionPanel.tsx.before",
+    "sha256": "ecf527cd367b532586e18608b3095fd63f030fc0456b0f61ee6440ed2cede03b"
+  }
+]

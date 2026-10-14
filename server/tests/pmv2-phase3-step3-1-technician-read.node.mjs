@@ -30,9 +30,7 @@ test("technician execution permission is separate from PM V2 management", () => 
 
 test("technician task feed is scoped by active team membership and Riyadh date boundary", () => {
   assert.match(service, /getRiyadhDateOnly/);
-  assert.match(service, /eq\(pmv2TeamMembers\.teamId, pmv2Tasks\.teamId\)/);
-  assert.match(service, /eq\(pmv2TeamMembers\.userId, userId\)/);
-  assert.match(service, /eq\(pmv2TeamMembers\.isActive, 1\)/);
+  assert.match(service, /pmv2ExecutionTeamCondition\(userId, pmv2Tasks\.teamId\)/);
   assert.match(service, /lte\(pmv2Tasks\.dueDate, date\)/);
   assert.match(service, /ne\(pmv2Tasks\.status, "completed"\)/);
   assert.match(service, /sql<boolean>`exists \(/);
@@ -44,9 +42,8 @@ test("technician task feed is scoped by active team membership and Riyadh date b
 
 test("task item read rechecks membership to prevent cross-team access", () => {
   const method = service.match(/async listTaskItems\([\s\S]*?\n  \}\n\}/)?.[0] ?? "";
-  assert.match(method, /eq\(pmv2TeamMembers\.userId, userId\)/);
-  assert.match(method, /eq\(pmv2TeamMembers\.isActive, 1\)/);
-  assert.match(method, /where\(eq\(pmv2Tasks\.id, taskId\)\)/);
+  assert.match(method, /pmv2ExecutionTeamCondition\(userId, pmv2Tasks\.teamId\)/);
+  assert.match(method, /\.where\(and\(pmv2ExecutionTeamCondition\(userId, pmv2Tasks\.teamId\), eq\(pmv2Tasks\.id, taskId\)\)\)/);
   assert.match(method, /Pmv2TechnicianAccessError/);
   assert.match(router, /code: "NOT_FOUND"/);
 });

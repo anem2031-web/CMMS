@@ -169,7 +169,7 @@ export function ConstructionTicketsPanel() {
                     <p className="mt-1 text-sm text-muted-foreground">المطلوب: {myItem.description}</p>
                   )}
                   <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                    <span className="flex items-center gap-1"><Building2 className="h-3.5 w-3.5" />{getCategoryLabel(ticket.category)}</span>
+                    <span className="flex items-center gap-1"><Building2 className="h-3.5 w-3.5" />{ticket.centerCategoryName || getCategoryLabel(ticket.category)}</span>
                     <span className="flex items-center gap-1"><UserRound className="h-3.5 w-3.5" />{ticket.assignedToUserName || "لم يُعيّن فني بعد"}</span>
                     <span className="flex items-center gap-1"><Clock3 className="h-3.5 w-3.5" />{new Date(ticket.updatedAt || ticket.createdAt).toLocaleDateString(locale)}</span>
                   </div>

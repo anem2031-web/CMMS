@@ -1,0 +1,50 @@
+[
+  {
+    "file": "server/maintenance-team-tickets/service.ts",
+    "sha256": "9cec76a89cce4d3cf64095daf4f8e163c7323a0fa6450033451c62b389bec09a"
+  },
+  {
+    "file": "server/routers/maintenance-teams/execution.router.ts",
+    "sha256": "e2179765bdd53cb1882509f8c5441f693442f8816de938d0cae0dddd68b0f273"
+  },
+  {
+    "file": "server/routers/maintenance-teams/assignment.repository.ts",
+    "sha256": "3b349287f0a6e4b2cc2c417c6b864514fa21d4134d714c7c359d33137a6fc07b"
+  },
+  {
+    "file": "client/src/pages/maintenance-teams/ExecutionPanel.tsx",
+    "sha256": "efdea1729f6c2b42b3a28adad20cf15c1520d8fc508871646c55e1aed7e54620"
+  },
+  {
+    "file": "client/src/pages/maintenance-teams/AssignedMaintenanceTickets.tsx",
+    "sha256": "fb36a85953b8c0e4d6a8b1ffc94165b45700abe1effac7370de15e6813a8eccb"
+  },
+  {
+    "file": "client/src/pages/maintenance-teams/TicketMaterialNeedPanel.tsx",
+    "sha256": "3fbb96037475c08cd4df4bea452886097dc0779ad34d7b1cfc3f3453921f63e5"
+  },
+  {
+    "file": "shared/maintenance-team-tickets/assignment.ts",
+    "sha256": "07ae9e1c6b7524f181a67aec174e90271426e25f1514597f125b1c45809004d4"
+  },
+  {
+    "file": "shared/maintenance-team-tickets/execution-session.ts",
+    "sha256": "93fa641ccd2b5e47fa8a83dd6b4fb9905dcfcaefa14dcf68338276fea839bff5"
+  },
+  {
+    "file": "client/src/pages/maintenance-teams/TicketExecutionControls.tsx",
+    "sha256": "aa2cea6d85dc8b1055730ba720d1a0bf825f18abfb12c472c96ccb6b7dd13fed"
+  },
+  {
+    "file": "client/src/pages/maintenance-teams/TicketExecutionTasksView.tsx",
+    "sha256": "9ed0796456ef6a4c4ecdd10fbd757c208d0f6258cfc73f75bb785d978cf59822"
+  },
+  {
+    "file": "client/src/pages/maintenance-teams/TicketMaterialCatalogPicker.tsx",
+    "sha256": "865e7a666374c94f9d8ae642070780da2a1129d48fdf1a6bed7e0cc5af480ece"
+  },
+  {
+    "file": "client/src/pages/maintenance-teams/TicketTechnicianMaterials.tsx",
+    "sha256": "c05689fe041661eef47443978cca95ed7843ee5a59507336e4faed52c38abdbe"
+  }
+]

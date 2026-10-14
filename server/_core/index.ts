@@ -15,6 +15,7 @@ import IORedis from "ioredis";
 import multer from "multer";
 import { storagePut, storageGetStream, storagePresignedPut, checkStorageHealth } from "./storage";
 import { nanoid } from "nanoid";
+import { observerHttpAllowed } from "../../shared/observer-policy";
 import sharp from "sharp";
 import { transcodeVideoToCompatibleMp4 } from "./videoTranscode";
 import { exportTicketsToExcel, exportPurchaseOrdersToExcel, exportTechnicianPerformanceToExcel, exportAuditLogToExcel, exportInventoryToExcel, exportPreventivePlansToExcel, exportPMWorkOrdersToExcel, generateDelegateItemsPDF, generatePurchaseRequestPDF } from "../services/export/exportService";
@@ -106,6 +107,7 @@ async function requireAuthMiddleware(req: any, res: any, next: any) {
     if (!user) {
       return res.status(401).json({ error: "غير مصرح — يجب تسجيل الدخول أولاً" });
     }
+    if (!observerHttpAllowed(user.role)) return res.status(403).json({ error: "دور المراقب للاستعراض فقط؛ هذا الإجراء غير مسموح" });
     req.authenticatedUser = user;
     next();
   } catch (error) {
@@ -918,14 +920,32 @@ async function startServer() {
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
-  app.get("/api/export/inventory", requireInventoryExportRole, async (_req: any, res: any) => {
+  const handleInventoryExport = async (req: any, res: any) => {
     try {
-      const buffer = await exportInventoryToExcel();
+      const rawItemIds = req.method === "POST" ? req.body?.itemIds : undefined;
+      let itemIds: number[] | undefined;
+
+      if (rawItemIds !== undefined) {
+        if (!Array.isArray(rawItemIds)) {
+          return res.status(400).json({ error: "itemIds must be an array" });
+        }
+        itemIds = Array.from(new Set(
+          rawItemIds
+            .map((value: unknown) => Number(value))
+            .filter((value: number) => Number.isInteger(value) && value > 0),
+        ));
+      }
+
+      const buffer = await exportInventoryToExcel(itemIds === undefined ? undefined : { itemIds });
       res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
       res.setHeader("Content-Disposition", `attachment; filename=inventory-${Date.now()}.xlsx`);
       res.send(buffer);
     } catch (e: any) { res.status(500).json({ error: e.message }); }
-  });
+  };
+
+  // صفحة Inventory تستخدم POST لإرسال معرّفات النتائج بعد تطبيق الفلاتر
+  // بدون قيود طول Query String.
+  app.post("/api/export/inventory", requireInventoryExportRole, handleInventoryExport);
 
   app.get("/api/export/preventive-plans", requireExportRole, async (_req: any, res: any) => {
     try {

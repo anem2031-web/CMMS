@@ -1,0 +1,15 @@
+import fs from 'node:fs';
+const file='client/src/pages/maintenance-teams/ExecutionPanel.tsx';
+let src=fs.readFileSync(file,'utf8').replaceAll('\r\n','\n');
+const begin=src.indexOf('              <div key={n.id} className="space-y-3 rounded-lg border p-3">');
+const controls=src.indexOf('                {warehouse &&',begin);
+const balance=src.indexOf('                {balance &&',controls);
+const actions=src.indexOf('                {technician &&',balance);
+if([begin,controls,balance,actions].some(x=>x<0)) throw Error('Card anchors missing');
+const quantityFields=src.slice(controls,balance);
+const opening=`              <TicketWarehouseMaterialCard key={n.id} state={state} need={n} balance={balance} balanceError={balances.error?.message} ticket={warehouseTicket} language={language} warehouse={mode === "warehouse" && warehouseNeedId != null} quantityFields={<>\n${quantityFields}              </>}>\n`;
+src=src.slice(0,begin)+opening+src.slice(actions);
+const closing='              </div>\n            );\n          })}';
+if(src.split(closing).length!==2) throw Error('Card closing not unique');
+src=src.replace(closing,'              </TicketWarehouseMaterialCard>\n            );\n          })}');
+fs.writeFileSync(file,src);

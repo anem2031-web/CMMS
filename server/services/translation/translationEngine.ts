@@ -15,12 +15,14 @@
  */
 
 import { eq, and, desc, sql, inArray } from "drizzle-orm";
+import { isObserverReadScope } from "../../_core/authz/observer-read-scope";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   entityTranslations, translationJobs, translationVersions,
   type SupportedLanguage, supportedLanguages, auditLogs,
   tickets, assets, pmWorkOrders, purchaseOrderItems,
   preventivePlans, pmExecutionResults, pmExecutionSessions, pmChecklistItems,
+  centerCategories, assetCategories, users,
 } from "../../../drizzle/schema";
 import { invokeLLM } from "../../_core/llm";
 import { getDb } from "../../_core/db";
@@ -95,6 +97,11 @@ export const ENTITY_FIELD_MAP: Record<string, string[]> = {
   // Inventory / shared entities.
   INVENTORY: ["itemName", "description"],
   SITE: ["name"],
+  SECTION: ["name"],
+  ASSET: ["name", "description", "notes"],
+  CENTER_CATEGORY: ["name"],
+  ASSET_CATEGORY: ["name"],
+  USER: ["name"],
   NOTIFICATION: ["title", "message"],
 
   // Legacy PM translation entities.
@@ -195,7 +202,8 @@ Translate the following text from ${LANGUAGE_NAMES[sourceLang]} to ${LANGUAGE_NA
 Rules:
 - Maintain technical terminology accuracy
 - Preserve any numbers, codes, or references (like MT-2026-00001)
-- Keep proper nouns unchanged
+- Keep proper nouns unchanged unless the context explicitly asks to transliterate a person's display name
+- For Entity: USER, Field: name, transliterate the person's name naturally into the target script; do not translate its meaning
 - Use formal/professional tone
 - Return ONLY the translated text, no explanations
 ${context ? `Context: ${context}` : ""}`;
@@ -221,6 +229,230 @@ ${context ? `Context: ${context}` : ""}`;
   }
 }
 
+
+// ============================================================
+// PERSISTED MASTER-DATA NAME TRANSLATIONS
+// ============================================================
+
+type NamedTranslationRecord = {
+  id: number;
+  name?: string | null;
+  nameAr?: string | null;
+  nameEn?: string | null;
+  nameUr?: string | null;
+};
+
+const MASTER_NAME_BATCH_SIZE = 30;
+const MASTER_LANGUAGE_NAMES: Record<SupportedLanguage, string> = {
+  ar: "Arabic",
+  en: "English",
+  ur: "Urdu",
+};
+
+function detectNameLanguage(text: string): SupportedLanguage {
+  if (!text?.trim()) return "ar";
+  const urduSpecific = /[\u06A9\u06AF\u06BA\u06BE\u06C1\u06CC\u06D2]/;
+  if (urduSpecific.test(text)) return "ur";
+  if (/[\u0600-\u06FF]/.test(text)) return "ar";
+  return "en";
+}
+
+function extractJsonObject(content: unknown): Record<string, unknown> {
+  if (content && typeof content === "object" && !Array.isArray(content)) {
+    return content as Record<string, unknown>;
+  }
+  if (typeof content !== "string") return {};
+  const cleaned = content.replace(/```json\s*|```/g, "").trim();
+  try {
+    const parsed = JSON.parse(cleaned);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : {};
+  } catch {
+    console.error("[TranslationEngine] Failed to parse master-name translation batch:", cleaned.slice(0, 500));
+    return {};
+  }
+}
+
+async function translateMasterNameBatch(
+  entityType: string,
+  rows: Array<{ id: number; text: string }>,
+  targetLanguage: SupportedLanguage,
+): Promise<Map<number, string>> {
+  const result = new Map<number, string>();
+  if (!rows.length) return result;
+
+  const modeInstruction = entityType === "USER"
+    ? "These values are personal display names. Transliterate each name naturally into the target writing system. Do NOT translate the semantic meaning of a person's name."
+    : "Translate each value as a professional CMMS master-data display label. Preserve codes, model numbers, acronyms, serial-like tokens and identifiers exactly where appropriate.";
+
+  const payload = Object.fromEntries(rows.map((row) => [String(row.id), row.text]));
+  try {
+    const response = await invokeLLM({
+      messages: [
+        {
+          role: "system",
+          content: `You localize CMMS master-data names into ${MASTER_LANGUAGE_NAMES[targetLanguage]}. ${modeInstruction}\nIf a value is already naturally written in the target language, keep it unchanged. Return ONLY one JSON object whose keys exactly match the supplied numeric IDs and whose values are translated/transliterated strings.`,
+        },
+        { role: "user", content: JSON.stringify(payload) },
+      ],
+    });
+    const parsed = extractJsonObject(response.choices?.[0]?.message?.content);
+    for (const row of rows) {
+      const value = parsed[String(row.id)];
+      if (typeof value === "string" && value.trim()) result.set(row.id, value.trim());
+    }
+  } catch (error) {
+    console.error(`[TranslationEngine] Master-name batch translation failed for ${entityType}/${targetLanguage}:`, error);
+  }
+  return result;
+}
+
+/**
+ * Persist a completed automatic translation in entity_translations.
+ * Approved/manual values always win and are never overwritten here.
+ */
+export async function storeCompletedEntityTranslation(
+  entityType: string,
+  entityId: number,
+  fieldName: string,
+  languageCode: SupportedLanguage,
+  translatedText: string,
+): Promise<string | null> {
+  const db = await getDb();
+  const text = translatedText?.trim();
+  if (!db || !text) return null;
+
+  const [existing] = await db.select().from(entityTranslations).where(
+    and(
+      eq(entityTranslations.entityType, entityType),
+      eq(entityTranslations.entityId, entityId),
+      eq(entityTranslations.fieldName, fieldName),
+      eq(entityTranslations.languageCode, languageCode),
+    ),
+  ).limit(1);
+
+  if (existing?.translationStatus === "approved" && existing.translatedText?.trim()) {
+    const approvedText = existing.translatedText.trim();
+    translationCache.set(entityType, entityId, fieldName, languageCode, approvedText);
+    return approvedText;
+  }
+  if (existing?.translatedText?.trim() === text && existing.translationStatus === "completed") {
+    translationCache.set(entityType, entityId, fieldName, languageCode, text);
+    return text;
+  }
+
+  if (existing) {
+    const nextVersion = Math.max(1, existing.versionNumber || 1) + 1;
+    await db.insert(translationVersions).values({
+      entityTranslationId: existing.id,
+      versionNumber: nextVersion,
+      translatedText: text,
+      translationStatus: "completed",
+      changeReason: "auto_translate",
+    });
+    await db.update(entityTranslations).set({
+      translatedText: text,
+      translationStatus: "completed",
+      versionNumber: nextVersion,
+      lastAttemptAt: new Date(),
+      errorMessage: null,
+    }).where(eq(entityTranslations.id, existing.id));
+  } else {
+    const [inserted] = await db.insert(entityTranslations).values({
+      entityType,
+      entityId,
+      fieldName,
+      languageCode,
+      translatedText: text,
+      translationStatus: "completed",
+      versionNumber: 1,
+      lastAttemptAt: new Date(),
+    });
+    if (inserted?.insertId) {
+      await db.insert(translationVersions).values({
+        entityTranslationId: inserted.insertId,
+        versionNumber: 1,
+        translatedText: text,
+        translationStatus: "completed",
+        changeReason: "auto_translate",
+      });
+    }
+  }
+
+  translationCache.set(entityType, entityId, fieldName, languageCode, text);
+  return text;
+}
+
+/**
+ * Read persisted master-data name translations and generate only the missing
+ * values. Missing names are translated in small batches, saved once in
+ * entity_translations, then reused on every later request.
+ *
+ * Sites/Sections may still have legacy nameEn/nameUr columns. Those values are
+ * imported into entity_translations on first read instead of paying for an
+ * external translation again.
+ */
+export async function ensureStoredNameTranslations(
+  entityType: string,
+  records: NamedTranslationRecord[],
+  languageCode: SupportedLanguage,
+): Promise<Map<number, string>> {
+  const output = new Map<number, string>();
+  const unique = new Map<number, NamedTranslationRecord>();
+  for (const record of records) {
+    const id = Number(record.id);
+    const name = record.name?.trim();
+    if (Number.isInteger(id) && id > 0 && name) unique.set(id, { ...record, id, name });
+  }
+  if (!unique.size) return output;
+
+  const ids = [...unique.keys()];
+  const existing = await getBatchTranslations(entityType, ids, languageCode, ["name"]);
+  const needsExternal: Array<{ id: number; text: string }> = [];
+
+  for (const [id, record] of unique) {
+    const persisted = existing[id]?.name?.text?.trim();
+    if (persisted) {
+      output.set(id, persisted);
+      continue;
+    }
+
+    const legacy = languageCode === "en"
+      ? record.nameEn?.trim()
+      : languageCode === "ur"
+        ? record.nameUr?.trim()
+        : languageCode === "ar"
+          ? record.nameAr?.trim()
+          : undefined;
+    if (legacy) {
+      const stored = await storeCompletedEntityTranslation(entityType, id, "name", languageCode, legacy);
+      output.set(id, stored || legacy);
+      continue;
+    }
+
+    const source = record.name!.trim();
+    if (detectNameLanguage(source) === languageCode) {
+      output.set(id, source);
+      continue;
+    }
+    needsExternal.push({ id, text: source });
+  }
+
+  for (let offset = 0; offset < needsExternal.length; offset += MASTER_NAME_BATCH_SIZE) {
+    const chunk = needsExternal.slice(offset, offset + MASTER_NAME_BATCH_SIZE);
+    const translated = await translateMasterNameBatch(entityType, chunk, languageCode);
+    for (const row of chunk) {
+      const translatedText = translated.get(row.id);
+      if (!translatedText) continue;
+      const stored = await storeCompletedEntityTranslation(entityType, row.id, "name", languageCode, translatedText);
+      if (stored) output.set(row.id, stored);
+    }
+  }
+
+  return output;
+}
+
 // ============================================================
 // CORE ENGINE FUNCTIONS
 // ============================================================
@@ -230,6 +462,7 @@ ${context ? `Context: ${context}` : ""}`;
  * Creates pending jobs and translation records
  */
 export async function queueTranslation(request: TranslationRequest): Promise<number[]> {
+  if (isObserverReadScope()) return [];
   const db = await getDb();
   if (!db) {
     console.error("[TranslationEngine] Failed to get database connection for queueTranslation. Job aborted.");
@@ -278,6 +511,12 @@ export async function queueTranslation(request: TranslationRequest): Promise<num
         // Text hasn't changed, skip re-translation
         continue;
       }
+
+      // The source value changed (or has never been translated). Never let a
+      // stale in-memory label survive while the replacement translation is
+      // pending; list/dropdown reads must fall back to the persisted/current
+      // source and then pick up the new stored translation.
+      translationCache.invalidate(request.entityType, request.entityId, field.fieldName);
 
       // Create translation job
       const [jobResult] = await db.insert(translationJobs).values({
@@ -976,35 +1215,85 @@ export async function queueMissingTranslations(): Promise<void> {
     .where(sql`${tickets.createdAt} >= DATE_SUB(NOW(), INTERVAL 7 DAY)`)
     .limit(200);
 
-  if (recentTickets.length === 0) return;
+  if (recentTickets.length > 0) {
+    const existing = await db.select({ entityId: entityTranslations.entityId })
+      .from(entityTranslations)
+      .where(and(
+        eq(entityTranslations.entityType, "TICKET"),
+        inArray(entityTranslations.entityId, recentTickets.map(t => t.id))
+      ));
+    const hasAnyTranslation = new Set(existing.map(e => e.entityId));
 
-  const existing = await db.select({ entityId: entityTranslations.entityId })
-    .from(entityTranslations)
-    .where(and(
-      eq(entityTranslations.entityType, "TICKET"),
-      inArray(entityTranslations.entityId, recentTickets.map(t => t.id))
-    ));
-  const hasAnyTranslation = new Set(existing.map(e => e.entityId));
-
-  const missing = recentTickets.filter(t => !hasAnyTranslation.has(t.id));
-  if (missing.length === 0) {
-    console.log("[TranslationEngine] No tickets missing translations entirely.");
-    return;
+    const missing = recentTickets.filter(t => !hasAnyTranslation.has(t.id));
+    if (missing.length === 0) {
+      console.log("[TranslationEngine] No tickets missing translations entirely.");
+    } else {
+      console.log(`[TranslationEngine] Found ${missing.length} ticket(s) with zero translation records — re-queueing...`);
+      for (const t of missing) {
+        const fields: TranslatableField[] = [
+          { fieldName: "title", text: t.title },
+          ...(t.description ? [{ fieldName: "description", text: t.description }] : []),
+        ];
+        await queueTranslation({
+          entityType: "TICKET",
+          entityId: t.id,
+          fields,
+          sourceLanguage: (t.originalLanguage as SupportedLanguage) || "ar",
+        }).catch(e => console.error(`[TranslationEngine] Re-queue failed for ticket ${t.id}:`, e));
+      }
+    }
   }
 
-  console.log(`[TranslationEngine] Found ${missing.length} ticket(s) with zero translation records — re-queueing...`);
+  // Master-data names are intentionally kept in their source tables unchanged.
+  // Missing display translations are generated in entity_translations only, so
+  // historical/master records are never rewritten. Each recovery cycle picks
+  // the next bounded set that has no name translation rows yet.
+  const missingAssets = await db.select({ id: assets.id, name: assets.name })
+    .from(assets)
+    .where(sql`NOT EXISTS (
+      SELECT 1 FROM entity_translations et
+      WHERE et.entityType = 'ASSET' AND et.entityId = ${assets.id} AND et.fieldName = 'name'
+    )`)
+    .limit(200);
+  const missingCategories = await db.select({ id: centerCategories.id, name: centerCategories.name })
+    .from(centerCategories)
+    .where(sql`NOT EXISTS (
+      SELECT 1 FROM entity_translations et
+      WHERE et.entityType = 'CENTER_CATEGORY' AND et.entityId = ${centerCategories.id} AND et.fieldName = 'name'
+    )`)
+    .limit(200);
+  const missingAssetCategories = await db.select({ id: assetCategories.id, name: assetCategories.name })
+    .from(assetCategories)
+    .where(sql`NOT EXISTS (
+      SELECT 1 FROM entity_translations et
+      WHERE et.entityType = 'ASSET_CATEGORY' AND et.entityId = ${assetCategories.id} AND et.fieldName = 'name'
+    )`)
+    .limit(200);
+  const missingUsers = await db.select({ id: users.id, name: users.name })
+    .from(users)
+    .where(sql`NOT EXISTS (
+      SELECT 1 FROM entity_translations et
+      WHERE et.entityType = 'USER' AND et.entityId = ${users.id} AND et.fieldName = 'name'
+    )`)
+    .limit(200);
 
-  for (const t of missing) {
-    const fields: TranslatableField[] = [
-      { fieldName: "title", text: t.title },
-      ...(t.description ? [{ fieldName: "description", text: t.description }] : []),
-    ];
-    await queueTranslation({
-      entityType: "TICKET",
-      entityId: t.id,
-      fields,
-      sourceLanguage: (t.originalLanguage as SupportedLanguage) || "ar",
-    }).catch(e => console.error(`[TranslationEngine] Re-queue failed for ticket ${t.id}:`, e));
+  const masterSources: Array<{ entityType: string; rows: Array<{ id: number; name: string | null }> }> = [
+    { entityType: "ASSET", rows: missingAssets },
+    { entityType: "CENTER_CATEGORY", rows: missingCategories },
+    { entityType: "ASSET_CATEGORY", rows: missingAssetCategories },
+    { entityType: "USER", rows: missingUsers },
+  ];
+  const { detectLanguage } = await import("./translation");
+  for (const source of masterSources) {
+    for (const row of source.rows.filter((item) => item.name && item.name.trim())) {
+      const sourceLanguage = await detectLanguage(row.name!);
+      await queueTranslation({
+        entityType: source.entityType,
+        entityId: row.id,
+        fields: [{ fieldName: "name", text: row.name! }],
+        sourceLanguage,
+      }).catch((error) => console.error(`[TranslationEngine] Master-data translation queue failed for ${source.entityType} ${row.id}:`, error));
+    }
   }
 }
 

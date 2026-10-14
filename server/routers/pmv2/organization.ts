@@ -7,6 +7,8 @@ import {
   pmv2OrganizationService,
 } from "../../pmv2/organization/service";
 import { pmv2ManagementProcedure } from "../../pmv2/security/procedures";
+import { localizeMasterDataReferences } from "../../services/translation/localizedMasterData";
+import type { SupportedLanguage } from "../../services/translation/translation";
 
 const nullablePositiveId = z.number().int().positive().nullable().optional();
 
@@ -36,8 +38,11 @@ function toTrpcError(error: unknown): never {
 
 export const pmv2OrganizationRouter = router({
   references: router({
-    users: pmv2ManagementProcedure.query(() =>
-      pmv2OrganizationService.listActiveUsers(),
+    users: pmv2ManagementProcedure.query(async ({ ctx }) =>
+      localizeMasterDataReferences(
+        await pmv2OrganizationService.listActiveUsers(),
+        (ctx.user.preferredLanguage || "ar") as SupportedLanguage,
+      ),
     ),
     warehouses: pmv2ManagementProcedure.query(() =>
       pmv2OrganizationService.listActiveWarehouses(),
@@ -95,7 +100,10 @@ export const pmv2OrganizationRouter = router({
   }),
 
   teams: router({
-    list: pmv2ManagementProcedure.query(() => pmv2OrganizationService.listTeams()),
+    list: pmv2ManagementProcedure.query(async ({ ctx }) => localizeMasterDataReferences(
+      await pmv2OrganizationService.listTeams(),
+      (ctx.user.preferredLanguage || "ar") as SupportedLanguage,
+    )),
     create: pmv2ManagementProcedure
       .input(
         z.object({
@@ -139,7 +147,10 @@ export const pmv2OrganizationRouter = router({
     members: router({
       list: pmv2ManagementProcedure
         .input(z.object({ teamId: z.number().int().positive() }))
-        .query(({ input }) => pmv2OrganizationService.listTeamMembers(input.teamId)),
+        .query(async ({ input, ctx }) => localizeMasterDataReferences(
+          await pmv2OrganizationService.listTeamMembers(input.teamId),
+          (ctx.user.preferredLanguage || "ar") as SupportedLanguage,
+        )),
       add: pmv2ManagementProcedure
         .input(
           z.object({

@@ -1,0 +1,117 @@
+[
+  {
+    "backup": "C:\\Users\\mh\\Desktop\\CMMSFINAL\\tools\\observer\\artifacts\\correction\\client__src___core__hooks__useAuth.ts.before",
+    "file": "client/src/_core/hooks/useAuth.ts",
+    "hash": "F5BEE59903606B66372766DF7AB23C15400CDDE20C2D143E9A95EBEE784532B5"
+  },
+  {
+    "backup": "C:\\Users\\mh\\Desktop\\CMMSFINAL\\tools\\observer\\artifacts\\correction\\client__src__contexts__LanguageContext.tsx.before",
+    "file": "client/src/contexts/LanguageContext.tsx",
+    "hash": "E2C09F8A16D76C51207686D354DDDAF59C5C7CFA92E34228FDD83C1F193D2E01"
+  },
+  {
+    "backup": "C:\\Users\\mh\\Desktop\\CMMSFINAL\\tools\\observer\\artifacts\\correction\\server___core__db__client.ts.before",
+    "file": "server/_core/db/client.ts",
+    "hash": "A25E82B3A0BCE84381E02383616CCFC9599FADDC1C3C852D9099437FF62B6CBE"
+  },
+  {
+    "backup": "C:\\Users\\mh\\Desktop\\CMMSFINAL\\tools\\observer\\artifacts\\correction\\server__pmv2__security__execution-access.ts.before",
+    "file": "server/pmv2/security/execution-access.ts",
+    "hash": "764C4F981E4A22732C7246D5B89E23ABF403496E314852E8C80EEC7CD1B01F5C"
+  },
+  {
+    "backup": "C:\\Users\\mh\\Desktop\\CMMSFINAL\\tools\\observer\\artifacts\\correction\\client__src__App.tsx.before",
+    "file": "client/src/App.tsx",
+    "hash": "5232D3408F658F8C0C97F2443B7A0E2123A6BE1DE2A4B82122AB3DAAC727908C"
+  },
+  {
+    "backup": "C:\\Users\\mh\\Desktop\\CMMSFINAL\\tools\\observer\\artifacts\\correction\\client__src__components__layout__DashboardLayout.tsx.before",
+    "file": "client/src/components/layout/DashboardLayout.tsx",
+    "hash": "071E9D662F14A1EF896483586CDC8FFCD48F847DB768B826113F44A91B13999E"
+  },
+  {
+    "backup": "C:\\Users\\mh\\Desktop\\CMMSFINAL\\tools\\observer\\artifacts\\correction\\client__src__components__system__AppUpdateBanner.tsx.before",
+    "file": "client/src/components/system/AppUpdateBanner.tsx",
+    "hash": "60DBAFE9A18965A59151A7E3F66B66D137DCE292AEE941EBEFE5D2B941636C21"
+  },
+  {
+    "backup": "C:\\Users\\mh\\Desktop\\CMMSFINAL\\tools\\observer\\artifacts\\correction\\shared__roles.ts.before",
+    "file": "shared/roles.ts",
+    "hash": "DEDF6D2CAF12143E0B528D792B7BDBF1499C1DF5E82103425CEF880FAD535E43"
+  },
+  {
+    "backup": "C:\\Users\\mh\\Desktop\\CMMSFINAL\\tools\\observer\\artifacts\\correction\\shared__observer-policy.ts.before",
+    "file": "shared/observer-policy.ts",
+    "hash": "6046266E162A58A0B5A3B534D3E1CB2CDDB83753685F8E27889300370BFB1F66"
+  },
+  {
+    "backup": "C:\\Users\\mh\\Desktop\\CMMSFINAL\\tools\\observer\\artifacts\\correction\\server___core__trpc.ts.before",
+    "file": "server/_core/trpc.ts",
+    "hash": "4070E8CD8BB5C66DAE67C2F371B734D7F0D15F5A46F4FA2F9E393DEF53752492"
+  },
+  {
+    "backup": "C:\\Users\\mh\\Desktop\\CMMSFINAL\\tools\\observer\\artifacts\\correction\\server___core__authz__observer-guard.ts.before",
+    "file": "server/_core/authz/observer-guard.ts",
+    "hash": "6E558DE8A0EA47650D62D4FB539738025CA1885446C7295222FF69E0AEF23A35"
+  },
+  {
+    "backup": "C:\\Users\\mh\\Desktop\\CMMSFINAL\\tools\\observer\\artifacts\\correction\\server__routers__index.ts.before",
+    "file": "server/routers/index.ts",
+    "hash": "1C492D777BD0784F982F9749FF09A9A04E622804837CD9A92A1DEDEE10256893"
+  },
+  {
+    "backup": "C:\\Users\\mh\\Desktop\\CMMSFINAL\\tools\\observer\\artifacts\\correction\\shared__observer-pages.ts.before",
+    "file": "shared/observer-pages.ts",
+    "hash": "C6AB2CE0BE9A3C701914ABE2B52B87DC16D11536619D9B9E76C6EADAEC2D76C9"
+  },
+  {
+    "backup": "C:\\Users\\mh\\Desktop\\CMMSFINAL\\tools\\observer\\artifacts\\correction\\server__services__observer__read-service.ts.before",
+    "file": "server/services/observer/read-service.ts",
+    "hash": "6C0994FA10FDB5EE67E121606FFE079B4E70FB150EFE2EF970A685E2E816E127"
+  },
+  {
+    "backup": "C:\\Users\\mh\\Desktop\\CMMSFINAL\\tools\\observer\\artifacts\\correction\\server__routers__observer__index.ts.before",
+    "file": "server/routers/observer/index.ts",
+    "hash": "140F567476E4FCBEC2FED0EDABD105D4490DFAD060949631ABDDECF783C89E86"
+  },
+  {
+    "backup": "C:\\Users\\mh\\Desktop\\CMMSFINAL\\tools\\observer\\artifacts\\correction\\client__src__pages__observer__ObserverPage.tsx.before",
+    "file": "client/src/pages/observer/ObserverPage.tsx",
+    "hash": "D63D8E28C04074815C8F9240158E8B68E8B9B0B39CBFBF24FFC6E61CBBFEBB74"
+  },
+  {
+    "hash": "78AAB0074C4235F4599DCF44243700FA2B77185014F2E352C55D7F2AA57A6936",
+    "backup": "C:\\Users\\mh\\Desktop\\CMMSFINAL\\tools\\observer\\artifacts\\correction\\client__src__main.tsx.before",
+    "file": "client/src/main.tsx"
+  },
+  {
+    "hash": "316932C15E42F96CA8C1CC502A881109AED3E48A9956889429610EE04BB20B86",
+    "backup": "C:\\Users\\mh\\Desktop\\CMMSFINAL\\tools\\observer\\artifacts\\correction\\server__routers__purchase__pricing-batch-state.ts.before",
+    "file": "server/routers/purchase/pricing-batch-state.ts"
+  },
+  {
+    "hash": "4E69E955F6F3C17C4100DE62938E333A4875DBE40BFA71FBA257F92E854E259E",
+    "backup": "C:\\Users\\mh\\Desktop\\CMMSFINAL\\tools\\observer\\artifacts\\correction\\server__services__translation__translationEngine.ts.before",
+    "file": "server/services/translation/translationEngine.ts"
+  },
+  {
+    "hash": "933311DC77B2E26BEF7F7473D30A8DA5787CD11BB564DF1519425FEFC8AEA54B",
+    "backup": "C:\\Users\\mh\\Desktop\\CMMSFINAL\\tools\\observer\\artifacts\\correction\\server__routers__maintenance-teams__execution.repository.ts.before",
+    "file": "server/routers/maintenance-teams/execution.repository.ts"
+  },
+  {
+    "hash": "4E0BE1EB88249330E4330EF06DACF6F1FC4BE5F65A46B2DB42420F1F469941ED",
+    "backup": "C:\\Users\\mh\\Desktop\\CMMSFINAL\\tools\\observer\\artifacts\\correction\\server___core__context.ts.before",
+    "file": "server/_core/context.ts"
+  },
+  {
+    "file": "server/pmv2/materials/technician-attention-service.ts",
+    "backup": "C:\\Users\\mh\\Desktop\\CMMSFINAL\\tools\\observer\\artifacts\\correction\\server__pmv2__materials__technician-attention-service.ts.before",
+    "hash": "4AE213791B0A5AFA38B2766C15E0F60CD52FBC7597268F016AE7CAA31BD968A3"
+  },
+  {
+    "hash": "3A954DB7603F5B597430E6A9A29E4BD25566858D915240AB6D8049144A96BEBE",
+    "backup": "C:\\Users\\mh\\Desktop\\CMMSFINAL\\tools\\observer\\artifacts\\correction\\server___core__index.ts.before",
+    "file": "server/_core/index.ts"
+  }
+]

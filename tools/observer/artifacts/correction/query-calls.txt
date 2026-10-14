@@ -1,0 +1,1276 @@
+observer.readPage :: assertObserverReader | read().read | read
+system.health :: 
+translation.getEntityTranslations :: getEntityTranslations
+translation.getBatchTranslations :: getBatchTranslations
+translation.getVersionHistory :: getTranslationVersions
+translation.getStats :: getTranslationStats
+translation.getJobs :: getTranslationJobsList
+translation.getEntityFieldMap :: 
+auth.me :: 
+users.list :: cacheManager.getOrCompute | cacheKeys.users | db.getAllUsers | localizeNamedRecords
+users.byRole :: cacheManager.getOrCompute | cacheKeys.usersByRole | db.getUsersByRole | localizeNamedRecords
+users.listTechnicians :: cacheManager.getOrCompute | cacheKeys.usersByRole | db.getUsersByRole | localizeNamedRecords
+sites.list :: cacheManager.getOrCompute | cacheKeys.sites | db.getAllSites | localizeNamedRecords
+sections.list :: db.getSections | localizeNamedRecords
+technicians.list :: db.getAllTechnicians
+technicians.getOpenTicketCounts :: db.getTechnicianOpenTicketCounts
+tickets.itPurchaseNeeds :: assertTeam | db.getTicketById | fail | assertTicketReadable | db.getDb | eq | eq | predicates.push | eq | database.select().from(itPurchaseNeeds).where(and(...predicates)).orderBy(desc(itPurchaseNeeds.id)).limit | database.select().from(itPurchaseNeeds).where(and(...predicates)).orderBy | database.select().from(itPurchaseNeeds).where | database.select().from | database.select | and | desc
+tickets.list :: isRoleDeniedFromTickets | isItTeamRole | db.getTickets | localizeTicketDisplayRows
+tickets.listPaginated :: isRoleDeniedFromTickets | isItTeamRole | db.getTicketsPaginated | localizeTicketDisplayRows
+tickets.inboxCounts :: isRoleDeniedFromTickets | isItTeamRole | db.getTicketsInboxCounts
+tickets.getById :: db.getTicketById | assertTicketReadable | [APP_ROLE.TECHNICIAN, APP_ROLE.IT_MANAGER, APP_ROLE.IT_MEMBER].includes | db.isUserAssignedToTicketTasks | localizeTicketDetail
+tickets.items :: db.getTicketById | assertTicketReadable | db.getTicketItems
+tickets.myItemsForTickets :: db.getMyTicketItemsForTickets
+tickets.history :: db.getTicketById | assertTicketReadable | db.getTicketHistory | queueTicketHistoryTranslations
+tickets.departmentPlan :: db.getTicketById | assertTicketReadable | db.getTicketDepartments | db.getTicketTasks | db.getTaskAssigneesForTasks | tasks.map | isItTeamRole | departments.filter | departments.map | tasks.filter | ids.has | tasks.map | assignees.filter | taskIds.has | assignees.filter((a: any) => a.userId === ctx.user.id).map | assignees.filter | tasks.filter | visibleTaskIds.has | tasks.map | departments.filter | deptIds.has | assignees.filter | visibleTaskIds.has | [APP_ROLE.GENERAL_MAINTENANCE_MANAGER, APP_ROLE.CONSTRUCTION_PROCUREMENT_MANAGER].includes | departments.filter | departments.map | tasks.filter | deptIds.has | tasks.map | assignees.filter | taskIds.has | db.getSubTicketsByParent | summarizeSubTicketFamily | (subTickets as any[])
+      .filter((child: any) => !["closed", "requester_confirmed"].includes(child.status))
+      .map | (subTickets as any[])
+      .filter | ["closed", "requester_confirmed"].includes
+tickets.getConfirmation :: db.getTicketById | assertTicketReadable | db.getTicketConfirmation | db.getUserById
+tickets.listForGate :: 
+tickets.history :: db.getTicketById | assertTicketReadable | db.getTicketHistory | String(row?.notes || "").trim | String | detectLanguage(notes)
+        .then((sourceLanguage) => queueTranslation({
+          entityType: "TICKET_STATUS_HISTORY",
+          entityId: Number(row.id),
+          fields: [{ fieldName: "notes", text: notes }],
+          sourceLanguage,
+          userId: ctx.user.id,
+        }))
+        .catch | detectLanguage(notes)
+        .then | detectLanguage | queueTranslation | Number | console.error
+purchaseOrders.listPricingBatches :: rejectEmptyPendingPricingBatches | db.getPOPricingBatches
+purchaseOrders.actionableForMe :: db.getPurchaseOrders | filterVisiblePurchaseOrders | db.getPOItemsForPOs | visible.map | computeActionablePOs | localizePurchaseUserNames
+purchaseOrders.getById :: db.getPurchaseOrderById | assertCanViewPurchaseOrder | db.getPOItems | db.getProcurementComments | localizePurchaseUserNames
+purchaseOrders.list :: OWN_REQUESTS_ONLY_ROLES.includes | db.getPurchaseOrders | localizePurchaseUserNames | ["owner", "admin", "maintenance_manager", "general_maintenance_manager", "construction_procurement_manager", "purchase_manager", "accountant", "senior_management", "executive_director", "warehouse"].includes | db.getPurchaseOrders | filterVisiblePurchaseOrders | db.getPOItemsByDelegate | myItemCountByPO.set | myItemCountByPO.get | visible.map | myItemCountByPO.get | localizePurchaseUserNames | localizePurchaseUserNames
+purchaseOrders.myItems :: db.getAllPOItems | db.getPOItemsByDelegate
+purchaseOrders.myRequestedItems :: db.getPOItemsRequestedBy | localizePurchaseUserNames
+purchaseOrders.supplyTracking :: db.getPurchaseSupplyTrackingItems | localizePurchaseUserNames | canRoleViewAllPurchaseSupplyTracking | db.getPurchaseSupplyTrackingItems | localizePurchaseUserNames
+purchaseOrders.itemHistory :: db.getPOItemById | db.getPurchaseOrderById | assertCanViewPurchaseOrder | db.getPOItemTimeline | localizePurchaseUserNames
+purchaseOrders.actionableItemsForMe :: db.getPOItemsByDelegate | enrichPurchaseCycleItemsBatch | enriched.flatMap | String | getDelegateItemActionMode
+purchaseOrders.pendingEstimateItems :: allItems.filter | enrichPurchaseCycleItemsBatch | enriched.filter | excludedPoStatuses.has | db.getPackageInfoForPOs | Array.from | visible.map | visible.map | packageMap.get | Promise.all | db.getPOItemsByStatus | db.getPOItemsByStatus | collectEligibleItems | db.getPOItemsByDelegate | collectEligibleItems
+purchaseOrders.pendingDeliveryItems :: db.getPOItemsPendingInventoryEntry | db.getPurchaseOrderTicketContextBatch | items.map | items.map | contextMap.get
+purchaseOrders.inventoryReadyForDelivery :: db.getDb | database.execute | Number | seenInventoryIds.has | seenInventoryIds.add | shouldExposeTicketMaterialLink | Number | Number | Number | result.push | Number | Number | Number
+purchaseOrders.pendingPurchaseItems :: db.getPOItemsByStatus | db.getPOItemsByStatus | db.getPOItemsByDelegate | mine.filter | enrichPurchaseCycleItemsBatch
+purchaseOrders.pendingWarehouseItems :: db.getPOItemsByStatus | enrichPurchaseCycleItemsBatch | enriched.filter
+purchaseOrders.searchItemNames :: db.searchItemNames
+purchaseOrders.trackItem :: db.trackItemHistory
+purchasePackages.getById :: assertCanPerformPOAction | db.getPurchasePackageById | getVisiblePackageOrdersWithItems | ordersWithItems.map
+purchasePackages.list :: assertCanPerformPOAction | Promise.all | db.getPurchasePackagesList | db.getPurchaseOrders | filterVisiblePurchaseOrders | visibleOrders
+        .map((po: any) => po.packageId)
+        .filter | visibleOrders
+        .map | packages.filter | visiblePackageIds.has
+purchasePackages.cards :: assertCanPerformPOAction | db.getPurchaseCards | cards.flatMap | filterVisiblePurchaseOrders | visibleOrders.map | cards.flatMap | visibleOrderIds.has | card.orders.filter | visibleOrderIds.has
+purchasePackages.actionableSubmissionsForMe :: assertCanPerformPOAction | Promise.all | db.getPurchasePackagesList | db.getPurchaseOrders | filterVisiblePurchaseOrders | visibleOrders.map | Number | Number | visiblePoIdsByPackage.get | ids.add | Number | visiblePoIdsByPackage.set | visiblePoIdsByPackage.get | Number | db.getPackageSubmissionsWithBatches | Number | (sub.batches ?? []).filter | visiblePoIds.has | Number | Array.from | actionableBatches.map | Number | orderIds
+          .map((id) => (visibleOrderById.get(id) as any)?.poNumber)
+          .filter | orderIds
+          .map | visibleOrderById.get | actionableBatches.reduce | Number | String | batchesTotal.toFixed | items.push | Number | Number | Number | Number | items.sort | new Date(a.createdAt).getTime | new Date(b.createdAt).getTime
+purchasePackages.submissions :: assertCanPerformPOAction | db.getPurchasePackageById | db.getPurchaseOrdersByPackage | filterVisiblePurchaseOrders | visibleOrders.map | db.getPackageSubmissionsWithBatches | Promise.all | subs.map | (sub.batches ?? []).filter | visiblePoIds.has | Promise.all | visibleBatches.map | db.getPurchaseOrderById | (await db.getPOItems(b.purchaseOrderId)).filter | db.getPOItems | enriched.filter
+centerCategories.list :: db.listCenterCategories | Boolean | localizeNamedRecords
+purchaseCategories.list :: db.listCenterCategories | Boolean | localizeNamedRecords
+deliveryDocuments.list :: db.getDeliveryDocuments
+returnDocuments.list :: db.getReturnDocuments
+vendors.list :: db.getAllVendors
+vendors.getById :: db.getVendorById
+inventory.list :: db.getInventoryItems
+inventory.taxonomy :: db.getInventoryCatalogTaxonomy
+inventory.lotSummaries :: isInventoryLotsEnabled | db.getDb | database
+      .select({
+        inventoryId: inventoryLotBalances.inventoryId,
+        lotCount: sql<number>`COUNT(*)`,
+        totalQuantity: sql<string>`COALESCE(SUM(${inventoryLotBalances.quantity}), 0)`,
+      })
+      .from(inventoryLotBalances)
+      .where(gt(inventoryLotBalances.quantity, "0"))
+      .groupBy | database
+      .select({
+        inventoryId: inventoryLotBalances.inventoryId,
+        lotCount: sql<number>`COUNT(*)`,
+        totalQuantity: sql<string>`COALESCE(SUM(${inventoryLotBalances.quantity}), 0)`,
+      })
+      .from(inventoryLotBalances)
+      .where | database
+      .select({
+        inventoryId: inventoryLotBalances.inventoryId,
+        lotCount: sql<number>`COUNT(*)`,
+        totalQuantity: sql<string>`COALESCE(SUM(${inventoryLotBalances.quantity}), 0)`,
+      })
+      .from | database
+      .select | gt | rows.map | Number | Number | Number
+inventory.listLots :: isInventoryLotsEnabled | db.getDb | db.getInventoryItemById | database
+        .select({
+          lotId: inventoryLots.id,
+          lotCode: inventoryLots.lotCode,
+          trackingToken: inventoryLots.trackingToken,
+          sourceType: inventoryLots.sourceType,
+          catalogItemId: inventoryLots.catalogItemId,
+          originalQuantity: inventoryLots.originalQuantity,
+          remainingQuantity: inventoryLots.remainingQuantity,
+          balanceQuantity: inventoryLotBalances.quantity,
+          purchaseUnit: inventoryLots.purchaseUnit,
+          issueUnit: inventoryLots.issueUnit,
+          batchNumber: inventoryLots.batchNumber,
+          expiryDate: inventoryLots.expiryDate,
+          receiptId: inventoryLots.receiptId,
+          receiptNumber: warehouseReceipts.receiptNumber,
+          invoiceNumber: warehouseReceipts.invoiceNumber,
+          invoiceDate: warehouseReceipts.invoiceDate,
+          receiptVendorName: warehouseReceipts.vendorName,
+          supplierNameAr: catalogSuppliers.nameAr,
+          supplierNameEn: catalogSuppliers.nameEn,
+          createdAt: inventoryLots.createdAt,
+        })
+        .from(inventoryLotBalances)
+        .innerJoin(inventoryLots, eq(inventoryLots.id, inventoryLotBalances.lotId))
+        .leftJoin(warehouseReceipts, eq(warehouseReceipts.id, inventoryLots.receiptId))
+        .leftJoin(catalogSuppliers, eq(catalogSuppliers.id, inventoryLots.catalogSupplierId))
+        .where(and(
+          eq(inventoryLotBalances.inventoryId, input.inventoryId),
+          gt(inventoryLotBalances.quantity, "0"),
+        ))
+        .orderBy | database
+        .select({
+          lotId: inventoryLots.id,
+          lotCode: inventoryLots.lotCode,
+          trackingToken: inventoryLots.trackingToken,
+          sourceType: inventoryLots.sourceType,
+          catalogItemId: inventoryLots.catalogItemId,
+          originalQuantity: inventoryLots.originalQuantity,
+          remainingQuantity: inventoryLots.remainingQuantity,
+          balanceQuantity: inventoryLotBalances.quantity,
+          purchaseUnit: inventoryLots.purchaseUnit,
+          issueUnit: inventoryLots.issueUnit,
+          batchNumber: inventoryLots.batchNumber,
+          expiryDate: inventoryLots.expiryDate,
+          receiptId: inventoryLots.receiptId,
+          receiptNumber: warehouseReceipts.receiptNumber,
+          invoiceNumber: warehouseReceipts.invoiceNumber,
+          invoiceDate: warehouseReceipts.invoiceDate,
+          receiptVendorName: warehouseReceipts.vendorName,
+          supplierNameAr: catalogSuppliers.nameAr,
+          supplierNameEn: catalogSuppliers.nameEn,
+          createdAt: inventoryLots.createdAt,
+        })
+        .from(inventoryLotBalances)
+        .innerJoin(inventoryLots, eq(inventoryLots.id, inventoryLotBalances.lotId))
+        .leftJoin(warehouseReceipts, eq(warehouseReceipts.id, inventoryLots.receiptId))
+        .leftJoin(catalogSuppliers, eq(catalogSuppliers.id, inventoryLots.catalogSupplierId))
+        .where | database
+        .select({
+          lotId: inventoryLots.id,
+          lotCode: inventoryLots.lotCode,
+          trackingToken: inventoryLots.trackingToken,
+          sourceType: inventoryLots.sourceType,
+          catalogItemId: inventoryLots.catalogItemId,
+          originalQuantity: inventoryLots.originalQuantity,
+          remainingQuantity: inventoryLots.remainingQuantity,
+          balanceQuantity: inventoryLotBalances.quantity,
+          purchaseUnit: inventoryLots.purchaseUnit,
+          issueUnit: inventoryLots.issueUnit,
+          batchNumber: inventoryLots.batchNumber,
+          expiryDate: inventoryLots.expiryDate,
+          receiptId: inventoryLots.receiptId,
+          receiptNumber: warehouseReceipts.receiptNumber,
+          invoiceNumber: warehouseReceipts.invoiceNumber,
+          invoiceDate: warehouseReceipts.invoiceDate,
+          receiptVendorName: warehouseReceipts.vendorName,
+          supplierNameAr: catalogSuppliers.nameAr,
+          supplierNameEn: catalogSuppliers.nameEn,
+          createdAt: inventoryLots.createdAt,
+        })
+        .from(inventoryLotBalances)
+        .innerJoin(inventoryLots, eq(inventoryLots.id, inventoryLotBalances.lotId))
+        .leftJoin(warehouseReceipts, eq(warehouseReceipts.id, inventoryLots.receiptId))
+        .leftJoin | database
+        .select({
+          lotId: inventoryLots.id,
+          lotCode: inventoryLots.lotCode,
+          trackingToken: inventoryLots.trackingToken,
+          sourceType: inventoryLots.sourceType,
+          catalogItemId: inventoryLots.catalogItemId,
+          originalQuantity: inventoryLots.originalQuantity,
+          remainingQuantity: inventoryLots.remainingQuantity,
+          balanceQuantity: inventoryLotBalances.quantity,
+          purchaseUnit: inventoryLots.purchaseUnit,
+          issueUnit: inventoryLots.issueUnit,
+          batchNumber: inventoryLots.batchNumber,
+          expiryDate: inventoryLots.expiryDate,
+          receiptId: inventoryLots.receiptId,
+          receiptNumber: warehouseReceipts.receiptNumber,
+          invoiceNumber: warehouseReceipts.invoiceNumber,
+          invoiceDate: warehouseReceipts.invoiceDate,
+          receiptVendorName: warehouseReceipts.vendorName,
+          supplierNameAr: catalogSuppliers.nameAr,
+          supplierNameEn: catalogSuppliers.nameEn,
+          createdAt: inventoryLots.createdAt,
+        })
+        .from(inventoryLotBalances)
+        .innerJoin(inventoryLots, eq(inventoryLots.id, inventoryLotBalances.lotId))
+        .leftJoin | database
+        .select({
+          lotId: inventoryLots.id,
+          lotCode: inventoryLots.lotCode,
+          trackingToken: inventoryLots.trackingToken,
+          sourceType: inventoryLots.sourceType,
+          catalogItemId: inventoryLots.catalogItemId,
+          originalQuantity: inventoryLots.originalQuantity,
+          remainingQuantity: inventoryLots.remainingQuantity,
+          balanceQuantity: inventoryLotBalances.quantity,
+          purchaseUnit: inventoryLots.purchaseUnit,
+          issueUnit: inventoryLots.issueUnit,
+          batchNumber: inventoryLots.batchNumber,
+          expiryDate: inventoryLots.expiryDate,
+          receiptId: inventoryLots.receiptId,
+          receiptNumber: warehouseReceipts.receiptNumber,
+          invoiceNumber: warehouseReceipts.invoiceNumber,
+          invoiceDate: warehouseReceipts.invoiceDate,
+          receiptVendorName: warehouseReceipts.vendorName,
+          supplierNameAr: catalogSuppliers.nameAr,
+          supplierNameEn: catalogSuppliers.nameEn,
+          createdAt: inventoryLots.createdAt,
+        })
+        .from(inventoryLotBalances)
+        .innerJoin | database
+        .select({
+          lotId: inventoryLots.id,
+          lotCode: inventoryLots.lotCode,
+          trackingToken: inventoryLots.trackingToken,
+          sourceType: inventoryLots.sourceType,
+          catalogItemId: inventoryLots.catalogItemId,
+          originalQuantity: inventoryLots.originalQuantity,
+          remainingQuantity: inventoryLots.remainingQuantity,
+          balanceQuantity: inventoryLotBalances.quantity,
+          purchaseUnit: inventoryLots.purchaseUnit,
+          issueUnit: inventoryLots.issueUnit,
+          batchNumber: inventoryLots.batchNumber,
+          expiryDate: inventoryLots.expiryDate,
+          receiptId: inventoryLots.receiptId,
+          receiptNumber: warehouseReceipts.receiptNumber,
+          invoiceNumber: warehouseReceipts.invoiceNumber,
+          invoiceDate: warehouseReceipts.invoiceDate,
+          receiptVendorName: warehouseReceipts.vendorName,
+          supplierNameAr: catalogSuppliers.nameAr,
+          supplierNameEn: catalogSuppliers.nameEn,
+          createdAt: inventoryLots.createdAt,
+        })
+        .from | database
+        .select | eq | eq | eq | and | eq | gt | desc | desc | rows.map | Number | Number | Number | Number | Number
+inventory.getTransactions :: db.getInventoryTransactions
+inventory.issueCostAllocations :: db.getIssueCostAllocations
+inventory.scanBarcode :: db.getInventoryByBarcode
+inventory.getItemSummary :: db.getInventoryItemById | db.getInventoryItems | allItems.find
+inventory.getPurchaseHistory :: db.getInventoryPurchaseHistory
+inventory.getLedger :: db.getInventoryLedger
+warehouseReceipts.list :: db.listWarehouseReceipts
+warehouseReceipts.getById :: db.getWarehouseReceiptById
+warehouseReceipts.getForPrint :: db.getWarehouseReceiptForPrint
+warehouseReceipts.getByPO :: db.getWarehouseReceiptByPO
+warehouseReceipts.searchInventory :: db.getInventoryBySearch
+warehouseReceiptsV2.purchaseReceiptContext :: getDatabase | getPurchaseReceiptContext
+warehouseReceiptsV2.checkDuplicate :: db.checkDuplicateInvoice
+warehouseReceiptsV2.findSimilarItems :: db.findSimilarInventoryItems
+warehouseReceiptsV2.listV2 :: db.listWarehouseReceiptsV2
+warehouseReceiptsV2.getByIdV2 :: db.getWarehouseReceiptWithItems
+warehouseReceiptsV2.scanBarcode :: db.getInventoryByBarcode
+warehouseReceiptsV2.searchInventory :: db.getInventoryBySearch
+invoiceDraft.getDraft :: db.getWarehouseReceiptDraft
+invoiceDraft.listDrafts :: db.listDraftReceipts
+invoiceDraft.getOcrJobs :: db.getOcrJobsByPO
+inventoryCount.lotTrackingStatus :: isInventoryLotsEnabled
+inventoryCount.searchCandidates :: db.searchInventoryCountCandidates
+inventoryCount.uncountedItems :: db.getUncountedItems
+inventoryCount.operationDetails :: db.getCountOperationDetails
+inventoryCount.listOperations :: db.listCountOperations
+inventoryCount.countDiscrepancies :: db.getCountDiscrepancies
+inventoryCount.listSettlements :: db.listSettlements
+inventoryCount.settlementDetails :: db.getSettlementDetails
+warehouseReturns.list :: db.getWarehouseReturns
+warehouseReturns.search :: db.getInventoryBySearch
+warehouseReturns.getReturnSources :: db.getReturnSources
+stock.getTransactions :: db.getInventoryTransactions
+stock.getLowStockItems :: db.getLowStockInventoryItems
+warehouse.list :: db.getAllWarehouses
+warehouse.getAvailableCategories :: db.getAvailableLevel1CatalogNodes
+warehouseIssueBatches.list :: db.getWarehouseIssueBatches
+warehouseIssueBatches.getById :: db.getWarehouseIssueBatchById
+transfers.listCards :: db.getWarehouseTransferBatchCards
+transfers.getBatchDetail :: db.getWarehouseTransferBatchDetail
+disposal.list :: db.listDisposalOperations
+disposal.getById :: db.getDisposalById
+inventoryReconciliation.run :: runInventoryReconciliation
+assets.list :: db.listAssets | localizeNamedRecords
+assets.getById :: db.getAssetById | localizeNamedRecords
+assets.getByRfid :: db.getAssetByRfidTag | localizeNamedRecords
+assets.getMaintenanceHistory :: db.getAssetById | db.getAssetMaintenanceHistory
+assets.getMaintenanceStats :: db.getAssetById | db.getAssetMaintenanceStats
+assets.getSpareParts :: db.getAssetSpareParts
+assets.getMetrics :: db.getAssetMetricsById
+assets.getAllMetrics :: db.getAllAssetMetrics
+assets.getLowStockAlerts :: db.getInventoryAlerts
+assets.getAssetSparePartsWithLowStock :: db.getAssetSparePartsWithLowStock
+assetHistory.getMaintenanceHistory :: db.getAssetMaintenanceHistory
+assetHistory.getMaintenanceStats :: db.getAssetMaintenanceStats
+assetHistory.getInspectionHistory :: db.getInspectionResultsByAsset
+nfc.lookupTag :: db.getAssetByRfidTag | db.getSiteById | localizeNamedRecords | localizeNamedRecords
+inspectionResults.listByTicket :: db.getTicketById | assertTicketReadable | db.getInspectionResultsByTicket
+inspectionResults.listByAsset :: db.getInspectionResultsByAsset
+inspectionResults.dashboardStats :: db.getInspectionDashboardStats
+assetCategories.list :: db.listAssetCategories | localizeNamedRecords
+notifications.list :: db.getUserNotifications | isItTeamRole
+notifications.unreadCount :: db.getUnreadNotificationCount | isItTeamRole
+push.getVapidPublicKey :: 
+push.getStatus :: db.getPushSubscriptionsByUser
+attachments.listByType :: allowedRoles.includes | db.getDelegatePricingAttachmentsWithDelegate | rows.filter | Number | Number | financialRoles.includes | db.getFinancialBatchAttachmentsWithDelegate
+attachments.list :: assertCanAccessAttachments | db.getAttachments
+reports.ticketsByStatus :: db.getTickets | allTickets.forEach | Object.entries(statusCounts).map | Object.entries
+reports.ticketsByCategory :: db.getTickets | allTickets.forEach | Object.entries(catCounts).map | Object.entries
+reports.ticketsByPriority :: db.getTickets | allTickets.forEach | Object.entries(priCounts).map | Object.entries
+reports.costComparison :: db.getPurchaseOrders | pos.map | parseFloat | parseFloat
+reports.monthlySummary :: db.getTickets | allTickets.forEach | new Date(t.createdAt).toISOString().slice | new Date(t.createdAt).toISOString | Object.entries(monthly).map(([month, data]) => ({ month, ...data })).sort | Object.entries(monthly).map | Object.entries | a.month.localeCompare
+reports.technicianPerformance :: dateTo.setHours | dateFrom.setDate | dateFrom.getDate | dateFrom.setMonth | dateFrom.getMonth | dateFrom.setMonth | dateFrom.getMonth | dateFrom.setFullYear | dateFrom.getFullYear | db.getTechnicianPerformance | localizeNamedRecords | rows.map((row: any) => row.technician).filter | rows.map | localizedTechnicians.map | Number | localizeNamedRecords | db.listCenterCategories | localizedCategories.map | rows.map | technicianNameById.get | Number | Object.fromEntries | Object.entries(row.categoryBreakdown || {}).map | Object.entries | categoryNameMap.get
+reports.externalTechnicianPerformance :: dateTo.setHours | dateFrom.setDate | dateFrom.getDate | dateFrom.setMonth | dateFrom.getMonth | dateFrom.setMonth | dateFrom.getMonth | dateFrom.setFullYear | dateFrom.getFullYear | db.getExternalTechnicianPerformance
+reports.purchaseCycleReport :: Promise.all | db.getPurchaseOrders | db.getAllUsers | db.getAllPOItems | db.getTickets | db.getAllWarehouseReceiptItemsMinimal | localizeNamedRecords | pos.filter | to.setHours | pos.filter | pos.filter | Math.round | invoiceSavedAtByItemId.has | invoiceSavedAtByItemId.set | new Date(wri.createdAt).getTime | pos.map | allItems.filter | allTickets.find | allUsers.find | allUsers.find | allUsers.find | allUsers.find | computePurchaseOrderPhases | new Date(po.accountingApprovedAt).getTime | new Date(po.managementApprovedAt).getTime | items.map | allUsers.find | allUsers.find | allUsers.find | allUsers.find | new Date(item.createdAt).getTime | new Date(item.updatedAt).getTime | new Date(item.purchasedAt).getTime | new Date(item.receivedAt).getTime | invoiceSavedAtByItemId.get | new Date(item.deliveredAt).getTime | msToHours | msToHours | msToHours | msToHours | msToHours | msToHours | msToHours | msToHours | parseFloat | parseFloat | itemsReport.filter | Math.round | completedItems.reduce | parseFloat | result.filter | Math.round | completedPOs.reduce | phaseNames.map | result.flatMap | r.items.flatMap | i.phases.filter(p => p.phase === phaseName && p.durationHours !== null).map | i.phases.filter | Math.round | durations.reduce
+reports.maintenanceCycleReport :: Promise.all | db.getTickets | db.getAllUsers | db.getAllSites | localizeNamedRecords | localizeNamedRecords | tickets.filter | to.setHours | tickets.filter | tickets.filter | tickets.filter | Math.round | Promise.all | tickets.map | db.getTicketHistory(t.id).then | db.getTicketHistory | ticketHistories.map | tickets.map | historyMap.get | [...history].sort | new Date(a.createdAt).getTime | new Date(b.createdAt).getTime | allUsers.find | allUsers.find | allSites.find | msToHours | endAt.getTime | startAt.getTime | phases.push | allUsers.find | msToHours | endTime.getTime | createdAt.getTime | Math.round | phases.reduce | result.filter | Math.round | closedTickets.reduce | result.flatMap | r.phases.map | Array.from | allPhaseLabels.map(label => {
+      const durations: number[] = result.flatMap(r => r.phases.filter(p => p.label === label && p.durationHours !== null).map(p => p.durationHours as number));
+      return { phase: label, avgHours: durations.length > 0 ? Math.round(durations.reduce((s: number, d: number) => s + d, 0) / durations.length * 10) / 10 : null, count: durations.length };
+    }).filter(p => p.avgHours !== null).sort | allPhaseLabels.map(label => {
+      const durations: number[] = result.flatMap(r => r.phases.filter(p => p.label === label && p.durationHours !== null).map(p => p.durationHours as number));
+      return { phase: label, avgHours: durations.length > 0 ? Math.round(durations.reduce((s: number, d: number) => s + d, 0) / durations.length * 10) / 10 : null, count: durations.length };
+    }).filter | allPhaseLabels.map | result.flatMap | r.phases.filter(p => p.label === label && p.durationHours !== null).map | r.phases.filter | Math.round | durations.reduce | Math.round
+reports.sectionReport :: localizeNamedRecords | db.getSections | db.getTickets | db.listAssets | db.listPMWorkOrders | allTickets.filter | allPMWorkOrders.filter | allAssets.forEach | assetSectionMap.set | allSections
+      .filter((s: any) => !input?.siteId || s.siteId === input.siteId)
+      .map((section: any) => {
+        const sectionTickets = filteredTickets.filter((t: any) => t.sectionId === section.id);
+        const sectionAssets = allAssets.filter((a: any) => a.sectionId === section.id);
+        const openTickets = sectionTickets.filter((t: any) => t.status !== "closed").length;
+        const closedTickets = sectionTickets.filter((t: any) => t.status === "closed").length;
+        const urgentTickets = sectionTickets.filter((t: any) => t.priority === "critical" || t.priority === "high").length;
+        const maintenanceCost = sectionTickets.reduce((sum: number, t: any) => {
+          return sum + (parseFloat(t.estimatedCost || "0") || 0);
+        }, 0);
+        const avgCloseTime = (() => {
+          const closed = sectionTickets.filter((t: any) => t.status === "closed" && t.closedAt && t.createdAt);
+          if (!closed.length) return null;
+          const totalHours = closed.reduce((sum: number, t: any) => {
+            return sum + (new Date(t.closedAt).getTime() - new Date(t.createdAt).getTime()) / (1000 * 60 * 60);
+          }, 0);
+          return Math.round(totalHours / closed.length * 10) / 10;
+        })();
+
+        // عدد أوامر العمل الوقائية لهذا القسم
+        // أولاً: من pmWorkOrders.siteId مباشرةً (plan مرتبط بالموقع)
+        // ثانياً: من assetId → sectionId عبر خريطة الأصول
+        const sectionPMWOs = filteredPMWOs.filter((wo: any) => {
+          // مطابقة مباشرة عبر siteId إذا كان القسم مرتبط بالموقع
+          if (wo.assetId && assetSectionMap.get(wo.assetId) === section.id) return true;
+          return false;
+        });
+        const preventiveCount = sectionPMWOs.length;
+        const preventiveCompleted = sectionPMWOs.filter((wo: any) => wo.status === "completed").length;
+
+        return {
+          sectionId: section.id, sectionName: section.name, siteId: section.siteId,
+          totalTickets: sectionTickets.length, openTickets, closedTickets, urgentTickets,
+          totalAssets: sectionAssets.length, maintenanceCost: Math.round(maintenanceCost * 100) / 100,
+          avgCloseTimeHours: avgCloseTime,
+          preventiveCount,
+          preventiveCompleted,
+          emergencyCount: sectionTickets.length, // البلاغات هي الصيانة الطارئة
+        };
+      })
+      .sort | allSections
+      .filter((s: any) => !input?.siteId || s.siteId === input.siteId)
+      .map | allSections
+      .filter | filteredTickets.filter | allAssets.filter | sectionTickets.filter | sectionTickets.filter | sectionTickets.filter | sectionTickets.reduce | parseFloat | (() => {
+          const closed = sectionTickets.filter((t: any) => t.status === "closed" && t.closedAt && t.createdAt);
+          if (!closed.length) return null;
+          const totalHours = closed.reduce((sum: number, t: any) => {
+            return sum + (new Date(t.closedAt).getTime() - new Date(t.createdAt).getTime()) / (1000 * 60 * 60);
+          }, 0);
+          return Math.round(totalHours / closed.length * 10) / 10;
+        }) | sectionTickets.filter | closed.reduce | new Date(t.closedAt).getTime | new Date(t.createdAt).getTime | Math.round | filteredPMWOs.filter | assetSectionMap.get | sectionPMWOs.filter | Math.round | filteredTickets.filter
+reports.costReport :: dateTo.setHours | dateFrom.setMonth | dateFrom.getMonth | dateFrom.setMonth | dateFrom.getMonth | dateFrom.setFullYear | dateFrom.getFullYear | Promise.all | db.getTickets | db.getAllSites | db.getSections | db.getPurchaseOrders | db.getAllPOItems | localizeNamedRecords | localizeNamedRecords | allTickets.filter | allPOItems.filter | allPOs.forEach | poMap.set | d.setDate | d.setMonth | d.getMonth | d.toISOString().slice | d.toISOString | d.getFullYear | d.getMonth | d.getFullYear | d.getMonth | d.getMonth | d.getFullYear | allTickets
+        .filter((t: any) => { const c = new Date(t.createdAt); return c >= monthStart && c <= monthEnd; })
+        .reduce | allTickets
+        .filter | parseFloat | allPOItems
+        .filter((item: any) => {
+          if (item.status !== "delivered_to_warehouse" && item.status !== "delivered_to_requester") return false;
+          const dateRef = item.deliveredAt || item.receivedAt || item.createdAt;
+          const c = new Date(dateRef);
+          return c >= monthStart && c <= monthEnd;
+        })
+        .reduce | allPOItems
+        .filter | parseFloat | monthlyTrend.push | Math.round | Math.round | Math.round | allSites.map | filteredTickets.filter | deliveredItems.filter | poMap.get | siteTickets.reduce | parseFloat | siteItems.reduce | parseFloat | siteTickets.filter | Math.round | Math.round | Math.round | filteredTickets.filter | deliveredItems.filter | poMap.get | unclassifiedTickets.reduce | parseFloat | unclassifiedItems.reduce | parseFloat | groups.push | Math.round | Math.round | Math.round | unclassifiedTickets.filter | allSections.map | filteredTickets.filter | deliveredItems.filter | poMap.get | secTickets.reduce | parseFloat | secItems.reduce | parseFloat | allSites.find | secTickets.filter | Math.round | Math.round | Math.round | filteredTickets.filter | deliveredItems.filter | poMap.get | unclassifiedTickets.reduce | parseFloat | unclassifiedItems.reduce | parseFloat | groups.push | Math.round | Math.round | Math.round | unclassifiedTickets.filter | groups.sort | groups.reduce | groups.map | Math.round | filteredTickets.filter | Math.round
+reports.technicianMonthlyReport :: db.getDb | import | db.getAllUsers | localizeNamedRecords | allUsers.filter | ddb
+      .select()
+      .from(execSessions)
+      .where | ddb
+      .select()
+      .from | ddb
+      .select | eq | ddb.select().from | ddb.select | db.getTickets | allTickets.filter | t.description.includes | now.getFullYear | now.getMonth | months.push | d.getFullYear | String(d.getMonth() + 1).padStart | String | d.getMonth | technicians.map | sessions.filter | months.map | month.split("-").map | month.split | techSessions.filter | d.getFullYear | d.getMonth | monthSessions.map | results.filter | sessionIds.includes | sessionResults.filter | pmSourceTickets.filter | d.getFullYear | d.getMonth | Math.round | results.filter | techSessions.some | results.filter | techSessions.some | Math.round
+analytics.ticketsByStatus :: db.getTickets | allTickets.forEach | Object.entries(statusCounts).map | Object.entries
+analytics.ticketsByCategory :: db.getTickets | allTickets.forEach | Object.entries(catCounts).map | Object.entries
+analytics.ticketsByPriority :: db.getTickets | allTickets.forEach | Object.entries(priCounts).map | Object.entries
+analytics.monthlySummary :: db.getTickets | allTickets.forEach | new Date(t.createdAt).toISOString().slice | new Date(t.createdAt).toISOString | Object.entries(monthly).map(([month, data]) => ({ month, ...data })).sort | Object.entries(monthly).map | Object.entries | a.month.localeCompare
+analytics.costComparison :: db.getPurchaseOrders | pos.map | parseFloat | parseFloat
+maintenanceReports.technicianPerformance :: dateTo.setHours | dateFrom.setDate | dateFrom.getDate | dateFrom.setMonth | dateFrom.getMonth | dateFrom.setMonth | dateFrom.getMonth | dateFrom.setFullYear | dateFrom.getFullYear | db.getTechnicianPerformance | localizeNamedRecords | rows.map((row: any) => row.technician).filter | rows.map | localizedTechnicians.map | Number | localizeNamedRecords | db.listCenterCategories | localizedCategories.map | rows.map | technicianNameById.get | Number | Object.fromEntries | Object.entries(row.categoryBreakdown || {}).map | Object.entries | categoryNameMap.get
+maintenanceReports.sectionReport :: localizeNamedRecords | db.getSections | db.getTickets | db.listAssets | db.listPMWorkOrders | allTickets.filter | allPMWorkOrders.filter | allAssets.forEach | assetSectionMap.set | allSections
+        .filter((s: any) => !input?.siteId || s.siteId === input.siteId)
+        .map((section: any) => {
+          const sectionTickets = filteredTickets.filter((t: any) => t.sectionId === section.id);
+          const sectionAssets = allAssets.filter((a: any) => a.sectionId === section.id);
+          const openTickets = sectionTickets.filter((t: any) => t.status !== "closed").length;
+          const closedTickets = sectionTickets.filter((t: any) => t.status === "closed").length;
+          const urgentTickets = sectionTickets.filter((t: any) => t.priority === "critical" || t.priority === "high").length;
+          const maintenanceCost = sectionTickets.reduce((sum: number, t: any) => {
+            return sum + (parseFloat(t.estimatedCost || "0") || 0);
+          }, 0);
+          const avgCloseTime = (() => {
+            const closed = sectionTickets.filter((t: any) => t.status === "closed" && t.closedAt && t.createdAt);
+            if (!closed.length) return null;
+            const totalHours = closed.reduce((sum: number, t: any) => {
+              return sum + (new Date(t.closedAt).getTime() - new Date(t.createdAt).getTime()) / (1000 * 60 * 60);
+            }, 0);
+            return Math.round(totalHours / closed.length * 10) / 10;
+          })();
+
+          // عدد أوامر العمل الوقائية لهذا القسم
+          // أولاً: من pmWorkOrders.siteId مباشرةً (plan مرتبط بالموقع)
+          // ثانياً: من assetId → sectionId عبر خريطة الأصول
+          const sectionPMWOs = filteredPMWOs.filter((wo: any) => {
+            // مطابقة مباشرة عبر siteId إذا كان القسم مرتبط بالموقع
+            if (wo.assetId && assetSectionMap.get(wo.assetId) === section.id) return true;
+            return false;
+          });
+          const preventiveCount = sectionPMWOs.length;
+          const preventiveCompleted = sectionPMWOs.filter((wo: any) => wo.status === "completed").length;
+
+          return {
+            sectionId: section.id, sectionName: section.name, siteId: section.siteId,
+            totalTickets: sectionTickets.length, openTickets, closedTickets, urgentTickets,
+            totalAssets: sectionAssets.length, maintenanceCost: Math.round(maintenanceCost * 100) / 100,
+            avgCloseTimeHours: avgCloseTime,
+            preventiveCount,
+            preventiveCompleted,
+            emergencyCount: sectionTickets.length, // البلاغات هي الصيانة الطارئة
+          };
+        })
+        .sort | allSections
+        .filter((s: any) => !input?.siteId || s.siteId === input.siteId)
+        .map | allSections
+        .filter | filteredTickets.filter | allAssets.filter | sectionTickets.filter | sectionTickets.filter | sectionTickets.filter | sectionTickets.reduce | parseFloat | (() => {
+            const closed = sectionTickets.filter((t: any) => t.status === "closed" && t.closedAt && t.createdAt);
+            if (!closed.length) return null;
+            const totalHours = closed.reduce((sum: number, t: any) => {
+              return sum + (new Date(t.closedAt).getTime() - new Date(t.createdAt).getTime()) / (1000 * 60 * 60);
+            }, 0);
+            return Math.round(totalHours / closed.length * 10) / 10;
+          }) | sectionTickets.filter | closed.reduce | new Date(t.closedAt).getTime | new Date(t.createdAt).getTime | Math.round | filteredPMWOs.filter | assetSectionMap.get | sectionPMWOs.filter | Math.round | filteredTickets.filter
+maintenanceReports.technicianMonthlyReport :: db.getDb | import | db.getAllUsers | localizeNamedRecords | allUsers.filter | ddb
+        .select()
+        .from(execSessions)
+        .where | ddb
+        .select()
+        .from | ddb
+        .select | eq | ddb.select().from | ddb.select | db.getTickets | allTickets.filter | t.description.includes | now.getFullYear | now.getMonth | months.push | d.getFullYear | String(d.getMonth() + 1).padStart | String | d.getMonth | technicians.map | sessions.filter | months.map | month.split("-").map | month.split | techSessions.filter | d.getFullYear | d.getMonth | monthSessions.map | results.filter | sessionIds.includes | sessionResults.filter | pmSourceTickets.filter | d.getFullYear | d.getMonth | Math.round | results.filter | techSessions.some | results.filter | techSessions.some | Math.round
+maintenanceReports.maintenanceCycleReport :: Promise.all | db.getTickets | db.getAllUsers | db.getAllSites | localizeNamedRecords | localizeNamedRecords | tickets.filter | to.setHours | tickets.filter | tickets.filter | tickets.filter | Math.round | Promise.all | tickets.map | db.getTicketHistory(t.id).then | db.getTicketHistory | ticketHistories.map | tickets.map | historyMap.get | [...history].sort | new Date(a.createdAt).getTime | new Date(b.createdAt).getTime | allUsers.find | allUsers.find | allSites.find | msToHours | endAt.getTime | startAt.getTime | phases.push | allUsers.find | msToHours | endTime.getTime | createdAt.getTime | Math.round | phases.reduce | result.filter | Math.round | closedTickets.reduce | result.flatMap | r.phases.map | Array.from | allPhaseLabels.map(label => {
+        const durations: number[] = result.flatMap(r => r.phases.filter(p => p.label === label && p.durationHours !== null).map(p => p.durationHours as number));
+        return { phase: label, avgHours: durations.length > 0 ? Math.round(durations.reduce((s: number, d: number) => s + d, 0) / durations.length * 10) / 10 : null, count: durations.length };
+      }).filter(p => p.avgHours !== null).sort | allPhaseLabels.map(label => {
+        const durations: number[] = result.flatMap(r => r.phases.filter(p => p.label === label && p.durationHours !== null).map(p => p.durationHours as number));
+        return { phase: label, avgHours: durations.length > 0 ? Math.round(durations.reduce((s: number, d: number) => s + d, 0) / durations.length * 10) / 10 : null, count: durations.length };
+      }).filter | allPhaseLabels.map | result.flatMap | r.phases.filter(p => p.label === label && p.durationHours !== null).map | r.phases.filter | Math.round | durations.reduce | Math.round
+inventoryReports.stockBalance :: loadInventoryStockBalanceReport
+inventoryReports.valuation :: loadInventoryValuationReport
+inventoryReports.valueDistribution :: loadInventoryValueDistributionReport
+inventoryReports.accountingReview :: loadInventoryAccountingReviewReport
+inventoryReports.analytics :: loadInventoryAnalyticsReport
+inventoryReports.movementMeta :: loadInventoryMovementMeta
+inventoryReports.movements :: loadInventoryMovementReport
+inventoryReports.externalTechnicianPerformance :: dateTo.setHours | dateFrom.setDate | dateFrom.getDate | dateFrom.setMonth | dateFrom.getMonth | dateFrom.setMonth | dateFrom.getMonth | dateFrom.setFullYear | dateFrom.getFullYear | db.getExternalTechnicianPerformance
+dashboard.stats :: db.getDashboardStats
+dashboard.pmMonthlySummary :: db.getDb | import | ddb.select().from(preventivePlans).where | ddb.select().from | ddb.select | eq | now.getFullYear | now.getMonth | now.getFullYear | now.getMonth | ddb.select().from | ddb.select | allWOs.filter | thisMonthWOs.filter | thisMonthWOs.filter | allWOs.filter | Math.round
+kpi.getTicketTimelines :: db.getDb | import | import | Date.now | ddb
+      .select({
+        id: tickets.id,
+        ticketNumber: tickets.ticketNumber,
+        title: tickets.title,
+        status: tickets.status,
+        priority: tickets.priority,
+        createdAt: tickets.createdAt,
+        assignedAt: tickets.assignedAt,
+        closedAt: tickets.closedAt,
+        assignedToId: tickets.assignedToId,
+        updatedAt: tickets.updatedAt,
+      })
+      .from(tickets)
+       .where(and(gte(tickets.createdAt, cutoff)))
+      .orderBy(descOp(tickets.createdAt))
+      .limit | ddb
+      .select({
+        id: tickets.id,
+        ticketNumber: tickets.ticketNumber,
+        title: tickets.title,
+        status: tickets.status,
+        priority: tickets.priority,
+        createdAt: tickets.createdAt,
+        assignedAt: tickets.assignedAt,
+        closedAt: tickets.closedAt,
+        assignedToId: tickets.assignedToId,
+        updatedAt: tickets.updatedAt,
+      })
+      .from(tickets)
+       .where(and(gte(tickets.createdAt, cutoff)))
+      .orderBy | ddb
+      .select({
+        id: tickets.id,
+        ticketNumber: tickets.ticketNumber,
+        title: tickets.title,
+        status: tickets.status,
+        priority: tickets.priority,
+        createdAt: tickets.createdAt,
+        assignedAt: tickets.assignedAt,
+        closedAt: tickets.closedAt,
+        assignedToId: tickets.assignedToId,
+        updatedAt: tickets.updatedAt,
+      })
+      .from(tickets)
+       .where | ddb
+      .select({
+        id: tickets.id,
+        ticketNumber: tickets.ticketNumber,
+        title: tickets.title,
+        status: tickets.status,
+        priority: tickets.priority,
+        createdAt: tickets.createdAt,
+        assignedAt: tickets.assignedAt,
+        closedAt: tickets.closedAt,
+        assignedToId: tickets.assignedToId,
+        updatedAt: tickets.updatedAt,
+      })
+      .from | ddb
+      .select | and | gte | descOp | Date.now | rows.map | new Date(t.createdAt).getTime | new Date(t.assignedAt).getTime | new Date(t.closedAt).getTime | new Date(t.updatedAt).getTime | Math.round | Math.round | ["in_progress", "repaired", "verified", "closed"].includes | Math.round | Math.round | Math.round
+kpi.getPOTimelines :: db.getDb | import | import | Date.now | ddb
+      .select({
+        id: purchaseOrders.id,
+        poNumber: purchaseOrders.poNumber,
+        status: purchaseOrders.status,
+        createdAt: purchaseOrders.createdAt,
+        accountingApprovedAt: purchaseOrders.accountingApprovedAt,
+        managementApprovedAt: purchaseOrders.managementApprovedAt,
+        rejectedAt: purchaseOrders.rejectedAt,
+        updatedAt: purchaseOrders.updatedAt,
+      })
+      .from(purchaseOrders)
+      .where(and(gte(purchaseOrders.createdAt, cutoff)))
+      .orderBy(descOp2(purchaseOrders.createdAt))
+      .limit | ddb
+      .select({
+        id: purchaseOrders.id,
+        poNumber: purchaseOrders.poNumber,
+        status: purchaseOrders.status,
+        createdAt: purchaseOrders.createdAt,
+        accountingApprovedAt: purchaseOrders.accountingApprovedAt,
+        managementApprovedAt: purchaseOrders.managementApprovedAt,
+        rejectedAt: purchaseOrders.rejectedAt,
+        updatedAt: purchaseOrders.updatedAt,
+      })
+      .from(purchaseOrders)
+      .where(and(gte(purchaseOrders.createdAt, cutoff)))
+      .orderBy | ddb
+      .select({
+        id: purchaseOrders.id,
+        poNumber: purchaseOrders.poNumber,
+        status: purchaseOrders.status,
+        createdAt: purchaseOrders.createdAt,
+        accountingApprovedAt: purchaseOrders.accountingApprovedAt,
+        managementApprovedAt: purchaseOrders.managementApprovedAt,
+        rejectedAt: purchaseOrders.rejectedAt,
+        updatedAt: purchaseOrders.updatedAt,
+      })
+      .from(purchaseOrders)
+      .where | ddb
+      .select({
+        id: purchaseOrders.id,
+        poNumber: purchaseOrders.poNumber,
+        status: purchaseOrders.status,
+        createdAt: purchaseOrders.createdAt,
+        accountingApprovedAt: purchaseOrders.accountingApprovedAt,
+        managementApprovedAt: purchaseOrders.managementApprovedAt,
+        rejectedAt: purchaseOrders.rejectedAt,
+        updatedAt: purchaseOrders.updatedAt,
+      })
+      .from | ddb
+      .select | and | gte | descOp2 | Date.now | rows.map | new Date(po.createdAt).getTime | new Date(po.accountingApprovedAt).getTime | new Date(po.managementApprovedAt).getTime | new Date(po.rejectedAt).getTime | new Date(po.updatedAt).getTime | ["pending_accounting", "pending_management", "approved", "partial_purchase", "purchased", "received", "closed"].includes | Math.round | Math.round | Math.round | ["purchased", "received", "closed"].includes | Math.round | ["purchased", "received", "closed"].includes
+audit.list :: d.setHours | db.getAuditLogsEnhanced
+backups.list :: ["owner", "admin"].includes | db.getBackups
+preventive.listTree :: db.listBranchTree
+preventive.getBranch :: db.getBranchWithChildren
+preventive.getBranchPath :: db.getBranchPath
+preventive.getBranchDeletionBlockers :: db.getBranchDeletionBlockers
+preventive.getSuggestedChecklist :: getDefaultChecklistFor
+preventive.listPlans :: db.listPreventivePlans
+preventive.getPlanById :: db.getPreventivePlanById
+preventive.listWorkOrders :: localizeMasterDataReferences | db.listPMWorkOrders
+preventive.getWorkOrderById :: db.getPMWorkOrderById | localizeMasterDataReferences
+preventive.previewWorkOrderCandidates :: db.getExecutableDescendants
+preventive.previewChecklistItems :: db.getChecklistItemsForPlanIds
+preventive.getChecklistItems :: db.getDb | import | ddb.select().from(pmChecklistItems)
+      .where(eq(pmChecklistItems.planId, input.planId))
+      .orderBy | ddb.select().from(pmChecklistItems)
+      .where | ddb.select().from | ddb.select | eq | asc
+preventive.getExecutionProgress :: db.getDb | import | db.getPMWorkOrderById | db.getWorkOrderChecklistItems | ddb.select().from(pmExecutionResults)
+      .where | ddb.select().from | ddb.select | eq | ddb.select().from(pmExecutionSessions)
+      .where | ddb.select().from | ddb.select | eq
+preventive.getDetectionRateReport :: db.getDb | import | import | Date.now | db.listPMWorkOrders | workOrders.filter | filteredWOs.map | ddb.select().from(pmExecutionResults)
+        .where | ddb.select().from | ddb.select | eq | allResults.concat | allResults.filter | allResults.filter | allResults.filter | allResults.filter | db.getTickets | allTickets.filter | rangeTickets.filter | t.description?.includes | Math.round | from.toISOString | to.toISOString
+preventive.getAssetInspectionHistory :: db.getDb | import | import | db.listPMWorkOrders | workOrders.map | woIds.slice | ddb.select().from(pmExecutionSessions)
+        .where(and(eq(pmExecutionSessions.workOrderId, woId), eq(pmExecutionSessions.status, "completed")))
+        .limit | ddb.select().from(pmExecutionSessions)
+        .where | ddb.select().from | ddb.select | and | eq | eq | workOrders.find | ddb.select().from(pmExecutionResults)
+          .where | ddb.select().from | ddb.select | eq | sessions.push | results.filter | results.filter | results.filter | sessions.sort | new Date(b.completedAt ?? b.startedAt).getTime | new Date(a.completedAt ?? a.startedAt).getTime
+preventive.getReport :: db.listPreventivePlans | db.listPMWorkOrders | workOrders.filter | plans.filter | plans.filter | filteredWOs.filter | filteredWOs.filter | filteredWOs.filter | filteredWOs.filter | filteredWOs.filter | Math.round | filteredWOs.forEach | Array.isArray | wo.checklistResults.filter | Math.round | plans.forEach | filteredWOs.slice(0, 10).map | filteredWOs.slice
+pmPlans.listMainPlans :: db.listMainPlans
+pmPlans.listOperationalBranchesWithoutMainPlan :: db.listOperationalBranchesWithoutMainPlan
+pmPlans.listSubPlans :: db.listSubPlans
+pmPlans.listSectionOptionsForMainPlan :: db.listSectionOptionsForMainPlan
+pmPlans.getSubPlanDetail :: db.getSubPlanById | db.getSubPlanChecklist
+catalog.audit.list :: getDb | conditions.push | eq | conditions.push | eq | conditions.push | eq | conditions.push | eq | conditions.push | gte | conditions.push | lte | and | db
+          .select()
+          .from(catalogAuditLogs)
+          .where(where)
+          .orderBy(desc(catalogAuditLogs.createdAt))
+          .limit | db
+          .select()
+          .from(catalogAuditLogs)
+          .where(where)
+          .orderBy | db
+          .select()
+          .from(catalogAuditLogs)
+          .where | db
+          .select()
+          .from | db
+          .select | desc | rows.map
+catalog.nodes.list :: getDb | conditions.push | eq | conditions.push | eq | conditions.push | eq | db.select().from(catalogNodes).where | db.select().from | db.select | and | FOOD_WAREHOUSE_ROLES.includes | getFoodWarehouseNodeIds | results.filter | allowedIds.has
+catalog.nodes.getById :: getDb | db
+          .select()
+          .from(catalogNodes)
+          .where(eq(catalogNodes.id, input))
+          .limit | db
+          .select()
+          .from(catalogNodes)
+          .where | db
+          .select()
+          .from | db
+          .select | eq
+catalog.nodes.getChildren :: getDb | db
+          .select()
+          .from(catalogNodes)
+          .where | db
+          .select()
+          .from | db
+          .select | and | eq | eq
+catalog.items.count :: getDb | db
+        .select()
+        .from(catalogItems)
+        .where | db
+        .select()
+        .from | db
+        .select | eq
+catalog.items.list :: getDb | conditions.push | eq | FOOD_WAREHOUSE_ROLES.includes | getFoodWarehouseNodeIds | effectiveNodeIds.filter | allowedIds.includes | conditions.push | inArray | FOOD_WAREHOUSE_ROLES.includes | conditions.push | eq | conditions.push | or | like | like | like | like | like | db.select().from | db.select | query.where | and | (query as any)
+  .orderBy(desc(catalogItems.id))
+  .limit(input?.limit || 50)
+  .offset | (query as any)
+  .orderBy(desc(catalogItems.id))
+  .limit | (query as any)
+  .orderBy | desc | results.map | db
+      .select()
+      .from(attachments)
+      .where(
+        and(
+          eq(attachments.entityType, "catalog_item"),
+          inArray(attachments.entityId, itemIds)
+        )
+      )
+      .orderBy | db
+      .select()
+      .from(attachments)
+      .where | db
+      .select()
+      .from | db
+      .select | and | eq | inArray | asc | imagesByItemId.set | results.map | imagesByItemId.get
+catalog.items.getById :: getDb | db
+          .select()
+          .from(catalogItems)
+          .where(eq(catalogItems.id, input))
+          .limit | db
+          .select()
+          .from(catalogItems)
+          .where | db
+          .select()
+          .from | db
+          .select | eq | db
+          .select()
+          .from(catalogItemSpecs)
+          .where | db
+          .select()
+          .from | db
+          .select | eq | db
+          .select()
+          .from(attachments)
+          .where(and(
+            eq(attachments.entityType, "catalog_item"),
+            eq(attachments.entityId, input),
+          ))
+          .orderBy | db
+          .select()
+          .from(attachments)
+          .where | db
+          .select()
+          .from | db
+          .select | and | eq | eq | asc | imageAttachments.map
+catalog.items.previewNextCode :: getDb | getLeafCategoryCodeState
+catalog.itemCandidates.listPending :: getDb | db
+          .select()
+          .from(catalogItemCandidates)
+          .where(eq(catalogItemCandidates.status, "pending"))
+          .orderBy(desc(catalogItemCandidates.createdAt))
+          .limit | db
+          .select()
+          .from(catalogItemCandidates)
+          .where(eq(catalogItemCandidates.status, "pending"))
+          .orderBy | db
+          .select()
+          .from(catalogItemCandidates)
+          .where | db
+          .select()
+          .from | db
+          .select | eq | desc | Math.min | Math.max | db.select().from(catalogItemCandidateDuplicateDecisions)
+          .where | db.select().from | db.select | eq | hiddenSecondaryIds.add | (pendingRows as any[])
+          .filter((row: any) => !hiddenSecondaryIds.has(row.id))
+          .slice | (pendingRows as any[])
+          .filter | hiddenSecondaryIds.has | candidates.map((row: any) => row.catalogSupplierId).filter | candidates.map | candidates.map((row: any) => row.purchaseOrderId).filter | candidates.map | db.select({ id: catalogSuppliers.id, nameAr: catalogSuppliers.nameAr, nameEn: catalogSuppliers.nameEn })
+              .from(catalogSuppliers).where | db.select({ id: catalogSuppliers.id, nameAr: catalogSuppliers.nameAr, nameEn: catalogSuppliers.nameEn })
+              .from | db.select | inArray | db.select({ id: purchaseOrders.id, poNumber: purchaseOrders.poNumber })
+              .from(purchaseOrders).where | db.select({ id: purchaseOrders.id, poNumber: purchaseOrders.poNumber })
+              .from | db.select | inArray | suppliers.map | purchaseOrdersRows.map | candidates.map | supplierMap.get | supplierMap.get | poMap.get
+catalog.itemCandidates.previewNextCode :: getDb | getLeafCategoryCodeState
+catalog.settings.list :: getDb | db.select().from | db.select
+catalog.settings.get :: getDb | db
+          .select()
+          .from(catalogSettings)
+          .where(eq(catalogSettings.settingKey, input))
+          .limit | db
+          .select()
+          .from(catalogSettings)
+          .where | db
+          .select()
+          .from | db
+          .select | eq
+catalog.units.list :: getDb | db.select().from(catalogUnits).orderBy | db.select().from | db.select | asc | db.select().from(catalogUnits)
+          .where(eq(catalogUnits.isActive, true))
+          .orderBy | db.select().from(catalogUnits)
+          .where | db.select().from | db.select | eq | asc
+catalog.suppliers.match :: getDb | db
+          .select()
+          .from(catalogSuppliers)
+          .where | db
+          .select()
+          .from | db
+          .select | eq | db.select().from | db.select | aliasesBySupplier.get | list.push | aliasesBySupplier.set | matchSuppliers | (suppliers as any[]).map | aliasesBySupplier.get
+catalog.suppliers.list :: getDb | conditions.push | eq | conditions.push | eq | db.select().from | db.select | query.where | and | (query as any).orderBy | asc
+catalog.suppliers.getById :: getDb | db
+          .select()
+          .from(catalogSuppliers)
+          .where(eq(catalogSuppliers.id, input))
+          .limit | db
+          .select()
+          .from(catalogSuppliers)
+          .where | db
+          .select()
+          .from | db
+          .select | eq
+catalog.suppliers.candidates.listPending :: getDb | db
+          .select()
+          .from(catalogSupplierCandidates)
+          .where(eq(catalogSupplierCandidates.status, "pending"))
+          .orderBy | db
+          .select()
+          .from(catalogSupplierCandidates)
+          .where | db
+          .select()
+          .from | db
+          .select | eq | desc
+catalog.suppliers.stats :: getDb | db
+        .select({ total: count() })
+        .from | db
+        .select | count | db
+        .select({ active: count() })
+        .from(catalogSuppliers)
+        .where | db
+        .select({ active: count() })
+        .from | db
+        .select | count | eq | db
+        .select({ manufacturers: count() })
+        .from(catalogSuppliers)
+        .where | db
+        .select({ manufacturers: count() })
+        .from | db
+        .select | count | and | eq | eq | Number | Number | Number
+catalog.itemSuppliers.listByItem :: getDb | db
+          .select({
+            id:               catalogSupplierPrices.id,
+            itemId:           catalogSupplierPrices.itemId,
+            supplierId:       catalogSupplierPrices.supplierId,
+            supplierItemCode: catalogSupplierPrices.supplierItemCode,
+            price:            catalogSupplierPrices.price,
+            currency:         catalogSupplierPrices.currency,
+            isPreferred:      catalogSupplierPrices.isPreferred,
+            notes:            catalogSupplierPrices.notes,
+            isActive:         catalogSupplierPrices.isActive,
+            updatedAt:        catalogSupplierPrices.updatedAt,
+            supplierNameAr:   catalogSuppliers.nameAr,
+            supplierNameEn:   catalogSuppliers.nameEn,
+            supplierPhone:    catalogSuppliers.phone,
+            supplierEmail:    catalogSuppliers.email,
+            supplierCountry:  catalogSuppliers.country,
+          })
+          .from(catalogSupplierPrices)
+          .innerJoin(
+            catalogSuppliers,
+            eq(catalogSupplierPrices.supplierId, catalogSuppliers.id),
+          )
+          .where(and(
+            eq(catalogSupplierPrices.itemId,   itemId),
+            eq(catalogSupplierPrices.isActive, true),
+            eq(catalogSuppliers.isActive,      true),
+          ))
+          .orderBy | db
+          .select({
+            id:               catalogSupplierPrices.id,
+            itemId:           catalogSupplierPrices.itemId,
+            supplierId:       catalogSupplierPrices.supplierId,
+            supplierItemCode: catalogSupplierPrices.supplierItemCode,
+            price:            catalogSupplierPrices.price,
+            currency:         catalogSupplierPrices.currency,
+            isPreferred:      catalogSupplierPrices.isPreferred,
+            notes:            catalogSupplierPrices.notes,
+            isActive:         catalogSupplierPrices.isActive,
+            updatedAt:        catalogSupplierPrices.updatedAt,
+            supplierNameAr:   catalogSuppliers.nameAr,
+            supplierNameEn:   catalogSuppliers.nameEn,
+            supplierPhone:    catalogSuppliers.phone,
+            supplierEmail:    catalogSuppliers.email,
+            supplierCountry:  catalogSuppliers.country,
+          })
+          .from(catalogSupplierPrices)
+          .innerJoin(
+            catalogSuppliers,
+            eq(catalogSupplierPrices.supplierId, catalogSuppliers.id),
+          )
+          .where | db
+          .select({
+            id:               catalogSupplierPrices.id,
+            itemId:           catalogSupplierPrices.itemId,
+            supplierId:       catalogSupplierPrices.supplierId,
+            supplierItemCode: catalogSupplierPrices.supplierItemCode,
+            price:            catalogSupplierPrices.price,
+            currency:         catalogSupplierPrices.currency,
+            isPreferred:      catalogSupplierPrices.isPreferred,
+            notes:            catalogSupplierPrices.notes,
+            isActive:         catalogSupplierPrices.isActive,
+            updatedAt:        catalogSupplierPrices.updatedAt,
+            supplierNameAr:   catalogSuppliers.nameAr,
+            supplierNameEn:   catalogSuppliers.nameEn,
+            supplierPhone:    catalogSuppliers.phone,
+            supplierEmail:    catalogSuppliers.email,
+            supplierCountry:  catalogSuppliers.country,
+          })
+          .from(catalogSupplierPrices)
+          .innerJoin | db
+          .select({
+            id:               catalogSupplierPrices.id,
+            itemId:           catalogSupplierPrices.itemId,
+            supplierId:       catalogSupplierPrices.supplierId,
+            supplierItemCode: catalogSupplierPrices.supplierItemCode,
+            price:            catalogSupplierPrices.price,
+            currency:         catalogSupplierPrices.currency,
+            isPreferred:      catalogSupplierPrices.isPreferred,
+            notes:            catalogSupplierPrices.notes,
+            isActive:         catalogSupplierPrices.isActive,
+            updatedAt:        catalogSupplierPrices.updatedAt,
+            supplierNameAr:   catalogSuppliers.nameAr,
+            supplierNameEn:   catalogSuppliers.nameEn,
+            supplierPhone:    catalogSuppliers.phone,
+            supplierEmail:    catalogSuppliers.email,
+            supplierCountry:  catalogSuppliers.country,
+          })
+          .from | db
+          .select | eq | and | eq | eq | eq | desc
+improvementIdeas.listPaginated :: FULL_VISIBILITY_ROLES.includes | ideasDb.getImprovementIdeasPaginated | result.ideas.map
+improvementIdeas.getById :: ideasDb.getImprovementIdeaById | FULL_VISIBILITY_ROLES.includes | sanitizeForEmployee
+improvementIdeas.getGroupedClassifiedCounts :: FULL_VISIBILITY_ROLES.includes | ideasDb.getGroupedClassifiedCounts | ["senior_management", "executive_director"].includes
+improvementIdeas.getClassifiedByGroup :: FULL_VISIBILITY_ROLES.includes | ideasDb.getClassifiedIdeasByGroup | ["senior_management", "executive_director"].includes
+improvementIdeas.getApproved :: ideasDb.getApprovedIdeas
+improvementIdeas.executionSummary :: FULL_VISIBILITY_ROLES.includes | ideasDb.getImprovementIdeaById | db.withTransaction | improvementExecutionSummary | filterVisiblePurchaseOrders
+improvementIdeas.executionReference :: db.getTicketById | assertTicketReadable | db.getPurchaseOrderById | assertCanViewPurchaseOrder | db.withTransaction | executionReference
+construction.projects.list :: getDb | eq | conditions.push | eq | conditions.push | eq | conditions.push | eq | conditions.push | or | like | like | Promise.all | db.select().from(constructionProjects)
+          .where(and(...conditions))
+          .orderBy(desc(constructionProjects.createdAt))
+          .limit(pageSize)
+          .offset | db.select().from(constructionProjects)
+          .where(and(...conditions))
+          .orderBy(desc(constructionProjects.createdAt))
+          .limit | db.select().from(constructionProjects)
+          .where(and(...conditions))
+          .orderBy | db.select().from(constructionProjects)
+          .where | db.select().from | db.select | and | desc | db.select({ cnt: count() }).from(constructionProjects).where | db.select({ cnt: count() }).from | db.select | count | and | Math.ceil
+construction.projects.getById :: getDb | assertProjectAccess | db
+        .select()
+        .from(constructionProjects)
+        .where(eq(constructionProjects.id, input.id))
+        .limit | db
+        .select()
+        .from(constructionProjects)
+        .where | db
+        .select()
+        .from | db
+        .select | eq | Promise.all | db.select({ cnt: count() }).from(constructionPhases)
+          .where | db.select({ cnt: count() }).from | db.select | count | eq | db.select({
+          total: count(),
+          completed: sql<number>`SUM(CASE WHEN \`status\` = 'completed' THEN 1 ELSE 0 END)`,
+          overdue: sql<number>`SUM(CASE WHEN \`endDatePlanned\` < CURDATE() AND \`status\` NOT IN ('completed','cancelled') THEN 1 ELSE 0 END)`,
+        }).from(constructionTasks).where | db.select({
+          total: count(),
+          completed: sql<number>`SUM(CASE WHEN \`status\` = 'completed' THEN 1 ELSE 0 END)`,
+          overdue: sql<number>`SUM(CASE WHEN \`endDatePlanned\` < CURDATE() AND \`status\` NOT IN ('completed','cancelled') THEN 1 ELSE 0 END)`,
+        }).from | db.select | count | eq | db.select({ cnt: count() }).from(constructionProjectMembers)
+          .where | db.select({ cnt: count() }).from | db.select | count | eq
+construction.projects.portfolioStats :: getDb | db.select({
+        total: count(),
+        active: sql<number>`SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END)`,
+        planning: sql<number>`SUM(CASE WHEN status = 'planning' THEN 1 ELSE 0 END)`,
+        completed: sql<number>`SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END)`,
+        on_hold: sql<number>`SUM(CASE WHEN status = 'on_hold' THEN 1 ELSE 0 END)`,
+      }).from(constructionProjects).where | db.select({
+        total: count(),
+        active: sql<number>`SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END)`,
+        planning: sql<number>`SUM(CASE WHEN status = 'planning' THEN 1 ELSE 0 END)`,
+        completed: sql<number>`SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END)`,
+        on_hold: sql<number>`SUM(CASE WHEN status = 'on_hold' THEN 1 ELSE 0 END)`,
+      }).from | db.select | count | eq | db
+        .select({ progress: constructionProjects.progressPercent })
+        .from(constructionProjects)
+        .where | db
+        .select({ progress: constructionProjects.progressPercent })
+        .from | db
+        .select | eq | allProjects.reduce | Number | Math.round
+construction.phases.list :: getDb | db.select().from(constructionPhases)
+        .where(eq(constructionPhases.projectId, input.projectId))
+        .orderBy | db.select().from(constructionPhases)
+        .where | db.select().from | db.select | eq | asc | db.select({
+        phaseId: constructionTasks.phaseId,
+        total: count(),
+        completed: sql<number>`SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END)`,
+        overdue: sql<number>`SUM(CASE WHEN endDatePlanned < CURDATE() AND status NOT IN ('completed') THEN 1 ELSE 0 END)`,
+      }).from(constructionTasks)
+        .where(eq(constructionTasks.projectId, input.projectId))
+        .groupBy | db.select({
+        phaseId: constructionTasks.phaseId,
+        total: count(),
+        completed: sql<number>`SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END)`,
+        overdue: sql<number>`SUM(CASE WHEN endDatePlanned < CURDATE() AND status NOT IN ('completed') THEN 1 ELSE 0 END)`,
+      }).from(constructionTasks)
+        .where | db.select({
+        phaseId: constructionTasks.phaseId,
+        total: count(),
+        completed: sql<number>`SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END)`,
+        overdue: sql<number>`SUM(CASE WHEN endDatePlanned < CURDATE() AND status NOT IN ('completed') THEN 1 ELSE 0 END)`,
+      }).from | db.select | count | eq | Object.fromEntries | taskCounts.map | phases.map
+construction.phases.getById :: assertPhaseAccess
+construction.activities.list :: getDb | db.select().from(constructionActivities)
+        .where(eq(constructionActivities.phaseId, input.phaseId))
+        .orderBy | db.select().from(constructionActivities)
+        .where | db.select().from | db.select | eq | asc | db.select({
+        activityId: constructionTasks.activityId,
+        total: count(),
+        completed: sql<number>`SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END)`,
+      }).from(constructionTasks)
+        .where(eq(constructionTasks.phaseId, input.phaseId))
+        .groupBy | db.select({
+        activityId: constructionTasks.activityId,
+        total: count(),
+        completed: sql<number>`SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END)`,
+      }).from(constructionTasks)
+        .where | db.select({
+        activityId: constructionTasks.activityId,
+        total: count(),
+        completed: sql<number>`SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END)`,
+      }).from | db.select | count | eq | Object.fromEntries | taskCounts.map | activities.map
+construction.activities.listByProject :: getDb | db.select().from(constructionActivities)
+        .where(eq(constructionActivities.projectId, input.projectId))
+        .orderBy | db.select().from(constructionActivities)
+        .where | db.select().from | db.select | eq | asc
+construction.tasks.list :: getDb | conditions.push | eq | conditions.push | eq | conditions.push | eq | conditions.push | eq | conditions.push | eq | conditions.push | eq | conditions.push | eq | conditions.push | like | conditions.push | and | Promise.all | db.select().from(constructionTasks)
+          .where(whereClause)
+          .orderBy(desc(constructionTasks.createdAt))
+          .limit(pageSize).offset | db.select().from(constructionTasks)
+          .where(whereClause)
+          .orderBy(desc(constructionTasks.createdAt))
+          .limit | db.select().from(constructionTasks)
+          .where(whereClause)
+          .orderBy | db.select().from(constructionTasks)
+          .where | db.select().from | db.select | desc | db.select({ cnt: count() }).from(constructionTasks).where | db.select({ cnt: count() }).from | db.select | count | Math.ceil
+construction.tasks.kanban :: getDb | eq | conditions.push | eq | conditions.push | eq | conditions.push | eq | db.select().from(constructionTasks)
+        .where(and(...conditions))
+        .orderBy | db.select().from(constructionTasks)
+        .where | db.select().from | db.select | and | asc | asc | grouped[t.status].push
+construction.tasks.gantt :: getDb | db.select().from(constructionTasks)
+        .where(eq(constructionTasks.projectId, input.projectId))
+        .orderBy | db.select().from(constructionTasks)
+        .where | db.select().from | db.select | eq | asc
+construction.tasks.getById :: getDb | db.select().from(constructionTasks)
+        .where(eq(constructionTasks.id, input.id)).limit | db.select().from(constructionTasks)
+        .where | db.select().from | db.select | eq | Promise.all | db.select().from(constructionTaskComments)
+          .where(eq(constructionTaskComments.taskId, input.id))
+          .orderBy | db.select().from(constructionTaskComments)
+          .where | db.select().from | db.select | eq | asc | db.select().from(constructionTimeLogs)
+          .where(eq(constructionTimeLogs.taskId, input.id))
+          .orderBy | db.select().from(constructionTimeLogs)
+          .where | db.select().from | db.select | eq | desc | db.select({
+          value: constructionFieldValues,
+          field: constructionCustomFields,
+        })
+          .from(constructionFieldValues)
+          .leftJoin(constructionCustomFields, eq(constructionFieldValues.fieldId, constructionCustomFields.id))
+          .where | db.select({
+          value: constructionFieldValues,
+          field: constructionCustomFields,
+        })
+          .from(constructionFieldValues)
+          .leftJoin | db.select({
+          value: constructionFieldValues,
+          field: constructionCustomFields,
+        })
+          .from | db.select | eq | eq | timeLogs.reduce
+construction.taskComments.list :: getDb | db.select().from(constructionTaskComments)
+        .where(eq(constructionTaskComments.taskId, input.taskId))
+        .orderBy | db.select().from(constructionTaskComments)
+        .where | db.select().from | db.select | eq | asc
+construction.taskDependencies.list :: getDb | db.select().from(constructionTaskDependencies)
+        .where | db.select().from | db.select | eq
+construction.members.list :: getDb | db.select().from(constructionProjectMembers)
+        .where(eq(constructionProjectMembers.projectId, input.projectId))
+        .orderBy | db.select().from(constructionProjectMembers)
+        .where | db.select().from | db.select | eq | asc
+construction.members.workload :: getDb | db.select().from(constructionProjectMembers)
+        .where | db.select().from | db.select | eq | Promise.all | members.map | db.select({
+          activeCount: sql<number>`SUM(CASE WHEN status NOT IN ('completed') THEN 1 ELSE 0 END)`,
+          totalCount: count(),
+          completedCount: sql<number>`SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END)`,
+        }).from(constructionTasks)
+          .where | db.select({
+          activeCount: sql<number>`SUM(CASE WHEN status NOT IN ('completed') THEN 1 ELSE 0 END)`,
+          totalCount: count(),
+          completedCount: sql<number>`SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END)`,
+        }).from | db.select | count | and | eq | eq
+construction.timeLogs.list :: getDb | db.select().from(constructionTimeLogs)
+        .where(eq(constructionTimeLogs.taskId, input.taskId))
+        .orderBy | db.select().from(constructionTimeLogs)
+        .where | db.select().from | db.select | eq | desc
+construction.timeLogs.projectSummary :: getDb | db.select({
+        totalMinutes: sql<number>`SUM(durationMinutes)`,
+        totalCost: sql<number>`SUM(totalCost)`,
+        logCount: count(),
+      }).from(constructionTimeLogs).where | db.select({
+        totalMinutes: sql<number>`SUM(durationMinutes)`,
+        totalCost: sql<number>`SUM(totalCost)`,
+        logCount: count(),
+      }).from | db.select | count | eq
+construction.customFields.list :: getDb | db.select().from(constructionCustomFields)
+        .where(eq(constructionCustomFields.projectId, input.projectId))
+        .orderBy | db.select().from(constructionCustomFields)
+        .where | db.select().from | db.select | eq | asc
+construction.automations.list :: getDb | db.select().from(constructionAutomations)
+        .where(eq(constructionAutomations.projectId, input.projectId))
+        .orderBy | db.select().from(constructionAutomations)
+        .where | db.select().from | db.select | eq | desc
+construction.goals.list :: getDb | db.select().from(constructionGoals)
+        .where(eq(constructionGoals.projectId, input.projectId))
+        .orderBy | db.select().from(constructionGoals)
+        .where | db.select().from | db.select | eq | asc
+construction.dailyReports.list :: getDb | Promise.all | db.select().from(constructionDailyReports)
+          .where(eq(constructionDailyReports.projectId, input.projectId))
+          .orderBy(desc(constructionDailyReports.reportDate))
+          .limit(input.pageSize).offset | db.select().from(constructionDailyReports)
+          .where(eq(constructionDailyReports.projectId, input.projectId))
+          .orderBy(desc(constructionDailyReports.reportDate))
+          .limit | db.select().from(constructionDailyReports)
+          .where(eq(constructionDailyReports.projectId, input.projectId))
+          .orderBy | db.select().from(constructionDailyReports)
+          .where | db.select().from | db.select | eq | desc | db.select({ cnt: count() }).from(constructionDailyReports)
+          .where | db.select({ cnt: count() }).from | db.select | count | eq | Math.ceil
+construction.dailyReports.getByDate :: getDb | db.select().from(constructionDailyReports)
+        .where(and(
+          eq(constructionDailyReports.projectId, input.projectId),
+          eq(constructionDailyReports.reportDate, input.date)
+        )).limit | db.select().from(constructionDailyReports)
+        .where | db.select().from | db.select | and | eq | eq
+construction.quantityTracking.list :: getDb | db.select().from(constructionQuantityTracking)
+        .where | db.select().from | db.select | eq
+construction.quantityTracking.listByProject :: getDb | db.select().from(constructionQuantityTracking)
+        .where | db.select().from | db.select | eq
+construction.changeOrders.list :: getDb | db.select().from(constructionChangeOrders)
+        .where(eq(constructionChangeOrders.projectId, input.projectId))
+        .orderBy | db.select().from(constructionChangeOrders)
+        .where | db.select().from | db.select | eq | desc
+construction.safetyLogs.list :: getDb | Promise.all | db.select().from(constructionSafetyLogs)
+          .where(eq(constructionSafetyLogs.projectId, input.projectId))
+          .orderBy(desc(constructionSafetyLogs.logDate))
+          .limit(input.pageSize).offset | db.select().from(constructionSafetyLogs)
+          .where(eq(constructionSafetyLogs.projectId, input.projectId))
+          .orderBy(desc(constructionSafetyLogs.logDate))
+          .limit | db.select().from(constructionSafetyLogs)
+          .where(eq(constructionSafetyLogs.projectId, input.projectId))
+          .orderBy | db.select().from(constructionSafetyLogs)
+          .where | db.select().from | db.select | eq | desc | db.select({ cnt: count() }).from(constructionSafetyLogs)
+          .where | db.select({ cnt: count() }).from | db.select | count | eq | Math.ceil
+construction.reports.delayAnalysis :: getDb | db.select({
+        weather: sql<number>`SUM(CASE WHEN holdReason = 'weather' THEN 1 ELSE 0 END)`,
+        pending_approval: sql<number>`SUM(CASE WHEN holdReason = 'pending_approval' THEN 1 ELSE 0 END)`,
+        subcontractor: sql<number>`SUM(CASE WHEN holdReason = 'subcontractor' THEN 1 ELSE 0 END)`,
+        administrative: sql<number>`SUM(CASE WHEN holdReason = 'administrative' THEN 1 ELSE 0 END)`,
+        other: sql<number>`SUM(CASE WHEN holdReason = 'other' THEN 1 ELSE 0 END)`,
+        overdue: sql<number>`SUM(CASE WHEN endDatePlanned < CURDATE() AND status NOT IN ('completed') THEN 1 ELSE 0 END)`,
+      }).from(constructionTasks).where | db.select({
+        weather: sql<number>`SUM(CASE WHEN holdReason = 'weather' THEN 1 ELSE 0 END)`,
+        pending_approval: sql<number>`SUM(CASE WHEN holdReason = 'pending_approval' THEN 1 ELSE 0 END)`,
+        subcontractor: sql<number>`SUM(CASE WHEN holdReason = 'subcontractor' THEN 1 ELSE 0 END)`,
+        administrative: sql<number>`SUM(CASE WHEN holdReason = 'administrative' THEN 1 ELSE 0 END)`,
+        other: sql<number>`SUM(CASE WHEN holdReason = 'other' THEN 1 ELSE 0 END)`,
+        overdue: sql<number>`SUM(CASE WHEN endDatePlanned < CURDATE() AND status NOT IN ('completed') THEN 1 ELSE 0 END)`,
+      }).from | db.select | eq
+construction.reports.teamPerformance :: getDb | db.select({
+        assignedToId: constructionTasks.assignedToId,
+        total: count(),
+        completed: sql<number>`SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END)`,
+        overdue: sql<number>`SUM(CASE WHEN endDatePlanned < CURDATE() AND status NOT IN ('completed') THEN 1 ELSE 0 END)`,
+        totalHours: sql<number>`SUM(actualHours)`,
+      }).from(constructionTasks)
+        .where(eq(constructionTasks.projectId, input.projectId))
+        .groupBy | db.select({
+        assignedToId: constructionTasks.assignedToId,
+        total: count(),
+        completed: sql<number>`SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END)`,
+        overdue: sql<number>`SUM(CASE WHEN endDatePlanned < CURDATE() AND status NOT IN ('completed') THEN 1 ELSE 0 END)`,
+        totalHours: sql<number>`SUM(actualHours)`,
+      }).from(constructionTasks)
+        .where | db.select({
+        assignedToId: constructionTasks.assignedToId,
+        total: count(),
+        completed: sql<number>`SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END)`,
+        overdue: sql<number>`SUM(CASE WHEN endDatePlanned < CURDATE() AND status NOT IN ('completed') THEN 1 ELSE 0 END)`,
+        totalHours: sql<number>`SUM(actualHours)`,
+      }).from | db.select | count | eq
+construction.reports.budgetSummary :: getDb | db.select({
+        estimatedTotal: sql<number>`SUM(estimated_cost)`,
+        actualTotal: sql<number>`SUM(actual_cost)`,
+      }).from(constructionTasks).where | db.select({
+        estimatedTotal: sql<number>`SUM(estimated_cost)`,
+        actualTotal: sql<number>`SUM(actual_cost)`,
+      }).from | db.select | eq | db.select({
+        budgetPlanned: constructionProjects.budgetPlanned,
+        budgetActual: constructionProjects.budgetActual,
+      }).from(constructionProjects).where(eq(constructionProjects.id, input.projectId)).limit | db.select({
+        budgetPlanned: constructionProjects.budgetPlanned,
+        budgetActual: constructionProjects.budgetActual,
+      }).from(constructionProjects).where | db.select({
+        budgetPlanned: constructionProjects.budgetPlanned,
+        budgetActual: constructionProjects.budgetActual,
+      }).from | db.select | eq
+construction.reports.quantitySummary :: getDb | db.select({
+        materialName: constructionQuantityTracking.materialName,
+        unit: constructionQuantityTracking.unit,
+        totalPlanned: sql<number>`SUM(quantityPlanned)`,
+        totalActual: sql<number>`SUM(quantityActual)`,
+      }).from(constructionQuantityTracking)
+        .where(eq(constructionQuantityTracking.projectId, input.projectId))
+        .groupBy | db.select({
+        materialName: constructionQuantityTracking.materialName,
+        unit: constructionQuantityTracking.unit,
+        totalPlanned: sql<number>`SUM(quantityPlanned)`,
+        totalActual: sql<number>`SUM(quantityActual)`,
+      }).from(constructionQuantityTracking)
+        .where | db.select({
+        materialName: constructionQuantityTracking.materialName,
+        unit: constructionQuantityTracking.unit,
+        totalPlanned: sql<number>`SUM(quantityPlanned)`,
+        totalActual: sql<number>`SUM(quantityActual)`,
+      }).from | db.select | eq
+construction.reports.safetySummary :: getDb | db.select({
+        total: count(),
+        open: sql<number>`SUM(CASE WHEN isClosed = 0 THEN 1 ELSE 0 END)`,
+        critical: sql<number>`SUM(CASE WHEN severity = 'critical' THEN 1 ELSE 0 END)`,
+        injuries: sql<number>`SUM(CASE WHEN incidentType IN ('minor_injury','major_injury') THEN 1 ELSE 0 END)`,
+      }).from(constructionSafetyLogs).where | db.select({
+        total: count(),
+        open: sql<number>`SUM(CASE WHEN isClosed = 0 THEN 1 ELSE 0 END)`,
+        critical: sql<number>`SUM(CASE WHEN severity = 'critical' THEN 1 ELSE 0 END)`,
+        injuries: sql<number>`SUM(CASE WHEN incidentType IN ('minor_injury','major_injury') THEN 1 ELSE 0 END)`,
+      }).from | db.select | count | eq
+externalMaintenance.getByTicket :: db.getTicketById | assertTicketReadable | db.getExternalMaintenanceJobByTicketId
+externalMaintenance.listForWarehouse :: Promise.all | db.listPathCTicketsWaitingWarehousePreparation | db.listExternalMaintenanceJobs
+externalMaintenance.listForGate :: db.listExternalMaintenanceJobs
+pmv2.organization.references.users :: localizeMasterDataReferences | pmv2OrganizationService.listActiveUsers
+pmv2.organization.references.warehouses :: pmv2OrganizationService.listActiveWarehouses
+pmv2.organization.specialties.list :: pmv2OrganizationService.listSpecialties
+pmv2.organization.teams.list :: localizeMasterDataReferences | pmv2OrganizationService.listTeams
+pmv2.organization.teams.members.list :: localizeMasterDataReferences | pmv2OrganizationService.listTeamMembers
+pmv2.targets.sites :: currentMaintenanceTargetAdapter.listSites
+pmv2.targets.sections :: currentMaintenanceTargetAdapter.listSections
+pmv2.targets.assets :: currentMaintenanceTargetAdapter.listAssets
+pmv2.targets.validate :: currentMaintenanceTargetAdapter.validateTarget
+pmv2.checklists.list :: pmv2ChecklistService.listChecklists
+pmv2.checklists.get :: pmv2ChecklistService.getChecklist | pmv2ChecklistService.listItems
+pmv2.checklists.items.list :: pmv2ChecklistService.listItems
+pmv2.programs.list :: localizeMasterDataReferences | pmv2ProgramService.listPrograms
+pmv2.programs.get :: localizeMasterDataReferences | pmv2ProgramService.getProgram | pmv2ProgramService.listTargets
+pmv2.programs.targets.list :: localizeMasterDataReferences | pmv2ProgramService.listTargets
+pmv2.scheduler.duePrograms :: pmv2SchedulerService.listDueProgramsForDate
+pmv2.tasks.dailyWorkload :: localizeMasterDataReferences | pmv2TaskReadService.listDailyTeamWorkload
+pmv2.tasks.list :: localizeMasterDataReferences | pmv2TaskReadService.listTasks
+pmv2.tasks.items :: localizeMasterDataReferences | pmv2TaskReadService.listTaskItems
+pmv2.technician.today :: localizeMasterDataReferences | pmv2TechnicianReadService.listTodayTasks
+pmv2.technician.materialAttention :: pmv2TechnicianMaterialAttentionService.list
+pmv2.technician.items :: pmv2TechnicianReadService.listTaskItems | mapTechnicianError
+pmv2.technician.ticketHandoffContext :: pmv2TicketHandoffService.getCreateContext | mapTechnicianError
+pmv2.technician.evidence :: pmv2TechnicianReadService.getItemEvidence | mapTechnicianError
+pmv2.technician.materialCatalog :: pmv2MaterialRequestService.searchCatalog | mapTechnicianError
+pmv2.technician.completionMaterials :: pmv2TeamIssueHandoffService.listCompletionMaterials | mapTechnicianError
+pmv2.technician.materialState :: pmv2MaterialRequestService.getItemMaterialState | mapTechnicianError
+pmv2.technician.readyMaterialReceipts :: pmv2TeamIssueHandoffService.listTechnicianReadyReceipts | mapTechnicianError
+pmv2.technician.visitState :: pmv2TechnicianReadService.getVisitState | mapTechnicianError
+pmv2.technician.timeline :: pmv2TaskTimelineService.getForTechnician | mapTechnicianError
+pmv2.warehouse.waitingMaterialQueue :: pmv2WarehouseQueueService.listWaitingMaterialItems | mapWarehouseQueueError
+pmv2.warehouse.searchMaterialIdentityCandidates :: pmv2MaterialIdentityResolutionService.searchCandidates | mapWarehouseQueueError
+pmv2.warehouse.readyToIssueQueue :: pmv2TeamIssueHandoffService.listReadyToIssueQueue | mapWarehouseQueueError
+pmv2.warehouse.pendingReturns :: pmv2TeamIssueHandoffService.listPendingReturns | mapWarehouseQueueError
+pmv2.monitoring.overview :: localizeMasterDataReferences | pmv2MonitoringService.getOverview
+pmv2.monitoring.taskDetail :: localizeMasterDataReferences | pmv2MonitoringService.getTaskDetail
+pmv2.monitoring.slaRules :: pmv2SlaService.listRules
+pmv2.reports.filters :: localizeMasterDataReferences | pmv2DailyReportService.listFilters
+pmv2.reports.daily :: localizeMasterDataReferences | pmv2DailyReportService.getDailyReport
+maintenanceTeams.list :: result | service.list | actor
+ticketTeamAssignments.candidates :: result | service.candidates | actor
+ticketTeamAssignments.queue :: result | service.queue | actor
+ticketTeamAssignments.warehouseRequests :: result | service.warehouseRequests | actor
+ticketTeamExecution.details :: result | service(ctx, input).read | service
+ticketTeamExecution.balances :: result | service(ctx, input).read | service | new SqlExecutionStore(
+            input.assignmentId,
+            actor(ctx)
+          ).transaction | actor | effects.mainWarehouseId | s.needs.filter | balances.push | effects.availability | effects.availability
+ticketTeamExecution.preview :: result | service(ctx, input, {
+            catalogIds: input.needs.flatMap(n =>
+              n.catalogItemId ? [n.catalogItemId] : []
+            ),
+          }).previewMaterials | service | input.needs.flatMap
+ticketTeamExecution.catalog :: result | service(ctx, input).read | service | snapshot.assignments.find | import | getDb | selectRows | rows.map | Number | String | String | String

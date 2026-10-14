@@ -6,6 +6,8 @@ import {
   pmv2TechnicianReadService,
 } from "../../pmv2/technician/read-service";
 import { pmv2TechnicianProcedure } from "../../pmv2/security/procedures";
+import { localizeMasterDataReferences } from "../../services/translation/localizedMasterData";
+import type { SupportedLanguage } from "../../services/translation/translation";
 import {
   Pmv2MaterialFlowError,
   pmv2MaterialRequestService,
@@ -36,8 +38,11 @@ function mapTechnicianError(error: unknown): never {
 
 /** Phase 3 technician task surface: read, start execution, and Core PM V2 result recording. */
 export const pmv2TechnicianRouter = router({
-  today: pmv2TechnicianProcedure.query(({ ctx }) =>
-    pmv2TechnicianReadService.listTodayTasks(ctx.user.id),
+  today: pmv2TechnicianProcedure.query(async ({ ctx }) =>
+    localizeMasterDataReferences(
+      await pmv2TechnicianReadService.listTodayTasks(ctx.user.id),
+      (ctx.user.preferredLanguage || "ar") as SupportedLanguage,
+    ),
   ),
 
   materialAttention: pmv2TechnicianProcedure.query(({ ctx }) =>

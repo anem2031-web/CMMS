@@ -7,6 +7,8 @@ import {
 } from "../../pmv2/programs/service";
 import { Pmv2ProgramTargetValidationError } from "../../pmv2/programs/target-validation";
 import { pmv2ManagementProcedure } from "../../pmv2/security/procedures";
+import { localizeMasterDataReferences } from "../../services/translation/localizedMasterData";
+import type { SupportedLanguage } from "../../services/translation/translation";
 
 const targetSchema = z.discriminatedUnion("type", [
   z.object({ programId: z.number().int().positive(), type: z.literal("site"), siteId: z.number().int().positive() }),
@@ -41,14 +43,17 @@ function toTrpcError(error: unknown): never {
 export const pmv2ProgramsRouter = router({
   list: pmv2ManagementProcedure
     .input(z.object({ includeInactive: z.boolean().optional() }).optional())
-    .query(({ input }) => pmv2ProgramService.listPrograms(input?.includeInactive ?? false)),
+    .query(async ({ input, ctx }) => localizeMasterDataReferences(
+      await pmv2ProgramService.listPrograms(input?.includeInactive ?? false),
+      (ctx.user.preferredLanguage || "ar") as SupportedLanguage,
+    )),
 
   get: pmv2ManagementProcedure
     .input(z.object({ id: z.number().int().positive() }))
-    .query(async ({ input }) => ({
+    .query(async ({ input, ctx }) => localizeMasterDataReferences({
       program: await pmv2ProgramService.getProgram(input.id),
       targets: await pmv2ProgramService.listTargets(input.id),
-    })),
+    }, (ctx.user.preferredLanguage || "ar") as SupportedLanguage)),
 
   create: pmv2ManagementProcedure
     .input(z.object({
@@ -87,7 +92,10 @@ export const pmv2ProgramsRouter = router({
   targets: router({
     list: pmv2ManagementProcedure
       .input(z.object({ programId: z.number().int().positive() }))
-      .query(({ input }) => pmv2ProgramService.listTargets(input.programId)),
+      .query(async ({ input, ctx }) => localizeMasterDataReferences(
+        await pmv2ProgramService.listTargets(input.programId),
+        (ctx.user.preferredLanguage || "ar") as SupportedLanguage,
+      )),
     add: pmv2ManagementProcedure
       .input(targetSchema)
       .mutation(async ({ input, ctx }) => {

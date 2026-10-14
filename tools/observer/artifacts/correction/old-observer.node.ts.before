@@ -1,0 +1,485 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import ts from "typescript";
+import { transformSync } from "esbuild";
+import { MySqlDialect } from "drizzle-orm/mysql-core";
+import { z } from "zod";
+import {
+  router,
+  publicProcedure,
+  protectedProcedure,
+  adminProcedure,
+} from "../../server/_core/trpc";
+import { createObserverRouter } from "../../server/routers/observer";
+import {
+  ObserverReadService,
+  observerSources,
+} from "../../server/services/observer/read-service";
+import { OBSERVER_PAGES, findObserverPage } from "../../shared/observer-pages";
+import {
+  observerRpcAllowed,
+  observerHttpAllowed,
+  redactObserverValue,
+} from "../../shared/observer-policy";
+import { APP_ROLE, canRoleAccessPath } from "../../shared/roles";
+import { assertObserverRpc } from "../../server/_core/authz/observer-guard";
+import { canManageTicketTeams } from "../../shared/maintenance-team-tickets/team-management";
+import { canReadTicketTeamExecution } from "../../shared/maintenance-team-tickets/execution-permissions";
+import { resolveResponse } from "@trpc/server/http";
+const observer = {
+  id: 99,
+  role: "observer",
+  isActive: 1,
+  username: "reader",
+  name: "مراقب",
+  passwordHash: "never-export",
+};
+const context = (user: any = observer) =>
+  ({
+    user,
+    req: { body: { role: "owner", userId: 1 }, headers: { "x-role": "admin" } },
+    res: { clearCookie() {} },
+  }) as any;
+const dialect = new MySqlDialect();
+
+test("every active App route has an explicit observer dataset; disabled routes remain disabled", () => {
+  const file = "client/src/App.tsx",
+    ast = ts.createSourceFile(
+      file,
+      fs.readFileSync(file, "utf8"),
+      ts.ScriptTarget.Latest,
+      true,
+      ts.ScriptKind.TSX
+    );
+  const paths: string[] = [];
+  function visit(node: ts.Node) {
+    if (
+      (ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) &&
+      node.tagName.getText(ast) === "Route"
+    ) {
+      const attributes = node.attributes.properties;
+      const path = attributes.find(
+        n => ts.isJsxAttribute(n) && n.name.getText(ast) === "path"
+      ) as ts.JsxAttribute | undefined;
+      const component = attributes.find(
+        n => ts.isJsxAttribute(n) && n.name.getText(ast) === "component"
+      ) as ts.JsxAttribute | undefined;
+      if (
+        path?.initializer &&
+        ts.isStringLiteral(path.initializer) &&
+        !component?.initializer?.getText(ast).includes("NotFound") &&
+        path.initializer.text !== "/login"
+      )
+        paths.push(path.initializer.text);
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(ast);
+  assert.ok(paths.length > 60);
+  for (const path of paths) {
+    const concrete = path.replace(":id", "1").replace(":rfidTag", "RFID-1");
+    assert.ok(findObserverPage(concrete), path);
+    assert.equal(canRoleAccessPath("observer", concrete), true);
+  }
+  assert.equal(findObserverPage("/warehouse/receive"), null);
+  assert.equal(findObserverPage("/warehouse/invoice-draft"), null);
+});
+test("all registry data sources resolve from existing schema or explicitly listed team tables", () => {
+  const sources = observerSources();
+  assert.ok(Object.keys(sources).length > 60);
+  for (const page of OBSERVER_PAGES)
+    for (const ds of page.datasets)
+      assert.ok(sources[ds.source]?.columns.length);
+  assert.ok(
+    !sources.users.columns.some(c =>
+      /password|secret|token|openid|signature/i.test(c.key)
+    )
+  );
+  assert.ok(!sources.backups.columns.some(c => /fileurl|filekey/i.test(c.key)));
+});
+test("default-deny observer policy covers mutations, subscriptions, unknown and write-capable queries", () => {
+  for (const path of [
+    "users.updateRole",
+    "users.create",
+    "auth.changePassword",
+    "tickets.close",
+    "ticketTeamExecution.issue",
+    "pmv2.technician.submitItemResult",
+    "backups.restore",
+    "catalog.import",
+    "system.notifyOwner",
+    "observer.readPage",
+  ])
+    assert.equal(observerRpcAllowed("observer", "mutation", path), false);
+  for (const path of [
+    "tickets.list",
+    "pmv2.management.ensureProgram",
+    "system.health",
+    "users.list",
+    "observer.readPage.evil",
+  ])
+    assert.equal(observerRpcAllowed("observer", "query", path), false);
+  assert.equal(
+    observerRpcAllowed("observer", "subscription", "observer.readPage"),
+    false
+  );
+  assert.equal(
+    observerRpcAllowed("observer", "query", "observer.readPage"),
+    true
+  );
+  assert.equal(observerRpcAllowed("observer", "mutation", "auth.logout"), true);
+});
+test("actual public/protected/admin procedure middleware blocks before any resolver despite forged payload/role headers", async () => {
+  let writes = 0;
+  const api = router({
+    publicWrite: publicProcedure.input(z.any()).mutation(() => ++writes),
+    protectedWrite: protectedProcedure.input(z.any()).mutation(() => ++writes),
+    adminWrite: adminProcedure.input(z.any()).mutation(() => ++writes),
+    unsafeQuery: protectedProcedure.query(() => ++writes),
+  });
+  const caller = api.createCaller(context());
+  for (const work of [
+    () => caller.publicWrite({ role: "admin" }),
+    () => caller.protectedWrite({ actorId: 1, userId: 1 }),
+    () => caller.adminWrite({ role: "owner" }),
+    () => caller.unsafeQuery(),
+  ])
+    await assert.rejects(work(), (e: any) => e.code === "FORBIDDEN");
+  assert.equal(writes, 0);
+});
+test("normal roles retain procedure data and mutation behavior; admin-only guard stays admin-only", async () => {
+  const api = router({
+    read: protectedProcedure.query(({ ctx }) => ctx.user),
+    write: protectedProcedure.mutation(({ ctx }) => ctx.user.role),
+    adminOnly: adminProcedure.query(() => true),
+  });
+  for (const role of Object.values(APP_ROLE).filter(r => r !== "observer")) {
+    const user = { ...observer, role },
+      caller = api.createCaller(context(user));
+    assert.equal(await caller.read(), user);
+    assert.equal(await caller.write(), role);
+    if (role === "admin") assert.equal(await caller.adminOnly(), true);
+    else
+      await assert.rejects(
+        caller.adminOnly(),
+        (e: any) => e.code === "FORBIDDEN"
+      );
+  }
+  await assert.rejects(
+    api.createCaller(context(null)).write(),
+    (e: any) => e.code === "UNAUTHORIZED"
+  );
+});
+test("inactive observer cannot read but can clear its own session; authentic role/id are never changed", async () => {
+  assert.throws(() =>
+    assertObserverRpc(
+      { role: "observer", isActive: 0 },
+      "query",
+      "observer.readPage"
+    )
+  );
+  assert.doesNotThrow(() =>
+    assertObserverRpc(
+      { role: "observer", isActive: 0 },
+      "mutation",
+      "auth.logout"
+    )
+  );
+  const ctx = context();
+  const api = router({
+    auth: router({
+      me: publicProcedure.query(({ ctx }) => ctx.user),
+      logout: publicProcedure.mutation(() => ({ success: true })),
+    }),
+  });
+  const me: any = await api.createCaller(ctx).auth.me();
+  assert.equal(me.role, "observer");
+  assert.equal(me.id, 99);
+  assert.equal(me.passwordHash, undefined);
+  assert.equal(ctx.user.passwordHash, "never-export");
+  assert.deepEqual(await api.createCaller(ctx).auth.logout(), {
+    success: true,
+  });
+});
+test("observer queries remain strictly authenticated and cannot supply a role, table or user override", async () => {
+  let reads = 0;
+  const service = new ObserverReadService(async () => {
+    reads++;
+    return [[{ total: 0 }], []];
+  });
+  const api = router({ observer: createObserverRouter(() => service) });
+  const caller = api.createCaller(context());
+  await caller.observer.readPage({ path: "/users" });
+  assert.equal(reads, 2);
+  for (const extra of [
+    { role: "owner" },
+    { table: "two_factor_secrets" },
+    { userId: 1 },
+  ])
+    await assert.rejects(
+      caller.observer.readPage({ path: "/users", ...extra } as any),
+      (e: any) => e.code === "BAD_REQUEST"
+    );
+  for (const user of [
+    null,
+    { ...observer, isActive: 0 },
+    { ...observer, role: "owner" },
+  ])
+    await assert.rejects(
+      api.createCaller(context(user)).observer.readPage({ path: "/users" })
+    );
+  assert.equal(reads, 2);
+});
+test("reader executes only bounded SELECTs, omits credential columns and parameterizes search", async () => {
+  const queries: any[] = [];
+  const service = new ObserverReadService(async q => {
+    const query = dialect.sqlToQuery(q);
+    queries.push(query);
+    return query.sql.includes("COUNT(*)")
+      ? [[{ total: 1 }], []]
+      : [
+          [
+            {
+              id: 1,
+              role: "owner",
+              name: "A",
+              passwordHash: "bad",
+              oldValues: '{"password":"bad","name":"A"}',
+            },
+          ],
+          [],
+        ];
+  });
+  const result = await service.read(observer, {
+    path: "/users",
+    dataset: 0,
+    page: 2,
+    search: "x' OR 1=1 --",
+  });
+  assert.equal(result.rows[0].passwordHash, undefined);
+  assert.deepEqual(result.rows[0].oldValues, { name: "A" });
+  assert.ok(queries.every(q => q.sql.startsWith("SELECT")));
+  assert.ok(!queries[1].sql.includes("passwordHash"));
+  assert.ok(!queries[1].sql.includes("x' OR 1=1"));
+  assert.ok(queries[1].params.includes(25));
+  assert.ok(queries[1].params.includes("%x' OR 1=1 --%"));
+});
+test("detail links filter parent and child identity, and tag values cannot inject SQL", async () => {
+  const queries: any[] = [];
+  const service = new ObserverReadService(async q => {
+    const query = dialect.sqlToQuery(q);
+    queries.push(query);
+    return [[{ total: 0 }], []];
+  });
+  await service.read(observer, {
+    path: "/tickets/123",
+    dataset: 1,
+    page: 1,
+    search: "",
+  });
+  assert.match(queries[0].sql, /`ticketId` = \?/);
+  assert.ok(queries[0].params.includes(123));
+  queries.length = 0;
+  await service.read(observer, {
+    path: "/tag/'%20OR%201%3D1--",
+    dataset: 0,
+    page: 1,
+    search: "",
+  });
+  assert.ok(queries[0].params.includes("' OR 1=1--"));
+  assert.ok(!queries[0].sql.includes("OR 1=1"));
+  for (const path of [
+    "/admin/drop",
+    "/users/delete",
+    "/tickets/-1",
+    "/tickets/0",
+    "/tickets/1%2f..",
+    "/tickets/NaN",
+  ])
+    assert.equal(findObserverPage(path), null);
+});
+test("nested credentials, malformed JSON and deeply nested secrets are not exported", () => {
+  const original: any = {
+    name: "A",
+    passwordHash: "x",
+    data: '{"apiKey":"x","nested":{"secret":"x","safe":1}}',
+    values: [{ accessToken: "x", safe: true }],
+  };
+  const masked: any = redactObserverValue(original);
+  assert.equal(masked.passwordHash, undefined);
+  assert.deepEqual(masked.data, { nested: { safe: 1 } });
+  assert.deepEqual(masked.values, [{ safe: true }]);
+  assert.equal(original.passwordHash, "x");
+  assert.equal(
+    redactObserverValue('{"password":bad}'),
+    "[محتوى غير صالح للعرض]"
+  );
+  let deep: any = { password: "hidden" };
+  for (let i = 0; i < 20; i++) deep = { nested: deep };
+  assert.ok(!JSON.stringify(redactObserverValue(deep)).includes("hidden"));
+});
+test("the actual REST auth middleware rejects observer upload/export before next, using authenticated identity", async () => {
+  const file = "server/_core/index.ts",
+    ast = ts.createSourceFile(
+      file,
+      fs.readFileSync(file, "utf8"),
+      ts.ScriptTarget.Latest,
+      true
+    );
+  const declaration = ast.statements.find(
+    n => ts.isFunctionDeclaration(n) && n.name?.text === "requireAuthMiddleware"
+  )!;
+  const js = transformSync(declaration.getText(ast), { loader: "ts" }).code;
+  for (const role of ["observer", "owner", "admin", "warehouse"]) {
+    let status = 0,
+      next = 0;
+    const user = { ...observer, role },
+      sdk = { authenticateRequest: async () => user };
+    const guard = new Function(
+      "sdk",
+      "observerHttpAllowed",
+      "isSessionAuthenticationError",
+      `${js};return requireAuthMiddleware;`
+    )(sdk, observerHttpAllowed, () => false);
+    const req = {
+        method: "POST",
+        path: "/api/upload",
+        body: { role: "owner" },
+      },
+      res: any = {
+        status: (code: number) => {
+          status = code;
+          return res;
+        },
+        json: () => null,
+      };
+    await guard(req, res, () => next++);
+    assert.equal(next, role === "observer" ? 0 : 1);
+    assert.equal(status, role === "observer" ? 403 : 0);
+  }
+});
+test("every original client role-path decision is unchanged", () => {
+  const before = fs.readFileSync(
+      "tools/observer/artifacts/before/shared__roles.ts.before",
+      "utf8"
+    ),
+    ast = ts.createSourceFile("roles.ts", before, ts.ScriptTarget.Latest, true);
+  const declarations = ast.statements.filter(
+    n => ts.isVariableStatement(n) || ts.isFunctionDeclaration(n)
+  );
+  const js = transformSync(
+    declarations.map(n => n.getText(ast).replace(/^export\s+/, "")).join("\n"),
+    { loader: "ts" }
+  ).code;
+  const names = ["canManageTicketTeams", "canReadTicketTeamExecution"];
+  // Source module imports are supplied as the same unchanged pure role functions.
+  const helpers = { canManageTicketTeams, canReadTicketTeamExecution };
+  const legacy = new Function(...names, `${js};return canRoleAccessPath;`)(
+    ...names.map(n => (helpers as any)[n])
+  );
+  for (const role of Object.values(APP_ROLE).filter(r => r !== "observer"))
+    for (const p of OBSERVER_PAGES) {
+      const path = p.path.replace(":id", "1").replace(":rfidTag", "TAG");
+      assert.equal(
+        canRoleAccessPath(role, path),
+        legacy(role, path),
+        `${role}: ${path}`
+      );
+    }
+});
+test("real in-memory HTTP requests cannot turn mutations into reads or override the authenticated role", async () => {
+  let writes = 0;
+  const api = router({
+    write: publicProcedure.input(z.any()).mutation(() => ++writes),
+    auth: router({
+      logout: publicProcedure.mutation(() => ({ success: true })),
+    }),
+  });
+  const ctx = context();
+  const req = new Request("http://isolated.invalid/api/trpc/write?type=query", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-role": "owner" },
+    body: JSON.stringify({ json: { role: "admin", actorId: 1 } }),
+  });
+  const response = await resolveResponse({
+    router: api,
+    req,
+    path: "write",
+    createContext: async () => ctx,
+    error: null,
+  });
+  assert.equal(response.status, 403);
+  assert.equal(writes, 0);
+  assert.equal(ctx.user.role, "observer");
+  const batch = new Request(
+    "http://isolated.invalid/api/trpc/auth.logout,write?batch=1",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        0: { json: null },
+        1: { json: { role: "owner" } },
+      }),
+    }
+  );
+  const result = await resolveResponse({
+    router: api,
+    req: batch,
+    path: "auth.logout,write",
+    createContext: async () => ctx,
+    error: null,
+  });
+  const body = (await result.json()) as any[];
+  assert.ok(body[1].error);
+  assert.equal(writes, 0);
+  assert.equal(ctx.user.role, "observer");
+});
+test("all detail datasets remain scoped to their parent, and invalid limits never execute a query", async () => {
+  let reads = 0;
+  const service = new ObserverReadService(async () => {
+    reads++;
+    return [[{ total: 0 }], []];
+  });
+  for (const p of OBSERVER_PAGES.filter(p => p.path.includes(":id")))
+    for (let dataset = 0; dataset < p.datasets.length; dataset++)
+      await service.read(observer, {
+        path: p.path.replace(":id", "1"),
+        dataset,
+        page: 1,
+        search: "",
+      });
+  const before = reads;
+  for (const page of [-1, 0, 0.5, Infinity, 100001])
+    await assert.rejects(
+      service.read(observer, { path: "/users", dataset: 0, page, search: "" })
+    );
+  assert.equal(reads, before);
+});
+
+test("raw team reader columns match the existing manual table contracts without a database", () => {
+  const sources = observerSources();
+  const files = fs.readdirSync("docs/maintenance-team-tickets/sql");
+  for (const [name, source] of Object.entries(sources)) {
+    if (!/^(maintenance_|ticket_team_)/.test(name)) continue;
+    const file = files.find(f => f.endsWith(`create_${name}.sql`));
+    assert.ok(file, `Missing existing table contract for ${name}`);
+    const sqlText = fs.readFileSync(
+      `docs/maintenance-team-tickets/sql/${file}`,
+      "utf8"
+    );
+    const defined = new Set(
+      Array.from(
+        sqlText.matchAll(
+          /^\s{2}([A-Za-z][A-Za-z0-9_]*)\s+(?:INT|VARCHAR|TEXT|ENUM|TIMESTAMP|TINYINT)\b/gm
+        ),
+        m => m[1]
+      )
+    );
+    for (const c of source.columns)
+      assert.ok(
+        defined.has(c.name),
+        `${name}.${c.name} is not in the existing table contract`
+      );
+  }
+});

@@ -4,22 +4,27 @@ import bcrypt from "bcryptjs";
 import { router, protectedProcedure } from "../_shared/procedures";
 import * as db from "../../_core/db";
 import { cacheManager, cacheKeys, invalidateCache } from "../../_core/cache";
+import { detectLanguage } from "../../services/translation/translation";
+import { queueTranslation } from "../../services/translation/translationEngine";
+import { localizeNamedRecords } from "../../services/translation/localizedMasterData";
 
 export const usersRouter = router({
-  list: protectedProcedure.query(async () => {
-    return cacheManager.getOrCompute(
+  list: protectedProcedure.query(async ({ ctx }) => {
+    const rows = await cacheManager.getOrCompute(
       cacheKeys.users(),
       () => db.getAllUsers(),
       600 // 10 minutes
     );
+    return localizeNamedRecords("USER", rows as any[], (ctx.user.preferredLanguage || "ar") as any);
   }),
 
-  byRole: protectedProcedure.input(z.object({ role: z.string() })).query(async ({ input }) => {
-    return cacheManager.getOrCompute(
+  byRole: protectedProcedure.input(z.object({ role: z.string() })).query(async ({ input, ctx }) => {
+    const rows = await cacheManager.getOrCompute(
       cacheKeys.usersByRole(input.role),
       () => db.getUsersByRole(input.role),
       600 // 10 minutes
     );
+    return localizeNamedRecords("USER", rows as any[], (ctx.user.preferredLanguage || "ar") as any);
   }),
 
   updateRole: protectedProcedure.input(z.object({ userId: z.number(), role: z.string() })).mutation(async ({ input, ctx }) => {
@@ -49,6 +54,11 @@ export const usersRouter = router({
     if (!oldUser) throw new TRPCError({ code: "NOT_FOUND", message: "المستخدم غير موجود" });
     const { id, ...updateData } = input;
     await db.updateUser(id, updateData);
+    if (updateData.name?.trim()) {
+      const sourceLanguage = await detectLanguage(updateData.name);
+      void queueTranslation({ entityType: "USER", entityId: id, fields: [{ fieldName: "name", text: updateData.name.trim() }], sourceLanguage, userId: ctx.user.id })
+        .catch((error) => console.error("[USER] name re-translation queue failed:", error));
+    }
     await db.createAuditLog({ userId: ctx.user.id, action: "update_user", entityType: "user", entityId: id, oldValues: { name: oldUser.name, email: oldUser.email, role: oldUser.role }, newValues: updateData });
     invalidateCache.users();
     return { success: true };
@@ -95,6 +105,11 @@ export const usersRouter = router({
     if (existing) throw new TRPCError({ code: "CONFLICT", message: "اسم المستخدم موجود مسبقاً" });
     const hash = await bcrypt.hash(input.password, 10);
     const id = await db.createLocalUser({ ...input, passwordHash: hash });
+    if (id && input.name.trim()) {
+      const sourceLanguage = await detectLanguage(input.name);
+      void queueTranslation({ entityType: "USER", entityId: id, fields: [{ fieldName: "name", text: input.name.trim() }], sourceLanguage, userId: ctx.user.id })
+        .catch((error) => console.error("[USER] name translation queue failed:", error));
+    }
     await db.createAuditLog({ userId: ctx.user.id, action: "create_user", entityType: "user", entityId: id!, newValues: { username: input.username, name: input.name, role: input.role } });
     invalidateCache.users();
     return { success: true, id };
@@ -153,12 +168,13 @@ export const usersRouter = router({
     return { success: true };
   }),
 
-  listTechnicians: protectedProcedure.query(async () => {
-    return cacheManager.getOrCompute(
+  listTechnicians: protectedProcedure.query(async ({ ctx }) => {
+    const rows = await cacheManager.getOrCompute(
       cacheKeys.usersByRole("technician"),
       () => db.getUsersByRole("technician"),
       600 // 10 minutes
     );
+    return localizeNamedRecords("USER", rows as any[], (ctx.user.preferredLanguage || "ar") as any);
   }),
 
   updateSpecialty: protectedProcedure.input(z.object({

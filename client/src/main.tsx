@@ -17,6 +17,8 @@ import superjson from "superjson";
 import App from "@/App";
 import { getLoginUrlWithReturn } from "@/const";
 import "@/index.css";
+import { getQueryKey } from "@trpc/react-query";
+import { observerReadOnlyLink } from "@/lib/observer-link";
 
 const queryClient = new QueryClient();
 
@@ -51,6 +53,7 @@ queryClient.getMutationCache().subscribe(event => {
 
 const trpcClient = trpc.createClient({
   links: [
+    observerReadOnlyLink(() => queryClient.getQueryData<{role:string}>(getQueryKey(trpc.auth.me, undefined, "query"))?.role),
     httpBatchLink({
       url: "/api/trpc",
       transformer: superjson,

@@ -1,0 +1,22 @@
+[
+  {
+    "file": "client/src/pages/maintenance-teams/ExecutionPanel.tsx",
+    "hash": "6AD4927B159952F053E8015D885078EFF2DB2E90F872255891927F12E6E71C8B"
+  },
+  {
+    "file": "client/src/pages/maintenance-teams/TicketWarehouseMaterialCard.tsx",
+    "hash": "209DFED727749C438CC6336BE3018920DE81ED858CE407A5516228CBBF56E42E"
+  },
+  {
+    "file": "tools/maintenance-team-tickets/execution-ui.test.tsx",
+    "hash": "53A999ADECC2DE956BA9FDE03C12EF5AF938CAC14CC21F028EFE21539412A49A"
+  },
+  {
+    "file": "tools/maintenance-team-tickets/warehouse-extra-ui.test.tsx",
+    "hash": "99D1DF0FB2BA0DE40BA293AC4D27CA768C978FFE5C6594085FD1A5C6F0FA0996"
+  },
+  {
+    "file": "docs/maintenance-team-tickets/TRANSFER_ISSUE_PMV2_PARITY_AR.md",
+    "hash": "87777F0C3364C4355F3D4460CF4CF5B2DC34C580DCB3F8D3E581BF32CC12F0CA"
+  }
+]

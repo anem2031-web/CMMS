@@ -1,4 +1,5 @@
 import { useAuth } from "@/_core/hooks/useAuth";
+import { ticketTeamNotificationPath } from "@shared/maintenance-team-tickets/warehouse-navigation";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
   DropdownMenu,
@@ -46,6 +47,8 @@ import { useTranslation } from "@/contexts/LanguageContext";
 import LanguageSwitcher from "@/components/common/LanguageSwitcher";
 import { usePushNotifications } from "@/hooks/usePushNotifications";
 import { canRoleAccessPath } from "@shared/roles";
+import { isObserver } from "@shared/observer-policy";
+import { ObserverReadOnlyBoundary } from "@/components/system/ObserverReadOnlyBoundary";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type MenuItemDef = {
@@ -75,10 +78,12 @@ const NAV_SECTIONS: NavSection[] = [
       { icon: Nfc,           labelKey: "nav.scanAsset",    path: "/scan-asset",
         roles: ["operator","technician","maintenance_manager","general_maintenance_manager","supervisor","gate_security","owner","admin"] },
       { icon: ClipboardList, labelKey: "nav.tickets",      path: "/tickets",
-        roles: ["operator","technician","it_manager","maintenance_manager","general_maintenance_manager","construction_procurement_manager","supervisor","gate_security","delegate","senior_management","executive_director","owner","admin"] },
+        roles: ["operator","technician","it_manager","it_member","maintenance_manager","general_maintenance_manager","construction_procurement_manager","supervisor","gate_security","delegate","senior_management","executive_director","owner","admin"] },
+      { icon: ClipboardList, labelKey: "nav.maintenanceTeamTickets", path: "/maintenance-team-tickets",
+        roles: ["technician","warehouse","maintenance_manager","general_maintenance_manager","construction_procurement_manager","owner","admin"] },
       // صندوق البلاغات — يبقى محجوبًا عن مدير الإنشاءات والمشتريات
       { icon: Inbox,         labelKey: "nav.ticketsInbox", path: "/tickets/inbox",
-        roles: ["operator","technician","it_manager","maintenance_manager","general_maintenance_manager","supervisor","gate_security","delegate","senior_management","executive_director","owner","admin"] },
+        roles: ["operator","technician","it_manager","it_member","maintenance_manager","general_maintenance_manager","supervisor","gate_security","delegate","senior_management","executive_director","owner","admin"] },
       { icon: Lightbulb,     labelKey: "nav.improvementIdeas", path: "/improvement-ideas" },
       { icon: ScanSearch,    labelKey: "nav.triage",       path: "/triage",
         roles: ["maintenance_manager","general_maintenance_manager","owner","admin"] },
@@ -104,10 +109,10 @@ const NAV_SECTIONS: NavSection[] = [
     id: "scheduled-maintenance",
     labelKey: "nav.sections.scheduledMaintenance",
     icon: CalendarClock,
-    roles: ["technician","it_manager","warehouse","maintenance_manager","general_maintenance_manager","owner","admin"],
+    roles: ["technician","it_manager","it_member","warehouse","maintenance_manager","general_maintenance_manager","construction_procurement_manager","owner","admin"],
     items: [
       { icon: ClipboardList, labelKey: "nav.pmv2MyTasks", path: "/scheduled-maintenance/my-tasks",
-        roles: ["technician","it_manager"] },
+        roles: ["technician","it_manager","it_member","owner","admin","maintenance_manager","general_maintenance_manager","construction_procurement_manager"] },
       { icon: Warehouse, labelKey: "nav.pmv2WarehouseRequests", path: "/scheduled-maintenance/warehouse-requests",
         roles: ["warehouse","owner","admin"] },
       { icon: FileText, labelKey: "nav.pmv2MaintenanceReports", path: "/scheduled-maintenance/reports",
@@ -173,6 +178,10 @@ const NAV_SECTIONS: NavSection[] = [
       // Phase 5: Legacy external technicians page hidden from sidebar (infrastructure preserved, route still accessible via direct URL)
       // { icon: UserCog, labelKey: "nav.technicians", path: "/technicians", roles: ["owner","admin","maintenance_manager","supervisor"] },
       { icon: HardDrive, labelKey: "nav.assets",        path: "/assets",
+        roles: ["owner","admin","maintenance_manager","general_maintenance_manager","construction_procurement_manager"] },
+      { icon: UserCog, labelKey: "nav.maintenanceTeams", path: "/maintenance-teams",
+        roles: ["owner","admin","maintenance_manager","general_maintenance_manager"] },
+      { icon: Tag,       labelKey: "nav.purchaseCategories", path: "/center-categories",
         roles: ["owner","admin","maintenance_manager","general_maintenance_manager","construction_procurement_manager"] },
       { icon: Tag,       labelKey: "nav.assetCategories", path: "/asset-categories",
         roles: ["owner","admin","maintenance_manager","general_maintenance_manager","construction_procurement_manager"] },
@@ -257,6 +266,7 @@ function getNestedValue(obj: any, path: string): string {
 }
 
 function canSeeItem(item: MenuItemDef, role: string): boolean {
+  if (isObserver(role)) return canSeeItem(item, "admin");
   // حارس البوابة: القائمة الجانبية تعرض وظيفة الحراسة فقط.
   // هذا قيد عرض فقط ولا يغيّر Route Guard أو صلاحيات الـBackend.
   if (role === "gate_security") return item.path === "/gate-security";
@@ -265,6 +275,7 @@ function canSeeItem(item: MenuItemDef, role: string): boolean {
 }
 
 function canSeeSection(section: NavSection, role: string): boolean {
+  if (isObserver(role)) return canSeeSection(section, "admin");
   if (!section.roles) return true;
   return section.roles.includes(role);
 }
@@ -315,7 +326,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
 // ─── Inner Component ──────────────────────────────────────────────────────────
 function DashboardLayoutContent({ children, setSidebarWidth }: { children: React.ReactNode; setSidebarWidth: (w: number) => void }) {
-  const { user, logout } = useAuth();
+  const { user, authenticatedUser, isReadOnly, logout } = useAuth();
   const [location, setLocation] = useLocation();
   const { state, toggleSidebar } = useSidebar();
   const isCollapsed = state === "collapsed";
@@ -451,7 +462,7 @@ function DashboardLayoutContent({ children, setSidebarWidth }: { children: React
   const { data: latestNotifications } = trpc.notifications.list.useQuery(undefined, { refetchInterval: 5000 });
 
   // ── Live notification popup ──
-  const [popupNotifs, setPopupNotifs] = useState<Array<{ id: number; title: string; message: string; type: string; relatedTicketId?: number | null }>>([]);
+  const [popupNotifs, setPopupNotifs] = useState<Array<{ id: number; title: string; message: string; type: string; relatedTicketId?: number | null; eventKey?: string | null }>>([]);
 
   // Change password dialog
   const [changePwOpen, setChangePwOpen] = useState(false);
@@ -476,7 +487,7 @@ function DashboardLayoutContent({ children, setSidebarWidth }: { children: React
   });
 
   // ── Push Notifications (mobile/desktop OS-level) ──
-  const { isSupported: pushSupported, isSubscribed: pushSubscribed, subscribe: pushSubscribe, unsubscribe: pushUnsubscribe } = usePushNotifications();
+  const { isSupported: pushSupported, isSubscribed: pushSubscribed, subscribe: pushSubscribe, unsubscribe: pushUnsubscribe } = usePushNotifications(!isReadOnly);
 
   // ── Play notification sound ──
   const playNotifSound = useCallback(() => {
@@ -504,7 +515,7 @@ function DashboardLayoutContent({ children, setSidebarWidth }: { children: React
     if (newNotifs.length > 0) {
       setPopupNotifs(prev => [
         ...prev,
-        ...newNotifs.map(n => ({ id: n.id, title: n.title, message: n.message, type: n.type || "info", relatedTicketId: n.relatedTicketId }))
+        ...newNotifs.map(n => ({ id: n.id, title: n.title, message: n.message, type: n.type || "info", relatedTicketId: n.relatedTicketId, eventKey: n.eventKey }))
       ]);
       newNotifs.forEach(n => {
         setTimeout(() => {
@@ -637,7 +648,7 @@ function DashboardLayoutContent({ children, setSidebarWidth }: { children: React
   return (
     <>
       <div className="relative" ref={sidebarRef}>
-        <Sidebar collapsible="icon" className="border-l-0 border-r border-sidebar-border/40" side="right" disableTransition={isResizing}>
+        <Sidebar data-observer-navigation="true" collapsible="icon" className="border-l-0 border-r border-sidebar-border/40" side="right" disableTransition={isResizing}>
 
           {/* ── Header ── */}
           <SidebarHeader className="h-14 justify-center border-b border-sidebar-border/40 px-3">
@@ -869,7 +880,7 @@ function DashboardLayoutContent({ children, setSidebarWidth }: { children: React
                     <div className="flex-1 min-w-0">
                       <p className="text-[12.5px] font-medium truncate leading-none text-sidebar-foreground">{user?.name || "-"}</p>
                       <p className="text-[10.5px] text-sidebar-foreground/50 truncate mt-0.5">
-                        {(t.roles as any)[user?.role || "user"] || user?.role}
+                        {(t.roles as any)[authenticatedUser?.role || user?.role || "user"] || authenticatedUser?.role || user?.role}
                       </p>
                     </div>
                   )}
@@ -880,6 +891,7 @@ function DashboardLayoutContent({ children, setSidebarWidth }: { children: React
                 <DropdownMenuSeparator />
                 {user?.username && (
                   <DropdownMenuItem
+                    disabled={isReadOnly}
                     onClick={() => { setChangePwOpen(true); setCurrentPw(""); setNewPw(""); }}
                     className="cursor-pointer gap-2"
                   >
@@ -888,7 +900,7 @@ function DashboardLayoutContent({ children, setSidebarWidth }: { children: React
                   </DropdownMenuItem>
                 )}
                 <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={logout} className="cursor-pointer text-destructive focus:text-destructive">
+                <DropdownMenuItem data-observer-action="logout" onClick={logout} className="cursor-pointer text-destructive focus:text-destructive">
                   <LogOut className="ml-2 h-4 w-4" />
                   <span>{t.logout}</span>
                 </DropdownMenuItem>
@@ -953,7 +965,7 @@ function DashboardLayoutContent({ children, setSidebarWidth }: { children: React
             </div>
           </div>
         )}
-        <main className="flex-1 p-4 md:p-6">{canAccessCurrentPath ? children : null}</main>
+        <main className="flex-1 p-4 md:p-6"><ObserverReadOnlyBoundary active={!!isReadOnly}>{canAccessCurrentPath ? children : null}</ObserverReadOnlyBoundary></main>
       </SidebarInset>
 
       {/* ── iOS Install Guide ── */}
@@ -1127,7 +1139,7 @@ function DashboardLayoutContent({ children, setSidebarWidth }: { children: React
                 <div className="flex gap-2 mt-2">
                   {notif.relatedTicketId && (
                     <button
-                      onClick={() => { setLocation(`/tickets/${notif.relatedTicketId}`); dismissPopup(notif.id); }}
+                      onClick={() => { setLocation(ticketTeamNotificationPath(notif.eventKey, notif.relatedTicketId) ?? `/tickets/${notif.relatedTicketId}`); dismissPopup(notif.id); }}
                       className={`text-xs font-medium hover:underline ${style.iconColor}`}
                     >
                       عرض البلاغ

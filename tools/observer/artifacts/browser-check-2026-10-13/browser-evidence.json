@@ -1,0 +1,97 @@
+[
+  {
+    "page": "users",
+    "readOnlyBadge": true,
+    "createDisabled": true,
+    "accountRole": "observer",
+    "searchWorks": true
+  },
+  {
+    "page": "tickets",
+    "createDisabled": true,
+    "exportDisabled": true
+  },
+  {
+    "page": "ticket_detail",
+    "url": "http://localhost:4001/tickets/2010128",
+    "createTaskDisabled": true,
+    "attachmentDisabled": true,
+    "printDisabled": true,
+    "subTicketNavigationDisabled": true
+  },
+  {
+    "page": "ticket_create_direct",
+    "fieldsDisabled": true,
+    "createDisabled": true
+  },
+  {
+    "page": "purchase_orders",
+    "createDisabled": true,
+    "exportDisabled": true,
+    "allOrdersNavigationDisabled": true
+  },
+  {
+    "page": "inventory",
+    "createDisabled": true,
+    "exportDisabled": true,
+    "searchModeByNumberDisabled": true
+  },
+  {
+    "page": "pmv2_my_tasks",
+    "readDataLoaded": true,
+    "startDisabled": true,
+    "taskSelectionDisabled": true
+  },
+  {
+    "page": "warehouse_requests_pmv2",
+    "readLoaded": true,
+    "transferDisabled": true
+  },
+  {
+    "page": "warehouse_requests_tickets",
+    "readError": "SELECT * FROM maintenance_teams WHERE id=? FOR UPDATE",
+    "stockUnavailable": true,
+    "confirmDisabled": true
+  },
+  {
+    "page": "catalog_items",
+    "readDataLoaded": true,
+    "importDisabled": true,
+    "exportDisabled": true,
+    "createDisabled": true,
+    "clearFiltersDisabled": true
+  },
+  {
+    "page": "maintenance_teams",
+    "detailsOpen": true,
+    "createDisabled": true,
+    "editDisabled": true,
+    "addMemberDisabled": true,
+    "deactivateDisabled": true
+  },
+  {
+    "page": "construction_projects",
+    "createDisabled": true
+  },
+  {
+    "page": "cost_report",
+    "viewControlsDisabled": true
+  },
+  {
+    "page": "backup",
+    "createDisabled": true,
+    "restoreDisabled": true
+  },
+  {
+    "page": "responsive_navigation",
+    "widthApprox": 617,
+    "disabledSidebarButtons": 55,
+    "desktopNavigationEnabled": true,
+    "mobileProfileDisabled": true
+  },
+  {
+    "page": "logout",
+    "desktopLogoutWorked": true,
+    "protectedReloadShowsLogin": true
+  }
+]

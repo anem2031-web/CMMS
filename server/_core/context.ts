@@ -6,6 +6,8 @@ export type TrpcContext = {
   req: CreateExpressContextOptions["req"];
   res: CreateExpressContextOptions["res"];
   user: User | null;
+  /** Original authenticated identity; never sourced from a request body. */
+  authenticatedUser?: User | null;
   authFailure?: "dependency" | null;
 };
 

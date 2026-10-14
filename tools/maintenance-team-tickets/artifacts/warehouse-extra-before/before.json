@@ -1,0 +1,42 @@
+[
+  {
+    "file": "client/src/pages/maintenance-teams/ExecutionPanel.tsx",
+    "backup": "C:\\Users\\mh\\Desktop\\CMMSFINAL\\tools\\maintenance-team-tickets\\artifacts\\warehouse-extra-before\\client__src__pages__maintenance-teams__ExecutionPanel.tsx.before",
+    "hash": "03FF724531674FE517E4D1C741FA84E01E650DC39B3BA1B09999FADC8F931AE8"
+  },
+  {
+    "file": "client/src/pages/purchase/CreatePurchaseOrder.tsx",
+    "backup": "C:\\Users\\mh\\Desktop\\CMMSFINAL\\tools\\maintenance-team-tickets\\artifacts\\warehouse-extra-before\\client__src__pages__purchase__CreatePurchaseOrder.tsx.before",
+    "hash": "14A5C1F8A78B0427BE73D4EAB4F773B24CD61AF83A3BD790B680EA33C58E68BB"
+  },
+  {
+    "file": "server/maintenance-team-tickets/service.ts",
+    "backup": "C:\\Users\\mh\\Desktop\\CMMSFINAL\\tools\\maintenance-team-tickets\\artifacts\\warehouse-extra-before\\server__maintenance-team-tickets__service.ts.before",
+    "hash": "C7CAD5A164E417C733BA92227E2333AFFF4B6F72D9AE7EA1085F52C31C18C016"
+  },
+  {
+    "file": "server/maintenance-team-tickets/ports.ts",
+    "backup": "C:\\Users\\mh\\Desktop\\CMMSFINAL\\tools\\maintenance-team-tickets\\artifacts\\warehouse-extra-before\\server__maintenance-team-tickets__ports.ts.before",
+    "hash": "4B6EDDF4CE2707BC67F5B1320AA11016A20C6F4A49771F501975D1BB27B81E0B"
+  },
+  {
+    "file": "server/routers/maintenance-teams/purchase-form.ts",
+    "backup": "C:\\Users\\mh\\Desktop\\CMMSFINAL\\tools\\maintenance-team-tickets\\artifacts\\warehouse-extra-before\\server__routers__maintenance-teams__purchase-form.ts.before",
+    "hash": "95EA97F8F3A298334AA876E02BDAD807E5EA360D3B321EF2D576B0C0502E036D"
+  },
+  {
+    "file": "server/routers/purchase/purchase-orders.router.ts",
+    "backup": "C:\\Users\\mh\\Desktop\\CMMSFINAL\\tools\\maintenance-team-tickets\\artifacts\\warehouse-extra-before\\server__routers__purchase__purchase-orders.router.ts.before",
+    "hash": "82119A480D20C16A8A5BA5B6E9D7281072A7C255636CEC89127384D4B16C1AFD"
+  },
+  {
+    "file": "server/services/improvement-ideas/execution.ts",
+    "backup": "C:\\Users\\mh\\Desktop\\CMMSFINAL\\tools\\maintenance-team-tickets\\artifacts\\warehouse-extra-before\\server__services__improvement-ideas__execution.ts.before",
+    "hash": "843EE0983B9AD2682C4C50124A158DBBED8E8FD56B71BEB15ABA68F91691AF14"
+  },
+  {
+    "file": "shared/improvement-execution.ts",
+    "backup": "C:\\Users\\mh\\Desktop\\CMMSFINAL\\tools\\maintenance-team-tickets\\artifacts\\warehouse-extra-before\\shared__improvement-execution.ts.before",
+    "hash": "AC4BA0E47003D8ED48C10D70B7576347589E178AA2829BE3DC471827796C2832"
+  }
+]

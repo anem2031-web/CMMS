@@ -1,4 +1,5 @@
 import * as db from "../../_core/db";
+import { isObserverReadScope } from "../../_core/authz/observer-read-scope";
 
 const TERMINAL_ITEM_STATUSES = new Set(["cancelled", "rejected"]);
 const PENDING_BATCH_STATUSES = new Set(["pending_accounting", "pending_management"]);
@@ -28,6 +29,7 @@ export async function rejectEmptyPendingPricingBatches(
     reason?: string;
   }
 ): Promise<number[]> {
+  if (isObserverReadScope()) return [];
   const [items, batches] = await Promise.all([
     db.getPOItems(purchaseOrderId),
     db.getPOPricingBatches(purchaseOrderId),

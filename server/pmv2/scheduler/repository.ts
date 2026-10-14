@@ -7,14 +7,10 @@ import {
   pmv2Specialties,
   pmv2TaskItems,
   pmv2Tasks,
-  pmv2TeamMembers,
   pmv2Teams,
-  users,
 } from "../../../drizzle/schema";
 import { getDb } from "../../_core/db/client";
 import { writePmv2Audit } from "../audit/service";
-import { createNotification } from "../../_core/db/notifications";
-import { APP_ROLE } from "../../../shared/roles";
 import { queuePmv2Translation } from "../translation-queue";
 import type {
   Pmv2SchedulerChecklistItemRecord,
@@ -132,35 +128,6 @@ export class Pmv2DbSchedulerRepository implements Pmv2SchedulerRepository {
         entityId: id,
         newValues: input,
       });
-
-      // IT Manager is an execution member, not a PM V2 manager. Notify only
-      // active IT managers who are active members of the newly assigned team.
-      // Notification failure must never roll back/abort scheduler generation.
-      try {
-        const itMembers = await db
-          .select({ userId: users.id })
-          .from(pmv2TeamMembers)
-          .innerJoin(users, eq(users.id, pmv2TeamMembers.userId))
-          .where(
-            and(
-              eq(pmv2TeamMembers.teamId, input.teamId),
-              eq(pmv2TeamMembers.isActive, 1),
-              eq(users.isActive, 1),
-              eq(users.role, APP_ROLE.IT_MANAGER),
-            ),
-          );
-        for (const member of itMembers) {
-          await createNotification({
-            userId: Number(member.userId),
-            title: "مهمة صيانة مجدولة جديدة",
-            message: `تم إسناد مهمة الصيانة المجدولة ${taskNumber} إلى فريقك`,
-            type: "info",
-            allowItManager: true,
-          });
-        }
-      } catch (notificationError) {
-        console.error("[PMV2] Failed to notify IT manager about new scheduled task", notificationError);
-      }
 
       return { id, created: true };
     } catch (error) {

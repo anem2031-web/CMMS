@@ -1,6 +1,9 @@
 import { trpc } from "@/lib/trpc";
 import { keepPreviousData } from "@tanstack/react-query";
-import { useLocation } from "wouter";
+import { useLocation, useSearch } from "wouter";
+import { ImprovementFinancialPanel } from "@/components/improvement/ImprovementFinancialPanel";
+import { getLocalizedName } from "@/hooks/useTranslatedField";
+import { hasCompleteCostStudy } from "@shared/improvement-execution";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -24,10 +27,186 @@ import { useStaticLabels } from "@/hooks/useContentTranslation";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { toast } from "sonner";
 
+const IMPROVEMENT_FLOW_LABELS = {
+  "ar": {
+    "currentSituation": "الوضع الحالي والمشكلة",
+    "targetOutcome": "الهدف من التطوير",
+    "successMetric": "مؤشر قياس النجاح",
+    "baselineValue": "القيمة قبل التحسين (اختياري)",
+    "targetValue": "القيمة المستهدفة (اختياري)",
+    "study": "دراسة التكلفة التقديرية",
+    "saveStudy": "حفظ دراسة التكلفة",
+    "materialsCost": "تكلفة المواد",
+    "laborCost": "تكلفة العمالة",
+    "servicesCost": "تكلفة الخدمات",
+    "totalCost": "إجمالي التكلفة التقديرية",
+    "costStudyNotes": "مبررات التكلفة والجدوى",
+    "studyRequired": "تجب دراسة التكلفة قبل الموافقة",
+    "studyReady": "دراسة التكلفة مكتملة",
+    "legacy": "فكرة سابقة (إجراءاتها القديمة متاحة)",
+    "studyMissing": "لم تسجل دراسة تكلفة بعد",
+    "approvalBlocked": "لا يمكن الموافقة قبل دراسة التكلفة",
+    "plan": "خطة تنفيذ التحسين",
+    "savePlan": "حفظ خطة التنفيذ",
+    "planOwner": "المسؤول عن التنفيذ",
+    "startDate": "تاريخ بداية التنفيذ",
+    "dueDate": "الموعد المستهدف",
+    "progress": "نسبة الإنجاز %",
+    "planNotes": "ملاحظات التنفيذ",
+    "planRequired": "حدد المسؤول والموعد المستهدف قبل التحويل",
+    "evaluation": "تقييم نتائج التطوير",
+    "actualCost": "التكلفة الفعلية",
+    "achievedValue": "القيمة الفعلية للمؤشر",
+    "resultRating": "تقييم النتيجة",
+    "resultNotes": "النتائج المحققة وملاحظات التقييم",
+    "achieved": "تحقق الهدف",
+    "partial": "تحقق جزئيًا",
+    "not_achieved": "لم يتحقق الهدف",
+    "achievementRate": "نسبة تحقيق المستهدف",
+    "details": "تفاصيل التحسين",
+    "resultPending": "لم يُقيّم الأثر بعد",
+    "invalidValues": "أدخل القيم المطلوبة بشكل صحيح",
+    "requireResults": "يجب تسجيل التكلفة الفعلية والتقييم والنتيجة قبل الإغلاق",
+    "submit": "حفظ",
+    "required": "حقل مطلوب",
+    "noStudy": "لا توجد دراسة تكلفة محفوظة",
+    "costDifference": "فرق التكلفة (فعلي − تقديري)",
+    "noMetric": "لم تُحدد قيم رقمية لحساب نسبة الإنجاز",
+    "planSaveSuccess": "تم حفظ خطة التنفيذ",
+    "studySaveSuccess": "تم حفظ دراسة التكلفة",
+    "targetRequired": "القيمة الفعلية للمؤشر مطلوبة عند تحديد قيمة مستهدفة",
+    "review": "تسجيل نتائج التطوير"
+  },
+  "en": {
+    "currentSituation": "Current situation / problem",
+    "targetOutcome": "Target outcome",
+    "successMetric": "Success measure",
+    "baselineValue": "Baseline (optional)",
+    "targetValue": "Target value (optional)",
+    "study": "Estimated cost study",
+    "saveStudy": "Save cost study",
+    "materialsCost": "Materials cost",
+    "laborCost": "Labor cost",
+    "servicesCost": "Services cost",
+    "totalCost": "Total estimated cost",
+    "costStudyNotes": "Feasibility and cost justification",
+    "studyRequired": "Cost study required before approval",
+    "studyReady": "Cost study completed",
+    "legacy": "Existing idea (legacy workflow)",
+    "studyMissing": "No cost study recorded",
+    "approvalBlocked": "Cost study required for approval",
+    "plan": "Improvement execution plan",
+    "savePlan": "Save execution plan",
+    "planOwner": "Execution owner",
+    "startDate": "Start date",
+    "dueDate": "Target due date",
+    "progress": "Progress %",
+    "planNotes": "Execution notes",
+    "planRequired": "Add execution owner and due date before conversion",
+    "evaluation": "Development outcome evaluation",
+    "actualCost": "Actual cost",
+    "achievedValue": "Actual metric value",
+    "resultRating": "Outcome rating",
+    "resultNotes": "Achieved results / evaluation notes",
+    "achieved": "Achieved",
+    "partial": "Partially achieved",
+    "not_achieved": "Not achieved",
+    "achievementRate": "Target attainment",
+    "details": "Improvement details",
+    "resultPending": "Outcome not evaluated yet",
+    "invalidValues": "Enter valid required values",
+    "requireResults": "Complete actual cost, outcome and notes before closing",
+    "submit": "Save",
+    "required": "Required",
+    "noStudy": "No saved cost study",
+    "costDifference": "Cost variance (actual − estimate)",
+    "noMetric": "No numeric values to calculate attainment",
+    "planSaveSuccess": "Execution plan saved",
+    "studySaveSuccess": "Cost study saved",
+    "targetRequired": "Actual metric value is required when a target value exists",
+    "review": "Record development outcome"
+  },
+  "ur": {
+    "currentSituation": "موجودہ صورتِ حال / مسئلہ",
+    "targetOutcome": "مطلوبہ نتیجہ",
+    "successMetric": "کامیابی کا پیمانہ",
+    "baselineValue": "ابتدائی قدر (اختیاری)",
+    "targetValue": "ہدف کی قدر (اختیاری)",
+    "study": "تخمینی لاگت کا مطالعہ",
+    "saveStudy": "لاگت کا مطالعہ محفوظ کریں",
+    "materialsCost": "مواد کی لاگت",
+    "laborCost": "محنت کی لاگت",
+    "servicesCost": "خدمات کی لاگت",
+    "totalCost": "کل تخمینی لاگت",
+    "costStudyNotes": "لاگت اور فائدے کا جواز",
+    "studyRequired": "منظوری سے پہلے لاگت کا مطالعہ ضروری ہے",
+    "studyReady": "لاگت کا مطالعہ مکمل",
+    "legacy": "پرانا خیال (سابقہ طریقہ جاری)",
+    "studyMissing": "لاگت کا مطالعہ موجود نہیں",
+    "approvalBlocked": "منظوری کے لیے لاگت کا مطالعہ ضروری ہے",
+    "plan": "عملدرآمد کا منصوبہ",
+    "savePlan": "منصوبہ محفوظ کریں",
+    "planOwner": "ذمہ دار فرد",
+    "startDate": "آغاز کی تاریخ",
+    "dueDate": "مطلوبہ تکمیل تاریخ",
+    "progress": "پیش رفت %",
+    "planNotes": "عملدرآمد کے نوٹس",
+    "planRequired": "تبدیلی سے پہلے ذمہ دار اور تاریخ لکھیں",
+    "evaluation": "نتائج کا جائزہ",
+    "actualCost": "حقیقی لاگت",
+    "achievedValue": "حاصل شدہ قدر",
+    "resultRating": "نتیجہ",
+    "resultNotes": "حاصل شدہ نتائج اور تبصرے",
+    "achieved": "ہدف پورا ہوا",
+    "partial": "جزوی کامیابی",
+    "not_achieved": "ہدف پورا نہیں ہوا",
+    "achievementRate": "ہدف کی تکمیل",
+    "details": "بہتری کی تفصیل",
+    "resultPending": "ابھی نتائج کا جائزہ نہیں ہوا",
+    "invalidValues": "درست اور لازمی قدریں درج کریں",
+    "requireResults": "بند کرنے سے پہلے حقیقی لاگت، نتیجہ اور نوٹس درج کریں",
+    "submit": "محفوظ کریں",
+    "required": "لازمی",
+    "noStudy": "لاگت کا مطالعہ نہیں",
+    "costDifference": "لاگت کا فرق (حقیقی − تخمینہ)",
+    "noMetric": "تکمیل کا تناسب نکالنے کے لیے عددی معلومات نہیں",
+    "planSaveSuccess": "عملدرآمد کا منصوبہ محفوظ ہوا",
+    "studySaveSuccess": "لاگت کا مطالعہ محفوظ ہوا",
+    "targetRequired": "ہدف مقرر ہونے پر اصل قدر درج کریں",
+    "review": "ترقی کے نتائج درج کریں"
+  }
+} as const;
+
+function useFlowLabels() {
+  const { language } = useTranslation();
+  return IMPROVEMENT_FLOW_LABELS[language];
+}
+
+function moneyValue(value: unknown): number | null {
+  if (value === "" || value === undefined || value === null) return null;
+  const n = Number(value);
+  return Number.isFinite(n) && n >= 0 && n <= 999999999999.99 ? n : null;
+}
+
+function estimatedTotal(idea: any) {
+  return Number(idea.estimatedMaterialsCost ?? 0) + Number(idea.estimatedLaborCost ?? 0) + Number(idea.estimatedServicesCost ?? 0);
+}
+
+function achievementPercent(idea: any): number | null {
+  const b = idea.baselineValue, t = idea.targetValue, a = idea.achievedValue;
+  if (b == null || t == null || a == null) return null;
+  const span = Number(t) - Number(b);
+  if (!Number.isFinite(span) || span === 0) return null;
+  const pct = ((Number(a) - Number(b)) / span) * 100;
+  return Number.isFinite(pct) ? Math.round(pct * 10) / 10 : null;
+}
+
+function currencyNumber(n: number) { return n.toLocaleString(undefined, { maximumFractionDigits: 2, minimumFractionDigits: 2 }); }
+
 const PAGE_SIZE = 10;
 const MAX_IMAGES = 5;
 // تحكم مؤقت: إخفاء حقلي الموقع والقسم بنافذة تقديم الفكرة (بدون حذف المنطق) — لإعادتها لاحقاً غيّر القيمة إلى true
-const SHOW_SITE_SECTION_FIELDS = false;
+const SHOW_SITE_SECTION_FIELDS = true;
 
 const IDEA_STATUS_COLORS: Record<string, string> = {
   new: "bg-blue-100 text-blue-700",
@@ -160,17 +339,19 @@ function IdeaImagesPreview({ ideaId }: { ideaId: number }) {
 // نافذة تقديم فكرة جديدة (تتاح للجميع)
 // ════════════════════════════════════════════════════════════════════════
 function CreateIdeaDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
+  const w = useFlowLabels();
   const { getPriorityLabel } = useStaticLabels();
   const utils = trpc.useUtils();
   const { data: sites = [] } = trpc.sites.list.useQuery();
   const { data: allSections } = trpc.sections.list.useQuery(undefined);
 
-  const [form, setForm] = useState({ title: "", description: "", category: "operational", priority: "medium", expectedBenefit: "", siteId: "", sectionId: "" });
+  const [form, setForm] = useState({ title: "", description: "", category: "operational", priority: "medium", expectedBenefit: "", currentSituation: "", targetOutcome: "", successMetric: "", baselineValue: "", targetValue: "", siteId: "", sectionId: "", assetId: "" });
+  const { data: assets = [] } = trpc.assets.list.useQuery({ sectionId: Number(form.sectionId) }, { enabled: !!form.sectionId });
   const [fileEntries, setFileEntries] = useState<FileEntry[]>([]);
   const addAttachmentMut = trpc.attachments.add.useMutation();
 
-  const resetForm = () => { setForm({ title: "", description: "", category: "operational", priority: "medium", expectedBenefit: "", siteId: "", sectionId: "" }); setFileEntries([]); };
+  const resetForm = () => { setForm({ title: "", description: "", category: "operational", priority: "medium", expectedBenefit: "", currentSituation: "", targetOutcome: "", successMetric: "", baselineValue: "", targetValue: "", siteId: "", sectionId: "", assetId: "" }); setFileEntries([]); };
 
   const createMutation = trpc.improvementIdeas.create.useMutation({
     onSuccess: async (res) => {
@@ -194,16 +375,26 @@ function CreateIdeaDialog({ open, onOpenChange }: { open: boolean; onOpenChange:
 
   const handleCreate = () => {
     if (!form.title.trim()) { toast.error(t.improvementIdeas.title); return; }
+    if (!form.description.trim() || !form.expectedBenefit.trim() || !form.siteId || !form.sectionId || !form.currentSituation.trim() || !form.targetOutcome.trim() || !form.successMetric.trim()) { toast.error(w.required); return; }
+    const baseline = form.baselineValue.trim() ? Number(form.baselineValue) : undefined;
+    const target = form.targetValue.trim() ? Number(form.targetValue) : undefined;
+    if ((baseline !== undefined && !Number.isFinite(baseline)) || (target !== undefined && !Number.isFinite(target)) || ((baseline === undefined) !== (target === undefined))) { toast.error(w.invalidValues); return; }
     const uploading = fileEntries.some(e => e.status === "uploading" || e.status === "pending");
     if (uploading) { toast.error(t.attachments?.uploading || "الرجاء انتظار اكتمال رفع الصور"); return; }
     createMutation.mutate({
       title: form.title,
-      description: form.description || undefined,
+      description: form.description.trim(),
       category: form.category,
       priority: form.priority,
-      expectedBenefit: form.expectedBenefit || undefined,
-      siteId: form.siteId ? Number(form.siteId) : undefined,
-      sectionId: form.sectionId ? Number(form.sectionId) : undefined,
+      expectedBenefit: form.expectedBenefit.trim(),
+      currentSituation: form.currentSituation.trim(),
+      targetOutcome: form.targetOutcome.trim(),
+      successMetric: form.successMetric.trim(),
+      baselineValue: baseline,
+      targetValue: target,
+      siteId: Number(form.siteId),
+      sectionId: Number(form.sectionId),
+      assetId: form.assetId ? Number(form.assetId) : undefined,
     });
   };
 
@@ -213,12 +404,19 @@ function CreateIdeaDialog({ open, onOpenChange }: { open: boolean; onOpenChange:
         <DialogHeader><DialogTitle>{t.improvementIdeas.createNew}</DialogTitle></DialogHeader>
         <div className="space-y-3">
           <div className="space-y-1">
-            <Label>{t.improvementIdeas.title}</Label>
+            <Label>{t.improvementIdeas.title} *</Label>
             <Input value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} />
           </div>
           <div className="space-y-1">
-            <Label>{t.improvementIdeas.description}</Label>
+            <Label>{t.improvementIdeas.description} *</Label>
             <Textarea value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} />
+          </div>
+          <div className="space-y-1"><Label>{w.currentSituation} *</Label><Textarea value={form.currentSituation} onChange={e => setForm(f => ({ ...f, currentSituation: e.target.value }))} /></div>
+          <div className="space-y-1"><Label>{w.targetOutcome} *</Label><Textarea value={form.targetOutcome} onChange={e => setForm(f => ({ ...f, targetOutcome: e.target.value }))} /></div>
+          <div className="space-y-1"><Label>{w.successMetric} *</Label><Input value={form.successMetric} onChange={e => setForm(f => ({ ...f, successMetric: e.target.value }))} /></div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1"><Label>{w.baselineValue}</Label><Input type="number" step="any" value={form.baselineValue} onChange={e => setForm(f => ({ ...f, baselineValue: e.target.value }))} /></div>
+            <div className="space-y-1"><Label>{w.targetValue}</Label><Input type="number" step="any" value={form.targetValue} onChange={e => setForm(f => ({ ...f, targetValue: e.target.value }))} /></div>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
@@ -241,29 +439,34 @@ function CreateIdeaDialog({ open, onOpenChange }: { open: boolean; onOpenChange:
             </div>
           </div>
           <div className="space-y-1">
-            <Label>{t.improvementIdeas.expectedBenefit}</Label>
+            <Label>{t.improvementIdeas.expectedBenefit} *</Label>
             <Textarea value={form.expectedBenefit} onChange={e => setForm(f => ({ ...f, expectedBenefit: e.target.value }))} />
           </div>
           {SHOW_SITE_SECTION_FIELDS && (
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
-                <Label>{t.improvementIdeas.site}</Label>
-                <Select value={form.siteId} onValueChange={v => setForm(f => ({ ...f, siteId: v, sectionId: "" }))}>
+                <Label>{t.improvementIdeas.site} *</Label>
+                <Select value={form.siteId} onValueChange={v => setForm(f => ({ ...f, siteId: v, sectionId: "", assetId: "" }))}>
                   <SelectTrigger><SelectValue placeholder={t.improvementIdeas.site} /></SelectTrigger>
-                  <SelectContent>{sites.map((s: any) => <SelectItem key={s.id} value={String(s.id)}>{s.name}</SelectItem>)}</SelectContent>
+                  <SelectContent>{sites.filter((s: any) => s.isActive).map((s: any) => <SelectItem key={s.id} value={String(s.id)}>{getLocalizedName(s, language)}</SelectItem>)}</SelectContent>
                 </Select>
               </div>
               <div className="space-y-1">
-                <Label>{t.improvementIdeas.section}</Label>
-                <Select value={form.sectionId} onValueChange={v => setForm(f => ({ ...f, sectionId: v }))} disabled={!form.siteId}>
+                <Label>{t.improvementIdeas.section} *</Label>
+                <Select value={form.sectionId} onValueChange={v => setForm(f => ({ ...f, sectionId: v, assetId: "" }))} disabled={!form.siteId}>
                   <SelectTrigger><SelectValue placeholder={t.improvementIdeas.section} /></SelectTrigger>
                   <SelectContent>
-                    {allSections?.filter((s: any) => s.siteId === Number(form.siteId)).map((s: any) => <SelectItem key={s.id} value={String(s.id)}>{s.name}</SelectItem>)}
+                    {allSections?.filter((s: any) => s.isActive && s.siteId === Number(form.siteId)).map((s: any) => <SelectItem key={s.id} value={String(s.id)}>{getLocalizedName(s, language)}</SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>
             </div>
           )}
+          <div className="space-y-1"><Label>{t.assets.title}</Label>
+            <Select value={form.assetId || "none"} disabled={!form.sectionId} onValueChange={v => setForm(f => ({ ...f, assetId: v === "none" ? "" : v }))}>
+              <SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="none">—</SelectItem>{assets.filter((a: any) => a.sectionId === Number(form.sectionId)).map((a: any) => <SelectItem key={a.id} value={String(a.id)}>{getLocalizedName(a, language)}</SelectItem>)}</SelectContent>
+            </Select>
+          </div>
           <div className="space-y-1">
             <Label>{t.improvementIdeas.attachImages}</Label>
             <IdeaImageUploader fileEntries={fileEntries} setFileEntries={setFileEntries} />
@@ -283,6 +486,7 @@ function CreateIdeaDialog({ open, onOpenChange }: { open: boolean; onOpenChange:
 // ════════════════════════════════════════════════════════════════════════
 function ClassifyDialog({ idea, onClose }: { idea: any; onClose: () => void }) {
   const { t } = useTranslation();
+  const w = useFlowLabels();
   const { getPriorityLabel } = useStaticLabels();
   const utils = trpc.useUtils();
   const [category, setCategory] = useState(idea.category);
@@ -309,6 +513,8 @@ function ClassifyDialog({ idea, onClose }: { idea: any; onClose: () => void }) {
           <DialogDescription>{t.improvementIdeas.classifyHint}</DialogDescription>
         </DialogHeader>
         {idea.description && <p className="text-sm text-muted-foreground">{idea.description}</p>}
+        {idea.currentSituation && <p className="text-sm"><b>{w.currentSituation}: </b>{idea.currentSituation}</p>}
+        {idea.targetOutcome && <p className="text-sm"><b>{w.targetOutcome}: </b>{idea.targetOutcome}</p>}
         <IdeaImagesPreview ideaId={idea.id} />
         <div className="space-y-3 pt-2">
           <div className="space-y-1">
@@ -353,6 +559,7 @@ function ClassifyDialog({ idea, onClose }: { idea: any; onClose: () => void }) {
 // ════════════════════════════════════════════════════════════════════════
 function DecideDialog({ idea, onClose }: { idea: any; onClose: () => void }) {
   const { t } = useTranslation();
+  const w = useFlowLabels();
   const utils = trpc.useUtils();
   const [decision, setDecision] = useState<"approved" | "postponed" | "cancelled" | null>(null);
   const [decisionNotes, setDecisionNotes] = useState("");
@@ -371,6 +578,7 @@ function DecideDialog({ idea, onClose }: { idea: any; onClose: () => void }) {
 
   const handleSubmit = () => {
     if (!decision) return;
+    if (decision === "approved" && idea.costStudyRequired && !(idea.executionTrackingVersion === 1 ? hasCompleteCostStudy(idea) : idea.costStudiedAt)) { toast.error(w.approvalBlocked); return; }
     if (decision === "postponed" && !postponedUntil) { toast.error(t.improvementIdeas.postponedUntil); return; }
     decideMut.mutate({
       id: idea.id, decision,
@@ -382,7 +590,7 @@ function DecideDialog({ idea, onClose }: { idea: any; onClose: () => void }) {
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-w-md max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 flex-wrap">
             <span className="font-mono text-xs text-muted-foreground">{idea.requestNumber}</span>{idea.title}
@@ -391,8 +599,22 @@ function DecideDialog({ idea, onClose }: { idea: any; onClose: () => void }) {
         {idea.description && <p className="text-sm text-muted-foreground">{idea.description}</p>}
         <IdeaImagesPreview ideaId={idea.id} />
         {idea.expectedBenefit && <p className="text-sm"><span className="font-medium">{t.improvementIdeas.expectedBenefit}: </span>{idea.expectedBenefit}</p>}
+        {idea.currentSituation && <p className="text-sm"><b>{w.currentSituation}:</b> {idea.currentSituation}</p>}
+        {idea.targetOutcome && <p className="text-sm"><b>{w.targetOutcome}:</b> {idea.targetOutcome}</p>}
+        {idea.successMetric && <p className="text-sm"><b>{w.successMetric}:</b> {idea.successMetric}</p>}
+        <div className="border rounded-md p-3 space-y-1 text-sm bg-muted/30">
+          <p className="font-medium">{w.study}</p>
+          {idea.costStudiedAt ? <>
+            <p>{w.materialsCost}: {currencyNumber(Number(idea.estimatedMaterialsCost ?? 0))}</p>
+            <p>{w.laborCost}: {currencyNumber(Number(idea.estimatedLaborCost ?? 0))}</p>
+            <p>{w.servicesCost}: {currencyNumber(Number(idea.estimatedServicesCost ?? 0))}</p>
+            <p className="font-semibold">{w.totalCost}: {currencyNumber(estimatedTotal(idea))}</p>
+            {idea.costStudiedAt && <p>{idea.costStudyAuthorName || "—"} — {new Date(idea.costStudiedAt).toLocaleDateString()}</p>}
+      {idea.costStudyNotes && <p>{w.costStudyNotes}: {idea.costStudyNotes}</p>}
+          </> : <p className="text-amber-700">{idea.costStudyRequired ? w.studyRequired : w.legacy}</p>}
+        </div>
         <div className="flex gap-2 pt-2">
-          <Button size="sm" className="flex-1" variant={decision === "approved" ? "default" : "outline"} onClick={() => setDecision("approved")}>{t.improvementIdeas.approve}</Button>
+          <Button size="sm" className="flex-1" variant={decision === "approved" ? "default" : "outline"} disabled={!!idea.costStudyRequired && !(idea.executionTrackingVersion === 1 ? hasCompleteCostStudy(idea) : idea.costStudiedAt)} onClick={() => setDecision("approved")}>{t.improvementIdeas.approve}</Button>
           <Button size="sm" className="flex-1" variant={decision === "postponed" ? "default" : "outline"} onClick={() => setDecision("postponed")}>{t.improvementIdeas.postpone}</Button>
           <Button size="sm" className="flex-1" variant={decision === "cancelled" ? "destructive" : "outline"} onClick={() => setDecision("cancelled")}>{t.improvementIdeas.cancel}</Button>
         </div>
@@ -460,13 +682,114 @@ function NewIdeasTab({ canClassify }: { canClassify: boolean }) {
   );
 }
 
+// ── مرحلة دراسة التكلفة ───────────────────────────────────────────────
+function CostStudyDialog({ idea, onClose }: { idea: any; onClose: () => void }) {
+  const w = useFlowLabels();
+  const { t } = useTranslation();
+  const utils = trpc.useUtils();
+  const [materials, setMaterials] = useState(String(idea.estimatedMaterialsCost ?? "0"));
+  const [labor, setLabor] = useState(String(idea.estimatedLaborCost ?? "0"));
+  const [services, setServices] = useState(String(idea.estimatedServicesCost ?? "0"));
+  const [notes, setNotes] = useState(idea.costStudyNotes ?? "");
+  const save = trpc.improvementIdeas.saveCostStudy.useMutation({
+    onSuccess: () => { toast.success(w.studySaveSuccess); utils.improvementIdeas.getClassifiedByGroup.invalidate(); onClose(); },
+    onError: e => toast.error(e.message),
+  });
+  const costs = [materials, labor, services].map(moneyValue);
+  const canSave = costs.every(n => n !== null) && notes.trim().length > 0;
+  return <Dialog open onOpenChange={o => !o && onClose()}>
+    <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
+      <DialogHeader><DialogTitle>{w.study} — {idea.requestNumber}</DialogTitle></DialogHeader>
+      <p className="text-sm">{idea.title}</p>
+      {idea.expectedBenefit && <p className="text-xs text-muted-foreground">{idea.expectedBenefit}</p>}
+      {idea.targetOutcome && <p className="text-xs"><b>{w.targetOutcome}:</b> {idea.targetOutcome}</p>}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+        {([ [w.materialsCost, materials, setMaterials], [w.laborCost, labor, setLabor], [w.servicesCost, services, setServices] ] as const).map(([label, value, setter]) => (
+          <div className="space-y-1" key={label}><Label>{label}</Label><Input type="number" step="0.01" min="0" value={value} onChange={e => setter(e.target.value)} /></div>
+        ))}
+      </div>
+      <p className="text-sm font-semibold">{w.totalCost}: {costs.every(n => n !== null) ? currencyNumber(costs.reduce<number>((total, n) => total + (n ?? 0), 0)) : "—"}</p>
+      <div className="space-y-1"><Label>{w.costStudyNotes} *</Label><Textarea value={notes} onChange={e => setNotes(e.target.value)} /></div>
+      <DialogFooter><Button variant="outline" onClick={onClose}>{t.common.cancel}</Button>
+        <Button disabled={!canSave || save.isPending} onClick={() => save.mutate({ id: idea.id, estimatedMaterialsCost: costs[0]!, estimatedLaborCost: costs[1]!, estimatedServicesCost: costs[2]!, costStudyNotes: notes.trim() })}>{w.saveStudy}</Button>
+      </DialogFooter>
+    </DialogContent>
+  </Dialog>;
+}
+
+// ── خطة التنفيذ للمقترحات المعتمدة أو الجارية ─────────────────────────
+function ExecutionPlanDialog({ idea, onClose }: { idea: any; onClose: () => void }) {
+  const w = useFlowLabels();
+  const { t } = useTranslation();
+  const utils = trpc.useUtils();
+  const [owner, setOwner] = useState(idea.implementationOwner || "");
+  const [startDate, setStartDate] = useState(idea.implementationStartDate || "");
+  const [dueDate, setDueDate] = useState(idea.implementationDueDate || "");
+  const [progress, setProgress] = useState(String(idea.implementationProgress ?? 0));
+  const [notes, setNotes] = useState(idea.implementationNotes || "");
+  const save = trpc.improvementIdeas.savePlan.useMutation({
+    onSuccess: () => { toast.success(w.planSaveSuccess); utils.improvementIdeas.getApproved.invalidate(); onClose(); },
+    onError: e => toast.error(e.message),
+  });
+  const progressNumber = Number(progress);
+  const valid = owner.trim() && dueDate && (!startDate || startDate <= dueDate) && Number.isInteger(progressNumber) && progressNumber >= 0 && progressNumber <= 100;
+  return <Dialog open onOpenChange={o => !o && onClose()}><DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
+    <DialogHeader><DialogTitle>{w.plan} — {idea.requestNumber}</DialogTitle></DialogHeader>
+    <div className="space-y-2"><Label>{w.planOwner} *</Label><Input value={owner} maxLength={200} onChange={e => setOwner(e.target.value)} /></div>
+    <div className="grid grid-cols-2 gap-3">
+      <div className="space-y-1"><Label>{w.startDate}</Label><Input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} /></div>
+      <div className="space-y-1"><Label>{w.dueDate} *</Label><Input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} /></div>
+    </div>
+    <div className="space-y-1"><Label>{w.progress}</Label><Input type="number" step="1" min="0" max="100" value={progress} onChange={e => setProgress(e.target.value)} /></div>
+    <div className="space-y-1"><Label>{w.planNotes}</Label><Textarea value={notes} onChange={e => setNotes(e.target.value)} /></div>
+    <DialogFooter><Button variant="outline" onClick={onClose}>{t.common.cancel}</Button><Button disabled={!valid || save.isPending} onClick={() => save.mutate({ id: idea.id, implementationOwner: owner.trim(), implementationStartDate: startDate || undefined, implementationDueDate: dueDate, implementationProgress: progressNumber, implementationNotes: notes })}>{w.savePlan}</Button></DialogFooter>
+  </DialogContent></Dialog>;
+}
+
+// ── تفاصيل نتائج الأفكار المنفذة / التقييم المالي ────────────────────
+function IdeaOutcomeDialog({ id, onClose }: { id: number; onClose: () => void }) {
+  const w = useFlowLabels();
+  const { user } = useAuth();
+  const canSeeFinancials = !!user && ["maintenance_manager", "general_maintenance_manager", "construction_procurement_manager", "senior_management", "executive_director", "owner", "admin"].includes(user.role);
+  const { data: idea, isLoading } = trpc.improvementIdeas.getById.useQuery({ id });
+  const percent = idea ? achievementPercent(idea) : null;
+  return <Dialog open onOpenChange={o => !o && onClose()}><DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
+    <DialogHeader><DialogTitle>{w.details}</DialogTitle></DialogHeader>
+    {isLoading ? <Skeleton className="h-32" /> : idea ? <div className="space-y-2 text-sm">
+      <p className="font-semibold">{idea.requestNumber} — {idea.title}</p>
+      {canSeeFinancials && idea.executionTrackingVersion === 1 && <ImprovementFinancialPanel ideaId={id} />}
+      <p>{idea.siteName} — {idea.sectionName}{idea.assetName ? ` — ${idea.assetName}` : ""}</p>
+      {idea.currentSituation && <p><b>{w.currentSituation}: </b>{idea.currentSituation}</p>}
+      {idea.targetOutcome && <p><b>{w.targetOutcome}: </b>{idea.targetOutcome}</p>}
+      {idea.successMetric && <p><b>{w.successMetric}: </b>{idea.successMetric}</p>}
+      <p><b>{w.study}: </b>{idea.costStudiedAt ? currencyNumber(estimatedTotal(idea)) : w.noStudy}</p>
+      {idea.costStudiedAt && <p>{idea.costStudyAuthorName || "—"} — {new Date(idea.costStudiedAt).toLocaleDateString()}</p>}
+      {idea.costStudyNotes && <p><b>{w.costStudyNotes}: </b>{idea.costStudyNotes}</p>}
+      {idea.implementationOwner && <p><b>{w.planOwner}: </b>{idea.implementationOwner}</p>}
+      {idea.implementationDueDate && <p><b>{w.dueDate}: </b>{idea.implementationDueDate}</p>}
+      {idea.status === 'completed' ? <>
+        {idea.evaluatedAt ? <>
+          <p><b>{w.actualCost}: </b>{idea.actualCost != null ? currencyNumber(Number(idea.actualCost)) : '—'}</p>
+          {idea.costStudiedAt && idea.actualCost != null && <p><b>{w.costDifference}: </b>{currencyNumber(Number(idea.actualCost) - estimatedTotal(idea))}</p>}
+          <p><b>{w.resultRating}: </b>{idea.resultRating ? w[idea.resultRating as 'achieved' | 'partial' | 'not_achieved'] : '—'}</p>
+          {idea.achievedValue != null && <p><b>{w.achievedValue}: </b>{idea.achievedValue}</p>}
+          {percent !== null && <p><b>{w.achievementRate}: </b>{percent}%</p>}
+          {idea.resultNotes && <p><b>{w.resultNotes}: </b>{idea.resultNotes}</p>}
+        </> : <p>{w.resultPending}</p>}
+      </> : <p>{w.resultPending}</p>}
+    </div> : <p>—</p>}
+  </DialogContent></Dialog>;
+}
+
 // ════════════════════════════════════════════════════════════════════════
 // تبويب: الأفكار المصنّفة (مجلدات)
 // ════════════════════════════════════════════════════════════════════════
-function ClassifiedTab({ canDecide }: { canDecide: boolean }) {
+function ClassifiedTab({ canDecide, canStudy }: { canDecide: boolean; canStudy: boolean }) {
   const { t } = useTranslation();
+  const w = useFlowLabels();
   const [openGroup, setOpenGroup] = useState<string | null>(null);
   const [decideTarget, setDecideTarget] = useState<any>(null);
+  const [studyTarget, setStudyTarget] = useState<any>(null);
   const { data: counts = [], isLoading } = trpc.improvementIdeas.getGroupedClassifiedCounts.useQuery();
   const { data: groupIdeas = [], isLoading: loadingGroup } = trpc.improvementIdeas.getClassifiedByGroup.useQuery({ groupCategory: openGroup! }, { enabled: !!openGroup });
 
@@ -477,19 +800,25 @@ function ClassifiedTab({ canDecide }: { canDecide: boolean }) {
         <p className="font-medium flex items-center gap-2"><Folder className="w-4 h-4" />{(t.improvementIdeas.groups as any)[openGroup]}</p>
         {loadingGroup ? <Skeleton className="h-20 w-full" /> : !groupIdeas.length ? <p className="text-center text-muted-foreground py-8">{t.improvementIdeas.noIdeas}</p> : (
           groupIdeas.map((idea: any) => (
-            <Card key={idea.id} className={canDecide ? "cursor-pointer hover:shadow-md transition-shadow" : ""} onClick={() => canDecide && setDecideTarget(idea)}>
+            <Card key={idea.id} className="hover:shadow-sm transition-shadow">
               <CardContent className="p-4 flex items-center justify-between gap-3 flex-wrap">
                 <div className="space-y-1 min-w-0">
                   <span className="text-xs text-muted-foreground font-mono">{idea.requestNumber}</span>
                   <p className="font-medium truncate">{idea.title}</p>
                   <p className="text-xs text-muted-foreground">{idea.submitterName || "—"}</p>
                 </div>
-                <Badge className={`border ${PRIORITY_COLORS[idea.priority] || ""}`}>{idea.priority}</Badge>
+                <div className="flex flex-wrap gap-2 items-center">
+                  <Badge className={`border ${PRIORITY_COLORS[idea.priority] || ""}`}>{idea.priority}</Badge>
+                  {idea.costStudiedAt ? <Badge variant="secondary">{w.studyReady}</Badge> : !!idea.costStudyRequired && <Badge variant="outline">{w.studyRequired}</Badge>}
+                  {canStudy && <Button size="sm" variant="outline" onClick={() => setStudyTarget(idea)}>{w.study}</Button>}
+                  {canDecide && <Button size="sm" disabled={!!idea.costStudyRequired && !(idea.executionTrackingVersion === 1 ? hasCompleteCostStudy(idea) : idea.costStudiedAt)} onClick={() => setDecideTarget(idea)}>{t.improvementIdeas.decidedBy}</Button>}
+                </div>
               </CardContent>
             </Card>
           ))
         )}
         {decideTarget && <DecideDialog idea={decideTarget} onClose={() => setDecideTarget(null)} />}
+        {studyTarget && <CostStudyDialog idea={studyTarget} onClose={() => setStudyTarget(null)} />}
       </div>
     );
   }
@@ -517,25 +846,33 @@ function ClassifiedTab({ canDecide }: { canDecide: boolean }) {
 // ════════════════════════════════════════════════════════════════════════
 function ApprovedTab() {
   const { t } = useTranslation();
+  const w = useFlowLabels();
   const [, setLocation] = useLocation();
   const utils = trpc.useUtils();
   const { data: ideas = [], isLoading } = trpc.improvementIdeas.getApproved.useQuery();
   const [completingId, setCompletingId] = useState<number | null>(null);
   const [completionNotes, setCompletionNotes] = useState("");
+  const [planTarget, setPlanTarget] = useState<any>(null);
+  const [financialId, setFinancialId] = useState<number | null>(null);
+  const [actualCost, setActualCost] = useState("");
+  const [achievedValue, setAchievedValue] = useState("");
+  const [resultRating, setResultRating] = useState<"achieved" | "partial" | "not_achieved" | "">("");
+  const [resultNotes, setResultNotes] = useState("");
 
   const completeMut = trpc.improvementIdeas.complete.useMutation({
-    onSuccess: () => { toast.success(t.improvementIdeas.complete); utils.improvementIdeas.getApproved.invalidate(); setCompletingId(null); setCompletionNotes(""); },
+    onSuccess: () => { toast.success(t.improvementIdeas.complete); utils.improvementIdeas.getApproved.invalidate(); utils.improvementIdeas.listPaginated.invalidate(); setCompletingId(null); setCompletionNotes(""); setActualCost(""); setAchievedValue(""); setResultRating(""); setResultNotes(""); },
     onError: (err) => toast.error(err.message),
   });
 
   const convert = (idea: any, type: "ticket" | "po") => {
+    const context = new URLSearchParams({ fromIdeaId: String(idea.id), ...(idea.siteId ? {siteId: String(idea.siteId)} : {}), ...(idea.sectionId ? {sectionId: String(idea.sectionId)} : {}), ...(idea.assetId ? {assetId: String(idea.assetId)} : {}) });
     const titleParam = encodeURIComponent(idea.title);
-    const descParam = encodeURIComponent(idea.description || "");
+    const descParam = encodeURIComponent(`[${idea.requestNumber}] ${idea.description || ""}`);
     if (type === "ticket") {
-      setLocation(`/tickets/new?prefillTitle=${titleParam}&prefillDescription=${descParam}&fromIdeaId=${idea.id}`);
+      setLocation(`/tickets/new?prefillTitle=${titleParam}&prefillDescription=${descParam}&${context.toString()}`);
     } else {
       const notesParam = encodeURIComponent(`[${idea.requestNumber}] ${idea.title}\n${idea.description || ""}`);
-      setLocation(`/purchase-orders/new?prefillNotes=${notesParam}&fromIdeaId=${idea.id}`);
+      setLocation(`/purchase-orders/new?prefillNotes=${notesParam}&${context.toString()}`);
     }
   };
 
@@ -555,7 +892,14 @@ function ApprovedTab() {
               <Badge className={IDEA_STATUS_COLORS[idea.status]}>{(t.improvementIdeas.statuses as any)[idea.status]}</Badge>
             </div>
 
-            {idea.status === "approved" && (
+            <div className="flex flex-wrap gap-2 items-center text-xs text-muted-foreground">
+              {idea.costStudiedAt && <span>{w.totalCost}: {currencyNumber(estimatedTotal(idea))}</span>}
+              {idea.implementationOwner && <span>{w.planOwner}: {idea.implementationOwner}</span>}
+              {idea.implementationDueDate && <span>{w.dueDate}: {idea.implementationDueDate}</span>}
+              {idea.status === "in_progress" && <span>{w.progress}: {idea.implementationProgress ?? 0}%</span>}
+            </div>
+            <Button size="sm" variant="outline" onClick={() => setPlanTarget(idea)}>{w.plan}</Button>
+            {idea.status === "approved" && (!idea.costStudyRequired || (idea.implementationOwner && idea.implementationDueDate)) ? (
               <Select onValueChange={(v) => convert(idea, v as "ticket" | "po")}>
                 <SelectTrigger className="w-full sm:w-64"><SelectValue placeholder={t.improvementIdeas.convertTo} /></SelectTrigger>
                 <SelectContent>
@@ -563,7 +907,7 @@ function ApprovedTab() {
                   <SelectItem value="po">{t.improvementIdeas.convertToPurchaseOrder}</SelectItem>
                 </SelectContent>
               </Select>
-            )}
+            ) : idea.status === "approved" && <p className="text-xs text-amber-700">{w.planRequired}</p>}
 
             {idea.status === "in_progress" && (
               <div className="space-y-2 text-sm">
@@ -579,22 +923,44 @@ function ApprovedTab() {
                     <Button size="sm" variant="link" className="h-auto p-0" onClick={() => setLocation(`/purchase-orders/${idea.linkedPurchaseOrderId}`)}><ExternalLink className="w-3 h-3 ml-1" />{t.improvementIdeas.goToLinked}</Button>
                   </div>
                 )}
+                {idea.executionTrackingVersion === 1 && <Button size="sm" variant="outline" onClick={() => setFinancialId(financialId === idea.id ? null : idea.id)}>{w.details}</Button>}
+                {idea.executionTrackingVersion === 1 && (financialId === idea.id || completingId === idea.id) && <ImprovementFinancialPanel ideaId={idea.id} />}
                 {completingId === idea.id ? (
-                  <div className="space-y-2">
+                  <div className="space-y-2 border rounded-lg p-3">
+                    <p className="font-medium">{w.evaluation}</p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      {idea.executionTrackingVersion !== 1 && <div className="space-y-1"><Label>{w.actualCost}{idea.costStudyRequired ? " *" : ""}</Label><Input type="number" step="0.01" min="0" value={actualCost} onChange={e => setActualCost(e.target.value)} /></div>}
+                      <div className="space-y-1"><Label>{w.achievedValue}{idea.targetValue != null && idea.costStudyRequired ? " *" : ""}</Label><Input type="number" step="any" value={achievedValue} onChange={e => setAchievedValue(e.target.value)} /></div>
+                    </div>
+                    {idea.targetValue != null && <p className="text-xs text-muted-foreground">{w.targetValue}: {idea.targetValue} — {w.baselineValue}: {idea.baselineValue ?? '—'}</p>}
+                    <div className="space-y-1"><Label>{w.resultRating}{idea.costStudyRequired ? " *" : ""}</Label>
+                      <Select value={resultRating} onValueChange={v => setResultRating(v as typeof resultRating)}><SelectTrigger><SelectValue placeholder={w.resultRating} /></SelectTrigger><SelectContent>
+                        <SelectItem value="achieved">{w.achieved}</SelectItem><SelectItem value="partial">{w.partial}</SelectItem><SelectItem value="not_achieved">{w.not_achieved}</SelectItem>
+                      </SelectContent></Select>
+                    </div>
+                    <div className="space-y-1"><Label>{w.resultNotes}{idea.costStudyRequired ? " *" : ""}</Label><Textarea value={resultNotes} onChange={e => setResultNotes(e.target.value)} /></div>
                     <Textarea placeholder={t.improvementIdeas.completionNotes} value={completionNotes} onChange={e => setCompletionNotes(e.target.value)} />
                     <div className="flex gap-2">
-                      <Button size="sm" onClick={() => completeMut.mutate({ id: idea.id, completionNotes: completionNotes || undefined })} disabled={completeMut.isPending}>{t.improvementIdeas.complete}</Button>
+                      <Button size="sm" disabled={completeMut.isPending} onClick={() => {
+                        const cost = moneyValue(actualCost);
+                        const actualMetric = achievedValue.trim() ? Number(achievedValue) : undefined;
+                        if (actualCost.trim() && cost === null || actualMetric !== undefined && !Number.isFinite(actualMetric)) { toast.error(w.invalidValues); return; }
+                        if (idea.costStudyRequired && ((idea.executionTrackingVersion !== 1 && cost === null) || !resultRating || !resultNotes.trim())) { toast.error(w.requireResults); return; }
+                        if (idea.costStudyRequired && idea.targetValue != null && actualMetric === undefined) { toast.error(w.targetRequired); return; }
+                        completeMut.mutate({ id: idea.id, completionNotes: completionNotes || undefined, actualCost: cost ?? undefined, achievedValue: actualMetric, resultRating: resultRating || undefined, resultNotes: resultNotes.trim() || undefined });
+                      }}>{w.review}</Button>
                       <Button size="sm" variant="outline" onClick={() => setCompletingId(null)}>{t.common.cancel}</Button>
                     </div>
                   </div>
                 ) : (
-                  <Button size="sm" variant="outline" onClick={() => setCompletingId(idea.id)}><CheckCircle2 className="w-4 h-4 ml-1" />{t.improvementIdeas.complete}</Button>
+                  <Button size="sm" variant="outline" onClick={() => { setCompletingId(idea.id); setActualCost(""); setAchievedValue(""); setResultRating(""); setResultNotes(""); }}><CheckCircle2 className="w-4 h-4 ml-1" />{w.review}</Button>
                 )}
               </div>
             )}
           </CardContent>
         </Card>
       ))}
+      {planTarget && <ExecutionPlanDialog idea={planTarget} onClose={() => setPlanTarget(null)} />}
     </div>
   );
 }
@@ -604,6 +970,8 @@ function ApprovedTab() {
 // ════════════════════════════════════════════════════════════════════════
 function AllIdeasTab() {
   const { t } = useTranslation();
+  const w = useFlowLabels();
+  const [detailId, setDetailId] = useState<number | null>(null);
   const { getPriorityLabel } = useStaticLabels();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -642,6 +1010,7 @@ function AllIdeasTab() {
                   <span className="text-xs text-muted-foreground font-mono">{idea.requestNumber}</span>
                   <p className="font-medium truncate">{idea.title}</p>
                   <p className="text-xs text-muted-foreground">{idea.submitterName || "—"}</p>
+                  <Button size="sm" variant="link" className="h-auto px-0" onClick={() => setDetailId(idea.id)}>{w.details}</Button>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                   <Badge className={`border ${PRIORITY_COLORS[idea.priority] || ""}`}>{getPriorityLabel(idea.priority)}</Badge>
@@ -652,6 +1021,7 @@ function AllIdeasTab() {
           ))}
         </div>
       )}
+      {detailId !== null && <IdeaOutcomeDialog id={detailId} onClose={() => setDetailId(null)} />}
       {data && data.totalPages > 1 && (
         <div className="flex justify-center">
           <Pagination className="mx-0 w-auto">
@@ -725,18 +1095,23 @@ export default function ImprovementIdeas() {
   const { t } = useTranslation();
   const { user } = useAuth();
   const [createOpen, setCreateOpen] = useState(false);
+  const search = useSearch();
+  const [, setLocation] = useLocation();
+  const detailId = Number(new URLSearchParams(search).get("ideaId"));
+  const sourceDetails = Number.isInteger(detailId) && detailId > 0 ? <IdeaOutcomeDialog id={detailId} onClose={() => setLocation("/improvement-ideas")} /> : null;
 
   const isTriageRole = !!user && ["maintenance_manager", "general_maintenance_manager", "construction_procurement_manager", "owner", "admin"].includes(user.role);
   const isSeniorMgmt = !!user && ["senior_management", "executive_director"].includes(user.role);
   const isElevated = isTriageRole || isSeniorMgmt;
   // صلاحية القرار النهائي: الإدارة العليا + owner/admin (نفس قاعدة التجاوز الشامل المعتمدة بكل النظام)
-  const canDecide = !!user && ["senior_management", "owner", "admin"].includes(user.role);
+  const canDecide = !!user && ["senior_management", "executive_director", "owner", "admin"].includes(user.role);
 
   const [activeTab, setActiveTab] = useState(isSeniorMgmt ? "classified" : "new");
 
   if (!isElevated) {
     return (
       <>
+        {sourceDetails}
         <MyIdeasView onCreateClick={() => setCreateOpen(true)} />
         <CreateIdeaDialog open={createOpen} onOpenChange={setCreateOpen} />
       </>
@@ -745,20 +1120,22 @@ export default function ImprovementIdeas() {
 
   return (
     <div className="p-4 md:p-6 space-y-4">
+      {sourceDetails}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div className="flex items-center gap-2"><Lightbulb className="w-6 h-6 text-amber-500" /><h1 className="text-xl font-bold">{t.improvementIdeas.pageTitle}</h1></div>
         <Button onClick={() => setCreateOpen(true)}><Plus className="w-4 h-4 ml-1" />{t.improvementIdeas.createNew}</Button>
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList>
+        <TabsList className="h-auto flex flex-wrap gap-1">
           {isTriageRole && <TabsTrigger value="new">{t.improvementIdeas.newIdeasTab}</TabsTrigger>}
           <TabsTrigger value="classified">{t.improvementIdeas.classifiedTab}</TabsTrigger>
           {!!user && user.role === "senior_management" && <TabsTrigger value="new">{t.improvementIdeas.newIdeasTab}</TabsTrigger>}
+          {isTriageRole && <TabsTrigger value="approved">{t.improvementIdeas.approvedTab}</TabsTrigger>}
           {isTriageRole && <TabsTrigger value="all">{t.improvementIdeas.allTab}</TabsTrigger>}
         </TabsList>
         <TabsContent value="new"><NewIdeasTab canClassify={isTriageRole} /></TabsContent>
-        <TabsContent value="classified"><ClassifiedTab canDecide={canDecide} /></TabsContent>
+        <TabsContent value="classified"><ClassifiedTab canDecide={canDecide} canStudy={isTriageRole} /></TabsContent>
         {isTriageRole && <TabsContent value="approved"><ApprovedTab /></TabsContent>}
         {isTriageRole && <TabsContent value="all"><AllIdeasTab /></TabsContent>}
       </Tabs>

@@ -419,9 +419,10 @@ function DisposalItemCard({ item, onRemove }: { item: any; onRemove: () => void 
 }
 
 export default function InventoryOperations() {
-  const { user } = useAuth();
+  const { user, isReadOnly } = useAuth();
   const { t, language } = useTranslation();
   const isWarehouse = ["warehouse", "admin", "owner"].includes(user?.role || "");
+  const canApplySettlement = !isReadOnly && ["admin", "owner"].includes(user?.role || "");
 
   // ── بيانات القائمة ──
   const { data: operations, isLoading, refetch } = trpc.disposal.list.useQuery();
@@ -1253,7 +1254,7 @@ export default function InventoryOperations() {
                       )}
                     </>
                   )}
-                  {countDetail.operation.status === "completed" && (
+                  {canApplySettlement && countDetail.operation.status === "completed" && (
                     <Button
                       size="sm"
                       onClick={() => {
@@ -1656,15 +1657,17 @@ export default function InventoryOperations() {
         <TabsContent value="settlements" className="mt-6 space-y-4">
           <div className="flex justify-between items-center">
             <p className="text-sm text-muted-foreground">كل تسويات المخزون — من عمليات جرد أو مستقلة — برقمها المرجعي الفريد</p>
-            <Button
-              className="gap-1.5"
-              onClick={() => { setSettlementSourceCountId(null); setSettlementItems([]); setSettlementReference(""); setShowSettlement(true); }}
-              disabled={lotsEnabled}
-              title={lotsEnabled ? "بعد تفعيل Lots، التسوية اليدوية Aggregate-only موقوفة؛ استخدم الجرد الدوري بالـQR" : undefined}
-            >
-              <Plus className="w-4 h-4" />
-              تسوية مستقلة (بدون جرد)
-            </Button>
+            {canApplySettlement && (
+              <Button
+                className="gap-1.5"
+                onClick={() => { setSettlementSourceCountId(null); setSettlementItems([]); setSettlementReference(""); setShowSettlement(true); }}
+                disabled={lotsEnabled}
+                title={lotsEnabled ? "بعد تفعيل Lots، التسوية اليدوية Aggregate-only موقوفة؛ استخدم الجرد الدوري بالـQR" : undefined}
+              >
+                <Plus className="w-4 h-4" />
+                تسوية مستقلة (بدون جرد)
+              </Button>
+            )}
           </div>
 
           <div className="space-y-2">
@@ -2154,7 +2157,7 @@ export default function InventoryOperations() {
       </Dialog>
 
       {/* ══ نافذة تسوية المخزون ══ */}
-      <Dialog open={showSettlement} onOpenChange={setShowSettlement}>
+      <Dialog open={showSettlement && canApplySettlement} onOpenChange={setShowSettlement}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle>
@@ -2340,6 +2343,7 @@ export default function InventoryOperations() {
           <DialogFooter>
             <Button
               onClick={() => {
+                if (!canApplySettlement) return;
                 const items = settlementSourceCountId
                   ? (discrepancies as any[])?.map(d => ({
                       inventoryId: d.inventoryId,
@@ -2360,7 +2364,7 @@ export default function InventoryOperations() {
                   items,
                 });
               }}
-              disabled={applySettlementMut.isPending || settlementReason.trim().length < 10 || (lotsEnabled && !settlementSourceCountId)}
+              disabled={!canApplySettlement || applySettlementMut.isPending || settlementReason.trim().length < 10 || (lotsEnabled && !settlementSourceCountId)}
             >
               {applySettlementMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "تطبيق التسوية"}
             </Button>

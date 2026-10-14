@@ -20,9 +20,7 @@ test("Step 3.3B reuses frozen dependency result and waiting-state schema without
 test("dependency result submission is serialized per Task and rechecks active Team membership + exact ownership", () => {
   assert.match(execution, /submitDependencyResult/);
   assert.match(execution, /SELECT id FROM pmv2_tasks WHERE id = \$\{input\.taskId\} FOR UPDATE/);
-  assert.match(execution, /eq\(pmv2TeamMembers\.teamId, pmv2Tasks\.teamId\)/);
-  assert.match(execution, /eq\(pmv2TeamMembers\.userId, userId\)/);
-  assert.match(execution, /eq\(pmv2TeamMembers\.isActive, 1\)/);
+  assert.match(execution, /pmv2ExecutionTeamCondition\(userId, pmv2Tasks\.teamId\)/);
   assert.match(execution, /eq\(pmv2Tasks\.id, input\.taskId\)/);
   assert.match(execution, /eq\(pmv2TaskItems\.id, input\.taskItemId\)/);
 });

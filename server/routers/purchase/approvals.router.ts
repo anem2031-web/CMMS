@@ -798,6 +798,7 @@ export const approvalsRouter = router({
           ? await db.updatePOItemIfNotTerminal(reviewItem.id, {
               status: "pending",
               delegateId: reviewItem.delegateId,
+              delegateAssignedAt: new Date(),
               managementRejectionReason: null,
             }, tx)
           : await db.updatePOItemIfNotTerminal(reviewItem.id, {
