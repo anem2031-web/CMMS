@@ -1,3 +1,4 @@
+import { materialExecutionCostsEnabled } from "../../services/material-costs/feature";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { router, inventoryReadProcedure, warehouseProcedure } from "../_shared/procedures";
@@ -147,6 +148,9 @@ export const inventoryRouter = router({
     reason: z.string().optional(),
     ticketId: z.number().optional(),
   })).mutation(async ({ input, ctx }) => {
+    if (input.type === "out" && materialExecutionCostsEnabled()) {
+      throw new TRPCError({ code: "BAD_REQUEST", message: "الصرف يتطلب سند صرف باللوت والجهة المستفيدة. استخدم شاشة تسليم المخزون أو احتياج البلاغ/المهمة." });
+    }
     await db.addInventoryTransaction({ ...input, performedById: ctx.user.id });
     return { success: true };
   }),
@@ -309,6 +313,7 @@ export const inventoryRouter = router({
           availableQuantity: lot.balanceQuantity,
           remainingQuantity: lot.remainingQuantity,
           issueUnitCost: Number(lot.issueUnitCost || 0),
+          unit: String((item as any).issueUnit || item.unit || ""),
         };
       } catch (error: any) {
         throw new TRPCError({ code: "BAD_REQUEST", message: error?.message || "رقم اللوت أو QR الدفعة غير صالح للصرف" });
@@ -378,6 +383,7 @@ export const inventoryRouter = router({
         deliveredToId: input.deliveredToId,
         purchaseOrderItemId: input.purchaseOrderItemId,
         ticketId: ticket?.maintenancePath === "B" ? ticket.id : undefined,
+        ticketItemId: ticket?.maintenancePath === "B" ? po.ticketItemId ?? undefined : undefined,
         ticketNumber: ticket?.maintenancePath === "B" ? ticket.ticketNumber : undefined,
         assignedTechnicianId: ticket?.maintenancePath === "B" ? ticket.assignedToId ?? undefined : undefined,
         assignedTechnicianName: ticket?.maintenancePath === "B" ? (assignedTechnician as any)?.name ?? undefined : undefined,

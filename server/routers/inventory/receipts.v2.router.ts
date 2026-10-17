@@ -6,7 +6,9 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { and, eq, inArray, sql } from "drizzle-orm";
-import { catalogAuditLogs, catalogItems, catalogSuppliers, catalogSupplierAliases, catalogSupplierItemAliases, catalogSupplierCandidates, warehouseReceipts, warehouses } from "../../../drizzle/schema";
+import { catalogAuditLogs, catalogItems, catalogUnits, catalogSuppliers, catalogSupplierAliases, catalogSupplierItemAliases, catalogSupplierCandidates, warehouseReceipts, warehouses } from "../../../drizzle/schema";
+import { INVALID_CONVERSION_MESSAGE, receiptInOrderUnits } from "../../../shared/receipt-conversion";
+import { getActiveCatalogUnitCanonicalName } from "../../_core/catalog-unit-governance";
 import { router, inventoryReadProcedure, warehouseProcedure } from "../_shared/procedures";
 import * as db from "../../_core/db";
 import { analyzeInvoiceFromUrl, analyzeInvoiceFromBase64 } from "../../services/ocr/invoiceOcr.service";
@@ -46,9 +48,9 @@ const receivedItemSchema = z.object({
   receivedQuantity:     z.number().min(0.001, "الكمية يجب أن تكون 0.001 أو أكثر"),
   expectedQuantity:     z.number().optional(),
   purchaseUnit:         z.string().min(1),
-  issueUnit:            z.string().optional(),
-  conversionFactor:     z.number().positive().default(1),
-  unitCost:             z.string().min(1),
+  issueUnit:            z.string().trim().min(1, "اختر وحدة الصرف"),
+  conversionFactor:     z.number().finite().positive(INVALID_CONVERSION_MESSAGE),
+  unitCost:             z.string().min(1).refine(value => Number.isFinite(Number(value)) && Number(value) >= 0, "تكلفة الوحدة غير صالحة"),
   expectedUnitCost:     z.string().optional(),
   taxRate:              z.number().min(0).max(100).default(15),
   taxAmount:            z.string().default("0"),
@@ -658,6 +660,13 @@ export const receiptsV2Router = router({
           });
           processedItems.push(processed);
 
+          const orderedItem = poItemsAll.find((candidate: any) => Number(candidate.id) === Number(item.purchaseOrderItemId));
+          const orderUnit = (await getActiveCatalogUnitCanonicalName(orderedItem?.unit, tx)) || orderedItem?.unit || "";
+          const receivedUnit = (await getActiveCatalogUnitCanonicalName(item.purchaseUnit, tx)) || item.purchaseUnit;
+          const inOrderUnits = receiptInOrderUnits({ orderUnit, receivedUnit, issueUnit: item.issueUnit,
+            quantity: item.receivedQuantity, unitCost: processed.purchaseUnitCost, factor: item.conversionFactor });
+
+
           const receiptItemId = await db.createWarehouseReceiptItem({
             receiptId: receiptId!,
             inventoryId: processed.inventoryId,
@@ -676,13 +685,9 @@ export const receiptsV2Router = router({
             taxAmount: item.taxAmount,
             lineTotal: item.lineTotal,
             expectedQuantity: item.expectedQuantity?.toString(),
-            quantityDiff: item.expectedQuantity
-              ? (item.receivedQuantity - item.expectedQuantity).toString()
-              : undefined,
+            quantityDiff: orderedItem && inOrderUnits ? (inOrderUnits.quantity - Number(orderedItem.quantity)).toString() : undefined,
             expectedUnitCost: item.expectedUnitCost,
-            priceDiff: item.expectedUnitCost
-              ? (parseFloat(item.unitCost) - parseFloat(item.expectedUnitCost)).toString()
-              : undefined,
+            priceDiff: item.expectedUnitCost && inOrderUnits ? (inOrderUnits.unitCost - parseFloat(item.expectedUnitCost)).toString() : undefined,
             ocrExtracted: item.ocrExtracted,
             manuallyEdited: item.manuallyEdited,
           }, tx);
@@ -779,9 +784,8 @@ export const receiptsV2Router = router({
               status:            "delivered_to_warehouse",
               receivedAt:        new Date(),
               receivedById:      ctx.user.id,
-              receivedQuantity:  item.receivedQuantity,
+              ...(inOrderUnits ? { receivedQuantity: inOrderUnits.quantity, actualUnitCost: inOrderUnits.unitCost.toFixed(4) } : {}),
               supplierName:      input.vendorName,
-              actualUnitCost:    item.unitCost,
               actualTotalCost:   item.lineTotal,
               warehousePhotoUrl: input.goodsPhotoUrl,
               ...(item.linkedItemId ? { catalogItemId: item.linkedItemId } : {}),
@@ -1102,6 +1106,14 @@ async function processReceiptItem(params: {
   const { item, receiptId, poNumber, receiptNumber, performedById, tx } = params;
   const sourceLabel = poNumber ? `طلب شراء ${poNumber}` : "استلام مستقل (بلا طلب شراء)";
   const receiptWarehouseId = await resolveReceiptWarehouseId(item, tx);
+  const [issueUnitRecord] = await tx.select({ id: catalogUnits.id }).from(catalogUnits)
+    .where(and(eq(catalogUnits.nameAr, item.issueUnit), eq(catalogUnits.isActive, 1))).limit(1);
+  if (!issueUnitRecord) throw new TRPCError({ code: "BAD_REQUEST", message: "اختر وحدة صرف فعالة من قائمة الوحدات" });
+  if (item.linkedItemId) {
+    const [catalogItem] = await tx.select({ unit: catalogItems.unit }).from(catalogItems).where(eq(catalogItems.id, item.linkedItemId)).limit(1);
+    const catalogIssueUnit = (await getActiveCatalogUnitCanonicalName(catalogItem?.unit, tx)) || catalogItem?.unit;
+    if (catalogIssueUnit && catalogIssueUnit !== item.issueUnit) throw new TRPCError({ code: "BAD_REQUEST", message: `وحدة صرف صنف الكتالوج هي «${catalogIssueUnit}». اختر الوحدة المطابقة؛ تغيير الوحدة الأساسية للسجلات السابقة يحتاج معالجة مستقلة.` });
+  }
   let inventoryId = item.inventoryId;
 
   // Phase 2 deferred identity decision — future-facing protection only:
@@ -1143,6 +1155,11 @@ async function processReceiptItem(params: {
     await tx.execute(sql`SELECT id FROM inventory WHERE id = ${inventoryId} FOR UPDATE`);
     const existing = await db.getInventoryItemById(inventoryId, tx);
     if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: `الصنف ${inventoryId} غير موجود` });
+    const storedIssueUnit = String((existing as any).issueUnit || existing.unit || "").trim();
+    const currentIssueUnit = (await getActiveCatalogUnitCanonicalName(storedIssueUnit, tx)) || storedIssueUnit;
+    if (currentIssueUnit && currentIssueUnit !== item.issueUnit) {
+      throw new TRPCError({ code: "BAD_REQUEST", message: `وحدة صرف الصنف المخزنية هي «${currentIssueUnit}». لا يمكن دمج أرصدة بوحدات مختلفة أو تغيير الرصيد القديم أثناء الاستلام.` });
+    }
     const existingWarehouseId = Number((existing as any).warehouseId || 0);
     if (existingWarehouseId > 0 && existingWarehouseId !== receiptWarehouseId) {
       throw new TRPCError({ code: "CONFLICT", message: "سجل المخزون المحدد لا ينتمي إلى مستودع الاستلام" });

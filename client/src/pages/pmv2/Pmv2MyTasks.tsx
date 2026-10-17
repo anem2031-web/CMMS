@@ -1,3 +1,4 @@
+import { MaterialCostPanel } from "@/components/inventory/MaterialCostPanel";
 import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { TechnicianExecutionWindow, ExecutionElapsedTime } from "@/components/maintenance/TechnicianExecutionWindow";
@@ -253,6 +254,7 @@ function MaterialNeedPanel({ taskId, taskItemId, onBusyChange }: { taskId: numbe
   const catalogQuery = trpc.pmv2.technician.materialCatalog.useQuery({ taskId, taskItemId, search });
 
   const refreshMaterialSurface = async () => {
+    await utils.materialCosts.invalidate();
     await Promise.all([
       materialState.refetch(),
       readyReceiptsQuery.refetch(),
@@ -1087,6 +1089,7 @@ export default function Pmv2MyTasks() {
 
   const receiveAttentionMaterial = trpc.pmv2.technician.receiveReadyMaterial.useMutation({
     onSuccess: async (data: any) => {
+      await utils.materialCosts.invalidate();
       setAttentionReceipt(null);
       if (data.completed && !data.partial) {
         toast.success(`${t.workflow.pmv2.confirmReceipt}: ${data.issuedQuantity}`);
@@ -1469,6 +1472,7 @@ export default function Pmv2MyTasks() {
       {selectedTask && (
         <TechnicianExecutionWindow sequential={sequential} open onClose={() => { setSelectedTaskId(null); setActiveItemId(null); }} title={selectedTask.taskNumber} description={targetLabel(selectedTask, t)} language={language} steps={steps} currentId={currentStep?.id ?? null} onSelect={setActiveItemId} busy={windowBusy} timer={<ExecutionElapsedTime startedAt={visitStateQuery.data?.startedAt} language={language} />}>
         <Card id="pmv2-selected-task">
+          <CardContent className="pt-4"><MaterialCostPanel source="pmv2" id={selectedTask.id} /></CardContent>
           <CardHeader>
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div>

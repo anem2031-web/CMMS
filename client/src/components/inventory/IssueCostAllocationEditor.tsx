@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -7,6 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 let allocationKeyCounter = 0;
 
 export type IssueCostAllocationDraft = {
+  ticketItemId?: string;
   key: string;
   beneficiarySiteId: string;
   beneficiarySectionId: string;
@@ -15,6 +16,7 @@ export type IssueCostAllocationDraft = {
 };
 
 export type IssueCostAllocationPayload = {
+  ticketItemId?: number;
   beneficiarySiteId: number;
   beneficiarySectionId: number;
   beneficiaryAssetId?: number | null;
@@ -69,6 +71,7 @@ export function buildIssueCostAllocationPayload(
   }
 
   return [{
+    ...(row.ticketItemId ? { ticketItemId: Number(row.ticketItemId) } : {}),
     beneficiarySiteId: siteId,
     beneficiarySectionId: sectionId,
     beneficiaryAssetId: assetId,
@@ -99,6 +102,11 @@ export function IssueCostAllocationEditor({
   const { data: sites = [] } = trpc.sites.list.useQuery();
   const { data: sections = [] } = trpc.sections.list.useQuery(undefined);
   const { data: assets = [] } = trpc.assets.list.useQuery({});
+  const status = trpc.materialCosts.status.useQuery();
+  const [ticketSearch, setTicketSearch] = useState("");
+  const [searchValue, setSearchValue] = useState("");
+  useEffect(() => { const timer = setTimeout(() => setSearchValue(ticketSearch), 300); return () => clearTimeout(timer); }, [ticketSearch]);
+  const targets = trpc.materialCosts.issueTargets.useQuery({ search: searchValue }, { enabled: status.data?.enabled === true });
   // حماية من أي state قديم أثناء hot reload: هذه الواجهة تقبل جهة واحدة فقط.
   useEffect(() => {
     if (value.length === 1) return;
@@ -159,6 +167,22 @@ export function IssueCostAllocationEditor({
       </div>
 
       <div className="rounded-md border bg-background p-3 space-y-3">
+        {status.data?.enabled && <div className="space-y-2">
+          <Label>مرجع الصرف — بلاغ بالاسم أو صرف مستقل</Label>
+          <Input value={ticketSearch} onChange={event => setTicketSearch(event.target.value)} placeholder="بحث برقم البلاغ أو عنوانه" />
+          <Select value={row.ticketItemId || "__independent__"} onValueChange={id => {
+            const target = targets.data?.find(target => Number(target.itemId) === Number(id));
+            if (id === "__independent__") updateRow({ ticketItemId: undefined });
+            else if (target) updateRow({ ticketItemId: id, beneficiarySiteId: String(target.siteId), beneficiarySectionId: String(target.sectionId), beneficiaryAssetId: target.assetId ? String(target.assetId) : "" });
+          }}>
+            <SelectTrigger><SelectValue placeholder="اختر مرجع الصرف" /></SelectTrigger>
+            <SelectContent><SelectItem value="__independent__">صرف مستقل / ارتباط مسار B التلقائي إن وُجد</SelectItem>
+              {(targets.data || []).map(target => <SelectItem key={target.itemId} value={String(target.itemId)}>{target.ticketNumber} — {target.title}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          {targets.error && <p className="text-xs text-destructive">تعذر قراءة البلاغات. أعد المحاولة قبل اختيار المرجع.</p>}
+          <p className="text-xs text-muted-foreground">اختيار بلاغ يثبت جهته المستفيدة. احتياجات الفرق وPMV2 تُصرف من مساراتها الحالية؛ ارتباط B القائم له الأولوية ولا يمكن تحويله لبلاغ آخر.</p>
+        </div>}
         <div className="space-y-1">
           <Label className="text-xs">كمية الصرف</Label>
           <Input
@@ -172,6 +196,7 @@ export function IssueCostAllocationEditor({
         <div className="space-y-1">
           <Label className="text-xs">الموقع *</Label>
           <Select
+            disabled={!!row.ticketItemId}
             value={row.beneficiarySiteId || undefined}
             onValueChange={site => updateRow({
               beneficiarySiteId: site,
@@ -191,7 +216,7 @@ export function IssueCostAllocationEditor({
         <div className="space-y-1">
           <Label className="text-xs">القسم *</Label>
           <Select
-            disabled={!siteId}
+            disabled={!siteId || !!row.ticketItemId}
             value={row.beneficiarySectionId || undefined}
             onValueChange={section => updateRow({
               beneficiarySectionId: section,
@@ -210,7 +235,7 @@ export function IssueCostAllocationEditor({
         <div className="space-y-1">
           <Label className="text-xs">الأصل (اختياري)</Label>
           <Select
-            disabled={!siteId || !sectionId}
+            disabled={!siteId || !sectionId || !!row.ticketItemId}
             value={row.beneficiaryAssetId || "__none__"}
             onValueChange={asset => updateRow({
               beneficiaryAssetId: asset === "__none__" ? "" : asset,

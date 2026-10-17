@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 export const issueCostAllocationSchema = z.object({
+	ticketItemId: z.number().int().positive().optional(),
   beneficiarySiteId: z.number().int().positive("الموقع مطلوب"),
   beneficiarySectionId: z.number().int().positive("القسم مطلوب"),
   beneficiaryAssetId: z.number().int().positive().nullable().optional(),

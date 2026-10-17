@@ -255,6 +255,7 @@ export class ProductionMaterialGateway implements MaterialGateway {
           performedById: this.actor.id,
           deliveredToId: input.receiverId,
           ticketId: input.ticketId,
+          ticketItemId: this.state.assignments[0].ticketItemId,
           ticketNumber: input.ticketNumber,
           assignedTechnicianId: input.receiverId,
           lotTrackingToken: allocation.lot.trackingToken,

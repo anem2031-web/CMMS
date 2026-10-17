@@ -1,0 +1,46 @@
+{
+  "date": "2026-10-15",
+  "isolatedNoDatabase": true,
+  "tests": [
+    {
+      "name": "cost/receipt/API/rollback",
+      "passed": 42
+    },
+    {
+      "name": "new UI",
+      "passed": 6
+    },
+    {
+      "name": "existing technician/team UI",
+      "passed": 134
+    },
+    {
+      "name": "PMV2 + SQL execution",
+      "passed": 71
+    },
+    {
+      "name": "team domain/assignment/views",
+      "passed": 131
+    }
+  ],
+  "totalTests": 384,
+  "issueCostContract": "passed",
+  "types": {
+    "before": 663,
+    "after": 663,
+    "introduced": [],
+    "resolved": []
+  },
+  "historicalStaticScan": {
+    "status": "pre-existing failure",
+    "reason": "unchanged material-identity-reader import outside the original independent module boundary",
+    "inputsChanged": false
+  },
+  "preview": {
+    "html": "preview.html",
+    "ssrTests": "passed",
+    "browserCapture": "Chrome startup timeout; no visual runtime claim"
+  },
+  "manualSqlApplied": false,
+  "featureEnabledByAgent": false
+}

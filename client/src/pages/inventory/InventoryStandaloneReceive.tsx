@@ -1,3 +1,5 @@
+import { ReceiptConversionFields } from "@/components/inventory/ReceiptConversionFields";
+import { INVALID_CONVERSION_MESSAGE } from "@shared/receipt-conversion";
 import { useState, useEffect, useRef } from "react";
 import QRCode from "qrcode";
 import { trpc } from "@/lib/trpc";
@@ -142,7 +144,7 @@ export default function InventoryStandaloneReceive() {
               requestedQuantity:   receivedQty,
               receivedQuantity:    receivedQty,
               purchaseUnit:        ocrItem.unit || "قطعة",
-              conversionFactor:    1,
+              conversionFactor:    0,
               unitCost,
               taxRate:             ocrItem.taxRate || 15,
               taxAmount:           taxAmt,
@@ -271,7 +273,7 @@ export default function InventoryStandaloneReceive() {
         requestedQuantity:   1,
         receivedQuantity:    1,
         purchaseUnit:        "قطعة",
-        conversionFactor:    1,
+        conversionFactor:    0,
         unitCost:            "0",
         taxRate:             15,
         taxAmount:           "0",
@@ -287,7 +289,12 @@ export default function InventoryStandaloneReceive() {
   };
 
   const handleSubmit = () => {
-    const invalid = items.find(i => !i.unitCost || i.receivedQuantity < 1);
+    const invalidConversion = items.find(i => !Number.isFinite(i.conversionFactor) || i.conversionFactor <= 0 || !i.issueUnit);
+    if (invalidConversion) {
+      toast.error(!invalidConversion.issueUnit ? "اختر وحدة الصرف" : INVALID_CONVERSION_MESSAGE, { description: invalidConversion.itemName });
+      return;
+    }
+    const invalid = items.find(i => !i.unitCost || i.receivedQuantity < 0.001);
     if (invalid) {
       toast.error(`أكمل بيانات: ${invalid.itemName}`);
       return;
@@ -324,7 +331,7 @@ export default function InventoryStandaloneReceive() {
         itemType:            i.itemType,
         receivedQuantity:    i.receivedQuantity,
         purchaseUnit:        i.purchaseUnit,
-        issueUnit:           i.issueUnit,
+        issueUnit:           i.issueUnit!,
         conversionFactor:    i.conversionFactor,
         unitCost:            i.unitCost,
         taxRate:             i.taxRate,
@@ -606,7 +613,7 @@ export default function InventoryStandaloneReceive() {
                 requestedQuantity:   1,
                 receivedQuantity:    1,
                 purchaseUnit:        "قطعة",
-                conversionFactor:    1,
+                conversionFactor:    0,
                 unitCost:            "0",
                 taxRate:             15,
                 taxAmount:           "0",
@@ -855,12 +862,13 @@ function ReceiveItemCard({ item, index, onUpdate, onLink, onDelete }: {
                   )}
                 </div>
               </Field>
-              <Field label="وحدة الشراء">
+              <Field label="وحدة الاستلام الفعلية">
                 <Input value={item.purchaseUnit} onChange={e => onUpdate({ purchaseUnit: e.target.value })} placeholder="كرتون / قطعة" />
               </Field>
             </div>
+            <ReceiptConversionFields item={item} onChange={onUpdate} />
             <div className="grid grid-cols-2 gap-3">
-              <Field label="سعر الوحدة">
+              <Field label="سعر وحدة الاستلام الفعلية (قبل الضريبة)">
                 <div className="relative">
                   <Input
                     type="number" min={0} step={0.01} dir="ltr"

@@ -1,3 +1,5 @@
+import { ReceiptConversionFields } from "@/components/inventory/ReceiptConversionFields";
+import { INVALID_CONVERSION_MESSAGE } from "@shared/receipt-conversion";
 import { useState, useEffect, useRef } from "react";
 import QRCode from "qrcode";
 import { trpc } from "@/lib/trpc";
@@ -152,7 +154,7 @@ const createManualItemsFromPoCandidates = (candidates: any[]): ReceiveItem[] =>
     requestedQuantity:    i.quantity,
     receivedQuantity:     i.receivedQuantity || i.quantity,
     purchaseUnit:         i.unit || "قطعة",
-    conversionFactor:     1,
+    conversionFactor:     0,
     unitCost:             i.actualUnitCost || i.estimatedUnitCost || "",
     expectedUnitCost:     i.estimatedUnitCost || undefined,
     taxRate:              15,
@@ -351,7 +353,7 @@ function WarehouseReceiveForm({ poId, invoiceNumberParam }: { poId: number | nul
               requestedQuantity:   suggested?.quantity ?? receivedQty,
               receivedQuantity:    receivedQty,
               purchaseUnit:        ocrItem.unit || suggested?.unit || "قطعة",
-              conversionFactor:    1,
+              conversionFactor:    0,
               unitCost,
               expectedUnitCost:    suggested?.estimatedUnitCost || undefined,
               taxRate:             ocrItem.taxRate || 15,
@@ -737,6 +739,11 @@ function WarehouseReceiveForm({ poId, invoiceNumberParam }: { poId: number | nul
   };
 
   const handleSubmit = () => {
+    const invalidConversion = items.find(i => !Number.isFinite(i.conversionFactor) || i.conversionFactor <= 0 || !i.issueUnit);
+    if (invalidConversion) {
+      toast.error(!invalidConversion.issueUnit ? "اختر وحدة الصرف" : INVALID_CONVERSION_MESSAGE, { description: invalidConversion.itemName });
+      return;
+    }
     const invalid = items.find(i => !i.unitCost || i.receivedQuantity < 0.001);
     if (invalid) {
       toast.error(`أكمل بيانات: ${invalid.itemName}`);
@@ -803,7 +810,7 @@ function WarehouseReceiveForm({ poId, invoiceNumberParam }: { poId: number | nul
         receivedQuantity:    i.receivedQuantity,
         expectedQuantity:    i.requestedQuantity,
         purchaseUnit:        i.purchaseUnit,
-        issueUnit:           i.issueUnit,
+        issueUnit:           i.issueUnit!,
         conversionFactor:    i.conversionFactor,
         unitCost:            i.unitCost,
         expectedUnitCost:    i.expectedUnitCost,
@@ -1232,7 +1239,7 @@ function WarehouseReceiveForm({ poId, invoiceNumberParam }: { poId: number | nul
                 requestedQuantity:   1,
                 receivedQuantity:    1,
                 purchaseUnit:        "قطعة",
-                conversionFactor:    1,
+                conversionFactor:    0,
                 unitCost:            "0",
                 taxRate:             15,
                 taxAmount:           "0",
@@ -1519,7 +1526,7 @@ function ReceiveItemCard({ item, index, poCandidates, linkedElsewhereIds, onUpda
               )}
             </div>
             <p className="text-xs text-muted-foreground mt-0.5">
-              المطلوب: {item.requestedQuantity} {item.purchaseUnit}
+              المطلوب: {item.requestedQuantity} {poCandidates.find(candidate => Number(candidate.id) === Number(item.purchaseOrderItemId))?.unit || item.purchaseUnit}
             </p>
           </div>
           <div className="flex items-center gap-1">
@@ -1818,12 +1825,13 @@ function ReceiveItemCard({ item, index, poCandidates, linkedElsewhereIds, onUpda
                   )}
                 </div>
               </Field>
-              <Field label="وحدة الشراء">
+              <Field label="وحدة الاستلام الفعلية">
                 <Input value={item.purchaseUnit} onChange={e => onUpdate({ purchaseUnit: e.target.value })} placeholder="كرتون / قطعة" />
               </Field>
             </div>
+            <ReceiptConversionFields item={item} onChange={onUpdate} />
             <div className="grid grid-cols-2 gap-3">
-              <Field label="سعر الوحدة">
+              <Field label="سعر وحدة الاستلام الفعلية (قبل الضريبة)">
                 <div className="relative">
                   <Input
                     type="number" min={0} step={0.01} dir="ltr"

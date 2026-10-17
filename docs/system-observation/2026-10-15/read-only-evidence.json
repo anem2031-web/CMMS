@@ -1,0 +1,490 @@
+{
+  "generatedUtc": "2026-10-15T10:23:47.236Z",
+  "mode": "SELECT_ONLY",
+  "scope": "Current-state review; no mutations, no historical repair, no API mutation tests",
+  "database": "copycmms",
+  "web": "https://cmms-production-2f64.up.railway.app/",
+  "checks": [
+    {
+      "name": "database",
+      "sql": "SELECT DATABASE() AS databaseName, DATE_FORMAT(UTC_TIMESTAMP(),'%Y-%m-%dT%H:%i:%sZ') AS observedUtc",
+      "rows": [
+        {
+          "databaseName": "copycmms",
+          "observedUtc": "2026-10-15T10:23:47Z"
+        }
+      ]
+    },
+    {
+      "name": "balanceMissingReferences",
+      "sql": "SELECT SUM(l.id IS NULL) AS missingLotReferences,SUM(i.id IS NULL) AS missingInventoryReferences,COUNT(*) AS affectedBalanceRows FROM inventory_lot_balances b LEFT JOIN inventory_lots l ON l.id=b.lotId LEFT JOIN inventory i ON i.id=b.inventoryId WHERE l.id IS NULL OR i.id IS NULL",
+      "rows": [
+        {
+          "missingLotReferences": "17",
+          "missingInventoryReferences": "10",
+          "affectedBalanceRows": 25
+        }
+      ]
+    },
+    {
+      "name": "stockLotDifferences",
+      "sql": "SELECT i.id,i.internalCode,i.itemName,i.warehouseId,i.quantity AS stockQuantity,b.lotQuantity,i.quantity-b.lotQuantity AS difference,i.updatedAt FROM inventory i JOIN (SELECT inventoryId,SUM(quantity) AS lotQuantity FROM inventory_lot_balances GROUP BY inventoryId) b ON b.inventoryId=i.id WHERE i.isFrozen=0 AND ABS(i.quantity-b.lotQuantity)>0.0005 ORDER BY i.id",
+      "rows": [
+        {
+          "id": 210629,
+          "internalCode": "INV-2026-210629",
+          "itemName": "قلم ناشف ازرق PRIMA موديل PR-40775 نوع X3  - م 0.7 مم",
+          "warehouseId": 1,
+          "stockQuantity": "134.000",
+          "lotQuantity": "133.000",
+          "difference": "1.000",
+          "updatedAt": "2026-10-10 07:27:37"
+        },
+        {
+          "id": 240001,
+          "internalCode": "INV-2026-210629",
+          "itemName": "قلم ناشف ازرق PRIMA موديل PR-40775 نوع X3  - م 0.7 مم",
+          "warehouseId": 30002,
+          "stockQuantity": "7.000",
+          "lotQuantity": "0.000",
+          "difference": "7.000",
+          "updatedAt": "2026-09-28 08:41:43"
+        },
+        {
+          "id": 270059,
+          "internalCode": "INV-2026-210690",
+          "itemName": "Duracell AAA battery ",
+          "warehouseId": 30002,
+          "stockQuantity": "7.000",
+          "lotQuantity": "2.000",
+          "difference": "5.000",
+          "updatedAt": "2026-09-28 08:41:43"
+        }
+      ]
+    },
+    {
+      "name": "lotDistributionDifferences",
+      "sql": "SELECT l.id,l.lotCode,l.remainingQuantity,COALESCE(b.quantity,0) AS locatedQuantity,l.createdAt,l.updatedAt FROM inventory_lots l LEFT JOIN (SELECT lotId,SUM(quantity) AS quantity FROM inventory_lot_balances GROUP BY lotId) b ON b.lotId=l.id WHERE ABS(l.remainingQuantity-COALESCE(b.quantity,0))>0.0005 ORDER BY l.id",
+      "rows": [
+        {
+          "id": 33,
+          "lotCode": "LOT-2026-00007",
+          "remainingQuantity": "1.000",
+          "locatedQuantity": "0",
+          "createdAt": "2026-08-29 05:49:48",
+          "updatedAt": "2026-08-29 05:49:48"
+        },
+        {
+          "id": 342,
+          "lotCode": "LOT-2026-00315",
+          "remainingQuantity": "39.000",
+          "locatedQuantity": "33.000",
+          "createdAt": "2026-09-08 07:59:07",
+          "updatedAt": "2026-10-10 07:27:37"
+        },
+        {
+          "id": 30065,
+          "lotCode": "LOT-2026-00495",
+          "remainingQuantity": "1.000",
+          "locatedQuantity": "0.000",
+          "createdAt": "2026-09-19 08:49:21",
+          "updatedAt": "2026-09-28 08:42:12"
+        },
+        {
+          "id": 30066,
+          "lotCode": "LOT-2026-00496",
+          "remainingQuantity": "1.000",
+          "locatedQuantity": "0.000",
+          "createdAt": "2026-09-19 08:50:37",
+          "updatedAt": "2026-09-28 08:42:12"
+        },
+        {
+          "id": 30067,
+          "lotCode": "LOT-2026-00497",
+          "remainingQuantity": "2.000",
+          "locatedQuantity": "0.000",
+          "createdAt": "2026-09-19 11:01:56",
+          "updatedAt": "2026-09-28 08:42:12"
+        },
+        {
+          "id": 30068,
+          "lotCode": "LOT-2026-00498",
+          "remainingQuantity": "5.000",
+          "locatedQuantity": "0.000",
+          "createdAt": "2026-09-19 11:14:17",
+          "updatedAt": "2026-09-28 08:42:12"
+        }
+      ]
+    },
+    {
+      "name": "trackedValueDifferences",
+      "sql": "SELECT i.id,i.internalCode,i.quantity,i.averageCost,i.totalCostValue,ROUND(i.quantity*i.averageCost,2) AS expectedValue FROM inventory i WHERE EXISTS(SELECT 1 FROM inventory_lot_balances b WHERE b.inventoryId=i.id) AND ABS(i.totalCostValue-ROUND(i.quantity*i.averageCost,2))>GREATEST(0.01,CEIL(ABS(i.quantity)*0.00005*100)/100)+0.000001",
+      "rows": [
+        {
+          "id": 270059,
+          "internalCode": "INV-2026-210690",
+          "quantity": "7.000",
+          "averageCost": "0.3450",
+          "totalCostValue": "0.69",
+          "expectedValue": "2.42"
+        }
+      ]
+    },
+    {
+      "name": "closedTicketOpenItem",
+      "sql": "SELECT t.id,t.ticketNumber,t.status AS headerStatus,i.status AS itemStatus,t.closedAt,t.updatedAt AS headerUpdatedAt,i.updatedAt AS itemUpdatedAt FROM tickets t JOIN (SELECT ticketId,MIN(id) AS itemId FROM ticket_items GROUP BY ticketId HAVING COUNT(*)=1) x ON x.ticketId=t.id JOIN ticket_items i ON i.id=x.itemId WHERE COALESCE(t.workflowModel,'legacy')<>'department_tasks' AND t.status IN ('closed','requester_confirmed') AND i.status NOT IN ('closed','requester_confirmed') ORDER BY t.id",
+      "rows": [
+        {
+          "id": 1800056,
+          "ticketNumber": "MT-2026-00172",
+          "headerStatus": "closed",
+          "itemStatus": "under_inspection",
+          "closedAt": "2026-08-10 11:33:48",
+          "headerUpdatedAt": "2026-08-10 11:33:47",
+          "itemUpdatedAt": "2026-08-08 12:10:10"
+        },
+        {
+          "id": 1800058,
+          "ticketNumber": "MT-2026-00174",
+          "headerStatus": "closed",
+          "itemStatus": "under_inspection",
+          "closedAt": "2026-08-10 11:36:36",
+          "headerUpdatedAt": "2026-08-10 11:36:35",
+          "itemUpdatedAt": "2026-08-08 12:10:10"
+        },
+        {
+          "id": 1800059,
+          "ticketNumber": "MT-2026-00175",
+          "headerStatus": "closed",
+          "itemStatus": "under_inspection",
+          "closedAt": "2026-08-10 11:18:40",
+          "headerUpdatedAt": "2026-08-10 11:18:40",
+          "itemUpdatedAt": "2026-08-08 12:10:10"
+        },
+        {
+          "id": 1800060,
+          "ticketNumber": "MT-2026-00176",
+          "headerStatus": "closed",
+          "itemStatus": "under_inspection",
+          "closedAt": "2026-08-10 11:17:34",
+          "headerUpdatedAt": "2026-08-10 11:17:33",
+          "itemUpdatedAt": "2026-08-08 12:10:10"
+        },
+        {
+          "id": 1800063,
+          "ticketNumber": "MT-2026-00179",
+          "headerStatus": "closed",
+          "itemStatus": "under_inspection",
+          "closedAt": "2026-08-10 11:16:03",
+          "headerUpdatedAt": "2026-08-10 11:16:02",
+          "itemUpdatedAt": "2026-08-08 12:10:10"
+        },
+        {
+          "id": 1800070,
+          "ticketNumber": "MT-2026-00185",
+          "headerStatus": "closed",
+          "itemStatus": "under_inspection",
+          "closedAt": "2026-08-10 11:10:41",
+          "headerUpdatedAt": "2026-08-10 11:10:40",
+          "itemUpdatedAt": "2026-08-08 12:10:10"
+        },
+        {
+          "id": 1800074,
+          "ticketNumber": "MT-2026-00189",
+          "headerStatus": "closed",
+          "itemStatus": "under_inspection",
+          "closedAt": "2026-08-10 11:07:21",
+          "headerUpdatedAt": "2026-08-10 11:07:20",
+          "itemUpdatedAt": "2026-08-08 12:10:10"
+        },
+        {
+          "id": 1800081,
+          "ticketNumber": "MT-2026-00196",
+          "headerStatus": "closed",
+          "itemStatus": "pending_triage",
+          "closedAt": "2026-08-10 10:41:11",
+          "headerUpdatedAt": "2026-08-10 10:41:10",
+          "itemUpdatedAt": "2026-08-08 12:10:10"
+        },
+        {
+          "id": 1800091,
+          "ticketNumber": "MT-2026-00204",
+          "headerStatus": "closed",
+          "itemStatus": "under_inspection",
+          "closedAt": "2026-08-10 10:46:20",
+          "headerUpdatedAt": "2026-08-10 10:46:20",
+          "itemUpdatedAt": "2026-08-09 13:42:17"
+        },
+        {
+          "id": 1800092,
+          "ticketNumber": "MT-2026-00205",
+          "headerStatus": "closed",
+          "itemStatus": "under_inspection",
+          "closedAt": "2026-08-10 05:15:31",
+          "headerUpdatedAt": "2026-08-10 05:15:31",
+          "itemUpdatedAt": "2026-08-09 13:42:17"
+        },
+        {
+          "id": 1800093,
+          "ticketNumber": "MT-2026-00206",
+          "headerStatus": "closed",
+          "itemStatus": "under_inspection",
+          "closedAt": "2026-08-10 10:59:50",
+          "headerUpdatedAt": "2026-08-10 10:59:50",
+          "itemUpdatedAt": "2026-08-09 13:42:17"
+        }
+      ]
+    },
+    {
+      "name": "receivedValue",
+      "sql": "SELECT COUNT(*) AS receivedItems,SUM(actualTotalCost) AS actualRecordedOnly,SUM(COALESCE(actualTotalCost,estimatedTotalCost,0)) AS includingEstimate,SUM(actualTotalCost IS NULL) AS missingActualCost,SUM(actualTotalCost=0) AS zeroActualCost FROM purchase_order_items WHERE status IN ('delivered_to_warehouse','delivered_to_requester')",
+      "rows": [
+        {
+          "receivedItems": 1285,
+          "actualRecordedOnly": "879395.34",
+          "includingEstimate": "879396.34",
+          "missingActualCost": "1",
+          "zeroActualCost": "275"
+        }
+      ]
+    },
+    {
+      "name": "missingActualReceivedItems",
+      "sql": "SELECT p.poNumber,i.id,i.itemName,i.status,i.actualTotalCost,i.estimatedTotalCost,i.receivedAt,i.deliveredAt FROM purchase_order_items i JOIN purchase_orders p ON p.id=i.purchaseOrderId WHERE i.status IN ('delivered_to_warehouse','delivered_to_requester') AND i.actualTotalCost IS NULL",
+      "rows": [
+        {
+          "poNumber": "PR-2026-0288",
+          "id": 3510127,
+          "itemName": "صيانة خارجية: تجربه",
+          "status": "delivered_to_requester",
+          "actualTotalCost": null,
+          "estimatedTotalCost": "1.00",
+          "receivedAt": "2026-08-05 10:46:36",
+          "deliveredAt": "2026-08-05 10:47:12"
+        }
+      ]
+    },
+    {
+      "name": "orphanReceiptLines",
+      "sql": "SELECT i.id,i.receiptId,i.inventoryId,i.receivedQuantity,i.createdAt FROM warehouse_receipt_items i LEFT JOIN warehouse_receipts r ON r.id=i.receiptId WHERE r.id IS NULL",
+      "rows": [
+        {
+          "id": 270091,
+          "receiptId": 450066,
+          "inventoryId": 270085,
+          "receivedQuantity": "1.000",
+          "createdAt": "2026-09-21 09:17:33"
+        },
+        {
+          "id": 270092,
+          "receiptId": 450066,
+          "inventoryId": 270086,
+          "receivedQuantity": "1.000",
+          "createdAt": "2026-09-21 09:17:33"
+        }
+      ]
+    },
+    {
+      "name": "missingDeliveryMovement",
+      "sql": "SELECT d.id,d.deliveryNumber,d.inventoryTransactionId,d.inventoryId,d.lotId,d.quantity,d.createdAt FROM delivery_documents d LEFT JOIN inventory_transactions m ON m.id=d.inventoryTransactionId WHERE d.inventoryTransactionId IS NOT NULL AND m.id IS NULL",
+      "rows": [
+        {
+          "id": 210272,
+          "deliveryNumber": "DLV-2026-300272",
+          "inventoryTransactionId": 450834,
+          "inventoryId": 210507,
+          "lotId": 204,
+          "quantity": 1,
+          "createdAt": "2026-08-30 07:03:38"
+        }
+      ]
+    },
+    {
+      "name": "archivedMovementCheck",
+      "sql": "SELECT COUNT(*) AS archivedMatches FROM inventory_transactions_legacy_orphans WHERE id=450834",
+      "rows": [
+        {
+          "archivedMatches": 0
+        }
+      ]
+    },
+    {
+      "name": "duplicateDeliveryNumbers",
+      "sql": "SELECT d.id,d.deliveryNumber,d.inventoryTransactionId,d.inventoryId,d.lotId,d.quantity,d.createdAt FROM delivery_documents d JOIN (SELECT deliveryNumber FROM delivery_documents GROUP BY deliveryNumber HAVING COUNT(*)>1) x ON x.deliveryNumber=d.deliveryNumber ORDER BY d.deliveryNumber,d.id",
+      "rows": [
+        {
+          "id": 1,
+          "deliveryNumber": "DLV-2026-90034",
+          "inventoryTransactionId": null,
+          "inventoryId": null,
+          "lotId": null,
+          "quantity": 1,
+          "createdAt": "2026-07-04 10:47:29"
+        },
+        {
+          "id": 2,
+          "deliveryNumber": "DLV-2026-90034",
+          "inventoryTransactionId": null,
+          "inventoryId": null,
+          "lotId": null,
+          "quantity": 1,
+          "createdAt": "2026-07-04 10:47:30"
+        },
+        {
+          "id": 4,
+          "deliveryNumber": "DLV-2026-90036",
+          "inventoryTransactionId": null,
+          "inventoryId": null,
+          "lotId": null,
+          "quantity": 8,
+          "createdAt": "2026-07-05 04:27:01"
+        },
+        {
+          "id": 5,
+          "deliveryNumber": "DLV-2026-90036",
+          "inventoryTransactionId": null,
+          "inventoryId": null,
+          "lotId": null,
+          "quantity": 8,
+          "createdAt": "2026-07-05 04:27:01"
+        }
+      ]
+    },
+    {
+      "name": "closedParentExample",
+      "sql": "SELECT p.id,p.ticketNumber,p.status,COUNT(c.id) AS children,SUM(c.status NOT IN ('closed','requester_confirmed')) AS openChildren FROM tickets p JOIN tickets c ON c.parentTicketId=p.id WHERE p.ticketNumber IN ('MT-2026-00579','MT-2026-00578') GROUP BY p.id,p.ticketNumber,p.status",
+      "rows": [
+        {
+          "id": 2010126,
+          "ticketNumber": "MT-2026-00578",
+          "status": "closed",
+          "children": 1,
+          "openChildren": "0"
+        },
+        {
+          "id": 2010127,
+          "ticketNumber": "MT-2026-00579",
+          "status": "closed",
+          "children": 1,
+          "openChildren": "0"
+        }
+      ]
+    },
+    {
+      "name": "openExecutionWatchlist",
+      "sql": "SELECT COUNT(*) AS openExecutions,SUM(priority='critical') AS criticalExecutions,SUM(createdAt<UTC_TIMESTAMP()-INTERVAL 48 HOUR) AS olderThan48Hours,SUM(maintenanceResponsibleManagerId IS NULL) AS noPrimaryManager FROM tickets WHERE COALESCE(workflowModel,'legacy')<>'department_tasks' AND status NOT IN ('closed','requester_confirmed')",
+      "rows": [
+        {
+          "openExecutions": 159,
+          "criticalExecutions": "28",
+          "olderThan48Hours": "156",
+          "noPrimaryManager": "40"
+        }
+      ]
+    },
+    {
+      "name": "administrativelyClosed",
+      "sql": "SELECT COUNT(DISTINCT p.id) AS orders,COUNT(*) AS nonFinalItems FROM purchase_orders p JOIN purchase_order_items i ON i.purchaseOrderId=p.id WHERE p.status IN ('received','closed') AND i.status NOT IN ('delivered_to_warehouse','delivered_to_requester','cancelled','purchase_cancelled','rejected')",
+      "rows": [
+        {
+          "orders": 14,
+          "nonFinalItems": 20
+        }
+      ]
+    },
+    {
+      "name": "receivedLocationData",
+      "sql": "SELECT COUNT(*) AS receivedItems,SUM(p.siteId IS NULL) AS orderWithoutSite,SUM(COALESCE(p.siteId,t.siteId) IS NULL) AS noOrderOrTicketSite,SUM(CASE WHEN p.siteId IS NULL THEN i.actualTotalCost ELSE 0 END) AS actualValueWithoutOrderSite,SUM(CASE WHEN p.siteId IS NULL AND t.siteId IS NOT NULL THEN i.actualTotalCost ELSE 0 END) AS actualValueWithLinkedTicketSite FROM purchase_order_items i JOIN purchase_orders p ON p.id=i.purchaseOrderId LEFT JOIN tickets t ON t.id=p.ticketId WHERE i.status IN ('delivered_to_warehouse','delivered_to_requester')",
+      "rows": [
+        {
+          "receivedItems": 1285,
+          "orderWithoutSite": "1284",
+          "noOrderOrTicketSite": "1215",
+          "actualValueWithoutOrderSite": "879395.34",
+          "actualValueWithLinkedTicketSite": "56908.94"
+        }
+      ]
+    },
+    {
+      "name": "positiveControls",
+      "sql": "SELECT 'negative_inventory_quantity' AS checkName,COUNT(*) AS exceptions FROM inventory WHERE quantity<0 UNION ALL SELECT 'negative_lot_remaining',COUNT(*) FROM inventory_lots WHERE remainingQuantity<0 UNION ALL SELECT 'negative_lot_balance',COUNT(*) FROM inventory_lot_balances WHERE quantity<0 UNION ALL SELECT 'purchase_item_without_order',COUNT(*) FROM purchase_order_items i LEFT JOIN purchase_orders p ON p.id=i.purchaseOrderId WHERE p.id IS NULL UNION ALL SELECT 'ticket_item_without_ticket',COUNT(*) FROM ticket_items i LEFT JOIN tickets t ON t.id=i.ticketId WHERE t.id IS NULL UNION ALL SELECT 'allocation_amount_mismatch',COUNT(*) FROM inventory_issue_cost_allocations WHERE ABS(allocatedCostTotal-ROUND(quantity*lotIssueUnitCostSnapshot,2))>0.01",
+      "rows": [
+        {
+          "checkName": "negative_lot_remaining",
+          "exceptions": 0
+        },
+        {
+          "checkName": "negative_inventory_quantity",
+          "exceptions": 0
+        },
+        {
+          "checkName": "negative_lot_balance",
+          "exceptions": 0
+        },
+        {
+          "checkName": "allocation_amount_mismatch",
+          "exceptions": 0
+        },
+        {
+          "checkName": "ticket_item_without_ticket",
+          "exceptions": 0
+        },
+        {
+          "checkName": "purchase_item_without_order",
+          "exceptions": 0
+        }
+      ]
+    },
+    {
+      "name": "returnQuantityControl",
+      "sql": "SELECT COUNT(*) AS returnsExceedingOriginalIssue FROM delivery_documents d JOIN (SELECT sourceDeliveryDocumentId,SUM(returnedQuantity) AS returned FROM warehouse_returns WHERE sourceDeliveryDocumentId IS NOT NULL GROUP BY sourceDeliveryDocumentId) r ON r.sourceDeliveryDocumentId=d.id WHERE r.returned>d.quantity+0.0005",
+      "rows": [
+        {
+          "returnsExceedingOriginalIssue": 0
+        }
+      ]
+    }
+  ],
+  "ui": {
+    "reconciliation": {
+      "exceptions": 37,
+      "types": {
+        "missingLot": 17,
+        "missingInventory": 10,
+        "lotDistribution": 6,
+        "stockQuantity": 3,
+        "stockValue": 1
+      }
+    },
+    "closedParent": {
+      "ticketNumber": "MT-2026-00579",
+      "visibleStatus": "مغلق",
+      "visibleBadge": "اكتملت كل الفروع — بانتظار الإغلاق"
+    },
+    "observer": {
+      "previouslyVerifiedThisSession": true,
+      "blockedReadControls": [
+        "Toggle Sidebar in narrow layout",
+        "جميع الطلبات",
+        "حسب القسم",
+        "آخر شهر",
+        "دائري",
+        "مسح الفلاتر"
+      ],
+      "mutationsAndImportExportDisabledInSampledPages": true
+    },
+    "reportObservedTotal": "879396.34",
+    "dashboardAllPeriods": {
+      "period": "all",
+      "receivedItemCount": 1285,
+      "recordedActualValue": "879395.34",
+      "missingActualCostWarning": 1
+    }
+  },
+  "scopeNotes": {
+    "productionCodeModified": false,
+    "databaseMutationExecuted": false,
+    "apiMutationTested": false,
+    "previousPendingItemsNotRepaired": true
+  }
+}

@@ -1,0 +1,18 @@
+
+ RUN  v2.1.9 C:/Users/mh/Desktop/CMMSFINAL
+
+ ✓ tools/maintenance-team-tickets/warehouse-extra-ui.test.tsx (19 tests) 299ms
+ ✓ tools/technician-workspace/workspace-ui.test.tsx (16 tests) 85ms
+ ✓ tools/ticket-execution-parity/ui.test.tsx (15 tests) 56ms
+ ✓ tools/catalog-picker/picker.test.tsx (15 tests) 77ms
+ ✓ tools/ticket-material-identity/identity-ui.test.tsx (16 tests) 105ms
+ ✓ tools/maintenance-team-tickets/material-parity-ui.test.tsx (15 tests) 56ms
+ ✓ tools/maintenance-team-tickets/warehouse-ui.test.tsx (10 tests) 188ms
+ ✓ tools/maintenance-team-tickets/execution-ui.test.tsx (17 tests) 71ms
+ ✓ tools/technician-status-cards/buckets.test.tsx (11 tests) 12ms
+
+ Test Files  9 passed (9)
+      Tests  134 passed (134)
+   Start at  11:55:07
+   Duration  4.74s (transform 694ms, setup 0ms, collect 2.29s, tests 949ms, environment 1ms, prepare 524ms)
+

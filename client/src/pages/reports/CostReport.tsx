@@ -1,4 +1,7 @@
 import { useState, useMemo } from "react";
+import { useAuth } from "@/_core/hooks/useAuth";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import MaterialExecutionCostReport from "./MaterialExecutionCostReport";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { trpc } from "@/lib/trpc";
 import { useLocation } from "wouter";
@@ -62,6 +65,15 @@ const PieTooltip = ({ active, payload }: any) => {
 };
 
 export default function CostReport() {
+  const { user } = useAuth();
+  const allowed = ["owner", "admin", "observer", "accountant", "warehouse", "senior_management", "executive_director", "maintenance_manager", "general_maintenance_manager", "construction_procurement_manager", "supervisor", "it_manager"].includes(user?.role || "");
+  const status = trpc.materialCosts.status.useQuery(undefined, { enabled: allowed });
+  const [tab, setTab] = useState<string | null>(null);
+  if (!allowed) return <LegacyCostReport />;
+  return <Tabs value={tab ?? (status.data?.enabled ? "materials" : "legacy")} onValueChange={setTab} className="space-y-4"><TabsList><TabsTrigger value="materials">صافي تكلفة مواد التنفيذ</TabsTrigger><TabsTrigger value="legacy">التقرير السابق — البلاغات والمشتريات</TabsTrigger></TabsList><TabsContent value="materials"><MaterialExecutionCostReport /></TabsContent><TabsContent value="legacy"><LegacyCostReport /></TabsContent></Tabs>;
+}
+
+function LegacyCostReport() {
   const { t, language } = useLanguage();
   const [, setLocation] = useLocation();
   const PERIOD_LABELS: Record<Period, string> = {

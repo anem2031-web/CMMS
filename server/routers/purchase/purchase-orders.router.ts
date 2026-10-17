@@ -37,7 +37,7 @@ import {
   isPendingTicketMaterialLink,
   shouldExposeTicketMaterialLink,
 } from "@shared/ticketMaterialDelivery";
-import { resolveInventoryLotForIssue } from "../../_core/inventory-lots";
+import { resolveInventoryLotForIssue, isInventoryLotsEnabled } from "../../_core/inventory-lots";
 import { issueCostAllocationsSchema } from "../inventory/issue-cost-allocation.schema";
 import { APP_ROLE, MAINTENANCE_RESPONSIBLE_DEPARTMENT, canRoleViewAllPurchaseSupplyTracking } from "@shared/roles";
 import { createTranslatedProcurementComment, queuePurchaseTranslation } from "./translation-queue";
@@ -326,6 +326,7 @@ interface InventoryTicketDeliveryContext {
   purchaseOrderItemId: number | null;
   purchaseOrderId: number | null;
   purchaseOrderItemStatus: string | null;
+  ticketItemId: number | null;
   ticketId: number | null;
   ticketNumber: string | null;
   ticketStatus: string | null;
@@ -352,6 +353,7 @@ async function getInventoryTicketDeliveryContext(
         poi.purchaseOrderId,
         poi.status AS purchaseOrderItemStatus,
         po.ticketId,
+        po.ticketItemId,
         t.ticketNumber,
         t.status AS ticketStatus,
         t.maintenancePath,
@@ -370,6 +372,7 @@ async function getInventoryTicketDeliveryContext(
         poi.purchaseOrderId,
         poi.status AS purchaseOrderItemStatus,
         po.ticketId,
+        po.ticketItemId,
         t.ticketNumber,
         t.status AS ticketStatus,
         t.maintenancePath,
@@ -398,6 +401,7 @@ async function getInventoryTicketDeliveryContext(
     purchaseOrderItemId: row.purchaseOrderItemId ? Number(row.purchaseOrderItemId) : null,
     purchaseOrderId: row.purchaseOrderId ? Number(row.purchaseOrderId) : null,
     purchaseOrderItemStatus: row.purchaseOrderItemStatus ?? null,
+    ticketItemId: row.ticketItemId ? Number(row.ticketItemId) : null,
     ticketId: row.ticketId ? Number(row.ticketId) : null,
     ticketNumber: row.ticketNumber ?? null,
     ticketStatus: row.ticketStatus ?? null,
@@ -790,11 +794,20 @@ export const purchaseOrdersRouter = router({
       });
     }
 
-    const itemQty = Number((item as any).quantity || 0);
-    if (input.deliveryQty > itemQty) {
+    // PO quantities use purchase units; lot original quantities use stock/issue units.
+    // A carton order must not cap a piece delivery at the number of cartons.
+    let maximumIssueQuantity = Number((item as any).quantity || 0);
+    if (isInventoryLotsEnabled()) {
+      const connection = await db.getDb();
+      if (!connection) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر قراءة كمية الاستلام بوحدة الصرف" });
+      const received: any = await connection.execute(sql`SELECT COALESCE(SUM(originalQuantity),0) AS quantity FROM inventory_lots WHERE purchaseOrderItemId=${input.itemId}`);
+      const receivedInIssueUnits = Number(received?.[0]?.[0]?.quantity || 0);
+      maximumIssueQuantity = Math.min(Number(inventoryItem.quantity || 0), receivedInIssueUnits > 0 ? receivedInIssueUnits : maximumIssueQuantity);
+    }
+    if (input.deliveryQty > maximumIssueQuantity) {
       throw new TRPCError({
         code: "BAD_REQUEST",
-        message: `الكمية المطلوبة (${input.deliveryQty}) أكبر من كمية بند الطلب (${itemQty})`,
+        message: `الكمية المطلوبة (${input.deliveryQty}) أكبر من المتاح للتسليم بوحدة الصرف (${maximumIssueQuantity})`,
       });
     }
 
@@ -810,6 +823,7 @@ export const purchaseOrdersRouter = router({
       deliveredToId: input.deliveredToId,
       purchaseOrderItemId: input.itemId,
       ticketId: ticket?.maintenancePath === "B" ? ticket.id : undefined,
+      ticketItemId: ticket?.maintenancePath === "B" ? po.ticketItemId ?? undefined : undefined,
       ticketNumber: ticket?.maintenancePath === "B" ? ticket.ticketNumber : undefined,
       assignedTechnicianId: ticket?.maintenancePath === "B" ? ticket.assignedToId ?? undefined : undefined,
       assignedTechnicianName: ticket?.maintenancePath === "B" ? (assignedTechnician as any)?.name ?? undefined : undefined,
@@ -2508,6 +2522,7 @@ list: protectedProcedure.input(z.object({
       deliveredToId: input.deliveredToId,
       purchaseOrderItemId: linkToTicket ? context?.purchaseOrderItemId ?? undefined : undefined,
       ticketId: linkToTicket ? context?.ticketId ?? undefined : undefined,
+      ticketItemId: linkToTicket ? context?.ticketItemId ?? undefined : undefined,
       ticketNumber: linkToTicket ? context?.ticketNumber ?? undefined : undefined,
       assignedTechnicianId: linkToTicket ? context?.assignedTechnicianId ?? undefined : undefined,
       assignedTechnicianName: linkToTicket ? context?.assignedTechnicianName ?? undefined : undefined,

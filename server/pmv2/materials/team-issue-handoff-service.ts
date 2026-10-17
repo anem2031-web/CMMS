@@ -744,6 +744,7 @@ export class Pmv2TeamIssueHandoffService {
       let delivery: any = null;
       try {
         delivery = await currentInventoryIssueAdapter.issueDelivery({
+          taskItemId: requirement.taskItemId,
           inventoryId: candidate.inventoryId, quantity: allocation.quantity, unit: candidate.unit,
           performedById: actorUserId, deliveredToId, lotTrackingToken: allocation.trackingToken,
           notes: technicianSelfService
@@ -792,6 +793,9 @@ export class Pmv2TeamIssueHandoffService {
     if (!requirement?.catalogItemId) throw new Pmv2TeamIssueHandoffError("احتياج PM V2 غير صالح للربط");
     const delivery = await currentDeliveryAdapter.getDeliveryByNumber(deliveryNumber);
     if (!delivery || !delivery.id || delivery.catalogItemId == null || delivery.warehouseId == null) throw new Pmv2TeamIssueHandoffError("سند الصرف المؤكد غير موجود أو غير مكتمل");
+    if (delivery.executionSource && (delivery.executionSource !== "pmv2" || delivery.executionId !== requirement.taskId || delivery.executionItemId !== requirement.taskItemId)) {
+      throw new Pmv2TeamIssueHandoffError("سند الصرف مسجل على مرجع تكلفة آخر؛ لا يمكن احتسابه مرة أخرى على مهمة PMV2. استخدم الصرف من احتياج المهمة.");
+    }
 
     return db.transaction(async (tx: any) => {
       await tx.execute(sql`SELECT id FROM delivery_documents WHERE id = ${delivery.id} FOR UPDATE`);

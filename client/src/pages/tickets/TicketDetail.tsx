@@ -1,3 +1,4 @@
+import { MaterialCostPanel } from "@/components/inventory/MaterialCostPanel";
 import { ImprovementReference } from "@/components/improvement/ImprovementReference";
 import { ItTeamPanel, ItTaskActions } from "./ItTeamPanel";
 import { isItTeamRole } from "@shared/roles";
@@ -689,6 +690,7 @@ const { getField } = useResolvedTranslation(
     <>
     <div className="space-y-6 max-w-5xl" dir={dir}>
       <ImprovementReference kind="ticket" documentId={ticketId} />
+      <MaterialCostPanel source="ticket" id={ticketId} />
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-3 flex-1">
           <Button variant="ghost" size="icon" onClick={() => onBack ? onBack() : goBackOrFallback(

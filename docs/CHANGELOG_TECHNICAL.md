@@ -5320,3 +5320,23 @@ owner/admin، توافق رجعي بلا `reviewedById`) وحُدِّث اختب
 - خدمات التنفيذ والمواد والصرف والمرتجع والزيارات والمراجعة والإغلاق لم تُعدل. لا اتصال بالقاعدة أو SQL/schema/data mutation، والعمل داخل CMMSFINAL فقط.
 - 280 اختبارًا معزولًا ناجحًا: 134 واجهة/تصنيف و43 PMV2 ببيانات وهمية وتركيب SQL و103 خدمات. TypeScript 663 قبل/بعد، دون تشخيصات جديدة.
 - التقرير وخطوات الاختبار والحدود: docs/maintenance-team-tickets/TECHNICIAN_STATUS_CARDS_AR.md؛ الأدلة: tools/technician-status-cards/artifacts/. يلزم إعادة تشغيل السيرفر للإجراء الجديد ثم اختبار المستخدم العملي.
+
+
+### 2026-10-15 — explicit receipt conversion and future-only lot material execution costs
+
+**Scope/authorization:** Owner authorized implementation after reviewing the plan; workspace CMMSFINAL only. No database connection, SQL execution, migrations, old-record backfill or revaluation. Old-record treatment remains deferred.
+
+**Problem:** Receipt conversion was implemented internally but hidden/defaulted to one. Warehouse stock bought independently could not be explicitly attributed to a named ticket. Existing lot allocation snapshots were not linked to a uniform execution source or netted against original returns in ticket/PMV2 cost views. Official inventory movements intentionally use average cost.
+
+**Implementation:**
+- ReceiptConversionFields exposes physical receipt unit/quantity, active issue-unit selection, explicit conversion factor starting at zero, and pre-posting quantity/lot-unit-cost preview. Both receipt APIs require a finite positive factor and an active issue unit; incompatible stock/catalog base units are rejected without relabeling old stock. PO unit and requested quantity are retained; received quantity/actual unit price are expressed in the original PO unit only where that conversion is known.
+- Existing issueDelivery remains the atomic physical writer. A new independent material_execution_cost_contexts table is written only behind MATERIAL_EXECUTION_COSTS_ENABLED=true, after the owner installs its SQL manually. One primary-keyed movement has one execution reference; canonical ticket/team/PMV2 IDs are resolved server-side. Generic named-ticket selection validates current item ownership, destination and state and cannot bypass a team need or steal a Path B reference. PMV2 sends the task item before physical issue, preserving cost attribution even if the later operational link needs retry.
+- Original allocation snapshots supply operational lot costs. A SELECT-only reader/core derives physical return credits from the original delivery, handles rounding residue, deduplicates transactions, groups by site/section/asset/document, and explicitly compares inventory-average movement values. No second financial return, no purchase-plus-issue double count, no parent-plus-child double count. Unknown amounts remain incomplete.
+- Ticket detail, team execution and PMV2 task views have cost panels. /reports/cost adds a separate material-cost tab and retains the old report; with the feature off, the old tab remains default. New RPC reads use server-side role/document/team scope, with explicit observer read allow-list entries and no observer mutations/exports. Legacy inventory.addTransaction(out) is refused when the new layer is enabled.
+- Existing stock valuation, receipts' weighted-average accounting, financial returns, transfers, disposal, settlements, dashboard and old records are unchanged in valuation policy.
+
+**Validation:** Isolated cost/receipt/API/atomic rollback tests, SSR UI tests, existing technician/team UI and PMV2/domain regressions. Type comparison against HEAD reports existing diagnostics separately; no live DB claim. Refer to tools/material-costs/artifacts and the final implementation report for exact results. A legacy static isolation scan fails on an unchanged pre-existing module import; it was not widened or fixed here. Chrome capture timed out, so HTML/CSS preview and SSR evidence are supplied without claiming browser visual UAT.
+
+**Manual activation:** docs/material-costs/01-check-before-install.sql -> 02-create-context-table.sql -> 03-verify-install.sql, then configure the feature only after verification. No existing table ALTER or historical data rewrite.
+
+**Reference:** docs/material-costs/IMPLEMENTATION_AR.md.

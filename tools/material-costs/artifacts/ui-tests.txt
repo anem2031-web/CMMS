@@ -1,0 +1,10 @@
+
+ RUN  v2.1.9 C:/Users/mh/Desktop/CMMSFINAL
+
+ ✓ tools/material-costs/ui.test.tsx (6 tests) 32ms
+
+ Test Files  1 passed (1)
+      Tests  6 passed (6)
+   Start at  11:55:06
+   Duration  713ms (transform 162ms, setup 0ms, collect 420ms, tests 32ms, environment 0ms, prepare 91ms)
+

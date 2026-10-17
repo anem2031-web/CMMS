@@ -1553,6 +1553,19 @@ export const inventorySettlements = mysqlTable("inventory_settlements", {
 	index("inventory_settlements_appliedby_idx").on(table.appliedById),
 ]);
 
+// New operations only. Independent table keeps existing issue writes compatible before manual installation.
+export const materialExecutionCostContexts = mysqlTable("material_execution_cost_contexts", {
+	inventoryTransactionId: int().primaryKey().notNull(),
+	executionSource: varchar({ length: 20 }).notNull(),
+	executionId: int(),
+	executionItemId: int(),
+	executionNumber: varchar({ length: 100 }),
+	createdAt: timestamp({ mode: 'string' }).default('CURRENT_TIMESTAMP').notNull(),
+}, table => [
+	index("idx_material_execution_source").on(table.executionSource, table.executionId),
+	foreignKey({ name: "fk_material_execution_movement", columns: [table.inventoryTransactionId], foreignColumns: [inventoryTransactions.id] }).onDelete("restrict").onUpdate("restrict"),
+]);
+
 export const inventoryIssueCostAllocations = mysqlTable("inventory_issue_cost_allocations", {
 	id: int().autoincrement().notNull(),
 	inventoryTransactionId: int().notNull(),

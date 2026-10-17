@@ -1,5 +1,6 @@
 import { and, asc, eq, gt, inArray, like, ne, or, type SQL } from "drizzle-orm";
-import { assets, catalogItems, catalogNodes, deliveryDocuments, inventory, inventoryLotBalances, inventoryLots, purchaseOrderItems, purchaseOrders, sections, sites, tickets, users, warehouseReceiptItems, warehouseReceipts, warehouses, warehouseTransfers } from "../../../drizzle/schema";
+import { assets, catalogItems, catalogNodes, deliveryDocuments, inventory, inventoryLotBalances, inventoryLots, materialExecutionCostContexts, purchaseOrderItems, purchaseOrders, sections, sites, tickets, users, warehouseReceiptItems, warehouseReceipts, warehouses, warehouseTransfers } from "../../../drizzle/schema";
+import { materialExecutionCostsEnabled } from "../../services/material-costs/feature";
 import { getDb } from "../../_core/db/client";
 import { createRecipientWarehouseReturn, issueDelivery } from "../../_core/db/warehouse-returns";
 import { isInventoryLotsEnabled } from "../../_core/inventory-lots";
@@ -625,6 +626,7 @@ export const currentInventoryAdapter: InventoryAdapter = {
 export const currentInventoryIssueAdapter: InventoryIssueAdapter = {
   async issueDelivery(input) {
     const result = await issueDelivery({
+      pmv2TaskItemId: input.taskItemId,
       inventoryId: input.inventoryId,
       quantity: input.quantity,
       unit: input.unit,
@@ -706,7 +708,14 @@ export const currentDeliveryAdapter: DeliveryAdapter = {
     const row = rows[0];
     if (row.inventoryId == null || row.inventoryTransactionId == null) return null;
 
+    const [costContext] = materialExecutionCostsEnabled()
+      ? await db.select().from(materialExecutionCostContexts).where(eq(materialExecutionCostContexts.inventoryTransactionId, row.inventoryTransactionId)).limit(1)
+      : [];
+
     return {
+      executionSource: costContext?.executionSource ?? null,
+      executionId: costContext?.executionId ?? null,
+      executionItemId: costContext?.executionItemId ?? null,
       id: row.id,
       deliveryNumber: row.deliveryNumber,
       inventoryId: row.inventoryId,

@@ -1,0 +1,325 @@
+{
+  "database": "copycmms",
+  "createdTicket": {
+    "id": 2040003,
+    "ticketNumber": "MT-2026-00588",
+    "title": "اختبار دورة فريق التكييف والمواد UAT-20261015-01",
+    "status": "pending_triage",
+    "workflowModel": "department_tasks",
+    "siteId": 480001,
+    "sectionId": 210002,
+    "reportedById": 19110006,
+    "createdAt": "2026-10-15 14:09:43"
+  },
+  "initialItems": [
+    {
+      "id": 240003,
+      "ticketId": 2040003,
+      "status": "pending_triage",
+      "isLegacySingleItem": 1
+    }
+  ],
+  "events": [
+    {
+      "step": "create_ticket",
+      "actor": "RED7",
+      "result": "pass",
+      "ticketNumber": "MT-2026-00588",
+      "note": "Created by browser. SQL used only for verification."
+    },
+    {
+      "step": "triage_and_assign_team",
+      "actors": [
+        "RED6",
+        "RED2"
+      ],
+      "result": "pass",
+      "assignment": {
+        "id": 30002,
+        "ticketId": 2040004,
+        "ticketItemId": 240004,
+        "ticketNumber": "MT-2026-00588-01",
+        "teamId": 1,
+        "warehouseId": 60002,
+        "responsibleManagerId": 19080005,
+        "stage": "action_required",
+        "revision": 0
+      }
+    },
+    {
+      "step": "technician_requests_materials",
+      "actor": "SUHAIL",
+      "result": "pass",
+      "quantity": 3,
+      "itemCode": "731-017"
+    },
+    {
+      "step": "warehouse_creates_purchase",
+      "actor": "RED",
+      "result": "pass",
+      "requested": 3,
+      "warehouseExtra": 2,
+      "purchaseTotal": 5
+    },
+    {
+      "step": "review_and_assign_delegate",
+      "actor": "RED6",
+      "result": "pass",
+      "delegate": "RED3"
+    },
+    {
+      "step": "price_and_submit_to_accounting",
+      "actor": "RED3",
+      "result": "pass",
+      "unitCost": 10,
+      "totalCost": 50
+    },
+    {
+      "step": "accounting_approval",
+      "actor": "RED4",
+      "result": "pass",
+      "testCustodyAmount": 50,
+      "status": "pending_management"
+    }
+  ],
+  "tasks": [
+    {
+      "id": 180002,
+      "ticketId": 2040003,
+      "title": "اختبار مواد فريق التكييف UAT-20261015-01",
+      "status": "promoted",
+      "convertedTicketId": 2040004
+    }
+  ],
+  "teamAssignments": [
+    {
+      "id": 30002,
+      "ticketId": 2040004,
+      "ticketItemId": 240004,
+      "ticketNumber": "MT-2026-00588-01",
+      "teamId": 1,
+      "warehouseId": 60002,
+      "responsibleManagerId": 19080005,
+      "stage": "action_required",
+      "revision": 0
+    }
+  ],
+  "visitTiming": {
+    "databaseTime": {
+      "db": "copycmms",
+      "utcNow": "2026-10-15 14:16:24",
+      "sessionNow": "2026-10-15 14:16:24"
+    },
+    "actions": [
+      {
+        "kind": "execution_protocol",
+        "note": "{\"version\":1}",
+        "createdAt": "2026-10-15 14:13:46"
+      },
+      {
+        "kind": "execution_started",
+        "note": "{\"version\":1,\"visitKey\":\"mtt:a332197b-8a3d-4af3-84ea-cb2f2ab3261b\",\"materialRound\":1}",
+        "createdAt": "2026-10-15 14:15:10"
+      },
+      {
+        "kind": "materials_started",
+        "note": "البند يحتاج مواد — تحديد الاحتياج",
+        "createdAt": "2026-10-15 14:15:19"
+      }
+    ],
+    "observedUi": "03:00:07 immediately after start, 03:00:30 within first minute"
+  },
+  "materialNeeds": [
+    {
+      "id": 30001,
+      "assignmentId": 30002,
+      "catalogItemId": 1140352,
+      "itemNameSnapshot": "فرشاة تنظيف المكيفات",
+      "unitSnapshot": "قطعة",
+      "requestedQuantity": 3,
+      "usedQuantity": null
+    }
+  ],
+  "teamActions": [
+    {
+      "kind": "execution_protocol",
+      "note": "{\"version\":1}",
+      "createdAt": "2026-10-15 14:13:46"
+    },
+    {
+      "kind": "execution_started",
+      "note": "{\"version\":1,\"visitKey\":\"mtt:a332197b-8a3d-4af3-84ea-cb2f2ab3261b\",\"materialRound\":1}",
+      "createdAt": "2026-10-15 14:15:10"
+    },
+    {
+      "kind": "materials_started",
+      "note": "البند يحتاج مواد — تحديد الاحتياج",
+      "createdAt": "2026-10-15 14:15:19"
+    },
+    {
+      "kind": "needs_material",
+      "note": "{\"version\":1,\"type\":\"ticket_material_need\",\"round\":1,\"originalName\":\"فرشاة تنظيف المكيفات\",\"catalogItemId\":1140352,\"shortage\":3,\"message\":\"تسجيل احتياج المادة وتحديد المتوفر والنقص\"}",
+      "createdAt": "2026-10-15 14:17:20"
+    },
+    {
+      "kind": "visit_ended",
+      "note": "{\"version\":1,\"visitKey\":\"mtt:a332197b-8a3d-4af3-84ea-cb2f2ab3261b\"}",
+      "createdAt": "2026-10-15 14:18:10"
+    }
+  ],
+  "purchaseOrders": [
+    {
+      "id": 3780001,
+      "poNumber": "PR-2026-180471",
+      "ticketId": 2040004,
+      "ticketItemId": 240004,
+      "requestedById": 19080003,
+      "status": "pending_review",
+      "siteId": 480001,
+      "sectionId": 210002,
+      "notes": "اختبار دورة الشراء والصرف والتكلفة على copycmms فقط — UAT-20261015-01 — لا شراء أو دفع حقيقي.\nكمية الفني المطلوبة: 3 قطعة؛ كمية الشراء للتذكرة: 3 قطعة؛ إضافة المستودع للتخزين: 2 قطعة؛ إجمالي طلب الشراء: 5 قطعة"
+    }
+  ],
+  "supplyLinks": [
+    {
+      "id": 1,
+      "needId": 30001,
+      "sourceKind": "purchase",
+      "sourceId": 3750001,
+      "sourceNumber": "PR-2026-180471",
+      "linkedQuantity": 3,
+      "status": "pending",
+      "createdAt": "2026-10-15 14:20:48"
+    }
+  ],
+  "latestPurchaseState": {
+    "po": [
+      {
+        "id": 3780001,
+        "poNumber": "PR-2026-180471",
+        "status": "pending_accounting",
+        "ticketId": 2040004,
+        "ticketItemId": 240004
+      }
+    ],
+    "items": [
+      {
+        "id": 3750001,
+        "status": "estimated",
+        "delegateId": 19110002,
+        "quantity": 5,
+        "unit": "قطعة",
+        "estimatedUnitCost": "10.00",
+        "estimatedTotalCost": "50.00"
+      }
+    ]
+  },
+  "findings": [
+    {
+      "id": "UAT-01",
+      "issue": "Visit timer starts around 03:00:00 immediately after visit start",
+      "evidence": "05-visit-timer-and-materials.jpg",
+      "impact": "Elapsed visit duration is misleading; observed 3-hour offset."
+    },
+    {
+      "id": "UAT-02",
+      "issue": "Warehouse needs-processing queue includes needs #1 and #2 linked to ended tickets",
+      "evidence": "08-warehouse-quantity-breakdown.jpg",
+      "impact": "Work queue counts include non-actionable historical needs."
+    },
+    {
+      "id": "UAT-03",
+      "issue": "Live cost report has no new material cost tabs, and ticket shows no Lot material-cost panel",
+      "evidence": "11-live-cost-report-old.jpg",
+      "impact": "New cost layer runtime test requires deployment/activation confirmation; no issue movement performed yet."
+    },
+    {
+      "id": "UAT-04",
+      "issue": "Team child ticket shows category General while parent category is Air Conditioners",
+      "impact": "Observed category snapshot mismatch; source/impact still to review."
+    },
+    {
+      "id": "UAT-05",
+      "issue": "After accounting approval the header remained pending_accounting while batch showed pending_management and item count became zero",
+      "evidence": "14-accounting-stale-header.jpg",
+      "impact": "Screen can mislead the operator until refreshed; database transition succeeded."
+    }
+  ],
+  "finalCheckpoint": {
+    "checkedUtc": "2026-10-15 14:38:03",
+    "database": "copycmms",
+    "tickets": [
+      {
+        "id": 2040003,
+        "ticketNumber": "MT-2026-00588",
+        "status": "department_planning",
+        "category": "general",
+        "categoryId": 7,
+        "parentTicketId": null,
+        "workflowModel": "department_tasks"
+      },
+      {
+        "id": 2040004,
+        "ticketNumber": "MT-2026-00588-01",
+        "status": "under_inspection",
+        "category": "general",
+        "categoryId": null,
+        "parentTicketId": 2040003,
+        "workflowModel": "sub_ticket"
+      }
+    ],
+    "orders": [
+      {
+        "id": 3780001,
+        "poNumber": "PR-2026-180471",
+        "status": "pending_management",
+        "ticketId": 2040004,
+        "ticketItemId": 240004,
+        "siteId": 480001,
+        "sectionId": 210002
+      }
+    ],
+    "batches": [
+      {
+        "id": 360001,
+        "purchaseOrderId": 3780001,
+        "batchNumber": 1,
+        "status": "pending_management",
+        "itemCount": 1,
+        "totalEstimatedCost": "50.00",
+        "submittedById": 19110002,
+        "accountingApprovedById": 19110003,
+        "accountingApprovedAt": "2026-10-15 14:28:09",
+        "custodyAmount": "50.00"
+      }
+    ],
+    "assignments": [
+      {
+        "id": 30002,
+        "ticketId": 2040004,
+        "ticketNumber": "MT-2026-00588-01",
+        "teamId": 1,
+        "warehouseId": 60002,
+        "stage": "waiting_material",
+        "outcome": "needs_material",
+        "revision": 5
+      }
+    ],
+    "contextRows": 0
+  },
+  "status": "PARTIAL_RUNTIME_UAT_AWAITING_LIVE_COST_DEPLOYMENT_AND_BROWSER_RECOVERY",
+  "browserLimitation": "After automatic custody PDF preview, automated click/keyboard interactions stopped producing UI changes. Not classified as a confirmed application defect. PDF tab could not be inspected through available browser controls.",
+  "remaining": [
+    "Management approval RED8",
+    "Record purchase and warehouse receipt",
+    "Receipt unit conversion validation",
+    "Transfer from main to team warehouse",
+    "Lot issue and recipient confirmation",
+    "Usage, original-Lot return and net material cost",
+    "Manager review, child closure and parent closure",
+    "Other outcomes: OK, fixed without materials, blocked, external",
+    "Construction role RED1 and gate role RED5",
+    "Cross-team visibility using paint technicians",
+    "IT workflow; IT account access remains to be provided"
+  ]
+}

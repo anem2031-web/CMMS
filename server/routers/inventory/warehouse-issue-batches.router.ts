@@ -17,6 +17,7 @@ interface InventoryTicketDeliveryContext {
   purchaseOrderItemStatus: string | null;
   purchaseSiteId: number | null;
   purchaseSectionId: number | null;
+  ticketItemId: number | null;
   ticketId: number | null;
   ticketNumber: string | null;
   ticketStatus: string | null;
@@ -242,6 +243,7 @@ async function getInventoryTicketDeliveryContext(
         po.siteId AS purchaseSiteId,
         po.sectionId AS purchaseSectionId,
         po.ticketId,
+        po.ticketItemId,
         t.ticketNumber,
         t.status AS ticketStatus,
         t.maintenancePath,
@@ -266,6 +268,7 @@ async function getInventoryTicketDeliveryContext(
         po.siteId AS purchaseSiteId,
         po.sectionId AS purchaseSectionId,
         po.ticketId,
+        po.ticketItemId,
         t.ticketNumber,
         t.status AS ticketStatus,
         t.maintenancePath,
@@ -300,6 +303,7 @@ async function getInventoryTicketDeliveryContext(
     purchaseOrderItemStatus: row.purchaseOrderItemStatus ?? null,
     purchaseSiteId: toPositiveInt(row.purchaseSiteId),
     purchaseSectionId: toPositiveInt(row.purchaseSectionId),
+    ticketItemId: row.ticketItemId ? Number(row.ticketItemId) : null,
     ticketId: row.ticketId ? Number(row.ticketId) : null,
     ticketNumber: row.ticketNumber ?? null,
     ticketStatus: row.ticketStatus ?? null,
@@ -548,6 +552,7 @@ export const warehouseIssueBatchesRouter = router({
               deliveredToId: input.deliveredToId,
               purchaseOrderItemId: linkToTicket ? context?.purchaseOrderItemId ?? undefined : undefined,
               ticketId: linkToTicket ? context?.ticketId ?? undefined : undefined,
+              ticketItemId: linkToTicket ? context?.ticketItemId ?? undefined : undefined,
               ticketNumber: linkToTicket ? context?.ticketNumber ?? undefined : undefined,
               assignedTechnicianId: linkToTicket ? context?.assignedTechnicianId ?? undefined : undefined,
               assignedTechnicianName: linkToTicket ? context?.assignedTechnicianName ?? undefined : undefined,
@@ -561,7 +566,9 @@ export const warehouseIssueBatchesRouter = router({
               throw new Error(`تعذر توثيق حركة الصرف للصنف ${lot.itemName}`);
             }
 
-            const wisReference = linkToTicket && context?.ticketId
+            const wisReference = delivery.executionSource?.startsWith("ticket_") && delivery.executionId
+              ? { type: "ticket", id: delivery.executionId, number: delivery.executionNumber }
+              : linkToTicket && context?.ticketId
               ? { type: "ticket", id: context.ticketId, number: context.ticketNumber }
               : pmv2Context
                 ? { type: "pmv2", id: pmv2Context.materialRequestItemId, number: pmv2Context.taskNumber }

@@ -1,3 +1,4 @@
+import { MaterialCostPanel } from "@/components/inventory/MaterialCostPanel";
 import { useEffect, useRef, useState } from "react";
 import { ExecutionElapsedTime } from "@/components/maintenance/TechnicianExecutionWindow";
 import { TicketExecutionControls } from "./TicketExecutionControls";
@@ -248,6 +249,7 @@ export function ExecutionPanel({
         utils.ticketTeamExecution.balances.invalidate(),
         utils.ticketTeamAssignments.queue.invalidate(),
         utils.ticketTeamAssignments.warehouseRequests.invalidate(),
+        utils.materialCosts.invalidate(),
       ]);
       onChanged();
       return true;
@@ -317,6 +319,7 @@ export function ExecutionPanel({
     );
   return (
     <div className="space-y-5" aria-busy={busy}>
+      {mode === "execution" && <MaterialCostPanel source="ticket" id={a.ticketId} />}
       {warehouseNeedId == null && (
         <p className="font-medium">{ticketExecutionSession(state, a).working ? l("قيد التنفيذ", "In progress", "کام جاری ہے") : label(a.stage)}</p>
       )}

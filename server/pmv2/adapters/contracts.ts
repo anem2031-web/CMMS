@@ -96,6 +96,9 @@ export interface Pmv2InventoryAvailabilityRef {
  * validates and links them after the existing workflow succeeds.
  */
 export interface Pmv2DeliveryRef {
+  executionSource?: string | null;
+  executionId?: number | null;
+  executionItemId?: number | null;
   id: Pmv2ExternalId;
   deliveryNumber: string;
   inventoryId: Pmv2ExternalId;
@@ -228,6 +231,7 @@ export interface InventoryAdapter {
 
 export interface InventoryIssueAdapter {
   issueDelivery(input: {
+    taskItemId?: Pmv2ExternalId;
     inventoryId: Pmv2ExternalId;
     quantity: number;
     unit?: string;

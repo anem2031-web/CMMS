@@ -1,4 +1,6 @@
 import React from "react";
+// Financial reads are verified separately; retain this fixture's warehouse-only boundary.
+vi.mock("../../client/src/components/inventory/MaterialCostPanel", () => ({ MaterialCostPanel: () => null }));
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createDemo } from "../../server/maintenance-team-tickets/testing/fixture";

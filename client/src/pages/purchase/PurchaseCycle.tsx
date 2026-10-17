@@ -571,6 +571,7 @@ export default function PurchaseCycle() {
   const resolveDeliveryLotMut = trpc.inventory.resolveDeliveryLot.useMutation({
     onSuccess: (data: any) => {
       setDeliveryLotInfo(data);
+      if (data.unit) setDeliveryUnit(data.unit);
       toast.success(t.workflow.purchase.lotRecognized.replace("{code}", data.lotCode));
     },
     onError: (e: any) => {
@@ -1573,6 +1574,7 @@ export default function PurchaseCycle() {
                   <Label className="text-xs">{t.workflow.purchase.unitLabel2}</Label>
                   <Input
                     value={deliveryUnit}
+                    readOnly={lotsEnabled && !!deliveryLotInfo}
                     onChange={e => setDeliveryUnit(e.target.value)}
                     placeholder={t.workflow.purchase.unitExamples}
                   />

@@ -487,6 +487,18 @@ test('global self receipt handles a team with no ordinary members and a differen
   const result = await f.service.issueReadyRequirementToSelf(1, { routeDecisionActionId: 200 });
   assert.equal(result.completed, true); assert.equal(f.issues[0].deliveredToId, 1);
 });
+test('new execution cost context keeps PMV2 item identity and rejects a ticket/foreign task relink', async () => {
+  const f = materialFixture('owner');
+  await f.service.issueReadyRequirementToSelf(1, { routeDecisionActionId: 200 });
+  assert.equal(f.issues[0].taskItemId, 100);
+  const delivery = f.deliveries[0];
+  for (const context of [{ executionSource: 'ticket_named', executionId: 10, executionItemId: 100 }, { executionSource: 'pmv2', executionId: 999, executionItemId: 100 }, { executionSource: 'independent' }]) {
+    Object.assign(delivery, context);
+    await assert.rejects(f.service.linkConfirmedDelivery(1, { routeDecisionActionId: 200, deliveryNumber: delivery.deliveryNumber }), /مرجع تكلفة آخر/);
+  }
+  Object.assign(delivery, { executionSource: 'pmv2', executionId: 10, executionItemId: 100 });
+  assert.equal((await f.service.linkConfirmedDelivery(1, { routeDecisionActionId: 200, deliveryNumber: delivery.deliveryNumber })).idempotent, true);
+});
 test('global self receipt keeps lot shortage blockers and rejects inactive recipient', async () => {
   const f = materialFixture('admin'); f.lots[0].quantity = 1;
   await assert.rejects(f.service.issueReadyRequirementToSelf(1, { routeDecisionActionId: 200 }), /Lots/);

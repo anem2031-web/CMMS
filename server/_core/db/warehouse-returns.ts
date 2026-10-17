@@ -9,6 +9,7 @@ import mysql from "mysql2/promise";
 import {
   InsertUser, users, tickets, purchaseOrders, purchaseOrderItems,
   inventory, inventoryTransactions, inventoryIssueCostAllocations, inventoryLots, inventoryLotBalances, notifications, auditLogs,
+  materialExecutionCostContexts,
   ticketStatusHistory, attachments, sites, backups,
   assets, preventivePlans, pmWorkOrders, assetSpareParts, pmJobs, assetMetrics,
   pmChecklistItems, pmWorkOrderBranches,
@@ -53,6 +54,9 @@ import { getPOItemById, getPurchaseOrderById, getPOItems, updatePurchaseOrder } 
 import { getNextDeliveryNumber, getNextReturnNumber } from "./warehouse-receipts";
 import { calculateInventoryValue, calculateMovementTotal, normalizeInventoryQuantity, roundTo } from "../inventory-costing";
 import { consumeInventoryLotForIssue, isInventoryLotsEnabled, resolveInventoryLotForSupplierReturn } from "../inventory-lots";
+import { materialExecutionCostsEnabled } from "../../services/material-costs/feature";
+import { resolveExecutionCostContext } from "../../services/material-costs/context";
+import { getActiveCatalogUnitCanonicalName } from "../catalog-unit-governance";
 
 export async function createWarehouseReturn(data: InsertWarehouseReturn, tx?: any) {
   const db = tx || await getDb();
@@ -1163,6 +1167,7 @@ export async function incrementReturnDocPrintCount(id: number) {
 }
 
 export type IssueCostAllocationInput = {
+  ticketItemId?: number;
   beneficiarySiteId: number;
   beneficiarySectionId: number;
   beneficiaryAssetId?: number | null;
@@ -1257,6 +1262,8 @@ export async function issueDelivery(params: {
   deliveredToId?:       number;
   purchaseOrderItemId?: number;
   ticketId?:            number;
+  ticketItemId?:        number;
+  pmv2TaskItemId?:      number;
   ticketNumber?:        string;
   assignedTechnicianId?: number;
   assignedTechnicianName?: string;
@@ -1309,6 +1316,14 @@ export async function issueDelivery(params: {
     await tx.execute(sql`SELECT id FROM inventory WHERE id = ${params.inventoryId} FOR UPDATE`);
     const item = await getInventoryItemById(params.inventoryId, tx);
     if (!item) throw new Error("الصنف غير موجود في المخزون");
+    if (materialExecutionCostsEnabled() && params.unit) {
+      const stockUnit = String((item as any).issueUnit || item.unit || "").trim();
+      if (params.unit.trim() !== stockUnit) {
+        const actual = (await getActiveCatalogUnitCanonicalName(params.unit, tx)) || params.unit.trim();
+        const expected = (await getActiveCatalogUnitCanonicalName(stockUnit, tx)) || stockUnit;
+        if (actual !== expected) throw new Error(`وحدة الصرف يجب أن تطابق وحدة المخزون «${stockUnit}». التحويل يتم عند الاستلام فقط.`);
+      }
+    }
     if (deliveryQuantity <= 0) throw new Error("الكمية المسلّمة يجب أن تكون أكبر من صفر");
     if (deliveryQuantity > Number(item.quantity || 0)) {
       throw new Error(`الكمية المطلوبة (${deliveryQuantity}) أكبر من الرصيد المتاح (${item.quantity})`);
@@ -1338,6 +1353,18 @@ export async function issueDelivery(params: {
     const lotIssueUnitCostSnapshot = lotsEnabled
       ? Number(consumedLot?.issueUnitCost ?? 0)
       : 0;
+
+    const costContext = materialExecutionCostsEnabled()
+      ? await resolveExecutionCostContext(tx, {
+          ticketId: params.ticketId, ticketItemId: params.ticketItemId, pmv2TaskItemId: params.pmv2TaskItemId,
+          selectedTicketItemId: params.costAllocations?.[0]?.ticketItemId,
+          beneficiarySiteId: normalizedCostAllocations[0]?.beneficiarySiteId,
+          beneficiarySectionId: normalizedCostAllocations[0]?.beneficiarySectionId ?? null,
+          beneficiaryAssetId: normalizedCostAllocations[0]?.beneficiaryAssetId ?? null,
+        }) : null;
+    if (materialExecutionCostsEnabled() && !lotsEnabled) throw new Error("تحميل تكلفة التنفيذ يتطلب تفعيل نظام اللوتات");
+    if (!materialExecutionCostsEnabled() && params.costAllocations?.[0]?.ticketItemId) throw new Error("ربط تكلفة التنفيذ غير مفعّل بعد");
+    const effectiveTicketId = costContext?.ticketId ?? params.ticketId;
 
     const deliveryNumber = await getNextDeliveryNumber(tx);
 
@@ -1388,7 +1415,7 @@ export async function issueDelivery(params: {
       unitCost: deliveryUnitCost.toFixed(4),
       totalCost: calculateMovementTotal(deliveryQuantity, deliveryUnitCost).toFixed(2),
       reason: params.notes || "تسليم من المخزون",
-      ticketId: params.ticketId,
+      ticketId: effectiveTicketId,
       purchaseOrderItemId: params.purchaseOrderItemId,
       performedById: params.performedById,
       transactionType: "delivery",
@@ -1427,6 +1454,13 @@ export async function issueDelivery(params: {
       );
     }
 
+    if (costContext) {
+      await tx.insert(materialExecutionCostContexts).values({
+        inventoryTransactionId, executionSource: costContext.executionSource, executionId: costContext.executionId,
+        executionItemId: costContext.executionItemId, executionNumber: costContext.executionNumber,
+      });
+    }
+
     if (params.markPurchaseOrderItemDelivered && params.purchaseOrderItemId && purchaseOrderId) {
       const allItems = await getPOItems(purchaseOrderId, tx);
       const activeItems = allItems.filter((poItem: any) =>
@@ -1443,8 +1477,8 @@ export async function issueDelivery(params: {
       inventoryId: params.inventoryId,
       lotId: consumedLot?.lotId,
       inventoryTransactionId,
-      ticketId: params.ticketId,
-      ticketNumber: params.ticketNumber,
+      ticketId: effectiveTicketId,
+      ticketNumber: costContext?.ticketId ? costContext.executionNumber ?? undefined : params.ticketNumber,
       assignedTechnicianId: params.assignedTechnicianId,
       assignedTechnicianName: params.assignedTechnicianName,
       deliveredToId: params.deliveredToId,
@@ -1464,6 +1498,9 @@ export async function issueDelivery(params: {
     return {
       deliveryNumber,
       deliveryDocumentId,
+      executionSource: costContext?.executionSource ?? null,
+      executionId: costContext?.executionId ?? null,
+      executionNumber: costContext?.executionNumber ?? null,
       itemName: consumedLot?.supplierItemName || item.itemName,
       quantity: deliveryQuantity,
       unit: params.unit || item.unit || "",
@@ -1493,7 +1530,7 @@ export async function issueDelivery(params: {
     deliveredByName: (performer as any)?.name || "مستخدم المستودع",
     deliveredToName: (receiver as any)?.name || "غير محدد",
     assignedTechnicianName: params.assignedTechnicianName,
-    ticketNumber: params.ticketNumber,
+    ticketNumber: result.executionSource?.startsWith("ticket_") ? result.executionNumber ?? params.ticketNumber : params.ticketNumber,
     supplierName,
     actualUnitCost,
     poNumber,

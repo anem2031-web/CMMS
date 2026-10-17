@@ -50,6 +50,7 @@ import { uploadsRouter } from "./uploads/uploads.router";
 import { attachmentsRouter } from "./uploads/attachments.router";
 
 import { reportsRouter } from "./reports/reports.router";
+import { materialCostsRouter } from "./reports/material-costs.router";
 import { analyticsRouter } from "./reports/analytics.router";
 import { maintenanceReportsRouter } from "./reports/maintenance-reports.router";
 // ✅ purchaseReportsRouter (purchase-reports.router.ts) حُذف نهائيًا — كان كودًا ميتًا
@@ -133,6 +134,7 @@ purchaseOrders: router({
   attachments: attachmentsRouter,
 
   reports: reportsRouter,
+  materialCosts: materialCostsRouter,
   analytics: analyticsRouter,
   maintenanceReports: maintenanceReportsRouter,
   inventoryReports: inventoryReportsRouter,

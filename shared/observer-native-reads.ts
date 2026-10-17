@@ -1,5 +1,9 @@
 /** Native read procedures reviewed for observer visibility; unlisted/new endpoints are denied. */
 export const OBSERVER_NATIVE_READ_PATHS = [
+  "materialCosts.status",
+  "materialCosts.report",
+  "materialCosts.document",
+  "materialCosts.issueTargets",
   "analytics.costComparison",
   "analytics.monthlySummary",
   "analytics.ticketsByCategory",
