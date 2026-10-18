@@ -2,14 +2,14 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import { pricingBundleText } from "../../client/src/i18n/pricingBundles";
-const state = vi.hoisted(() => ({ language: "ar", role: "delegate", enabled: true, status: "open", member: false }));
+const state = vi.hoisted(() => ({ language: "ar", role: "delegate", enabled: true, status: "open", member: false, pending: "" }));
 vi.mock("../../client/src/_core/hooks/useAuth", () => ({ useAuth: () => ({ user: { id: 11, role: state.role, isActive: 1 } }) }));
 vi.mock("../../client/src/contexts/LanguageContext", () => ({ useTranslation: () => ({ language: state.language, dir: state.language === "en" ? "ltr" : "rtl" }) }));
 vi.mock("wouter", () => ({ Link: ({ href, children, ...props }: any) => <a href={href} {...props}>{children}</a> }));
 vi.mock("../../client/src/lib/trpc", () => {
   const proxy = (path = ""): any => new Proxy(() => {}, { get(_target, key) {
     if (key === "useUtils") return () => proxy("utils");
-    if (key === "useMutation") return () => ({ isPending: false, mutate: vi.fn() });
+    if (key === "useMutation") return () => ({ isPending: path.endsWith(`.${state.pending}`), mutate: vi.fn() });
     if (key === "invalidate") return vi.fn();
     if (key === "useQuery") return () => ({ data: path.endsWith(".status") ? { enabled: state.enabled } : path.endsWith(".list") ? [{ id: 1, bundleNumber: "DPB-2026-000001", status: state.status, itemCount: 2 }]
       : path.endsWith(".detail") ? { id: 1, bundleNumber: "DPB-2026-000001", status: state.status, revision: 2, delegateName: "Delegate fixture", createdAt: "2026-10-17T12:00:00Z", effectsDone: 1, total: 45,
@@ -27,6 +27,20 @@ describe("Real pricing bundle page and delegate controls", () => {
     const text = pricingBundleText[language as keyof typeof pricingBundleText], html = renderToStaticMarkup(<DelegatePricingBundles />);
     for (const value of [text.title, text.send, text.back, text.price, text.supplier, "DPB-2026-000001", "PR-101", "PR-102", "Section A", "Section B", "Supplier A"]) expect(html).toContain(value);
     expect(html).not.toContain("<input"); expect(html).toContain("/purchase-orders/102?itemId=2");
+    expect(html).not.toContain(text.pdf); expect(html).not.toContain("<iframe"); expect(html).not.toContain(`>${text.archive}<`);
+  });
+  it.each(["ar","en","ur"])("offers download after send/archival without an archive action or iframe in %s",language=>{
+    state.enabled=true; state.language=language; state.role="delegate";
+    const text=pricingBundleText[language as keyof typeof pricingBundleText];
+    for(const status of ["sent","archived"]){state.status=status;const html=renderToStaticMarkup(<DelegatePricingBundles/>);
+      expect(html).toContain(text.pdf); expect(html).not.toContain(`<iframe`); expect(html).not.toContain(`>${text.archive}<`); expect(html).not.toContain(text.send);
+    }
+  });
+  it("shows a pending action for sending and preparing a download",()=>{
+    state.enabled=true;state.language="ar";state.role="delegate";state.status="open";state.pending="send";
+    expect(renderToStaticMarkup(<DelegatePricingBundles/>)).toContain(pricingBundleText.ar.sending);
+    state.status="sent";state.pending="pdf";
+    expect(renderToStaticMarkup(<DelegatePricingBundles/>)).toContain(pricingBundleText.ar.preparingPdf);state.pending="";
   });
   it("keeps observer read-only with no PDF export or mutations, and hides sent editing actions", () => {
     state.language = "ar"; state.role = "observer"; state.status = "sent"; const html = renderToStaticMarkup(<DelegatePricingBundles />);

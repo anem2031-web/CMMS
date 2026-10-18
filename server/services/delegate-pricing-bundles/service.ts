@@ -13,6 +13,7 @@ export interface PricingBundlePorts {
 const fail = (message: string, code: "BAD_REQUEST" | "CONFLICT" | "FORBIDDEN" | "NOT_FOUND" = "BAD_REQUEST"): never => { throw new TRPCError({ code, message }); };
 const json = (value: any) => typeof value === "string" ? JSON.parse(value) : value;
 export class PricingBundleService {
+  private readonly pendingPdfs = new Map<number, Promise<Buffer>>();
   constructor(private ports: PricingBundlePorts) {}
   private read(actor: PricingBundleActor) { if (!canReadPricingBundles(actor)) fail("غير مخول بعرض حزم التسعير", "FORBIDDEN"); }
   private write(actor: PricingBundleActor) { if (actor.isActive !== 1 || actor.role !== "delegate") fail("إدارة حزمة التسعير متاحة للمندوب فقط", "FORBIDDEN"); }
@@ -109,11 +110,25 @@ export class PricingBundleService {
     for (const link of links) { const item = await this.source(tx, Number(link.purchaseOrderItemId), true); this.eligible(item, Number(bundle.delegateId)); items.push(this.snapshotRow(item)); }
     const [delegate] = await rows(tx, sql`SELECT id,name,signatureUrl FROM users WHERE id=${bundle.delegateId}`);
     const signatures: PricingBundleSnapshot["signatures"] = [];
+    // Keep the signature bytes frozen at send, but fetch each distinct image only once.
+    const images = new Map<string, Promise<string>>();
+    const image = (source: string | null) => {
+      if (!source) return Promise.resolve("");
+      if (!images.has(source)) images.set(source, this.ports.signature(source));
+      return images.get(source)!;
+    };
     for (const poId of Array.from(new Set(items.map(item => item.purchaseOrderId))).sort((a,b) => a-b)) {
       const [po] = await rows(tx, sql`SELECT p.poNumber,r.name AS requesterName,v.name AS reviewerName,COALESCE(NULLIF(p.requesterSignatureSnapshot,''),r.signatureUrl) AS requesterSignature,COALESCE(NULLIF(p.reviewerSignatureSnapshot,''),v.signatureUrl) AS reviewerSignature FROM purchase_orders p LEFT JOIN users r ON r.id=p.requestedById LEFT JOIN users v ON v.id=p.reviewedById WHERE p.id=${poId}`);
-      signatures.push({ purchaseOrderId: poId, poNumber: po.poNumber, requesterName: po.requesterName || "—", reviewerName: po.reviewerName || "—", requesterSignature: await this.ports.signature(po.requesterSignature), reviewerSignature: await this.ports.signature(po.reviewerSignature), requesterSource: po.requesterSignature || null, reviewerSource: po.reviewerSignature || null });
+      signatures.push({ purchaseOrderId: poId, poNumber: po.poNumber, requesterName: po.requesterName || "—", reviewerName: po.reviewerName || "—", requesterSignature: po.requesterSignature || "", reviewerSignature: po.reviewerSignature || "", requesterSource: po.requesterSignature || null, reviewerSource: po.reviewerSignature || null });
     }
-    return { number: bundle.bundleNumber, submittedAt: new Date().toISOString(), delegate: { id: Number(delegate.id), name: delegate.name || "—", signature: await this.ports.signature(delegate.signatureUrl), signatureSource: delegate.signatureUrl || null }, rows: items, signatures } satisfies PricingBundleSnapshot;
+    const [delegateSignature, frozenSignatures] = await Promise.all([
+      image(delegate.signatureUrl),
+      Promise.all(signatures.map(async signature => {
+        const [requesterSignature, reviewerSignature] = await Promise.all([image(signature.requesterSource ?? null), image(signature.reviewerSource ?? null)]);
+        return { ...signature, requesterSignature, reviewerSignature };
+      })),
+    ]);
+    return { number: bundle.bundleNumber, submittedAt: new Date().toISOString(), delegate: { id: Number(delegate.id), name: delegate.name || "—", signature: delegateSignature, signatureSource: delegate.signatureUrl || null }, rows: items, signatures: frozenSignatures } satisfies PricingBundleSnapshot;
   }
   async send(actor: PricingBundleActor, id: number, revision: number) {
     this.write(actor);
@@ -122,9 +137,7 @@ export class PricingBundleService {
       if (bundle.status !== "open") return; // Idempotent repeated send; no second accounting batch.
       if (Number(bundle.revision) !== revision) fail("تغيرت محتويات الحزمة؛ حدّث الشاشة قبل الإرسال", "CONFLICT");
       const snapshot = await this.snapshot(tx, actor, bundle);
-      // Render before touching any accounting state. A failed PDF aborts the transaction.
-      const pdf = await this.ports.render(snapshot);
-      if (!Buffer.isBuffer(pdf) || pdf.length === 0 || pdf.length > 8 * 1024 * 1024) fail("تعذر حفظ مستند الحزمة؛ لم تُرسل أي أصناف");
+      // Freeze the document inputs atomically with accounting; PDF rendering is deferred to download.
       const submissions = new Map<number, number>();
       for (const packageId of Array.from(new Set(snapshot.rows.map(item => item.packageId).filter((v): v is number => v != null))).sort((a,b) => a-b)) {
         await rows(tx, sql`SELECT id FROM purchase_packages WHERE id=${packageId} FOR UPDATE`);
@@ -143,7 +156,7 @@ export class PricingBundleService {
         await tx.execute(sql`INSERT INTO delegate_pricing_bundle_batches (bundleId,purchaseOrderId,pricingBatchId,purchasePackageSubmissionId) VALUES (${id},${poId},${batch.batchId},${submissionId ?? null})`);
       }
       await tx.execute(sql`UPDATE delegate_pricing_bundle_items SET reservedItemId=NULL WHERE bundleId=${id} AND removedAt IS NULL`);
-      await tx.execute(sql`UPDATE delegate_pricing_bundles SET status='sent',openDelegateId=NULL,sentAt=CURRENT_TIMESTAMP,revision=revision+1,snapshotJson=${JSON.stringify(snapshot)},pdfContent=${pdf} WHERE id=${id}`);
+      await tx.execute(sql`UPDATE delegate_pricing_bundles SET status='sent',openDelegateId=NULL,sentAt=CURRENT_TIMESTAMP,revision=revision+1,snapshotJson=${JSON.stringify(snapshot)},pdfContent=NULL WHERE id=${id}`);
       await this.audit(tx, actor.id, id, "pricing_bundle_sent", { itemIds: snapshot.rows.map(item => item.id) });
     });
     // Durable per-PO finalization retries existing notifications/audit/ticket sync, never accounting submission.
@@ -169,13 +182,44 @@ export class PricingBundleService {
   async pdf(actor: PricingBundleActor, id: number) {
     this.read(actor); if (actor.role === "observer") fail("المراقب لا يستطيع التصدير", "FORBIDDEN");
     const database = await this.ports.database();
-    return database.transaction(async (tx: any) => {
-      const bundle = await this.header(tx, actor, id, true);
-      let pdf: Buffer;
-      if (bundle.status === "open") pdf = await this.ports.render(await this.snapshot(tx, actor, bundle));
-      else { const [stored] = await rows(tx, sql`SELECT pdfContent FROM delegate_pricing_bundles WHERE id=${id}`); pdf = Buffer.from(stored.pdfContent); }
-      return { name: `${bundle.bundleNumber}.pdf`, content: pdf.toString("base64") };
-    });
+    // Authorize every request before consulting the shared render promise, including cached files.
+    const bundle = await this.header(database, actor, id);
+    if (bundle.status === "open") fail("تنزيل PDF متاح بعد إرسال الحزمة للحسابات فقط", "CONFLICT");
+    let pending = this.pendingPdfs.get(id);
+    if (!pending) {
+      pending = this.storedPdf(database, bundle).finally(() => this.pendingPdfs.delete(id));
+      this.pendingPdfs.set(id, pending);
+    }
+    const pdf = await pending;
+    return { name: `${bundle.bundleNumber}.pdf`, content: pdf.toString("base64") };
+  }
+  private checkedPdf(value: unknown): Buffer {
+    if (!(Buffer.isBuffer(value) || value instanceof Uint8Array) || value.length === 0 || value.length > 8 * 1024 * 1024)
+      fail("تعذر تجهيز ملف PDF؛ الحزمة مرسلة للحسابات. أعد محاولة التنزيل");
+    return Buffer.from(value as Uint8Array);
+  }
+  private async storedPdf(database: any, bundle: any): Promise<Buffer> {
+    const [stored] = await rows(database, sql`SELECT pdfContent,snapshotJson FROM delegate_pricing_bundles WHERE id=${bundle.id}`);
+    if (stored?.pdfContent != null) return this.checkedPdf(stored.pdfContent);
+    let snapshot: PricingBundleSnapshot;
+    try {
+      snapshot = json(stored?.snapshotJson);
+      if (!snapshot || snapshot.number !== bundle.bundleNumber || Number(snapshot.delegate?.id) !== Number(bundle.delegateId)
+        || typeof snapshot.delegate?.signature !== "string" || !Array.isArray(snapshot.rows)
+        || snapshot.rows.length === 0 || snapshot.rows.length > PRICING_BUNDLE_LIMIT || !Array.isArray(snapshot.signatures)
+        || snapshot.rows.some(item => !item || !Number.isInteger(item.id) || !Number.isInteger(item.purchaseOrderId)
+          || !snapshot.signatures.some(signature => signature.purchaseOrderId === item.purchaseOrderId
+            && typeof signature.requesterSignature === "string" && typeof signature.reviewerSignature === "string"))) throw Error("Invalid frozen snapshot");
+    } catch {
+      fail("لقطة الحزمة المحفوظة غير مكتملة؛ تعذر إنشاء PDF");
+    }
+    let pdf: Buffer;
+    try { pdf = this.checkedPdf(await this.ports.render(snapshot!)); }
+    catch (cause) { throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر تجهيز ملف PDF؛ الحزمة مرسلة للحسابات. أعد محاولة التنزيل", cause }); }
+    // Render outside SQL transactions. Concurrent app instances keep the first saved bytes.
+    await database.execute(sql`UPDATE delegate_pricing_bundles SET pdfContent=${pdf} WHERE id=${bundle.id} AND status IN ('sent','archived') AND pdfContent IS NULL AND revision=${Number(bundle.revision)}`);
+    const [saved] = await rows(database, sql`SELECT pdfContent FROM delegate_pricing_bundles WHERE id=${bundle.id}`);
+    return this.checkedPdf(saved?.pdfContent);
   }
   async archive(actor: PricingBundleActor, id: number) {
     this.write(actor); const database = await this.ports.database();

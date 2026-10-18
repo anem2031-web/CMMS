@@ -1,0 +1,30 @@
+{
+  "scope": "local fixtures only, no database or live API",
+  "open": {
+    "buttons": [
+      "DPB-DEMO-000001 — مفتوحة (2/20)",
+      "الترتيب حسب التصنيف",
+      "إرجاع إلى التسعير",
+      "إرجاع إلى التسعير",
+      "إرسال الحزمة للحسابات"
+    ],
+    "iframes": 0
+  },
+  "sendUiMs": 327,
+  "download": {
+    "bytes": 608,
+    "header": "%PDF-1.4",
+    "name": "DPB-DEMO-000001.pdf"
+  },
+  "sent": {
+    "buttons": [
+      "DPB-DEMO-000001 — مرسلة للحسابات (2/20)",
+      "الترتيب حسب التصنيف",
+      "تنزيل PDF"
+    ],
+    "iframes": 0
+  },
+  "csp": "frame-src none; object-src none",
+  "refetchDelayMs": 8000,
+  "note": "Elapsed UI time measures a 150ms fixture response, not Railway performance."
+}

@@ -1,0 +1,183 @@
+{
+  "scope": "Existing print templates only; no application-code, database or business-record changes",
+  "liveInspection": "Opened existing inventory lot label on the copycmms Railway service. In-app browser print command did not expose a readable native preview; source DOM/CSS were captured before printing in a fresh tab.",
+  "method": "Captured live root DOM and CSS. Exported offline through installed headless Chrome at CSS @page size, with network and scripts blocked by CSP. Receipt print components extracted unchanged from local TypeScript and rendered into the same captured layout. Canvas replaced by same-sized image from its visible screenshot; two-label common-template case duplicates the unchanged label card.",
+  "sources": {
+    "capture": "https://cmms-production-2f64.up.railway.app/inventory",
+    "cssLength": 277071,
+    "rootLength": 33048,
+    "sources": [
+      {
+        "file": "client/src/pages/inventory/WarehouseReceiveV2.tsx",
+        "sha256": "838579bf8f0850f11d11c123d5d83393738a2aa601fe78f6b062ad005737a248"
+      },
+      {
+        "file": "client/src/pages/inventory/WarehouseReceiveV2.tsx",
+        "sha256": "838579bf8f0850f11d11c123d5d83393738a2aa601fe78f6b062ad005737a248"
+      },
+      {
+        "file": "client/src/pages/inventory/InventoryStandaloneReceive.tsx",
+        "sha256": "899ab58c5cb2836ef64a9a57bc48fb4462118285607fdc856ef54e989ba9c98b"
+      },
+      {
+        "file": "client/src/pages/inventory/InventoryStandaloneReceive.tsx",
+        "sha256": "899ab58c5cb2836ef64a9a57bc48fb4462118285607fdc856ef54e989ba9c98b"
+      }
+    ],
+    "note": "Captured live layout/CSS; receipt components taken unchanged from current workspace. Canvas pixels supplied as same-sized image. No scripts or network allowed."
+  },
+  "cases": [
+    {
+      "case": "lot-labels-1",
+      "labels": 1,
+      "pages": 2,
+      "blankPages": [
+        2
+      ],
+      "details": [
+        {
+          "page": 1,
+          "text": "LOT-2026-\n00778\nﻓﺮﺷﺎة ﺗﻨﻈﻴﻒ\nاﻟﻤﻜﻴﻔﺎت\n ﻗﻄﻌﺔ2\nدﻓﻌﺔ اﺳﺘلام",
+          "darkPixels": 22087,
+          "blank": false,
+          "widthMm": 57.83,
+          "heightMm": 38.1
+        },
+        {
+          "page": 2,
+          "text": "",
+          "darkPixels": 0,
+          "blank": true,
+          "widthMm": 57.83,
+          "heightMm": 38.1
+        }
+      ]
+    },
+    {
+      "case": "lot-labels-2",
+      "labels": 2,
+      "pages": 2,
+      "blankPages": [],
+      "details": [
+        {
+          "page": 1,
+          "text": "LOT-2026-\n00778\nﻓﺮﺷﺎة ﺗﻨﻈﻴﻒ\nاﻟﻤﻜﻴﻔﺎت\n ﻗﻄﻌﺔ2\nدﻓﻌﺔ اﺳﺘلام",
+          "darkPixels": 22703,
+          "blank": false,
+          "widthMm": 57.83,
+          "heightMm": 38.1
+        },
+        {
+          "page": 2,
+          "text": "LOT-2026-\n00778\nﻓﺮﺷﺎة ﺗﻨﻈﻴﻒ\nاﻟﻤﻜﻴﻔﺎت\n ﻗﻄﻌﺔ2\nدﻓﻌﺔ اﺳﺘلام",
+          "darkPixels": 22703,
+          "blank": false,
+          "widthMm": 57.83,
+          "heightMm": 38.1
+        }
+      ]
+    },
+    {
+      "case": "warehouse-receive-1",
+      "labels": 1,
+      "pages": 2,
+      "blankPages": [
+        2
+      ],
+      "details": [
+        {
+          "page": 1,
+          "text": "TEST-LABEL-\n1\nﻣﻠﺼﻖ اﺧﺘﺒﺎر ﻣﺤﻠﻲ\n ﺣﺒﺔ1دﻓﻌﺔ اﺳﺘلام",
+          "darkPixels": 21848,
+          "blank": false,
+          "widthMm": 57.83,
+          "heightMm": 38.1
+        },
+        {
+          "page": 2,
+          "text": "",
+          "darkPixels": 0,
+          "blank": true,
+          "widthMm": 57.83,
+          "heightMm": 38.1
+        }
+      ]
+    },
+    {
+      "case": "warehouse-receive-2",
+      "labels": 2,
+      "pages": 2,
+      "blankPages": [],
+      "details": [
+        {
+          "page": 1,
+          "text": "TEST-LABEL-\n1\nﻣﻠﺼﻖ اﺧﺘﺒﺎر ﻣﺤﻠﻲ\n ﺣﺒﺔ1دﻓﻌﺔ اﺳﺘلام",
+          "darkPixels": 22467,
+          "blank": false,
+          "widthMm": 57.83,
+          "heightMm": 38.1
+        },
+        {
+          "page": 2,
+          "text": "TEST-LABEL-\n2\nﻣﻠﺼﻖ اﺧﺘﺒﺎر ﻣﺤﻠﻲ\n ﺣﺒﺔ1دﻓﻌﺔ اﺳﺘلام",
+          "darkPixels": 22493,
+          "blank": false,
+          "widthMm": 57.83,
+          "heightMm": 38.1
+        }
+      ]
+    },
+    {
+      "case": "standalone-receive-1",
+      "labels": 1,
+      "pages": 2,
+      "blankPages": [
+        2
+      ],
+      "details": [
+        {
+          "page": 1,
+          "text": "TEST-LABEL-\n1\nﻣﻠﺼﻖ اﺧﺘﺒﺎر ﻣﺤﻠﻲ\n ﺣﺒﺔ1دﻓﻌﺔ اﺳﺘلام",
+          "darkPixels": 21848,
+          "blank": false,
+          "widthMm": 57.83,
+          "heightMm": 38.1
+        },
+        {
+          "page": 2,
+          "text": "",
+          "darkPixels": 0,
+          "blank": true,
+          "widthMm": 57.83,
+          "heightMm": 38.1
+        }
+      ]
+    },
+    {
+      "case": "standalone-receive-2",
+      "labels": 2,
+      "pages": 2,
+      "blankPages": [],
+      "details": [
+        {
+          "page": 1,
+          "text": "TEST-LABEL-\n1\nﻣﻠﺼﻖ اﺧﺘﺒﺎر ﻣﺤﻠﻲ\n ﺣﺒﺔ1دﻓﻌﺔ اﺳﺘلام",
+          "darkPixels": 22467,
+          "blank": false,
+          "widthMm": 57.83,
+          "heightMm": 38.1
+        },
+        {
+          "page": 2,
+          "text": "TEST-LABEL-\n2\nﻣﻠﺼﻖ اﺧﺘﺒﺎر ﻣﺤﻠﻲ\n ﺣﺒﺔ1دﻓﻌﺔ اﺳﺘلام",
+          "darkPixels": 22493,
+          "blank": false,
+          "widthMm": 57.83,
+          "heightMm": 38.1
+        }
+      ]
+    }
+  ],
+  "result": "Reproduced: each tested template gives 2 pages for 1 label with page 2 blank; 2 labels give 2 nonblank pages.",
+  "limits": "No physical printer test; legacy manufacturer-barcode modal not tested. No fix implemented."
+}

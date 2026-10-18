@@ -20,7 +20,7 @@ function extract(file: string, name: string) {
 const submitCode = extract("server/routers/purchase/purchase-orders.router.ts", "submitPricedBatchForPO");
 function fixture() {
   let state: any = { bundles: [], members: [], links: [], batches: [], submissions: [], items: Array.from({ length: 25 }, (_, index) => ({ id: index + 1, purchaseOrderId: index < 2 ? 101 : index % 2 ? 102 : 103, poNumber: index < 2 ? "PR-101" : index % 2 ? "PR-102" : "PR-103", packageId: index < 2 ? null : index % 2 ? 9 : 10, purchaseOrderStatus: "pending_estimate", delegateId: 11, catalogItemId: 55, itemName: `Material ${index + 1}`, sectionId: index + 1, sectionName: `Section ${index + 1}`, siteId: 1, siteName: "Site", categoryName: "Category", ticketId: index + 30, ticketItemId: index + 40, quantity: index === 0 ? 50 : 2, unit: "piece", estimatedUnitCost: "10.00", estimatedTotalCost: index === 0 ? "500.00" : "20.00", supplierName: `Supplier ${index + 1}`, status: "estimated", batchId: null })) };
-  const flags = { renderFail: false, batchFailPo: 0, syncFail: false }; let queue = Promise.resolve();
+  const flags = { renderFail: false, batchFailPo: 0, syncFail: false }; let queue = Promise.resolve(); let transactionDepth = 0;
   const queries: string[] = [];
   const tx: any = { execute: async (statement: any) => {
     const parsed = new MySqlDialect().sqlToQuery(statement), q = parsed.sql.replace(/\s+/g, " ").trim(), p: any[] = parsed.params; queries.push(q);
@@ -45,19 +45,24 @@ function fixture() {
     if (q.startsWith("UPDATE purchase_orders SET requesterSignatureSnapshot=")) return [{ affectedRows: 1 }];
     if (q.startsWith("INSERT INTO delegate_pricing_bundle_batches")) { state.links.push({ bundleId: p[0], purchaseOrderId: p[1], pricingBatchId: p[2], purchasePackageSubmissionId: p[3], effectsDone: 0 }); return [{ insertId: state.links.length }]; }
     if (q.startsWith("UPDATE delegate_pricing_bundle_items SET reservedItemId=NULL WHERE")) { state.members.filter((m: any) => m.bundleId === p[0] && !m.removedAt).forEach((m: any) => { m.reservedItemId = null; }); return [{ affectedRows: 1 }]; }
-    if (q.startsWith("UPDATE delegate_pricing_bundles SET status='sent'")) { Object.assign(state.bundles.find((b: any) => b.id === p[2]), { status: "sent", openDelegateId: null, snapshotJson: p[0], pdfContent: p[1], sentAt: "now" }); return [{ affectedRows: 1 }]; }
+    if (q.startsWith("UPDATE delegate_pricing_bundles SET status='sent'")) { const bundle = state.bundles.find((b: any) => b.id === p[1]); Object.assign(bundle, { status: "sent", openDelegateId: null, snapshotJson: p[0], pdfContent: null, sentAt: "now", revision: bundle.revision + 1 }); return [{ affectedRows: 1 }]; }
+    if (q.startsWith("UPDATE delegate_pricing_bundles SET pdfContent=")) {
+      const bundle = state.bundles.find((b: any) => b.id === p[1]);
+      if (bundle && ["sent", "archived"].includes(bundle.status) && bundle.pdfContent == null && bundle.revision === p[2]) { bundle.pdfContent = p[0]; return [{ affectedRows: 1 }]; }
+      return [{ affectedRows: 0 }];
+    }
     if (q.startsWith("SELECT purchaseOrderId,pricingBatchId FROM delegate_pricing_bundle_batches")) return rows(state.links.filter((m: any) => m.bundleId === p[0] && !m.effectsDone));
     if (q.startsWith("UPDATE delegate_pricing_bundle_batches SET effectsDone=1")) { state.links.find((m: any) => m.bundleId === p[0] && m.pricingBatchId === p[1]).effectsDone = 1; return [{ affectedRows: 1 }]; }
     if (q.startsWith("UPDATE delegate_pricing_bundles SET effectsDone=1")) { state.bundles.find((b: any) => b.id === p[0]).effectsDone = 1; return [{ affectedRows: 1 }]; }
     if (q.startsWith("UPDATE delegate_pricing_bundles SET status='archived'")) { state.bundles.find((b: any) => b.id === p[0]).status = "archived"; return [{ affectedRows: 1 }]; }
     if (q.startsWith("SELECT snapshotJson FROM delegate_pricing_bundles")) return rows(state.bundles.filter((b: any) => b.id === p[0]));
-    if (q.startsWith("SELECT pdfContent FROM delegate_pricing_bundles")) return rows(state.bundles.filter((b: any) => b.id === p[0]));
+    if (q.startsWith("SELECT pdfContent")) return rows(state.bundles.filter((b: any) => b.id === p[0]));
     if (q.startsWith("SELECT name FROM users")) return rows([{ name: "Delegate" }]);
     if (q.startsWith("SELECT b.id,b.bundleNumber")) return rows(state.bundles.filter((b: any) => p.length === 0 || b.delegateId === p[0]));
     if (q.startsWith("INSERT INTO audit_logs")) return [{ insertId: 1 }];
     throw Error(q);
   } };
-  const database: any = { execute: tx.execute, transaction: (work: any) => { const next = queue.then(async () => { const old = structuredClone(state); try { return await work(tx); } catch (error) { state = old; throw error; } }); queue = next.catch(() => {}); return next; } };
+  const database: any = { execute: tx.execute, transaction: (work: any) => { const next = queue.then(async () => { const old = structuredClone(state); transactionDepth++; try { return await work(tx); } catch (error) { state = old; throw error; } finally { transactionDepth--; } }); queue = next.catch(() => {}); return next; } };
   const submit = vm.runInNewContext(submitCode, {
     TRPCError, pricingBundlesEnabled: () => true, reservedPricingItemIds,
     isItemAssignedToPODelegate: (user: any, item: any) => user.id === item.delegateId,
@@ -75,7 +80,7 @@ function fixture() {
   const ports = {
     database: vi.fn(async () => database), submitPO: vi.fn(submit),
     createPackageSubmission: vi.fn(async (packageId: number, userId: number, transaction: any) => { expect(transaction).toBe(tx); const result = { id: state.submissions.length + 1, packageId, userId }; state.submissions.push(result); return result; }),
-    render: vi.fn(async (snapshot: any) => { if (flags.renderFail) throw Error("PDF failed"); return Buffer.from("%PDF-" + JSON.stringify(snapshot)); }),
+    render: vi.fn(async (snapshot: any) => { expect(transactionDepth).toBe(0); if (flags.renderFail) throw Error("PDF failed"); return Buffer.from("%PDF-" + JSON.stringify(snapshot)); }),
     signature: vi.fn(async (value: string) => value ? `data:image/png;base64,${Buffer.from(value).toString("base64")}` : ""),
     sync: vi.fn(async () => { if (flags.syncFail) throw Error("ticket sync unavailable"); }),
   };
@@ -112,13 +117,78 @@ describe("Pricing bundle → existing accounting batches, isolated with no datab
     await expect(f.service.send(actor,id,3)).rejects.toThrow("accounting write failed");
     expect(f.state().batches).toHaveLength(0); expect(f.state().submissions).toHaveLength(0); expect(f.state().items.some((i: any)=>i.batchId)).toBe(false); expect(f.state().bundles[0].status).toBe("open");
   });
-  it("does not send anything if rendering fails, selection is stale, or a source was cancelled/reassigned/unpriced", async () => {
-    const f = fixture(); const id = await f.add(1); f.flags.renderFail=true;
-    await expect(f.service.send(actor,id,1)).rejects.toThrow("PDF failed"); f.flags.renderFail=false;
+  it("does not send anything if selection is stale, or a source was cancelled/reassigned/unpriced", async () => {
+    const f = fixture(); const id = await f.add(1);
     await expect(f.service.send(actor,id,0)).rejects.toThrow("تغيرت");
     f.state().items[0].delegateId=22; await expect(f.service.send(actor,id,1)).rejects.toThrow("مسندًا");
     f.state().items[0].delegateId=11; f.state().items[0].status="cancelled"; await expect(f.service.send(actor,id,1)).rejects.toThrow("جاهز");
     f.state().items[0].status="estimated"; f.state().items[0].estimatedUnitCost="0"; await expect(f.service.send(actor,id,1)).rejects.toThrow("تسعيرًا"); expect(f.state().batches).toHaveLength(0);
+  });
+  it("sends without rendering and retries a failed download without resending accounting", async () => {
+    const f=fixture(); const id=await f.add(1); f.flags.renderFail=true;
+    expect(await f.service.send(actor,id,1)).toEqual({success:true,effectsDone:true});
+    expect(f.ports.render).not.toHaveBeenCalled(); expect(f.state().bundles[0].pdfContent).toBeNull();
+    await expect(f.service.pdf(actor,id)).rejects.toThrow("أعد محاولة التنزيل");
+    expect(f.state().batches).toHaveLength(1); expect(f.state().bundles[0].status).toBe("sent");
+    f.flags.renderFail=false; expect((await f.service.pdf(actor,id)).name).toMatch(/DPB-.*\.pdf/);
+    expect(f.state().batches).toHaveLength(1); expect(f.state().bundles[0].pdfContent).not.toBeNull();
+  });
+  it("does not send if preserving the signature snapshot fails",async()=>{
+    const f=fixture();const id=await f.add(1);f.ports.signature.mockRejectedValueOnce(Error("signature unavailable"));
+    await expect(f.service.send(actor,id,1)).rejects.toThrow("signature unavailable");
+    expect(f.state().bundles[0].status).toBe("open");expect(f.state().batches).toHaveLength(0);expect(f.ports.render).not.toHaveBeenCalled();
+  });
+  it.each(["delegate","owner","admin","accountant"])("rejects PDF before send, including direct API access by %s",async role=>{
+    const f=fixture(); const id=await f.add(1); f.ports.signature.mockClear();
+    const api=router({delegatePricingBundles:createPricingBundlesRouter(f.ports,()=>true)});
+    const caller=api.createCaller({user:{...actor,role},req:{headers:{}},res:{}} as TrpcContext);
+    await expect(caller.delegatePricingBundles.pdf({id})).rejects.toMatchObject({code:"CONFLICT"});
+    expect(f.ports.signature).not.toHaveBeenCalled(); expect(f.ports.render).not.toHaveBeenCalled();
+    expect(f.state().batches).toHaveLength(0);
+  });
+  it("uses the frozen prices and signature bytes on first download without reading live sources",async()=>{
+    const f=fixture(); const id=await f.add(1,3,4); await f.service.send(actor,id,3);
+    expect(f.ports.signature).toHaveBeenCalledTimes(3); // One fetch per unique signature, shared across PRs.
+    const frozen=JSON.parse(f.state().bundles[0].snapshotJson);
+    f.state().items[0].estimatedUnitCost="999"; f.state().items[0].itemName="Changed after send";
+    f.ports.signature.mockImplementation(async()=>{throw Error("Live signatures forbidden after send");});
+    const afterSend=f.queries.length; const result=await f.service.pdf(actor,id);
+    expect(Buffer.from(result.content,"base64").toString()).toBe("%PDF-"+JSON.stringify(frozen));
+    expect(f.queries.slice(afterSend).some(q=>q.includes("FROM users")||q.includes("FROM purchase_order_items"))).toBe(false);
+    await f.service.archive(actor,id); expect(await f.service.pdf(actor,id)).toEqual(result);
+  });
+  it("coalesces concurrent downloads but still authorizes each requester",async()=>{
+    const f=fixture(); const id=await f.add(1); await f.service.send(actor,id,1);
+    const [first,second]=await Promise.all([f.service.pdf(actor,id),f.service.pdf(actor,id)]);
+    expect(first).toEqual(second); expect(f.ports.render).toHaveBeenCalledTimes(1);
+    await expect(f.service.pdf({...actor,id:22},id)).rejects.toMatchObject({code:"FORBIDDEN"});
+    await expect(f.service.pdf({...actor,isActive:0},id)).rejects.toMatchObject({code:"FORBIDDEN"});
+    await expect(f.service.pdf({...actor,role:"observer"},id)).rejects.toMatchObject({code:"FORBIDDEN"});
+  });
+  it("returns the same winning saved bytes when separate app instances render concurrently",async()=>{
+    const f=fixture(); const id=await f.add(1); await f.service.send(actor,id,1);
+    let release!:()=>void; const gate=new Promise<void>(resolve=>{release=resolve;}); let calls=0;
+    f.ports.render.mockImplementation(async()=>{const attempt=++calls;if(calls===2)release();await gate;return Buffer.from(`%PDF-instance-${attempt}`);});
+    const other=new PricingBundleService(f.ports);
+    const [first,second]=await Promise.all([f.service.pdf(actor,id),other.pdf(actor,id)]);
+    expect(first).toEqual(second); expect(calls).toBe(2);
+    expect(Buffer.from(f.state().bundles[0].pdfContent).toString("base64")).toBe(first.content);
+  });
+  it("keeps existing historical PDF bytes without requiring or rebuilding the snapshot",async()=>{
+    const f=fixture(); const id=await f.add(1); Object.assign(f.state().bundles[0],{status:"archived",snapshotJson:null,pdfContent:Buffer.from("%PDF-historical")});
+    expect(Buffer.from((await f.service.pdf(actor,id)).content,"base64").toString()).toBe("%PDF-historical");
+    expect(f.ports.render).not.toHaveBeenCalled(); expect(f.ports.signature).not.toHaveBeenCalled();
+  });
+  it.each([null,"broken JSON",'{}'])("does not guess missing snapshot data: %s",async snapshotJson=>{
+    const f=fixture(); const id=await f.add(1); await f.service.send(actor,id,1); f.state().bundles[0].snapshotJson=snapshotJson;
+    await expect(f.service.pdf(actor,id)).rejects.toThrow("لقطة الحزمة"); expect(f.ports.render).not.toHaveBeenCalled(); expect(f.state().batches).toHaveLength(1);
+  });
+  it.each([0,8*1024*1024+1])("does not save an invalid PDF of %i bytes",async size=>{
+    const invalid=Buffer.alloc(size);
+    const f=fixture(); const id=await f.add(1); await f.service.send(actor,id,1); f.ports.render.mockResolvedValueOnce(invalid);
+    await expect(f.service.pdf(actor,id)).rejects.toThrow("أعد محاولة التنزيل");
+    expect(f.state().bundles[0].pdfContent).toBeNull(); expect(f.state().batches).toHaveLength(1);
+    await expect(f.service.pdf(actor,id)).resolves.toHaveProperty("content");
   });
   it("returns membership only, reflects resaved prices, and freezes exact sent rows and PDF", async () => {
     const f = fixture(); const id = await f.add(1,2); const initial = structuredClone(f.state().items[1]); await f.service.remove(actor,id,2);
