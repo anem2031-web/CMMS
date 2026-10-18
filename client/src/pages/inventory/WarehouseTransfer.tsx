@@ -18,6 +18,8 @@ import {
 } from "lucide-react";
 import BarcodeScanner from "@/components/common/BarcodeScanner";
 import { fmtDate } from "@/lib/printInventoryOperationDocuments";
+import { requiresBranchTransferConfirmation } from "@shared/branch-transfer-confirmation";
+import { BranchTransferConfirmation } from "@/components/inventory/BranchTransferConfirmation";
 
 const MAX_ITEMS_PER_TRANSFER = 20;
 
@@ -130,6 +132,8 @@ export default function WarehouseTransfer() {
   const [transferLotInfo, setTransferLotInfo] = useState<any>(null);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [branchConfirmation, setBranchConfirmation] = useState<string | null>(null);
+  const transferBusy = useRef(false);
   const [lastResult, setLastResult] = useState<{ batchNumber: string; results: any[] } | null>(null);
 
   const [historyWarehouseFilter, setHistoryWarehouseFilter] = useState<string>("all");
@@ -369,7 +373,11 @@ export default function WarehouseTransfer() {
     }
   }
 
-  async function handleSubmitAll() {
+  const transferFingerprint = JSON.stringify([fromWarehouseId, toWarehouseId, operationNotes, cart]);
+  const sourceWarehouse = warehousesList?.find(w => String(w.id) === fromWarehouseId);
+  const targetWarehouse = warehousesList?.find(w => String(w.id) === toWarehouseId);
+  async function handleSubmitAll(confirmedFingerprint?: string) {
+    if (transferBusy.current) return;
     if (materialHandoff && materialTransferPosted) {
       toast.error(materialHandoff?.source === "tickets" ? "تم تنفيذ التحويل؛ ارجع إلى مواد التذكرة لإعادة فحص المتبقي قبل تحويل جديد" : "تم تنفيذ تحويل مرتبط بهذا السياق بالفعل؛ ارجع إلى طلب PM V2 لإعادة فحص المتبقي قبل تحويل جديد");
       return;
@@ -390,6 +398,12 @@ export default function WarehouseTransfer() {
       }
     }
 
+    if (requiresBranchTransferConfirmation(sourceWarehouse, targetWarehouse) && confirmedFingerprint !== transferFingerprint) {
+      setBranchConfirmation(transferFingerprint);
+      return;
+    }
+    setBranchConfirmation(null);
+    transferBusy.current = true;
     setIsSubmitting(true);
     try {
       const form = {
@@ -459,6 +473,7 @@ export default function WarehouseTransfer() {
     } catch (err: any) {
       toast.error(err.message || "فشل تنفيذ العملية");
     } finally {
+      transferBusy.current = false;
       setIsSubmitting(false);
     }
   }
@@ -805,7 +820,10 @@ export default function WarehouseTransfer() {
                 />
               </div>
 
-              <Button className="w-full gap-1.5" onClick={handleSubmitAll} disabled={materialTransferPosted || isSubmitting || cart.length === 0}>
+              <BranchTransferConfirmation open={branchConfirmation !== null} sourceName={sourceWarehouse?.nameAr || ""} targetName={targetWarehouse?.nameAr || ""}
+                onOpenChange={open => { if (!open) setBranchConfirmation(null); }}
+                onConfirm={() => { void handleSubmitAll(branchConfirmation || undefined); }} />
+              <Button className="w-full gap-1.5" onClick={() => void handleSubmitAll()} disabled={materialTransferPosted || isSubmitting || cart.length === 0}>
                 {isSubmitting
                   ? <Loader2 className="w-4 h-4 animate-spin" />
                   : <><ArrowLeftRight className="w-4 h-4" /> تنفيذ تحويل {cart.length > 0 ? `(${cart.length} ${lotsEnabled ? "بند" : "صنف"})` : ""}</>}

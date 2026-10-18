@@ -1,0 +1,9 @@
+{
+  "testResultsMatch": true,
+  "preexistingFailures": 4,
+  "currentFailures": 4,
+  "operationalTestsPassed": 34,
+  "directDatabaseAccess": false,
+  "deployed": false,
+  "sqlRequired": false
+}

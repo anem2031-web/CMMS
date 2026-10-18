@@ -6,6 +6,7 @@ export const OBSERVER_NATIVE_READ_PATHS = [
   "operationalIssues.status",
   "operationalIssues.list",
   "operationalIssues.detail",
+  "operationalIssues.availability",
   "operationalIssues.itemUnits",
   "operationalIssues.choices",
   "materialCosts.status",

@@ -197,21 +197,41 @@ describe("Operational order → existing physical issue → original-delivery re
     await expect(f.service.issue(warehouse, { ...input, itemId: 100 })).rejects.toThrow("الصنف");
     expect(f.state().stock).toBe(10);
   });
-  it.each(["technician", "delegate", "operator", "observer"])("blocks creation/processing by %s", async role => {
+  it.each(["technician", "it_member", "delegate", "operator", "observer"])("blocks creation/processing by %s", async role => {
     const f = fixture(); const actor = { ...manager, role };
     await expect(f.service.create(actor, body)).rejects.toMatchObject({ code: "FORBIDDEN" });
     await expect(f.service.approve(actor, 1, 0)).rejects.toMatchObject({ code: "FORBIDDEN" });
     expect(f.ports.database).not.toHaveBeenCalled();
   });
-  it("validates site/section and scopes managers to their own requests", async () => {
-    const f = fixture(); f.flags.sectionValid = false; await expect(f.service.create(manager, body)).rejects.toThrow("القسم");
-    expect(f.state().orders).toHaveLength(0); f.flags.sectionValid = true; await f.ready();
-    await expect(f.service.detail({ ...manager, id: 11 }, 1)).rejects.toMatchObject({ code: "FORBIDDEN" });
+  it.each(["maintenance_manager", "general_maintenance_manager", "construction_procurement_manager", "it_manager"])("validates site/section and scopes %s to their own requests", async role => {
+    const f = fixture(); const actor = { ...manager, role };
+    f.flags.sectionValid = false; await expect(f.service.create(actor, body)).rejects.toThrow("القسم");
+    expect(f.state().orders).toHaveLength(0); f.flags.sectionValid = true; await f.service.create(actor, body);
+    await expect(f.service.detail(actor, 1)).resolves.toHaveProperty("order.id", 1);
+    await expect(f.service.detail({ ...actor, id: 11 }, 1)).rejects.toMatchObject({ code: "FORBIDDEN" });
     await expect(f.service.detail({ ...manager, role: "observer" }, 1)).resolves.toHaveProperty("order.id", 1);
   });
 });
 
 describe("Central reference guard and rollout", () => {
+  it("allows IT manager creation through RPC and the route guard without granting warehouse operations or wider IT access", async () => {
+    const f = fixture(); const actor = { ...manager, role: "it_manager" };
+    const api = router({ operationalIssues: createOperationalIssuesRouter(f.ports, () => true) }).createCaller({ user: actor, req: {}, res: {} } as TrpcContext);
+    expect(canRoleAccessPath(actor.role, "/operational-issues?source=menu")).toBe(true);
+    expect(await api.operationalIssues.status()).toEqual({ enabled: true });
+    expect(await api.operationalIssues.create({ ...body, items: body.items.map(item => ({ ...item, unit: "حبة" })) })).toHaveProperty("id", 1);
+    expect(await api.operationalIssues.detail({ id: 1 })).toHaveProperty("order.createdById", actor.id);
+    await api.operationalIssues.list();
+    expect(f.queries.at(-1)?.q).toContain("WHERE o.createdById=?");
+    expect(f.queries.at(-1)?.p).toEqual([actor.id]);
+    await expect(api.operationalIssues.approve({ id: 1, revision: 0 })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(api.operationalIssues.issue({ orderId: 1, itemId: 1, warehouseId: 1, lotTrackingToken: "LOT-1", quantity: 1, operationKey: "not-warehouse" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(api.operationalIssues.returnMaterial({ orderId: 1, deliveryDocumentId: 1, quantity: 1, reason: "Unused", operationKey: "not-warehouse-return" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    for (const path of ["/inventory", "/warehouse/issue", "/scheduled-maintenance/warehouse-requests", "/catalog"])
+      expect(canRoleAccessPath(actor.role, path)).toBe(false);
+    expect(canRoleAccessPath("it_member", "/operational-issues")).toBe(false);
+    expect(f.state().stock).toBe(10); expect(f.state().documents).toHaveLength(0);
+  });
   it("blocks independent issue while retaining named/team/PMV2 references", async () => {
     const f = fixture(); const base = { performedById: 20, catalogItemId: 5, quantity: 1 };
     await expect(assertOperationalIssueReference(f.tx, base)).rejects.toThrow("الصرف يتطلب");

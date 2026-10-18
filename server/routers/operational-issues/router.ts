@@ -15,6 +15,8 @@ export function createOperationalIssuesRouter(ports: OperationalPorts, enabled: 
     status: protectedProcedure.query(({ ctx }) => { read(ctx.user); return { enabled: enabled() }; }),
     list: protectedProcedure.query(async ({ ctx }) => { read(ctx.user); return { enabled: enabled(), orders: enabled() ? await service.list(ctx.user) : [] }; }),
     detail: protectedProcedure.input(z.object({ id })).query(({ ctx, input }) => { read(ctx.user); available(); return service.detail(ctx.user, input.id); }),
+    availability: protectedProcedure.input(z.object({ id })).query(({ ctx, input }) => { read(ctx.user); available(); return service.availability(ctx.user, input.id); }),
+    addToPurchaseDraft: warehouseProcedure.input(z.object({ orderId: id, itemId: id })).mutation(({ ctx, input }) => { available(); return service.addToPurchaseDraft(ctx.user, input.orderId, input.itemId); }),
     itemUnits: protectedProcedure.input(z.object({ catalogItemIds: z.array(id).min(1).max(20) })).query(({ ctx, input }) => { read(ctx.user); available(); return service.itemUnits(ctx.user, input.catalogItemIds); }),
     choices: protectedProcedure.query(async ({ ctx }) => {
       read(ctx.user); if (!enabled()) return { collectors: [] as Array<{ id: number; name: string }> };

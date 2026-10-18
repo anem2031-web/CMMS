@@ -32,8 +32,8 @@ import OperationalWarehouseRequests from "../../client/src/pages/operational-iss
 import WarehouseRequestsPage from "../../client/src/pages/pmv2/WarehouseRequestsPage";
 
 describe("Independent operational issue pages and existing warehouse source tabs", () => {
-  it.each(["ar", "en", "ur"])("renders the manager form and warehouse queue using the program components in %s", language => {
-    state.language = language; state.role = "maintenance_manager"; state.enabled = true;
+  it.each(["maintenance_manager", "it_manager"].flatMap(role => ["ar", "en", "ur"].map(language => ({ role, language }))))("renders the manager form and warehouse queue using the program components for $role in $language", ({ role, language }) => {
+    state.language = language; state.role = role; state.enabled = true;
     const text = operationalIssueText[language as keyof typeof operationalIssueText];
     const html = renderToStaticMarkup(<OperationalIssues />);
     expect(html).toContain(text.newOrder); expect(html).toContain(text.collector); expect(html).toContain(text.catalog);

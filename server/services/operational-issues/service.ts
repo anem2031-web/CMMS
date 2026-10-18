@@ -3,12 +3,14 @@ import { createHash } from "node:crypto";
 import { TRPCError } from "@trpc/server";
 import { canCreateOperationalIssue, canProcessOperationalIssue, canReadOperationalIssue, operationalNetCost, type OperationalActor, type OperationalOrder, type OperationalLine, type OperationalDelivery } from "../../../shared/operational-issues";
 import { executionRows as rows } from "./issue-reference";
+import { addOperationalPurchaseDraft, loadOperationalStock, operationalPurchaseLinks, operationalPurchaseReady, type OperationalPurchasePorts } from "./stock-procurement";
 
 export interface OperationalPorts {
   database(): Promise<any>;
   issue(tx: any, input: any): Promise<any>;
   resolveLot(input: { warehouseId: number; identifier: string }): Promise<any>;
   returnDelivery(tx: any, input: any): Promise<any>;
+  purchaseDraft?: OperationalPurchasePorts;
 }
 function deny(message = "ليس لديك صلاحية لهذا الإجراء"): never { throw new TRPCError({ code: "FORBIDDEN", message }); }
 const fingerprint = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
@@ -41,6 +43,27 @@ export class OperationalIssueService {
       FROM operational_issue_deliveries x INNER JOIN operational_issue_items i ON i.id=x.orderItemId
       INNER JOIN delivery_documents d ON d.id=x.deliveryDocumentId LEFT JOIN inventory_lots l ON l.id=d.lotId WHERE i.orderId=${id} ORDER BY x.id`) as OperationalDelivery[];
     return { order, items, deliveries, cost: operationalNetCost(deliveries) };
+  }
+  async availability(actor: OperationalActor, id: number) {
+    this.actor(actor, "read");
+    if (!canProcessOperationalIssue(actor.role) && actor.role !== "observer") deny();
+    const db = await this.ports.database(); await this.order(db, actor, id);
+    const lines = await rows(db, sql`SELECT * FROM operational_issue_items WHERE orderId=${id} ORDER BY id`) as OperationalLine[];
+    const items = await loadOperationalStock(db, lines);
+    const procurementReady = await operationalPurchaseReady(db);
+    const links = procurementReady ? await operationalPurchaseLinks(db, id) : [];
+    for (const item of items) item.purchase = links.find(link => link.orderItemId === item.itemId) || null;
+    return { items, procurementReady };
+  }
+  async addToPurchaseDraft(actor: OperationalActor, orderId: number, itemId: number) {
+    this.actor(actor, "warehouse");
+    const ports = this.ports.purchaseDraft;
+    if (!ports) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "ربط الشراء غير متاح حاليًا" });
+    const db = await this.ports.database();
+    return db.transaction(async (tx: any) => {
+      const order = await this.order(tx, actor, orderId, true);
+      return addOperationalPurchaseDraft(tx, ports, actor, order, itemId);
+    });
   }
   private async stockUnit(tx: any, catalogItemId: number, catalogUnit: string): Promise<string> {
     const units = await rows(tx, sql`SELECT DISTINCT COALESCE(NULLIF(i.issueUnit,''),i.unit) AS unit FROM inventory i INNER JOIN warehouses w ON w.id=i.warehouseId WHERE i.linkedItemId=${catalogItemId} AND i.quantity>0 AND w.isActive=1`);

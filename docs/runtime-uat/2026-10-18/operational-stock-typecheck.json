@@ -1,0 +1,6 @@
+{
+  "current": 662,
+  "baseline": 663,
+  "added": [],
+  "comparisonNote": "Known old table-printer/union changes compared by actual argument/property/type failure; raw diagnostics retained."
+}

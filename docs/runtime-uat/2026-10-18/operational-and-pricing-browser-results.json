@@ -1,0 +1,157 @@
+{
+  "date": "2026-10-18",
+  "timezone": "Asia/Riyadh",
+  "environment": {
+    "url": "https://cmms-production-2f64.up.railway.app/",
+    "database": "copycmms",
+    "confirmation": "The user explicitly confirmed this Railway service's DATABASE_URL targets copycmms before saving test operations.",
+    "databaseAccess": "Browser UI only; no direct database connection and no SQL execution.",
+    "excludedDatabase": "cmms was not accessed."
+  },
+  "operationalIssues": {
+    "result": "passed_observed_browser_flow",
+    "orderNumber": "OPR-2026-000001",
+    "testReference": "UAT-20261018-OP01",
+    "managerAccount": "RED2",
+    "warehouseAccount": "RED",
+    "collector": "سهيل فدا",
+    "site": "العاب تولان-TOLAN RIDES",
+    "section": "تصادم السيارات (الكبيرة) — BUMPER CARS (ADULTS)",
+    "item": "فرشاة تنظيف المكيفات",
+    "catalogCode": "731-017",
+    "inventoryCode": "INV-2026-330104",
+    "warehouse": "المخزن الرئيسي",
+    "requestedQuantity": 2,
+    "unit": "قطعة",
+    "initialStock": 2,
+    "stockAfterFullIssue": 0,
+    "stockAfterFullReturn": 2,
+    "deliveries": [
+      {
+        "deliveryNumber": "DLV-2026-450004",
+        "lotCode": "LOT-2026-00777",
+        "quantity": 1,
+        "lotUnitCost": 10,
+        "cost": 10,
+        "returnedQuantity": 1
+      },
+      {
+        "deliveryNumber": "DLV-2026-450005",
+        "lotCode": "LOT-2026-00778",
+        "quantity": 1,
+        "lotUnitCost": 20,
+        "cost": 20,
+        "returnedQuantity": 1
+      }
+    ],
+    "totals": {
+      "issuedCost": 30,
+      "returnedCost": 30,
+      "netCost": 0,
+      "currency": "SAR"
+    },
+    "finalOrderStatus": "اكتمل الصرف",
+    "checks": [
+      {
+        "name": "Manager creates and saves an order with a site, dependent section, collector, reason, catalog item and quantity",
+        "result": "passed"
+      },
+      {
+        "name": "Save button rejects zero quantity",
+        "result": "passed"
+      },
+      {
+        "name": "Manager view does not expose warehouse approval or issue buttons",
+        "result": "passed_ui_only"
+      },
+      {
+        "name": "Same order appears in the warehouse's third source tab",
+        "result": "passed"
+      },
+      {
+        "name": "Warehouse approval preserves issued quantity and cost at zero",
+        "result": "passed"
+      },
+      {
+        "name": "Issue button is disabled above the selected lot balance",
+        "result": "passed_ui_only"
+      },
+      {
+        "name": "Partial issue records one unit and leaves the order approved",
+        "result": "passed"
+      },
+      {
+        "name": "Issue button is disabled above the order's remaining quantity",
+        "result": "passed_ui_only"
+      },
+      {
+        "name": "Second issue completes the order and records the second lot's own cost",
+        "result": "passed"
+      },
+      {
+        "name": "Inventory stock visibly decreases from 2 to 0",
+        "result": "passed"
+      },
+      {
+        "name": "Return button rejects empty reason and quantity above the original delivery quantity",
+        "result": "passed_ui_only"
+      },
+      {
+        "name": "First return refunds the first lot's 10 SAR cost and leaves a 20 SAR net cost",
+        "result": "passed"
+      },
+      {
+        "name": "Second return refunds the second lot's 20 SAR cost and leaves zero net cost",
+        "result": "passed"
+      },
+      {
+        "name": "Full return restores inventory stock to 2 and restores each original lot's balance to 1",
+        "result": "passed"
+      },
+      {
+        "name": "Completed order does not expose new issue buttons after return; fully returned deliveries expose no return buttons",
+        "result": "passed_ui_only"
+      },
+      {
+        "name": "Order status, original deliveries, returned quantities and zero net cost persist after a full page reload",
+        "result": "passed"
+      }
+    ],
+    "limits": [
+      "No direct SQL reconciliation or database schema inspection was performed.",
+      "API tampering, concurrency, retry races, and other users' order isolation were not tested by this browser flow.",
+      "No physical goods moved; quantities were issued and returned as an explicitly authorized test on copycmms.",
+      "Existing stock accounting valuation and the aggregate execution-cost report were not independently reconciled in this flow.",
+      "No business code was changed during this test."
+    ],
+    "evidence": [
+      "operational-order-before-save.jpg",
+      "operational-manager-created.jpg",
+      "operational-first-lot-before-issue.jpg",
+      "operational-partial-issue.jpg",
+      "operational-completed-issue.jpg",
+      "operational-stock-after-issue.jpg",
+      "operational-first-return.jpg",
+      "operational-all-returns.jpg",
+      "operational-stock-restored.jpg",
+      "operational-lots-restored.jpg"
+    ]
+  },
+  "delegatePricingBundles": {
+    "result": "blocked_feature_disabled",
+    "account": "RED3",
+    "route": "/delegate-pricing-bundles",
+    "observedMessage": "حزم التسعير غير مفعلة حاليًا",
+    "actions": "No pricing bundle was created, reserved, sent, or approved.",
+    "manualPrerequisites": {
+      "inspectTablesInCopycmms": [
+        "delegate_pricing_bundles",
+        "delegate_pricing_bundle_items",
+        "delegate_pricing_bundle_batches"
+      ],
+      "featureVariableAfterTableVerification": "DELEGATE_PRICING_BUNDLES_ENABLED=true",
+      "schemaPresence": "Not verified; the UI's disabled state does not prove whether the three tables exist."
+    },
+    "evidence": "pricing-bundles-disabled-live.jpg"
+  }
+}

@@ -80,7 +80,7 @@ const NAV_SECTIONS: NavSection[] = [
       { icon: ClipboardList, labelKey: "nav.tickets",      path: "/tickets",
         roles: ["operator","technician","it_manager","it_member","maintenance_manager","general_maintenance_manager","construction_procurement_manager","supervisor","gate_security","delegate","senior_management","executive_director","owner","admin"] },
       { icon: ClipboardList, labelKey: "nav.operationalIssues", path: "/operational-issues",
-        roles: ["maintenance_manager","general_maintenance_manager","construction_procurement_manager","warehouse","owner","admin"] },
+        roles: ["maintenance_manager","general_maintenance_manager","construction_procurement_manager","it_manager","warehouse","owner","admin"] },
       { icon: ClipboardList, labelKey: "nav.maintenanceTeamTickets", path: "/maintenance-team-tickets",
         roles: ["technician","warehouse","maintenance_manager","general_maintenance_manager","construction_procurement_manager","owner","admin"] },
       // صندوق البلاغات — يبقى محجوبًا عن مدير الإنشاءات والمشتريات

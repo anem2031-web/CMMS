@@ -1,0 +1,17 @@
+{
+  "scope": "Local UI fixture only; no API, database or Railway changes",
+  "url": "http://127.0.0.1:5199/?lang=ar",
+  "checks": {
+    "lotWarehouseAndBalanceVisible": true,
+    "excessQuantityBlocked": true,
+    "fractionalQuantityBlocked": true,
+    "selectedLotPayloadVerified": true,
+    "issuedAndRemainingRefreshed": true,
+    "zeroStockDraftLinkDisplayed": true,
+    "duplicateDraftButtonRemoved": true,
+    "redTransferDialogVisible": true,
+    "cancelLeavesTransferCountZero": true,
+    "confirmIncrementsCountOnce": true
+  },
+  "screenshot": "operational-branch-confirmation.jpg"
+}

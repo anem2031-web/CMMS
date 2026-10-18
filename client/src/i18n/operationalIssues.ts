@@ -1,11 +1,29 @@
 export const operationalIssueText = {
   ar: {
+    remaining: "المتبقي", totalAvailable: "الرصيد المتاح في جميع المستودعات", chooseLot: "اختر اللوت والمخزن المصدر",
+    stockReview: "توجد أرصدة بوحدات مختلفة أو بيانات لوت غير متطابقة؛ راجع المخزون قبل إكمال الصرف أو طلب الشراء.",
+    linkedPurchase: "طلب الشراء المرتبط", reviewDraft: "إذا كان الطلب مسودة، راجع بياناته ومدة التوريد ثم أرسله عبر دورة الشراء الحالية.",
+    purchaseChanged: "تغير الصنف أو الكمية أو سياق الطلب المرتبط؛ راجعه قبل إنشاء احتياج إضافي.",
+    zeroStock: "لا يتوفر رصيد لهذا الصنف في المستودعات النشطة.", addToDraft: "إضافة الاحتياج إلى مسودة شراء",
+    draftAdded: "أُضيف الاحتياج إلى مسودة شراء مرتبطة بأمر الصرف", procurementUnavailable: "ربط مسودة الشراء ينتظر استكمال الإعداد اليدوي من مسؤول النظام.",
     title: "الصرف التشغيلي", newOrder: "أمر صرف جديد", reason: "سبب الصرف", site: "الموقع", section: "القسم", collector: "الفني المستلم", catalog: "اختيار صنف من الكتالوج", quantity: "الكمية", unit: "الوحدة", save: "حفظ وإرسال للمستودع", pending: "بانتظار مراجعة المستودع", approved: "معتمد للصرف", completed: "اكتمل الصرف", disabled: "الصرف التشغيلي غير متاح حاليًا", empty: "لا توجد أوامر صرف", approve: "الموافقة وتجهيز الصرف", warehouse: "المخزن المصدر", token: "QR الدفعة أو رقم اللوت", resolve: "التحقق من اللوت", issue: "تأكيد الصرف للفني المحدد", available: "المتاح في الدفعة", requested: "المطلوب", issued: "المصروف", returned: "المرتجع", netCost: "صافي تكلفة المواد", delivery: "سند الصرف", returnAction: "تسجيل المرتجع", returnReason: "سبب المرتجع", details: "التفاصيل", refresh: "تحديث", remove: "إزالة", totalCost: "قيمة الصرف", required: "أكمل الموقع والقسم والفني والسبب والأصناف والكميات", mismatch: "اللوت لا يطابق الصنف المطلوب", saved: "تم حفظ أمر الصرف", success: "تم الإجراء", forbidden: "ليس لديك صلاحية", error: "تعذر إكمال الإجراء", load: "جارٍ التحميل…", currency: "ريال", creator: "منشئ الأمر",
   },
   en: {
+    remaining: "Remaining", totalAvailable: "Available across all warehouses", chooseLot: "Choose lot and source warehouse",
+    stockReview: "Stock units or lot records need review. Check inventory before issuing or requesting a purchase.",
+    linkedPurchase: "Linked purchase order", reviewDraft: "If this is a draft, review its details and delivery duration, then submit through the existing purchase cycle.",
+    purchaseChanged: "The linked item, quantity or order context has changed. Review it before requesting more.",
+    zeroStock: "No stock is available in active warehouses.", addToDraft: "Add requirement to purchase draft",
+    draftAdded: "Requirement added to a purchase draft linked to this issue order", procurementUnavailable: "Purchase linking is awaiting manual setup by the system administrator.",
     title: "Operational issues", newOrder: "New issue order", reason: "Reason", site: "Site", section: "Section", collector: "Collecting technician", catalog: "Choose catalog item", quantity: "Quantity", unit: "Unit", save: "Save and send to warehouse", pending: "Awaiting warehouse review", approved: "Approved for issue", completed: "Issue completed", disabled: "Operational issues are currently unavailable", empty: "No issue orders", approve: "Approve and prepare issue", warehouse: "Source warehouse", token: "Lot QR or lot number", resolve: "Verify lot", issue: "Confirm issue to assigned technician", available: "Lot stock", requested: "Requested", issued: "Issued", returned: "Returned", netCost: "Net material cost", delivery: "Delivery document", returnAction: "Record return", returnReason: "Return reason", details: "Details", refresh: "Refresh", remove: "Remove", totalCost: "Issue value", required: "Complete site, section, technician, reason, items and quantities", mismatch: "Lot does not match the requested item", saved: "Issue order saved", success: "Action completed", forbidden: "Access denied", error: "Unable to complete action", load: "Loading…", currency: "SAR", creator: "Created by",
   },
   ur: {
+    remaining: "باقی", totalAvailable: "تمام گوداموں میں دستیاب مقدار", chooseLot: "لاٹ اور ماخذ گودام منتخب کریں",
+    stockReview: "اسٹاک کی اکائیوں یا لاٹ ریکارڈ کا جائزہ درکار ہے۔ اجرا یا خریداری سے پہلے مخزون چیک کریں۔",
+    linkedPurchase: "منسلک خریداری آرڈر", reviewDraft: "اگر یہ مسودہ ہے تو تفصیلات اور ترسیل کی مدت چیک کریں اور موجودہ خریداری عمل سے بھیجیں۔",
+    purchaseChanged: "منسلک آئٹم، مقدار یا آرڈر کی تفصیلات بدل گئی ہیں۔ مزید درخواست سے پہلے جائزہ لیں۔",
+    zeroStock: "فعال گوداموں میں اس آئٹم کا اسٹاک دستیاب نہیں۔", addToDraft: "ضرورت خریداری کے مسودے میں شامل کریں",
+    draftAdded: "ضرورت اس اجرا آرڈر سے منسلک خریداری مسودے میں شامل ہوگئی", procurementUnavailable: "خریداری کا ربط منتظم کی دستی ترتیب کا منتظر ہے۔",
     title: "آپریشنل اجرا", newOrder: "نیا اجرا آرڈر", reason: "وجہ", site: "مقام", section: "شعبہ", collector: "وصول کرنے والا ٹیکنیشن", catalog: "کیٹلاگ آئٹم منتخب کریں", quantity: "مقدار", unit: "اکائی", save: "محفوظ کرکے گودام بھیجیں", pending: "گودام کے جائزے کا منتظر", approved: "اجرا منظور", completed: "اجرا مکمل", disabled: "آپریشنل اجرا فی الحال دستیاب نہیں", empty: "کوئی اجرا آرڈر نہیں", approve: "منظوری اور اجرا کی تیاری", warehouse: "ماخذ گودام", token: "لاٹ QR یا نمبر", resolve: "لاٹ کی تصدیق", issue: "مقررہ ٹیکنیشن کو اجرا کی تصدیق", available: "لاٹ میں دستیاب", requested: "مطلوبہ", issued: "جاری شدہ", returned: "واپس شدہ", netCost: "مواد کی خالص لاگت", delivery: "اجرا دستاویز", returnAction: "واپسی درج کریں", returnReason: "واپسی کی وجہ", details: "تفصیلات", refresh: "تازہ کریں", remove: "ہٹائیں", totalCost: "اجرا کی قیمت", required: "مقام، شعبہ، ٹیکنیشن، وجہ، آئٹمز اور مقدار مکمل کریں", mismatch: "لاٹ مطلوبہ آئٹم سے مختلف ہے", saved: "اجرا آرڈر محفوظ ہوگیا", success: "کارروائی مکمل", forbidden: "رسائی ممنوع", error: "کارروائی مکمل نہیں ہوسکی", load: "لوڈ ہو رہا ہے…", currency: "ریال", creator: "بنانے والا",
   },
 };

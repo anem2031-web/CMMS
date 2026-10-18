@@ -1,5 +1,5 @@
 export type OperationalActor = { id: number; role: string; isActive?: number };
-export const OPERATIONAL_CREATE_ROLES = ["maintenance_manager", "general_maintenance_manager", "construction_procurement_manager", "owner", "admin"];
+export const OPERATIONAL_CREATE_ROLES = ["maintenance_manager", "general_maintenance_manager", "construction_procurement_manager", "it_manager", "owner", "admin"];
 export const OPERATIONAL_WAREHOUSE_ROLES = ["warehouse", "owner", "admin"];
 export function canCreateOperationalIssue(role?: string | null) { return OPERATIONAL_CREATE_ROLES.includes(role || ""); }
 export function canProcessOperationalIssue(role?: string | null) { return OPERATIONAL_WAREHOUSE_ROLES.includes(role || ""); }
@@ -16,6 +16,18 @@ export type OperationalLine = {
 export type OperationalDelivery = {
   id: number; orderItemId: number; deliveryDocumentId: number; deliveryNumber: string; quantity: number;
   lotUnitCost: number; cost: number; returnedQuantity: number; lotCode: string; createdAt: string;
+};
+export type OperationalLotChoice = {
+  inventoryId: number; warehouseId: number; warehouseNameAr: string; warehouseNameEn: string | null;
+  lotId: number; lotCode: string; trackingToken: string; quantity: number; unit: string; unitCost: number;
+};
+export type OperationalPurchaseLink = {
+  orderItemId: number; purchaseOrderId: number; purchaseOrderItemId: number; poNumber: string;
+  status: string; itemStatus: string; quantity: number; unit: string; changed: boolean;
+};
+export type OperationalStock = {
+  itemId: number; totalQuantity: number; unit: string; lots: OperationalLotChoice[];
+  needsReview: boolean; purchase: OperationalPurchaseLink | null;
 };
 export function operationalNetCost(deliveries: OperationalDelivery[]) {
   const cents = (value: number) => Math.round(value * 100);
