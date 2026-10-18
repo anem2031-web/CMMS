@@ -1,0 +1,233 @@
+import { TRPCError } from "@trpc/server";
+
+export type MediaActor = { id: number; role: string; isActive?: number };
+export type MediaReference = { kind: string; id: number; parentId?: number | null; entityType?: string; ownerId?: number | null };
+export interface MediaAccessPort {
+  references(key: string): Promise<MediaReference[]>;
+  authorize(user: MediaActor, reference: MediaReference): Promise<void>;
+}
+const denied = () => new TRPCError({ code: "FORBIDDEN", message: "ليس لديك صلاحية لفتح هذا الملف" });
+
+export function normalizeMediaKey(raw: unknown): string {
+  if (typeof raw !== "string") throw denied();
+  const key = raw.replace(/^\/+/, "");
+  if (!key.startsWith("cmms/") || key.length > 1000 || /[\\\x00-\x1f?#]|%(?:2e|2f|5c|25)/i.test(key)
+    || key.split("/").some(segment => !segment || segment === "." || segment === "..")) throw denied();
+  return key;
+}
+
+/** Recognize stored proxy URLs/keys without ever fetching a remote URL. */
+export function mediaKeyFromValue(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  try {
+    if (value.startsWith("cmms/")) return normalizeMediaKey(value);
+    const url = new URL(value, "http://media.local");
+    if (url.pathname === "/api/media") return normalizeMediaKey(url.searchParams.get("key"));
+    const match = value.match(/idrivee2\.com\/[^/]+\/(cmms\/.+)$/);
+    return match ? normalizeMediaKey(decodeURIComponent(match[1])) : null;
+  } catch { return null; }
+}
+function containsKey(value: unknown, key: string): boolean {
+  if (typeof value === "string") {
+    if (mediaKeyFromValue(value) === key) return true;
+    try { return containsKey(JSON.parse(value), key); } catch { return false; }
+  }
+  if (Array.isArray(value)) return value.some(child => containsKey(child, key));
+  return !!value && typeof value === "object" && Object.values(value).some(child => containsKey(child, key));
+}
+
+// Source columns are an explicit registry, including legacy inline images and
+// JSON attachment lists. Only matching references, never full records, escape it.
+const sources = [
+  ["attachments", "attachment", "entityId", "uploadedById", ["fileKey", "fileUrl"], "entityType"],
+  ["tickets", "ticket", "id", "reportedById", ["beforePhotoUrl", "afterPhotoUrl"]],
+  ["ticketItems", "ticket", "ticketId", null, ["afterPhotoUrl"]],
+  ["purchaseOrderItems", "po", "purchaseOrderId", null, ["photoUrl", "photoUrls", "invoicePhotoUrl", "purchasedPhotoUrl", "warehousePhotoUrl"]],
+  ["ticketConfirmations", "ticket", "ticketId", null, ["photoUrls"]],
+  ["warehouseReceipts", "receipt", "id", null, ["invoicePhotoUrl", "goodsPhotoUrl"]],
+  ["deliveryDocuments", "delivery", "id", "deliveredToId", ["warehousePhotoUrl", "pdfUrl", "pdfKey", "deliveredBySignatureSnapshot"]],
+  ["externalMaintenanceJobs", "external", "ticketId", null, ["assetBeforePhotoUrl", "assetAfterReturnPhotoUrl", "workshopReportUrl"]],
+  ["assets", "reference", "id", null, ["photoUrl"]],
+  ["catalogItemImages", "reference", "itemId", null, ["imageUrl"]],
+  ["catalogItems", "reference", "id", null, ["primaryImageUrl"]],
+  ["catalogKnowledge", "reference", "itemId", null, ["documentUrl"]],
+  ["catalogSupplierCandidates", "warehouse", "id", null, ["invoicePhotoUrl"]],
+  ["users", "signature", "id", "id", ["signatureUrl"]],
+  ["backups", "admin", "id", null, ["fileKey", "fileUrl"]],
+  ["inventoryTransactions", "inventory", "id", null, ["documentUrl"]],
+  ["disposalItems", "inventory", "id", null, ["attachments"]],
+  ["ocrJobs", "warehouse", "id", "createdById", ["imageUrl"]],
+  ["pmWorkOrders", "pm", "id", "assignedToId", ["completionPhotoUrl"]],
+  ["pmExecutionResults", "pm", "workOrderId", null, ["photoUrl"]],
+  ["constructionProjects", "construction", "id", null, ["coverImageUrl", "attachments"]],
+  ["constructionPhases", "construction", "projectId", null, ["attachments"]],
+  ["constructionActivities", "construction", "projectId", null, ["attachments"]],
+  ["constructionTasks", "construction", "projectId", null, ["attachments"]],
+  ["constructionDailyReports", "construction", "projectId", null, ["photoUrls"]],
+  ["constructionSafetyLogs", "construction", "projectId", null, ["photoUrls"]],
+  ["constructionChangeOrders", "construction", "projectId", null, ["attachmentUrls"]],
+  ["constructionTaskComments", "construction", "projectId", null, ["attachmentUrls"]],
+  ["constructionFieldValues", "construction_task", "taskId", null, ["value"]],
+] as const;
+
+const metadataCache = new WeakMap<object, { at: number; columns: Map<string, Set<string>> }>();
+export const mediaAccessPort: MediaAccessPort = {
+  async references(key) {
+    const { getDb } = await import("../db");
+    const schema = await import("../../../drizzle/schema");
+    const { sql, getTableName } = await import("drizzle-orm");
+    const connection = await getDb();
+    if (!connection) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من صلاحية الملف" });
+    // Older installations need not contain every optional module/table. Read
+    // metadata only, and omit unavailable reference sources instead of breaking
+    // all otherwise valid images because an unrelated module is absent.
+    let metadata = metadataCache.get(connection);
+    if (!metadata || Date.now() - metadata.at > 60_000) {
+      const tableNames = sources.map(([name]) => getTableName((schema as any)[name]));
+      const [rows]: any = await connection.execute(sql`SELECT TABLE_NAME AS tableName, COLUMN_NAME AS columnName
+        FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME IN (${sql.join(tableNames.map(name => sql`${name}`), sql`,`)})`);
+      const columns = new Map<string, Set<string>>();
+      for (const row of rows) {
+        const name = row.tableName ?? row.TABLE_NAME;
+        if (!columns.has(name)) columns.set(name, new Set());
+        columns.get(name)!.add(row.columnName ?? row.COLUMN_NAME);
+      }
+      metadata = { at: Date.now(), columns }; metadataCache.set(connection, metadata);
+    }
+    const patterns = [key, encodeURIComponent(key)].map(value => `%${value.replace(/[\\%_]/g, char => `\\${char}`)}%`);
+    const available = sources.filter(source => {
+      const [name, , parent, owner, fields] = source;
+      const entity = (source as readonly unknown[])[5] as string | undefined;
+      const table = (schema as any)[name];
+      const columns = metadata!.columns.get(getTableName(table));
+      return ["id", parent, owner, ...fields, entity].filter(Boolean).every(field => columns?.has(table[field!].name));
+    });
+    if (!available.length) return [];
+    const queries = available.map(source => {
+      const [tableName, kind, parent, owner, fields] = source;
+      const table = (schema as any)[tableName];
+      const columns = fields.map(field => table[field]);
+      const entityField = (source as readonly unknown[])[5] as string | undefined;
+      const entityColumn = entityField ? table[entityField] : sql`NULL`;
+      return sql`SELECT ${kind} AS kind, ${table.id} AS id, ${table[parent]} AS parentId,
+        ${owner ? table[owner] : sql`NULL`} AS ownerId, ${entityColumn} AS entityType,
+        JSON_ARRAY(${sql.join(columns, sql`,`)}) AS payload FROM ${table}
+        WHERE ${sql.join(columns.flatMap(column => patterns.map(pattern => sql`${column} LIKE ${pattern}`)), sql` OR `)}`;
+    });
+    const [rows]: any = await connection.execute(sql.join(queries, sql` UNION ALL `));
+    return rows.filter((row: any) => containsKey(row.payload, key)).map(({ payload, ...reference }: any) => reference);
+  },
+  async authorize(user, ref) {
+    if (ref.kind === "attachment") {
+      const type = ref.entityType || "";
+      if (["po_financial_batch", "purchase_package_submission_financial"].includes(type)) {
+        if (!["accountant", "senior_management"].includes(user.role)) throw denied();
+        return;
+      }
+      if (["delegate_pricing_batch", "delegate_package_submission_pricing"].includes(type)) {
+        if (user.role !== "delegate" || ref.ownerId !== user.id) throw denied();
+        return;
+      }
+      const { assertCanAccessAttachments } = await import("../../routers/uploads/attachments.access");
+      await assertCanAccessAttachments(user, type, ref.parentId!);
+      return;
+    }
+    if (ref.kind === "signature") { if (ref.ownerId !== user.id) throw denied(); return; }
+    if (ref.kind === "reference") return;
+    if (ref.kind === "warehouse" || ref.kind === "receipt") { if (user.role !== "warehouse") throw denied(); return; }
+    if (ref.kind === "inventory" || ref.kind === "delivery") {
+      if (!["delegate", "warehouse", "senior_management", "executive_director", "maintenance_manager", "purchase_requester", "food_warehouse_manager", "food_warehouse_assistant"].includes(user.role)) throw denied();
+      return;
+    }
+    if (ref.kind === "pm") {
+      if (ref.ownerId !== user.id && !["maintenance_manager", "general_maintenance_manager", "supervisor", "senior_management", "executive_director"].includes(user.role)) {
+        const db = await import("../db");
+        const workOrder = await db.getPMWorkOrderById(ref.parentId!);
+        if (workOrder?.assignedToId !== user.id) throw denied();
+      }
+      return;
+    }
+    const db = await import("../db");
+    if (ref.kind === "external" && user.role === "warehouse") return;
+    if (ref.kind === "ticket" || ref.kind === "external") {
+      const ticket = await db.getTicketById(ref.parentId!);
+      if (!ticket) throw denied();
+      const { assertTicketReadable } = await import("../../routers/tickets/tickets.access");
+      await assertTicketReadable(user, ticket);
+      return;
+    }
+    if (ref.kind === "po") {
+      const po = await db.getPurchaseOrderById(ref.parentId!);
+      if (!po) throw denied();
+      const { assertCanViewPurchaseOrder } = await import("./guard");
+      await assertCanViewPurchaseOrder(user, po);
+      return;
+    }
+    if (ref.kind === "construction" || ref.kind === "construction_task") {
+      if (["maintenance_manager", "construction_procurement_manager", "senior_management"].includes(user.role)) return;
+      const connection = await db.getDb();
+      if (!connection) throw denied();
+      const { constructionProjectMembers, constructionTasks } = await import("../../../drizzle/schema");
+      const { and, eq } = await import("drizzle-orm");
+      let projectId = ref.parentId!;
+      if (ref.kind === "construction_task") {
+        const [task] = await connection.select({ projectId: constructionTasks.projectId }).from(constructionTasks).where(eq(constructionTasks.id, ref.parentId!)).limit(1);
+        if (!task) throw denied();
+        projectId = task.projectId;
+      }
+      const members = await connection.select({ id: constructionProjectMembers.id }).from(constructionProjectMembers)
+        .where(and(eq(constructionProjectMembers.projectId, projectId), eq(constructionProjectMembers.userId, user.id))).limit(1);
+      if (!members.length) throw denied();
+      return;
+    }
+    throw denied();
+  },
+};
+
+/** Authenticated file reads obey the same parent-document scope as its UI/API. */
+export async function assertMediaAccess(user: MediaActor | null | undefined, rawKey: unknown, port = mediaAccessPort): Promise<string> {
+  if (!user || user.isActive !== 1) throw denied();
+  const key = normalizeMediaKey(rawKey);
+  if (["owner", "admin"].includes(user.role)) return key;
+  // Backups contain authentication data; the observer's read-only admin view
+  // does not grant downloading a raw database backup through a known URL.
+  if (key.startsWith("cmms/backups/")) throw denied();
+  if (user.role === "observer") return key;
+  const references = await port.references(key);
+  // Preview an unlinked upload only. Once saved, its parent determines access
+  // even if the uploader later loses access to that document.
+  if (!references.length && key.startsWith(`cmms/uploads/u-${user.id}/`)) return key;
+  for (const reference of references) {
+    try { await port.authorize(user, reference); return key; }
+    catch (error) { if (!(error instanceof TRPCError) || !["FORBIDDEN", "NOT_FOUND", "BAD_REQUEST"].includes(error.code)) throw error; }
+  }
+  throw denied();
+}
+
+/** Prevent attaching another user's known private key to an editable own record. */
+export async function assertMediaInputAccess(user: MediaActor, input: unknown, authorize = assertMediaAccess): Promise<void> {
+  const keys = new Set<string>();
+  function visit(value: unknown, depth = 0, fileField = false) {
+    if (depth > 20) throw denied();
+    if (typeof value === "string" && fileField) {
+      const key = mediaKeyFromValue(value);
+      if (key) keys.add(key);
+      else if (/^\s*[\[{]/.test(value)) { try { visit(JSON.parse(value), depth + 1, true); } catch (error) { if (error instanceof TRPCError) throw error; } }
+    }
+    else if (Array.isArray(value)) value.forEach(child => visit(child, depth + 1, fileField));
+    else if (value && typeof value === "object") Object.entries(value).forEach(([name, child]) => visit(child, depth + 1, fileField || /(?:urls?|keys?|photos|images|attachments)$/i.test(name)));
+  }
+  visit(input);
+  for (const key of Array.from(keys)) await authorize(user, key);
+}
+
+/** Rename has a readable source and a new destination, not two existing files. */
+export async function assertMediaMutationAccess(user: MediaActor, path: string, input: unknown, authorize = assertMediaAccess) {
+  if (path === "construction.customFields.setValue") {
+    await assertMediaInputAccess(user, { attachments: [(input as any)?.value] }, authorize);
+  }
+  if (path !== "assetDocuments.renamePhoto") return assertMediaInputAccess(user, input, authorize);
+  const value = input as Record<string, unknown> | null;
+  normalizeMediaKey(value?.newKey);
+  await authorize(user, value?.oldKey);
+}

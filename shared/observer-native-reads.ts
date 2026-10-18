@@ -93,6 +93,7 @@ export const OBSERVER_NATIVE_READ_PATHS = [
   "dashboard.details",
   "dashboard.stats",
   "deliveryDocuments.list",
+  "deliveryDocuments.getForPrint",
   "disposal.getById",
   "disposal.list",
   "externalMaintenance.getByTicket",

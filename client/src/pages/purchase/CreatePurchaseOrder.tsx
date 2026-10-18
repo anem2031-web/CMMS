@@ -2,7 +2,7 @@ import { trpc } from "@/lib/trpc";
 import { CatalogPickerDialog } from "@/components/catalog/CatalogPickerDialog";
 import { CatalogStockField } from "@/components/purchase/CatalogStockField";
 import { PurchaseItemNeedFields } from "@/components/purchase/PurchaseItemNeedFields";
-import { DEFAULT_PURCHASE_DELIVERY_DAYS, validPurchaseDeliveryDays } from "@shared/purchaseItemNeedDate";
+import { DEFAULT_PURCHASE_DELIVERY_DAYS, purchaseNeedTimingFromDate, purchaseNeedTimingFromDays, remainingPurchaseCalendarDays, validPurchaseDeliveryDays } from "@shared/purchaseItemNeedDate";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { canRoleAccessPath } from "@shared/roles";
 import { goBackOrFallback } from "@/lib/backStack";
@@ -71,8 +71,7 @@ const emptyItem = (defaultUnit = ""): ItemForm => ({
 
   quantity: 1,
   unit: defaultUnit,
-  requiredDate: "",
-  deliveryLeadDays: DEFAULT_PURCHASE_DELIVERY_DAYS,
+  ...purchaseNeedTimingFromDays(DEFAULT_PURCHASE_DELIVERY_DAYS),
 
   photoUrls: [],
   notes: ""
@@ -313,8 +312,7 @@ export default function CreatePurchaseOrder() {
         description: "",
         quantity: materialPurchaseTotalUnits,
         unit: materialUnit,
-        requiredDate: "",
-        deliveryLeadDays: DEFAULT_PURCHASE_DELIVERY_DAYS,
+        ...purchaseNeedTimingFromDays(DEFAULT_PURCHASE_DELIVERY_DAYS),
         photoUrls: [],
         notes: `${isTicketMaterial ? "تذكرة الصيانة" : "PM V2"} ${materialTaskNumber}${materialItemCode ? ` · ${t.workflow.purchase.pmv2CodeLabel} ${materialItemCode}` : ""} · ${t.workflow.purchase.pmv2ShortageLinkedQty} ${materialMinimumPurchaseUnits} ${materialUnit}`.trim(),
       }]
@@ -397,8 +395,7 @@ export default function CreatePurchaseOrder() {
           description: getLocalizedItemField(i, "description", language) || i.description || "",
           quantity: i.quantity || 1,
           unit: i.unit || t.purchaseOrders.defaultUnit,
-          requiredDate: i.requiredDate || "",
-          deliveryLeadDays: i.deliveryLeadDays ?? (i.requiredDate ? null : DEFAULT_PURCHASE_DELIVERY_DAYS),
+          ...(i.requiredDate ? purchaseNeedTimingFromDate(i.requiredDate) : purchaseNeedTimingFromDays(i.deliveryLeadDays ?? null)),
           photoUrls: i.photoUrls || (i.photoUrl ? [i.photoUrl] : []),
           notes: i.notes || "",
           _existingId: i.id, // نحفظ id الصنف الأصلي
@@ -505,7 +502,8 @@ const handleCatalogSelect = (catalogItem: any) => {
     purchaseItemsForSubmit().map(i => ({
       catalogItemId: i.catalogItemId,
       itemName:    i.itemName,
-      ...(i.deliveryLeadDays != null ? { deliveryLeadDays: i.deliveryLeadDays } : { requiredDate: i.requiredDate }),
+      deliveryLeadDays: i.deliveryLeadDays,
+      requiredDate: i.requiredDate || null,
       description: i.description || undefined,
       quantity:    hasMaterialPurchaseContext ? materialPurchaseTotalUnits : i.quantity,
       unit:        i.unit || undefined,
@@ -543,7 +541,7 @@ const handleCatalogSelect = (catalogItem: any) => {
     categoryId: categoryId ? Number(categoryId) : null,
   });
 
-  const validatePurchaseForm = () => {
+  const validatePurchaseForm = (sending = true) => {
     const next = emptyPurchaseFormErrors();
     let firstMessage = "";
     let firstTargetId: string | undefined;
@@ -581,7 +579,11 @@ const handleCatalogSelect = (catalogItem: any) => {
         addItemError(itemIndex, "quantity", itemMessage(t.purchaseOrders.validationQuantityInvalid, itemIndex));
       }
 
-      if (item.deliveryLeadDays != null ? !validPurchaseDeliveryDays(item.deliveryLeadDays) : !isValidPurchaseRequiredDate(item.requiredDate)) {
+      const hasTiming = item.deliveryLeadDays != null || Boolean(item.requiredDate);
+      const dateDays = remainingPurchaseCalendarDays(item.requiredDate);
+      if ((sending && (!isValidPurchaseRequiredDate(item.requiredDate) || !validPurchaseDeliveryDays(dateDays)))
+        || (hasTiming && (item.deliveryLeadDays != null && !validPurchaseDeliveryDays(item.deliveryLeadDays)
+          || Boolean(item.requiredDate) && !isValidPurchaseRequiredDate(item.requiredDate)))) {
         addItemError(itemIndex, "deliveryLeadDays", itemMessage(t.purchaseOrders.validationDeliveryLeadDays, itemIndex));
       }
 
@@ -601,7 +603,7 @@ const handleCatalogSelect = (catalogItem: any) => {
 
   const handleUpdateDraft = () => {
     if (isTicketMaterial) return;
-    if (!validatePurchaseForm()) return;
+    if (!validatePurchaseForm(false)) return;
     if (isLinkedTicketActionBlocked) {
       toast.error(t.workflow.purchase.linkedPoEditPathBOnly);
       return;
@@ -616,7 +618,8 @@ const handleCatalogSelect = (catalogItem: any) => {
         id: i._existingId || undefined,
         catalogItemId: i.catalogItemId ?? null,
         itemName: i.itemName,
-        ...(i.deliveryLeadDays != null ? { deliveryLeadDays: i.deliveryLeadDays } : { requiredDate: i.requiredDate }),
+        deliveryLeadDays: i.deliveryLeadDays,
+        requiredDate: i.requiredDate || null,
         description: i.description || undefined,
         quantity: hasMaterialPurchaseContext ? materialPurchaseTotalUnits : i.quantity,
         unit: i.unit || undefined,
@@ -629,7 +632,7 @@ const handleCatalogSelect = (catalogItem: any) => {
 
   const handleSaveDraft = () => {
     if (isTicketMaterial) return;
-    if (!validatePurchaseForm()) return;
+    if (!validatePurchaseForm(false)) return;
     if (!validateMaterialLinkedPurchase()) return;
     if (isLinkedTicketActionBlocked) {
       toast.error(t.workflow.purchase.linkedPoSavePathBOnly);
@@ -982,12 +985,11 @@ const handleCatalogSelect = (catalogItem: any) => {
       <PurchaseItemNeedFields
         index={idx}
         deliveryLeadDays={item.deliveryLeadDays}
-        legacyRequiredDate={item.requiredDate}
+        requiredDate={item.requiredDate}
         error={itemErrors.deliveryLeadDays}
-        onChange={days => {
-          updateItem(idx, "deliveryLeadDays", days);
-          // Once edited, an empty duration must not silently reuse a legacy date.
-          if (item.requiredDate) updateItem(idx, "requiredDate", "");
+        onChange={timing => {
+          updateItem(idx, "deliveryLeadDays", timing.deliveryLeadDays ?? null);
+          updateItem(idx, "requiredDate", timing.requiredDate || "");
         }}
       />
 

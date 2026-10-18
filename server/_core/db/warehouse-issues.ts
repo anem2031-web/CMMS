@@ -8,6 +8,7 @@
 import { and, desc, eq, gt, inArray, isNull, or, sql } from "drizzle-orm";
 import {
   inventory,
+  deliveryDocuments,
   inventoryLotBalances,
   inventoryLots,
   inventoryIssueCostAllocations,
@@ -291,6 +292,12 @@ export async function getWarehouseIssueBatchById(id: number) {
     .where(eq(warehouseIssueBatchItems.batchId, id))
     .orderBy(warehouseIssueBatchItems.id);
 
+  // Every WIS line is an existing DLV written by the same recorded issuer.
+  // Reuse its frozen signature instead of creating a second signature store.
+  const firstDeliveryId = (items as any[])[0]?.deliveryDocumentId;
+  const signingRows = firstDeliveryId ? await db.select({ signature: deliveryDocuments.deliveredBySignatureSnapshot })
+    .from(deliveryDocuments).where(eq(deliveryDocuments.id, firstDeliveryId)).limit(1) : [];
+
   const targets = await getWarehouseIssueCostTargetsForBatchIds(db, [id]);
   const targetByTransactionId = new Map<number, WarehouseIssueCostTargetRow>();
   for (const target of targets as WarehouseIssueCostTargetRow[]) {
@@ -309,6 +316,7 @@ export async function getWarehouseIssueBatchById(id: number) {
 
   return {
     ...header,
+    issuedBySignatureSnapshot: (signingRows as any[])[0]?.signature ?? null,
     ...summarizeWarehouseIssueCostTargets(targets as WarehouseIssueCostTargetRow[]),
     items: enrichedItems,
   };

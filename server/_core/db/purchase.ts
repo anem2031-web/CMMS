@@ -8,7 +8,7 @@ import { drizzle } from "drizzle-orm/mysql2";
 import { alias } from "drizzle-orm/mysql-core";
 import mysql from "mysql2/promise";
 import {
-  InsertUser, users, tickets, purchaseOrders, purchaseOrderItems,
+  InsertUser, users, tickets, ticketItems, purchaseOrders, purchaseOrderItems,
   inventory, inventoryTransactions, notifications, auditLogs,
   ticketStatusHistory, attachments, sites, backups,
   assets, preventivePlans, pmWorkOrders, assetSpareParts, pmJobs, assetMetrics,
@@ -754,11 +754,15 @@ export async function getPurchaseSupplyTrackingItems(delegateId?: number) {
       requestedById: purchaseOrders.requestedById,
       requestedByName: requesterUser.name,
       delegateName: delegateUser.name,
+      pricingBatchStatus: poPricingBatches.status,
+      itemMaintenancePath: ticketItems.maintenancePath,
     })
     .from(purchaseOrderItems)
     .innerJoin(purchaseOrders, eq(purchaseOrderItems.purchaseOrderId, purchaseOrders.id))
     .leftJoin(delegateUser, eq(purchaseOrderItems.delegateId, delegateUser.id))
     .leftJoin(requesterUser, eq(purchaseOrders.requestedById, requesterUser.id))
+    .leftJoin(poPricingBatches, eq(purchaseOrderItems.batchId, poPricingBatches.id))
+    .leftJoin(ticketItems, eq(purchaseOrders.ticketItemId, ticketItems.id))
     .where(and(...conditions))
     .orderBy(asc(purchaseOrderItems.requiredDate), asc(purchaseOrderItems.id));
 }
@@ -1811,6 +1815,7 @@ export async function approvePackageSubmissionAccountingAtomic(args: {
   submissionId: number;
   actorId: number;
   custodyBalance: string;
+  accountingSignatureSnapshot: string;
 }) {
   const database = await getDb();
   if (!database) throw new Error("DATABASE_UNAVAILABLE");
@@ -1837,6 +1842,7 @@ export async function approvePackageSubmissionAccountingAtomic(args: {
         status: "pending_management",
         accountingApprovedById: args.actorId,
         accountingApprovedAt: approvedAt as any,
+        accountingSignatureSnapshot: args.accountingSignatureSnapshot,
       })
       .where(and(
         eq(purchasePackageSubmissions.id, args.submissionId),
@@ -1890,6 +1896,7 @@ export async function approvePackageSubmissionAccountingAtomic(args: {
         status: "pending_management",
         accountingApprovedById: args.actorId,
         accountingApprovedAt: approvedAt as any,
+        accountingSignatureSnapshot: args.accountingSignatureSnapshot,
       })
       .where(and(
         eq(poPricingBatches.purchasePackageSubmissionId, args.submissionId),

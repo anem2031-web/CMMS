@@ -1,4 +1,5 @@
 import { useAuth } from "@/_core/hooks/useAuth";
+import { businessHomePath, isBusinessGuardedRole } from "@shared/business-role-policy";
 import { ticketTeamNotificationPath } from "@shared/maintenance-team-tickets/warehouse-navigation";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
@@ -575,6 +576,7 @@ function DashboardLayoutContent({ children, setSidebarWidth }: { children: React
       ? "/scheduled-maintenance/my-tasks"
       : role === "warehouse" && location.startsWith("/scheduled-maintenance")
         ? "/scheduled-maintenance/warehouse-requests"
+        : isBusinessGuardedRole(role) ? businessHomePath(role)
         : role === "construction_procurement_manager" ? "/tickets?tab=construction" : "/tickets";
     setLocation(fallback);
   }, [authLoading, canAccessCurrentPath, location, role, setLocation]);

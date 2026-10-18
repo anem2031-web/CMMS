@@ -1,0 +1,345 @@
+{
+  "run": "UAT-20261018-RED9",
+  "status": "in_progress",
+  "application": "https://cmms-production-2f64.up.railway.app/",
+  "database_scope": "copycmms — per user's confirmation; no direct connection or SQL used during this browser run",
+  "method": "Browser UI only, with actual role accounts. Local files are only for the test report.",
+  "excluded": [
+    "الصيانة الدورية — legacy preventive module and its specific report"
+  ],
+  "included": [
+    "Authentication and role isolation",
+    "Tickets by named technician/team and A/B/C/IT routes",
+    "Purchase requests, drafts, need dates, pricing bundles and approvals",
+    "Warehouse receipt/unit conversion/lots/issue/returns/transfers",
+    "Operational issues",
+    "Documents/PDF/signatures",
+    "Costs and other reports",
+    "Catalog and master data",
+    "Improvement ideas",
+    "Construction",
+    "Notifications, audit, admin screens",
+    "PM V2 scheduled maintenance"
+  ],
+  "accounts": [
+    {
+      "username": "RED9",
+      "display_name": "مدير النظام RED9",
+      "role": "مدير النظام",
+      "login": "passed"
+    },
+    {
+      "username": "RED",
+      "role": "مستودع",
+      "signature": "not uploaded"
+    },
+    {
+      "username": "RED1",
+      "role": "مدير الإنشاءات والمشتريات"
+    },
+    {
+      "username": "RED2",
+      "role": "مدير الصيانة العامة والتشغيل"
+    },
+    {
+      "username": "RED3",
+      "role": "مندوب مشتريات"
+    },
+    {
+      "username": "RED4",
+      "role": "حسابات",
+      "signature": "uploaded"
+    },
+    {
+      "username": "RED5",
+      "role": "حارس البوابة"
+    },
+    {
+      "username": "RED6",
+      "role": "مدير صيانة"
+    },
+    {
+      "username": "RED7",
+      "role": "موظف تشغيل"
+    },
+    {
+      "username": "RED8",
+      "role": "إدارة عليا"
+    },
+    {
+      "username": "SUHAIL",
+      "role": "فني صيانة",
+      "team": "فريق التكييف"
+    },
+    {
+      "username": "sahid",
+      "role": "فني صيانة",
+      "team": "فريق التكييف"
+    },
+    {
+      "username": "ROBIL",
+      "role": "فني صيانة",
+      "team": "فريق الدهان"
+    },
+    {
+      "username": "AZAD",
+      "role": "فني صيانة",
+      "team": "فريق الدهان"
+    },
+    {
+      "username": "FAROQ",
+      "role": "فني صيانة",
+      "team": "فريق الدهان"
+    },
+    {
+      "username": "RADD",
+      "role": "مدير IT — supplied by user; pending browser verification"
+    }
+  ],
+  "checks": [
+    {
+      "id": "AUTH-001",
+      "account": "RED9",
+      "scenario": "Sign out of prior session and log in using the provided admin account",
+      "result": "passed",
+      "observed": "Admin sidebar and display name مدير النظام RED9 visible"
+    },
+    {
+      "id": "ADM-001",
+      "account": "RED9",
+      "scenario": "Read/filter users and role assignments from the UI",
+      "result": "passed",
+      "observed": "RED through RED9 are present; role mapping recorded from displayed cards"
+    },
+    {
+      "id": "TEAM-001",
+      "account": "RED9",
+      "scenario": "Inspect existing team configuration",
+      "result": "passed",
+      "observed": "فريق التكييف: active, 2 technicians محمد شاهد and سهيل فدا, linked مخزن التكييف. فريق الدهان: active, 3 technicians listed in its summary"
+    },
+    {
+      "id": "TKT-001",
+      "account": "RED7",
+      "result": "pass",
+      "detail": "Created MT-2026-00591 (2040010); category AC, site alwatan park, administrative offices; uploaded photo present in Attachments(1)."
+    },
+    {
+      "id": "TKT-002",
+      "account": "RED2",
+      "result": "pass",
+      "detail": "General maintenance triage approved and task created; parent shows 0/1 and 0% while task is not converted."
+    },
+    {
+      "id": "TKT-003",
+      "account": "RED2",
+      "result": "pass",
+      "detail": "Team AC assignment generated MT-2026-00591-01 (2040011), inherited category AC and location/section; parent linked."
+    },
+    {
+      "id": "TECH-001",
+      "account": "SUHAIL",
+      "result": "pass",
+      "detail": "Login lands at my-tasks; maintenance ticket tab execution contains new AC team record; visit starts 00:00:00 and counts seconds; ended at 00:01:18 with waiting materials retained."
+    },
+    {
+      "id": "TECH-002",
+      "account": "SUHAIL",
+      "result": "pass",
+      "detail": "Direct navigation to /users redirected to /scheduled-maintenance/my-tasks; sidebar only My Tasks + Notifications."
+    },
+    {
+      "id": "MAT-001",
+      "account": "RED",
+      "result": "pass",
+      "detail": "New ticket requirement #30003 for MT-2026-00591-01 appears in warehouse Tickets tab, qty2, technician qty2 extra0 total2."
+    },
+    {
+      "id": "MAT-002",
+      "account": "RED",
+      "result": "pass",
+      "detail": "Requirement30003 main stock4, team0; transferred2 using LOT-2026-00567 via TRB/TRF-2026-120003; requirement became ready to issue."
+    },
+    {
+      "id": "MAT-003",
+      "account": "RED",
+      "result": "pass",
+      "detail": "Issued full quantity2 to SUHAIL; disappeared from ready queue, DLV-2026-450006 PDF downloaded via Documents UI."
+    },
+    {
+      "id": "COST-001",
+      "account": "SUHAIL",
+      "result": "pass",
+      "detail": "New team ticket shows issued lot cost28 SAR (2 x14); no second addition of purchase cost; received2 and 0 remaining to receive."
+    },
+    {
+      "id": "MGR-001",
+      "account": "RED2",
+      "result": "pass",
+      "detail": "Manager could review issued2 used2 return0, required note and return team execution for correction."
+    },
+    {
+      "id": "OPR-001",
+      "account": "RED2",
+      "result": "pass",
+      "detail": "Created OPR-2026-000003 with two catalog items qty1 each, site/section/technician/reason; awaiting warehouse review."
+    }
+  ],
+  "issues": [
+    {
+      "id": "UAT-001",
+      "severity": "medium",
+      "status": "confirmed_ui_only",
+      "account": "RED",
+      "page": "/users",
+      "title": "Warehouse user-creation role dropdown exposes all roles",
+      "steps": [
+        "Login RED warehouse",
+        "Open Users > Add new user",
+        "Expand Role"
+      ],
+      "expected": "Only technician role is available, as explicitly agreed.",
+      "actual": "Observer, owner, admin, accounting, senior management and all other roles are listed.",
+      "limits": "Did not create or broaden any account; server enforcement is unverified in browser-only test.",
+      "evidence": "evidence/warehouse-user-role-options.jpg"
+    },
+    {
+      "id": "UAT-002",
+      "severity": "high",
+      "status": "confirmed",
+      "account": "SUHAIL",
+      "record": "MT-2026-00591-01",
+      "title": "Blank used quantity accepted as full issued quantity",
+      "steps": [
+        "Receive issued2 pieces",
+        "Resume repair",
+        "Leave used quantity blank and enter repair details",
+        "Press repair/save usage"
+      ],
+      "expected": "Reject blank usage and require technician explicit quantity.",
+      "actual": "Moved to awaiting manager and saved used2, pending return0 although input was left blank.",
+      "evidence": "evidence/blank-used-quantity-saved-as-full.jpg"
+    },
+    {
+      "id": "UAT-003",
+      "severity": "medium",
+      "status": "confirmed",
+      "account": "RED2",
+      "page": "/purchase-orders/new",
+      "title": "Published purchase need date is read only",
+      "steps": [
+        "Open New Purchase Order",
+        "Attempt to edit need date",
+        "Enter days3"
+      ],
+      "expected": "Allow entering date or days; corresponding other field updates; preserve fixed need date on send.",
+      "actual": "Need-date input readOnly=true. Days3 computes Oct21 but date cannot be entered; explanatory text still says date finalizes based on send date.",
+      "limits": "Date-on-submit behavior not yet tested.",
+      "evidence": "evidence/purchase-need-date-readonly.jpg"
+    },
+    {
+      "id": "UAT-004",
+      "severity": "medium",
+      "status": "confirmed",
+      "account": "RED2",
+      "page": "/purchase-orders/new",
+      "title": "Draft still requires supply lead days",
+      "steps": [
+        "Select catalog item and required site/section",
+        "Clear lead-days field",
+        "Press Save as draft"
+      ],
+      "expected": "Save draft without days/date; validate only on sending.",
+      "actual": "Refused to save: item1 enter valid days0..3650.",
+      "evidence": "evidence/draft-without-need-days-rejected.jpg"
+    }
+  ],
+  "created_records": [
+    {
+      "type": "maintenance_ticket",
+      "number": "MT-2026-00591",
+      "id": 2040010,
+      "title": "UAT-20261018-TEAM-01",
+      "status": "team_assignment_in_progress"
+    },
+    {
+      "type": "ticket_task",
+      "title": "UAT-TEAM-MATERIAL اختبار التكييف والمواد"
+    },
+    {
+      "type": "maintenance_ticket",
+      "number": "MT-2026-00591-01",
+      "id": 2040011,
+      "status": "waiting_material"
+    },
+    {
+      "type": "team_visit",
+      "technician": "SUHAIL",
+      "record": "MT-2026-00591-01",
+      "duration_display": "00:01:18"
+    },
+    {
+      "type": "ticket_material_need",
+      "id": 30003,
+      "ticket": "MT-2026-00591-01",
+      "catalog_code": "74-061",
+      "quantity": 2
+    },
+    {
+      "type": "warehouse_transfer",
+      "batch": "TRB-2026-120003",
+      "document": "TRF-2026-120003",
+      "lot": "LOT-2026-00567",
+      "quantity": 2,
+      "source": "main",
+      "target": "AC team",
+      "ticket": "MT-2026-00591-01"
+    },
+    {
+      "type": "delivery_document",
+      "number": "DLV-2026-450006",
+      "technician": "SUHAIL",
+      "quantity": 2,
+      "lot": "LOT-2026-00567",
+      "ticket": "MT-2026-00591-01",
+      "pdf_download": "C:/Users/mh/Downloads/DLV-2026-450006.pdf"
+    },
+    {
+      "type": "operational_issue_order",
+      "number": "OPR-2026-000003",
+      "reason": "UAT-20261018-OPR-01",
+      "items": [
+        {
+          "code": "74-061",
+          "quantity": 1
+        },
+        {
+          "code": "731-017",
+          "quantity": 1
+        }
+      ],
+      "technician": "SUHAIL",
+      "status": "pending_warehouse_review"
+    },
+    {
+      "type": "purchase_order",
+      "id": 3780003,
+      "draft": "DFT-2026-0006",
+      "test_marker": "UAT-20261018-PO-01",
+      "status": "sending_for_review",
+      "item": "731-017",
+      "quantity": 1,
+      "lead_days": 3
+    }
+  ],
+  "limitations": [
+    "No changes to program code. No direct API calls or database queries. No external purchases/payments. Pre-existing business records are inspected but not advanced as test data."
+  ],
+  "observations": [
+    {
+      "id": "OBS-001",
+      "status": "not_reproduced_as_failure",
+      "detail": "Stock recheck temporarily disabled need registration; completed later and showed requested2 available0 short2. No browser error logs."
+    }
+  ]
+}

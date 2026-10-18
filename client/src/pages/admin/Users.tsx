@@ -1,4 +1,5 @@
 import { trpc } from "@/lib/trpc";
+import { canCreateUserRole } from "@shared/business-role-policy";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -503,7 +504,7 @@ export default function UsersPage() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {Object.keys(t.roles).filter(k => k !== "user").map(k => (
+                  {Object.keys(t.roles).filter(k => k !== "user" && canCreateUserRole(currentUser?.role || "", k)).map(k => (
                     <SelectItem key={k} value={k}>{getRoleLabel(k)}</SelectItem>
                   ))}
                 </SelectContent>

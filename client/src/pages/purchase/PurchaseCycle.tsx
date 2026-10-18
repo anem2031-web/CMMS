@@ -29,6 +29,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { printDeliveryReceipt } from "@/lib/printDeliveryDocument";
+import { documentSignatureHtml } from "@/lib/documentSignatureHtml";
 import { sortPurchaseCycleItemsNewestFirst } from "./purchaseCycleSorting";
 import { localizeApiError } from "@/i18n/apiError";
 import { EntityTranslatedText } from "@/components/i18n/EntityTranslatedText";
@@ -106,6 +107,7 @@ function FilterBar({
 
 function DeliveryDocumentsTab({ deliveryDocsQuery, returnDocsQuery, searchDocs, setSearchDocs, docRecipient, setDocRecipient, docDateFrom, setDocDateFrom, docDateTo, setDocDateTo, pageDocs, setPageDocs, incrementDocPrintMut, incrementReturnDocPrintMut }: any) {
   const { t, language, dir } = useTranslation();
+  const utils = trpc.useUtils();
   const locale = language === "ar" ? "ar-SA" : language === "ur" ? "ur-PK" : "en-US";
   const { data: catalogUnits = [] } = trpc.catalog.units.list.useQuery();
   const displayUnit = (value: string | null | undefined) =>
@@ -239,9 +241,16 @@ ${qrDataUrl ? `<div class="item-id-row">
     if (win) { win.document.write(html); win.document.close(); }
   };
 
-  const handleDownload = (doc: any) => {
+  const handleDownload = async (doc: any) => {
     if (doc.docType === "return") {
       handleDownloadReturn(doc);
+      return;
+    }
+    try {
+      const saved = await utils.deliveryDocuments.getForPrint.fetch({ id: doc.id });
+      doc = { ...doc, deliveredByName: saved.deliveredByName, deliveredBySignature: saved.deliveredBySignature };
+    } catch {
+      toast.error(t.workflow.purchase.printPrepareFailed);
       return;
     }
     incrementDocPrintMut.mutate({ id: doc.id });
@@ -308,7 +317,7 @@ body{font-family:${dir === "rtl" ? "'Cairo',Arial,sans-serif" : "Arial,sans-seri
   ${imgTag}
 </div>
 <div class="sig-section">
-  <div class="sig-box">${t.workflow.purchase.delivererSignature}<br/>${doc.deliveredByName}</div>
+  <div class="sig-box">${t.workflow.purchase.delivererSignature}<br/>${doc.deliveredByName}${documentSignatureHtml(doc.deliveredBySignature)}</div>
   <div class="sig-box">${t.workflow.purchase.receiverSignature}<br/>${doc.deliveredToName}</div>
 </div>
 <div class="footer">
@@ -586,16 +595,7 @@ export default function PurchaseCycle() {
       refetchInventory();
       refetchDelivery();
       deliveryDocsQuery.refetch();
-      setDeliveryPrintData((prev: any) => {
-        if (prev) {
-          const fullData = { ...prev, deliveryNumber: data?.deliveryNumber, lotCode: data?.lotCode || undefined };
-          printDeliveryReceipt(fullData, language);
-          // ملاحظة: لا نستدعي generateDocMut هنا — السيرفر ينشئ وثيقة التسليم
-          // تلقائيًا ضمن db.issueDelivery() لعناصر المخزون المباشرة، فأي استدعاء
-          // إضافي هنا يسبب وثيقة مكررة لنفس عملية التسليم.
-        }
-        return null;
-      });
+      void printCompletedDelivery(data);
       setDeliveryLotInfo(null);
     },
     onError: (e: any) => toast.error(localizeApiError(e.message)),
@@ -607,16 +607,27 @@ export default function PurchaseCycle() {
       refetchAll();
       refetchInventory();
       deliveryDocsQuery.refetch();
-      setDeliveryPrintData((prev: any) => {
-        if (prev) {
-          printDeliveryReceipt({ ...prev, deliveryNumber: data?.deliveryNumber, lotCode: data?.lotCode || undefined }, language);
-        }
-        return null;
-      });
+      void printCompletedDelivery(data);
       setDeliveryLotInfo(null);
     },
     onError: (e: any) => { toast.error(localizeApiError(e.message)); setDeliveryPrintData(null); },
   });
+
+  async function printCompletedDelivery(result: any) {
+    const pending = deliveryPrintData;
+    setDeliveryPrintData(null);
+    if (!pending) return;
+    try {
+      const saved = await utils.deliveryDocuments.getForPrint.fetch({ id: result.deliveryDocumentId });
+      // The committed document is the authority for the actual warehouse signer.
+      // Printing failure never retries the stock issue or creates another DLV.
+      printDeliveryReceipt({ ...pending, deliveredByName: saved.deliveredByName,
+        deliveredBySignature: saved.deliveredBySignature, deliveryNumber: saved.deliveryNumber,
+        lotCode: result.lotCode || undefined }, language);
+    } catch {
+      toast.error(t.workflow.purchase.printPrepareFailed);
+    }
+  }
 
   // Estimate state
   const [estimateValues, setEstimateValues] = useState<Record<number, string>>({});

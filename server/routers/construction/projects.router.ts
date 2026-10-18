@@ -1,6 +1,6 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import { eq, desc, asc, and, like, or, count, sql } from "drizzle-orm";
+import { eq, desc, asc, and, like, or, count, sql, inArray } from "drizzle-orm";
 import { router, constructionProcedure } from "../_shared/procedures";
 import { getDb } from "../../_core/db";
 import {
@@ -94,6 +94,7 @@ export const projectsRouter = router({
       const offset = (page - 1) * pageSize;
 
       const conditions = [eq(constructionProjects.isArchived, isArchived)];
+      if (ctx.businessProjectIds) conditions.push(ctx.businessProjectIds.length ? inArray(constructionProjects.id, ctx.businessProjectIds) : sql`FALSE`);
       if (status) conditions.push(eq(constructionProjects.status, status as any));
       if (siteId) conditions.push(eq(constructionProjects.siteId, siteId));
       if (managerId) conditions.push(eq(constructionProjects.managerId, managerId));
@@ -298,18 +299,20 @@ export const projectsRouter = router({
   portfolioStats: constructionProcedure
     .query(async ({ ctx }) => {
       const db = await getDb(); if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB not available" });
+      const scope = and(eq(constructionProjects.isArchived, false), ctx.businessProjectIds
+        ? (ctx.businessProjectIds.length ? inArray(constructionProjects.id, ctx.businessProjectIds) : sql`FALSE`) : undefined);
       const [stats] = await db.select({
         total: count(),
         active: sql<number>`SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END)`,
         planning: sql<number>`SUM(CASE WHEN status = 'planning' THEN 1 ELSE 0 END)`,
         completed: sql<number>`SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END)`,
         on_hold: sql<number>`SUM(CASE WHEN status = 'on_hold' THEN 1 ELSE 0 END)`,
-      }).from(constructionProjects).where(eq(constructionProjects.isArchived, false));
+      }).from(constructionProjects).where(scope);
 
       const allProjects = await db
         .select({ progress: constructionProjects.progressPercent })
         .from(constructionProjects)
-        .where(eq(constructionProjects.isArchived, false));
+        .where(scope);
 
       const avgProgress = allProjects.length > 0
         ? allProjects.reduce((s, p) => s + Number(p.progress ?? 0), 0) / allProjects.length

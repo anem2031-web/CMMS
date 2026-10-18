@@ -3,6 +3,7 @@ import ExcelJS from "exceljs";
 import * as db from "../../_core/db";
 import { htmlToPdf } from "../pdf/htmlToPdfService";
 import { getSignatureDataUrl } from "../pdf/signatureImage";
+import { readAccountingSignature } from "../pdf/accountingSignature";
 
 // ============================================================
 // EXCEL EXPORT HELPERS
@@ -738,12 +739,14 @@ export async function generatePurchaseRequestPDF(
   const requester = po.requestedById ? await db.getUserById(po.requestedById) : null;
   const reviewer = po.reviewedById ? await db.getUserById(po.reviewedById) : null;
   // اسم موظف الحسابات اللي اعتمد فعلياً — من الدفعة لو محددة، وإلا من الطلب كامل
-  const accountingApproverId = packageSubmission?.accountingApprovedById || batch?.accountingApprovedById || po.accountingApprovedById;
+  const accountingApproval = packageSubmission ?? batch ?? po;
+  const accountingApproverId = accountingApproval.accountingApprovedById;
+  const accountingSignature = readAccountingSignature(accountingApproval.accountingSignatureSnapshot, accountingApproverId);
   const accountingApprover = accountingApproverId ? await db.getUserById(accountingApproverId) : null;
 
   const requesterName = requester?.name || "-";
   const reviewerName = reviewer?.name || "-";
-  const accountingApproverName = accountingApprover?.name || "";
+  const accountingApproverName = accountingSignature?.name ?? accountingApprover?.name ?? "";
 
   // ── التوقيع الإلكتروني (0047 + إصلاح 0048) ──────────────────
   // إصلاح جوهري: التوقيع لم يعد يُقرأ حيًّا من users.signatureUrl في كل
@@ -751,8 +754,8 @@ export async function generatePurchaseRequestPDF(
   // القديمة بأثر رجعي). الآن: أول مرة تصدر فيها الوثيقة لهذا الطلب/الدفعة
   // يُجمَّد التوقيع الحالي في عمود Snapshot، وكل طباعة لاحقة تقرأ من هذا
   // التجميد فقط — من الحالي للمستقبل، بلا تعديل على ما صدر مسبقًا.
-  // يُملأ تلقائيًا لثلاث خانات فقط: مقدّم الطلب، مراجع الطلب، مستلم العهدة.
-  // خانتا «الحسابات» و«الشؤون المالية» تبقيان فارغتين للتوقيع اليدوي.
+  // توقيع الحسابات يؤخذ فقط من نسخة المعتمد المثبتة عند الاعتماد الجديد.
+  // الاعتمادات القديمة بلا نسخة تبقى بخانتها الفارغة، والشؤون المالية يدوية.
   let requesterSigSource = (po as any).requesterSignatureSnapshot || null;
   if (!requesterSigSource) {
     requesterSigSource = (requester as any)?.signatureUrl || null;
@@ -785,10 +788,11 @@ export async function generatePurchaseRequestPDF(
     delegateSigSource = (delegate as any)?.signatureUrl || null;
   }
 
-  const [requesterSig, reviewerSig, delegateSig] = await Promise.all([
+  const [requesterSig, reviewerSig, delegateSig, accountingSig] = await Promise.all([
     getSignatureDataUrl(requesterSigSource),
     getSignatureDataUrl(reviewerSigSource),
     getSignatureDataUrl(delegateSigSource),
+    getSignatureDataUrl(isDelegateViewer ? null : accountingSignature?.signatureUrl),
   ]);
   const sigImg = (dataUrl: string) =>
     dataUrl ? `<img src="${dataUrl}" alt="التوقيع" class="sig-img" />` : "";
@@ -1024,7 +1028,7 @@ export async function generatePurchaseRequestPDF(
             <tr>
                 <td style="font-weight: bold; background-color: #f7fafc;">الحسابات</td>
                 <td>${escapeHtml(accountingApproverName)}</td>
-                <td></td>
+                <td>${sigImg(accountingSig)}</td>
             </tr>`}
         </tbody>
     </table>

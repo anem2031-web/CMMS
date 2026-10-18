@@ -13,6 +13,7 @@ import { router } from "../routers/_shared/procedures";
 import { operationalNetCost } from "../../shared/operational-issues";
 import { canRoleAccessPath } from "../../shared/roles";
 import type { TrpcContext } from "../_core/context";
+import { captureDocumentSignature, readDocumentSignature } from "../../shared/documentSignatureSnapshot";
 
 const manager = { id: 10, role: "maintenance_manager", isActive: 1, name: "Manager" };
 const warehouse = { id: 20, role: "warehouse", isActive: 1, name: "Warehouse" };
@@ -25,7 +26,7 @@ const physicalCode = ts.transpileModule(`(${physicalNode.getText(physicalAst).re
 
 function fixture() {
   let state: any = { orders: [], items: [], deliveries: [], documents: [], movements: [], returns: [], returnOps: [], stock: 10, lotStock: 10, audits: [], contexts: [] };
-  const flags = { stockUnits: ["حبة"], catalogUnit: "حبة", failLedger: false, wrongLot: false, returnCalls: 0, collectorActive: 1, actorRole: "warehouse", sectionValid: true };
+  const flags = { stockUnits: ["حبة"], catalogUnit: "حبة", failLedger: false, wrongLot: false, returnCalls: 0, collectorActive: 1, actorRole: "warehouse", sectionValid: true, warehouseSignature: null as string | null };
   let queue: Promise<any> = Promise.resolve(); const queries: any[] = [];
   const rows = (value: any[]) => [value];
   const issued = (id: number) => state.deliveries.filter((d: any) => d.orderItemId === id).reduce((sum: number, d: any) => sum + Number(d.quantity), 0);
@@ -84,10 +85,11 @@ function fixture() {
     const next = queue.then(async () => { const old = structuredClone(state); try { return await work(tx); } catch (e) { state = old; throw e; } }); queue = next.catch(() => {}); return next;
   } };
   const actualIssue = vm.runInNewContext(physicalCode, {
+    captureDocumentSignature,
     ...schema, sql, and, eq, gte, notInArray, getDb: async () => database,
     isInventoryLotsEnabled: () => true, materialExecutionCostsEnabled: () => true,
     assertOperationalIssueReference, recordOperationalDelivery,
-    getUserById: async (id: number) => id === 101 ? { id, name: "Technician", role: "technician", isActive: 1 } : warehouse,
+    getUserById: async (id: number) => id === 101 ? { id, name: "Technician", role: "technician", isActive: 1 } : { ...warehouse, signatureUrl: flags.warehouseSignature },
     getInventoryItemById: async () => ({ id: 1, linkedItemId: 5, quantity: state.stock, unit: "حبة", issueUnit: "حبة", averageCost: "5" }),
     consumeInventoryLotForIssue: async (input: any) => {
       if (input.quantity > state.lotStock) throw Error("lot stock exceeded"); state.lotStock -= input.quantity;
@@ -117,6 +119,16 @@ beforeEach(() => vi.stubEnv("OPERATIONAL_ISSUES_ENABLED", "true"));
 afterEach(() => vi.unstubAllEnvs());
 
 describe("Operational order → existing physical issue → original-delivery return", () => {
+  it.each([null, "cmms/uploads/u-20/original-signature.png"])("freezes the real warehouse issuer's signature in the actual physical writer: %s", async signature => {
+    const f = fixture(); f.flags.warehouseSignature = signature; await f.ready();
+    await f.service.issue(warehouse, { orderId: 1, itemId: 1, warehouseId: 1, lotTrackingToken: "LOT-1", quantity: 3, operationKey: "signature-fixture" });
+    const document = f.state().documents[0];
+    expect(document.deliveredByName).toBe(warehouse.name);
+    expect(readDocumentSignature(document.deliveredBySignatureSnapshot, warehouse.id)).toMatchObject({ actorId: warehouse.id, name: warehouse.name, signatureUrl: signature });
+    f.flags.warehouseSignature = "cmms/uploads/u-20/changed.png";
+    expect(readDocumentSignature(document.deliveredBySignatureSnapshot, warehouse.id)?.signatureUrl).toBe(signature);
+    expect(f.state().stock).toBe(7); expect(f.state().lotStock).toBe(7);
+  });
   it("preserves the existing PMV2 warehouse batch route by carrying its authoritative task item reference", async () => {
     const source = fs.readFileSync("server/routers/inventory/warehouse-issue-batches.router.ts", "utf8");
     const ast = ts.createSourceFile("wis.ts", source, ts.ScriptTarget.Latest, true);

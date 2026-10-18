@@ -1,3 +1,5 @@
+import { documentSignatureHtml } from "./documentSignatureHtml";
+
 function escapeHtml(value: unknown): string {
   return String(value ?? "")
     .replace(/&/g, "&amp;")
@@ -33,6 +35,7 @@ export type WarehouseIssuePrintData = {
   warehouseName: string;
   deliveredToName: string;
   issuedByName: string;
+  issuedBySignature?: string | null;
   notes?: string | null;
   beneficiarySiteName?: string | null;
   beneficiarySectionName?: string | null;
@@ -106,7 +109,7 @@ export function buildWarehouseIssueHtml(data: WarehouseIssuePrintData): string {
   .mono { direction: ltr; text-align: left; font-family: monospace; white-space: nowrap; }
   .refs { font-size: 11px; line-height: 1.6; }
   .notes { margin-top: 16px; border: 1px solid #dbe2ea; border-radius: 8px; padding: 10px 12px; }
-  .signatures { display: grid; grid-template-columns: 1fr 1fr; gap: 44px; margin-top: 42px; }
+  .signatures { display: grid; grid-template-columns: 1fr 1fr; gap: 44px; margin-top: 42px; break-inside: avoid; }
   .sig { border-top: 1px solid #9ca3af; padding-top: 8px; text-align: center; color: #4b5563; font-size: 12px; }
   .footer { border-top: 1px solid #e5e7eb; margin-top: 26px; padding-top: 10px; display: flex; justify-content: space-between; color: #9ca3af; font-size: 10px; }
   @media print {
@@ -148,7 +151,7 @@ export function buildWarehouseIssueHtml(data: WarehouseIssuePrintData): string {
   ${data.notes ? `<div class="notes"><div class="label">ملاحظات</div><div>${escapeHtml(data.notes)}</div></div>` : ""}
 
   <div class="signatures">
-    <div class="sig">توقيع منفذ الصرف<br/>${escapeHtml(data.issuedByName)}</div>
+    <div class="sig">توقيع منفذ الصرف<br/>${escapeHtml(data.issuedByName)}${documentSignatureHtml(data.issuedBySignature)}</div>
     <div class="sig">توقيع المستلم<br/>${escapeHtml(data.deliveredToName)}</div>
   </div>
 

@@ -73,6 +73,7 @@ export const tasksRouter = router({
       const offset = (page - 1) * pageSize;
 
       const conditions: any[] = [];
+      if (ctx.businessProjectIds) conditions.push(ctx.businessProjectIds.length ? inArray(constructionTasks.projectId, ctx.businessProjectIds) : sql`FALSE`);
       if (projectId) conditions.push(eq(constructionTasks.projectId, projectId));
       if (phaseId) conditions.push(eq(constructionTasks.phaseId, phaseId));
       if (activityId) conditions.push(eq(constructionTasks.activityId, activityId));

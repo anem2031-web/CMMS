@@ -1,6 +1,7 @@
 import ar from "@/i18n/ar";
 import en from "@/i18n/en";
 import ur from "@/i18n/ur";
+import { documentSignatureHtml } from "./documentSignatureHtml";
 
 type DeliveryDocLanguage = "ar" | "en" | "ur";
 
@@ -20,6 +21,7 @@ export const buildDeliveryReceiptHtml = (data: {
     actualUnitCost?: string;
     warehousePhotoUrl?: string;
     deliveredByName: string;
+    deliveredBySignature?: string | null;
     deliveredToName: string;
     assignedTechnicianName?: string;
     ticketNumber?: string;
@@ -81,7 +83,7 @@ export const buildDeliveryReceiptHtml = (data: {
   .photo-wrap { margin-top: 8px; }
   .photo-label { font-size: 10px; color: #777; margin-bottom: 6px; }
   .photo-wrap img { width: 140px; height: 140px; object-fit: cover; border-radius: 8px; border: 1px solid #dde3ea; }
-  .sig-section { margin-top: 32px; display: grid; grid-template-columns: 1fr 1fr; gap: 32px; }
+  .sig-section { margin-top: 32px; display: grid; grid-template-columns: 1fr 1fr; gap: 32px; break-inside: avoid; }
   .sig-box { border-top: 1px solid #bbb; padding-top: 8px; text-align: center; font-size: 11px; color: #555; }
   .footer { margin-top: 24px; border-top: 1px solid #eee; padding-top: 10px; display: flex; justify-content: space-between; align-items: center; font-size: 10px; color: #aaa; }
   .print-count { font-size: 11px; color: #888; background: #f4f6fa; border: 1px solid #dde3ea; border-radius: 20px; padding: 2px 12px; }
@@ -142,7 +144,7 @@ export const buildDeliveryReceiptHtml = (data: {
   </div>
 
   <div class="sig-section">
-    <div class="sig-box">${t.workflow.purchase.delivererSignature}<br/>${data.deliveredByName}</div>
+    <div class="sig-box">${t.workflow.purchase.delivererSignature}<br/>${data.deliveredByName}${documentSignatureHtml(data.deliveredBySignature)}</div>
     <div class="sig-box">${t.workflow.purchase.receiverSignature}<br/>${data.deliveredToName}</div>
   </div>
 

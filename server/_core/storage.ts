@@ -6,6 +6,7 @@ import {
   CopyObjectCommand,
   DeleteObjectCommand,
   HeadBucketCommand,
+  HeadObjectCommand,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
@@ -99,11 +100,11 @@ export async function storagePut(
       Key: key,
       Body: body as Buffer,
       ContentType: contentType,
-      ACL: "public-read",
+      ACL: "private",
     })
   );
 
-  const url = `${S3_ENDPOINT}/${S3_BUCKET}/${key}`;
+  const url = `/api/media?key=${encodeURIComponent(key)}`;
   return { key, url };
 }
 
@@ -117,8 +118,7 @@ export async function storageGet(relKey: string): Promise<{ key: string; url: st
     );
     return { key, url: signedUrl };
   } catch {
-    const publicUrl = `${S3_ENDPOINT}/${S3_BUCKET}/${key}`;
-    return { key, url: publicUrl };
+    return { key, url: `/api/media?key=${encodeURIComponent(key)}` };
   }
 }
 
@@ -133,7 +133,7 @@ export async function storageGetStream(relKey: string): Promise<{ stream: NodeJS
 /**
  * Rename (copy → delete) a file in S3-compatible storage.
  * Used to rename asset photos to match their RFID tag.
- * Returns the new key and public URL.
+ * Returns the new key and authenticated proxy URL.
  */
 export async function storageRename(
   oldRelKey: string,
@@ -141,6 +141,14 @@ export async function storageRename(
 ): Promise<{ key: string; url: string }> {
   const oldKey = normalizeKey(oldRelKey);
   const newKey = normalizeKey(newRelKey);
+  if (oldKey === newKey) return { key: newKey, url: `/api/media?key=${encodeURIComponent(newKey)}` };
+  // Do not let a rename overwrite a different document's existing object.
+  try {
+    await s3.send(new HeadObjectCommand({ Bucket: S3_BUCKET, Key: newKey }));
+    throw new Error("مفتاح الملف الجديد مستخدم بالفعل");
+  } catch (error: any) {
+    if (error?.$metadata?.httpStatusCode !== 404 && !["NotFound", "NoSuchKey"].includes(error?.name)) throw error;
+  }
 
   // 1. Copy to new key
   await s3.send(
@@ -148,7 +156,7 @@ export async function storageRename(
       Bucket: S3_BUCKET,
       CopySource: `${S3_BUCKET}/${oldKey}`,
       Key: newKey,
-      ACL: "public-read",
+      ACL: "private",
     })
   );
 
@@ -160,7 +168,7 @@ export async function storageRename(
     })
   );
 
-  const url = `${S3_ENDPOINT}/${S3_BUCKET}/${newKey}`;
+  const url = `/api/media?key=${encodeURIComponent(newKey)}`;
   return { key: newKey, url };
 }
 
@@ -193,7 +201,7 @@ export async function storagePresignedPut(
       Bucket: S3_BUCKET,
       Key: key,
       ContentType: contentType,
-      ACL: "public-read",
+      ACL: "private",
     }),
     { expiresIn }
   );

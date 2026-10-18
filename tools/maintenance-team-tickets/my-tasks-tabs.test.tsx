@@ -58,24 +58,35 @@ vi.mock("../../client/src/pages/maintenance-teams/ExecutionPanel", () => ({
   },
 }));
 vi.mock(
-  "../../client/src/features/maintenance-team-tickets/AssignedTicketsView",
+  "../../client/src/pages/maintenance-teams/TicketExecutionTasksView",
   async importOriginal => {
     const original =
       await importOriginal<
-        typeof import("../../client/src/features/maintenance-team-tickets/AssignedTicketsView")
+        typeof import("../../client/src/pages/maintenance-teams/TicketExecutionTasksView")
       >();
     return {
-      AssignedTicketsView: (
-        props: React.ComponentProps<typeof original.AssignedTicketsView>
+      TicketExecutionTasksView: (
+        props: React.ComponentProps<typeof original.TicketExecutionTasksView>
       ) => {
         fixture.renderExecution = props.renderExecution;
-        return <original.AssignedTicketsView {...props} />;
+        return <original.TicketExecutionTasksView {...props} />;
       },
     };
   }
 );
+vi.mock("../../client/src/pages/maintenance-teams/TicketSequentialTasksView", async importOriginal => {
+  const original = await importOriginal<typeof import("../../client/src/pages/maintenance-teams/TicketSequentialTasksView")>();
+  return { TicketSequentialTasksView: (props: React.ComponentProps<typeof original.TicketSequentialTasksView>) => {
+    fixture.renderExecution = props.renderExecution;
+    return <original.TicketSequentialTasksView {...props} />;
+  } };
+});
 vi.mock("../../client/src/lib/trpc", () => ({
   trpc: {
+    tickets: {
+      list: { useQuery: () => ({ data: [], isFetching: false, refetch: vi.fn() }) },
+      listPaginated: { useQuery: () => ({ data: { tickets: [], totalPages: 1 }, isFetching: false, refetch: vi.fn() }) },
+    },
     useUtils: () => ({
       ticketTeamExecution: {
         details: { invalidate: vi.fn() },
@@ -142,7 +153,7 @@ describe("my-tasks source tabs with isolated API boundaries", () => {
     expect(
       renderToStaticMarkup(fixture.renderExecution!({ assignmentId: 10 }))
     ).toContain("existing ticket execution and materials");
-    expect(fixture.queryCalls).toEqual([{ enabled: true, retry: false }]);
+    expect(fixture.queryCalls).toEqual([{ enabled: true, retry: false, refetchInterval: 30_000 }]);
     expect(fixture.executionCalls[0]).toMatchObject({
       assignmentId: 10,
       actorId: 60723,
@@ -170,7 +181,7 @@ describe("my-tasks source tabs with isolated API boundaries", () => {
     fixture.search = "filter=open&source=tickets";
     fixture.executionCalls = [];
     expect(render()).toContain("MT-2026-00568-01");
-    expect(fixture.queryCalls).toEqual([{ enabled: true, retry: false }]);
+    expect(fixture.queryCalls).toEqual([{ enabled: true, retry: false, refetchInterval: 30_000 }]);
   });
   it.each([
     "owner",

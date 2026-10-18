@@ -226,6 +226,9 @@ describe("observer uses the original pages and read queries", () => {
       return ast.statements
         .find(s => ts.isFunctionDeclaration(s) && s.name?.text === "Router")!
         .getText(ast)
+        // These two approved feature routes were added after the observer baseline.
+        .replace('<Route path="/delegate-pricing-bundles" component={DelegatePricingBundles} />', "")
+        .replace('<Route path="/operational-issues" component={OperationalIssues} />', "")
         .replace(/\s+/g, " ");
     };
     expect(node(fs.readFileSync(file, "utf8"))).toBe(

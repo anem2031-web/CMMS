@@ -13,6 +13,7 @@ import { getActivePricingBatchItems } from "./pricing-batch-state";
 import { syncPathBTicketFromPurchaseOrder } from "./ticket-purchase-workflow";
 import { notifyItemRejection } from "../_shared/router-helpers";
 import { generatePurchaseRequestPDF } from "../../services/export/exportService";
+import { captureAccountingSignature } from "../../services/pdf/accountingSignature";
 import { storagePut } from "../../_core/storage";
 import { queuePurchaseTranslation } from "./translation-queue";
 import { withPurchaseSubmissionTime } from "../../../shared/purchaseSubmissionTime";
@@ -253,7 +254,7 @@ export const purchasePackagesRouter = router({
         });
       }
 
-      return { ...pkg, orders: ordersWithItems.map(withPurchaseSubmissionTime) };
+      return { ...pkg, orders: ordersWithItems.map(po => withPurchaseSubmissionTime({ ...po, items: ctx.user.role === "delegate" ? po.items.filter((item: any) => Number(item.delegateId) === ctx.user.id) : po.items })) };
     }),
 
   /** قائمة الحزم (بلا طلباتها) — للاستخدام الإداري/التشخيصي. */
@@ -693,6 +694,7 @@ export const purchasePackagesRouter = router({
           submissionId: input.submissionId,
           actorId: ctx.user.id,
           custodyBalance: custodyValue.toFixed(2),
+          accountingSignatureSnapshot: captureAccountingSignature(ctx.user),
         });
       } catch (error: any) {
         const message = String(error?.message || error || "");

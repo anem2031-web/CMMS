@@ -9,6 +9,8 @@ export type TrpcContext = {
   /** Original authenticated identity; never sourced from a request body. */
   authenticatedUser?: User | null;
   authFailure?: "dependency" | null;
+  /** Server-resolved explicit construction memberships for scoped list queries. */
+  businessProjectIds?: number[];
 };
 
 export async function createContext(

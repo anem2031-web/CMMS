@@ -14,6 +14,7 @@ import { useState, useRef, useCallback, useEffect, DragEvent } from "react";
 import { toast } from "sonner";
 import { useTranslation, useLanguage } from "@/contexts/LanguageContext";
 import { useStaticLabels } from "@/hooks/useContentTranslation";
+import { useAuth } from "@/_core/hooks/useAuth";
 import { Progress } from "@/components/ui/progress";
 import { cn } from "@/lib/utils";
 import { localizeApiError } from "@/i18n/apiError";
@@ -36,16 +37,19 @@ export default function CreateTicket({ linkedPmv2ItemId, onCreated, onCancel, on
   const search = useSearch();
   const { t, language, dir } = useTranslation();
   const { getPriorityLabel } = useStaticLabels();
-  const { data: sites } = trpc.sites.list.useQuery();
-  const { data: centerCategories = [] } = trpc.centerCategories.list.useQuery({ activeOnly: true });
+  const { user } = useAuth();
+  const restrictedTechnician = user?.role === "technician";
+  const { data: directorySites } = trpc.sites.list.useQuery(undefined, { enabled: !!user && !restrictedTechnician });
+  const { data: directoryCategories = [] } = trpc.centerCategories.list.useQuery({ activeOnly: true }, { enabled: !!user && !restrictedTechnician });
 
   const [form, setForm] = useState({
     title: "", description: "", priority: "medium",
     categoryId: "", siteId: "", sectionId: "", assetId: "", locationDetail: "", beforePhotoUrl: "",
   });
 
-  const { data: assets } = trpc.assets.list.useQuery(
+  const { data: directoryAssets } = trpc.assets.list.useQuery(
     form.sectionId ? { sectionId: Number(form.sectionId) } : {},
+    { enabled: !!user && !restrictedTechnician },
   );
   const pmv2TaskItemId = (() => {
     if (linkedPmv2ItemId != null) return linkedPmv2ItemId;
@@ -103,10 +107,14 @@ export default function CreateTicket({ linkedPmv2ItemId, onCreated, onCancel, on
     return v ? Number(v) : undefined;
   })();
 
-  const { data: sections } = trpc.sections.list.useQuery(
+  const { data: directorySections } = trpc.sections.list.useQuery(
     form.siteId ? { siteId: Number(form.siteId) } : undefined,
-    { enabled: !!form.siteId }
+    { enabled: !!form.siteId && !restrictedTechnician }
   );
+  const sites = restrictedTechnician ? pmv2ContextQuery.data?.references?.sites : directorySites;
+  const sections = restrictedTechnician ? pmv2ContextQuery.data?.references?.sections : directorySections;
+  const assets = restrictedTechnician ? pmv2ContextQuery.data?.references?.assets.filter(asset => !form.sectionId || Number(asset.sectionId) === Number(form.sectionId)) : directoryAssets;
+  const centerCategories = restrictedTechnician ? pmv2ContextQuery.data?.references?.categories ?? [] : directoryCategories;
   const [fileEntries, setFileEntries] = useState<FileEntry[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const [isRecorderOpen, setIsRecorderOpen] = useState(false);
@@ -415,7 +423,7 @@ if (f.size > maxSize) {
           {/* Site + Asset */}
           <div className="space-y-2">
             <Label>{t.tickets.site} *</Label>
-            <Select value={form.siteId} onValueChange={v => setForm(f => ({ ...f, siteId: v, sectionId: "" }))}>
+            <Select disabled={restrictedTechnician && !!pmv2ContextQuery.data?.siteId} value={form.siteId} onValueChange={v => setForm(f => ({ ...f, siteId: v, sectionId: "" }))}>
               <SelectTrigger><SelectValue placeholder={t.workflow.ticket.chooseSite} /></SelectTrigger>
               <SelectContent>
                 {sites?.map(s => <SelectItem key={s.id} value={String(s.id)}>{getLocalizedName(s, language)}</SelectItem>)}
@@ -427,7 +435,7 @@ if (f.size > maxSize) {
           {form.siteId && (
             <div className="space-y-2">
               <Label>{t.tickets.section} *</Label>
-              <Select value={form.sectionId} onValueChange={v => setForm(f => ({ ...f, sectionId: v }))}>
+              <Select disabled={restrictedTechnician && pmv2ContextQuery.data?.sectionId != null} value={form.sectionId} onValueChange={v => setForm(f => ({ ...f, sectionId: v }))}>
                 <SelectTrigger><SelectValue placeholder={t.workflow.ticket.chooseSection} /></SelectTrigger>
                 <SelectContent>
                   {(sections || []).map(s => <SelectItem key={s.id} value={String(s.id)}>{getLocalizedName(s, language)}</SelectItem>)}
@@ -438,7 +446,7 @@ if (f.size > maxSize) {
 
           <div className="space-y-2">
             <Label>{t.assets.title}</Label>
-            <Select value={form.assetId} onValueChange={v => setForm(f => ({ ...f, assetId: v }))}>
+            <Select disabled={restrictedTechnician && pmv2ContextQuery.data?.assetId != null} value={form.assetId} onValueChange={v => setForm(f => ({ ...f, assetId: v }))}>
               <SelectTrigger><SelectValue placeholder={t.assets.title} /></SelectTrigger>
               <SelectContent>
                 {assets?.map((a: any) => <SelectItem key={a.id} value={String(a.id)}>{a.name}</SelectItem>)}

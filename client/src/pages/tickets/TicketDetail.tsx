@@ -136,19 +136,26 @@ const { getField } = useResolvedTranslation(
     (history ?? []).map((entry: any) => Number(entry.id)).filter((id: number) => Number.isFinite(id)),
     ["notes"],
   );
-  const { data: users } = trpc.users.list.useQuery();
+  const restrictedTechnician = user?.role === APP_ROLE.TECHNICIAN;
+  const references = trpc.tickets.executionReferences.useQuery({ ticketId }, { enabled: restrictedTechnician && !!ticketId });
+  const { data: directoryUsers } = trpc.users.list.useQuery(undefined, { enabled: !!user && !restrictedTechnician });
+  const users = restrictedTechnician ? references.data?.users : directoryUsers;
   // Phase 2: listTechnicians gives users with specialty; legacy technicians.list kept for external-only assignments
-  const { data: userTechniciansList } = trpc.users.listTechnicians.useQuery();
+  const { data: userTechniciansList } = trpc.users.listTechnicians.useQuery(undefined, { enabled: !!user && !restrictedTechnician });
   // Phase 5: externalTechs query kept for backend compatibility (historical data, fallback). Hidden from UI dropdowns.
-  const { data: externalTechs } = trpc.technicians.list.useQuery({ activeOnly: true });
-  const { data: allSections } = trpc.sections.list.useQuery(undefined);
-  const { data: allSites } = trpc.sites.list.useQuery();
-  const { data: allPOs } = trpc.purchaseOrders.list.useQuery();
+  const { data: directoryExternalTechs } = trpc.technicians.list.useQuery({ activeOnly: true }, { enabled: !!user && !restrictedTechnician });
+  const { data: directorySections } = trpc.sections.list.useQuery(undefined, { enabled: !!user && !restrictedTechnician });
+  const { data: directorySites } = trpc.sites.list.useQuery(undefined, { enabled: !!user && !restrictedTechnician });
+  const { data: allPOs } = trpc.purchaseOrders.list.useQuery(undefined, { enabled: !!user && !restrictedTechnician });
+  const externalTechs = restrictedTechnician ? references.data?.technicians : directoryExternalTechs;
+  const allSections = restrictedTechnician ? references.data?.sections : directorySections;
+  const allSites = restrictedTechnician ? references.data?.sites : directorySites;
   const attachmentsInput = useMemo(() => ({ entityType: "ticket", entityId: ticketId }), [ticketId]);
   const { data: ticketAttachments } = trpc.attachments.list.useQuery(attachmentsInput, { enabled: !!ticketId });
   const { data: inspectionResultsList, refetch: refetchInspectionResults } = trpc.inspectionResults.listByTicket.useQuery({ ticketId }, { enabled: !!ticketId });
   const { data: ticketConfirmation, refetch: refetchConfirmation } = trpc.tickets.getConfirmation.useQuery({ id: ticketId }, { enabled: !!ticketId });
-  const { data: centerCategories = [] } = trpc.centerCategories.list.useQuery({ activeOnly: false });
+  const { data: directoryCategories = [] } = trpc.centerCategories.list.useQuery({ activeOnly: false }, { enabled: !!user && !restrictedTechnician });
+  const centerCategories = restrictedTechnician ? references.data?.categories ?? [] : directoryCategories;
   // بنود البلاغ — الخطوة 2 من ميزة البلاغ متعدد الجهات (2026-08-08). قراءة فقط، بنفس حارس
   // صلاحية البلاغ نفسه (tickets.items تُحقق assertTicketReadable داخليًا).
   const { data: ticketItems } = trpc.tickets.items.useQuery({ ticketId }, { enabled: !!ticketId });
@@ -700,7 +707,7 @@ const { getField } = useResolvedTranslation(
   return (
     <>
     <div className="space-y-6 max-w-5xl" dir={dir}>
-      <ImprovementReference kind="ticket" documentId={ticketId} />
+      <ImprovementReference kind="ticket" documentId={ticketId} canNavigate={!restrictedTechnician} />
       <MaterialCostPanel source="ticket" id={ticketId} />
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-3 flex-1">

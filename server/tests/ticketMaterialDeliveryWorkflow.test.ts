@@ -73,15 +73,15 @@ describe("Path B material delivery from inventory", () => {
     const router = read("server/routers/purchase/purchase-orders.router.ts");
     const deliveryService = read("server/_core/db/warehouse-returns.ts");
 
-    expect(page).toContain("الفني المسند للبلاغ");
-    expect(page).toContain("الفني المستلم فعليًا *");
+    expect(page).toContain("t.workflow.purchase.assignedTicketResponsible");
+    expect(page).toContain("t.workflow.purchase.actualTechnicianRecipient");
     expect(page).toContain('setDeliveryUserId("")');
     expect(page).toContain("!deliveryUserId");
     expect(router).toContain("deliveredToId: z.number()");
     expect(router).toContain("markPurchaseOrderItemDelivered: linkToTicket");
     expect(deliveryService).toContain("ticketId: params.ticketId");
     expect(deliveryService).toContain("assignedTechnicianName: params.assignedTechnicianName");
-    expect(deliveryService).toContain("gte(inventory.quantity, params.quantity)");
+    expect(deliveryService).toContain("gte(inventory.quantity, deliveryQuantity)");
     expect(deliveryService).toContain("تم استكمال تسليم احتياج هذا الصنف للبلاغ مسبقًا");
   });
 });

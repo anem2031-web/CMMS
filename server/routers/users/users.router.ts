@@ -7,6 +7,7 @@ import { cacheManager, cacheKeys, invalidateCache } from "../../_core/cache";
 import { detectLanguage } from "../../services/translation/translation";
 import { queueTranslation } from "../../services/translation/translationEngine";
 import { localizeNamedRecords } from "../../services/translation/localizedMasterData";
+import { canCreateUserRole } from "../../../shared/business-role-policy";
 
 export const usersRouter = router({
   list: protectedProcedure.query(async ({ ctx }) => {
@@ -98,7 +99,7 @@ export const usersRouter = router({
     department: z.string().optional(),
   })).mutation(async ({ input, ctx }) => {
     // دور "مستودع" مسموح له بالإضافة فقط (بدون تعديل/حذف/تغيير أدوار — مقيّدة بباقي الدوال أدناه)
-    if (ctx.user.role !== "owner" && ctx.user.role !== "admin" && ctx.user.role !== "warehouse") {
+    if (!canCreateUserRole(ctx.user.role, input.role)) {
       throw new TRPCError({ code: "FORBIDDEN", message: "ليس لديك صلاحية إنشاء مستخدمين" });
     }
     const existing = await db.getUserByUsername(input.username);

@@ -45,7 +45,7 @@ function fixture() {
     if (q.startsWith("UPDATE purchase_orders SET requesterSignatureSnapshot=")) return [{ affectedRows: 1 }];
     if (q.startsWith("INSERT INTO delegate_pricing_bundle_batches")) { state.links.push({ bundleId: p[0], purchaseOrderId: p[1], pricingBatchId: p[2], purchasePackageSubmissionId: p[3], effectsDone: 0 }); return [{ insertId: state.links.length }]; }
     if (q.startsWith("UPDATE delegate_pricing_bundle_items SET reservedItemId=NULL WHERE")) { state.members.filter((m: any) => m.bundleId === p[0] && !m.removedAt).forEach((m: any) => { m.reservedItemId = null; }); return [{ affectedRows: 1 }]; }
-    if (q.startsWith("UPDATE delegate_pricing_bundles SET status='sent'")) { const bundle = state.bundles.find((b: any) => b.id === p[1]); Object.assign(bundle, { status: "sent", openDelegateId: null, snapshotJson: p[0], pdfContent: null, sentAt: "now", revision: bundle.revision + 1 }); return [{ affectedRows: 1 }]; }
+    if (q.startsWith("UPDATE delegate_pricing_bundles SET status='archived',openDelegateId=")) { const bundle = state.bundles.find((b: any) => b.id === p[1]); Object.assign(bundle, { status: "archived", openDelegateId: null, snapshotJson: p[0], pdfContent: null, sentAt: "now", revision: bundle.revision + 1 }); return [{ affectedRows: 1 }]; }
     if (q.startsWith("UPDATE delegate_pricing_bundles SET pdfContent=")) {
       const bundle = state.bundles.find((b: any) => b.id === p[1]);
       if (bundle && ["sent", "archived"].includes(bundle.status) && bundle.pdfContent == null && bundle.revision === p[2]) { bundle.pdfContent = p[0]; return [{ affectedRows: 1 }]; }
@@ -58,7 +58,7 @@ function fixture() {
     if (q.startsWith("SELECT snapshotJson FROM delegate_pricing_bundles")) return rows(state.bundles.filter((b: any) => b.id === p[0]));
     if (q.startsWith("SELECT pdfContent")) return rows(state.bundles.filter((b: any) => b.id === p[0]));
     if (q.startsWith("SELECT name FROM users")) return rows([{ name: "Delegate" }]);
-    if (q.startsWith("SELECT b.id,b.bundleNumber")) return rows(state.bundles.filter((b: any) => p.length === 0 || b.delegateId === p[0]));
+    if (q.startsWith("SELECT b.id,b.bundleNumber")) return rows(state.bundles.filter((b: any) => p.length === 0 || b.delegateId === p[0]).map((b:any)=>{const members=state.members.filter((m:any)=>m.bundleId===b.id&&!m.removedAt);const {snapshotJson,pdfContent,...header}=b;return {...header,itemCount:members.length,openTotal:members.reduce((sum:number,m:any)=>sum+Number(state.items.find((i:any)=>i.id===m.purchaseOrderItemId).estimatedTotalCost),0),sentTotals:b.snapshotJson?JSON.parse(b.snapshotJson).rows.map((i:any)=>i.estimatedTotalCost):null};}));
     if (q.startsWith("INSERT INTO audit_logs")) return [{ insertId: 1 }];
     throw Error(q);
   } };
@@ -111,6 +111,14 @@ describe("Pricing bundle → existing accounting batches, isolated with no datab
     const snapshot = JSON.parse(f.state().bundles[0].snapshotJson); expect(snapshot.rows.map((i: any)=>i.id)).toEqual([1,3,4]);
     expect(new Set(snapshot.rows.map((i: any)=>i.sectionId)).size).toBe(3); expect(snapshot.rows[0].ticketId).toBe(30);
     const next = await f.service.add(actor,2); expect(next.id).not.toBe(id); expect(f.state().bundles[1].status).toBe("open");
+    expect(f.state().bundles[0].status).toBe("archived");
+  });
+  it("lists totals from frozen sent prices and preserves per-delegate list scope",async()=>{
+    const f=fixture();const id=await f.add(1,2);expect((await f.service.list(actor))[0].total).toBe(520);
+    await f.service.send(actor,id,2);f.state().items[0].estimatedTotalCost="99999";
+    expect((await f.service.list(actor))[0]).toMatchObject({status:"archived",total:520,itemCount:2});
+    const listing=(await f.service.list(actor))[0];for(const field of ["snapshotJson","pdfContent","sentTotals","openTotal"])expect(listing).not.toHaveProperty(field);
+    expect(await f.service.list({...actor,id:22})).toEqual([]);
   });
   it("rolls back every batch, source batchId and membership on a later accounting failure", async () => {
     const f = fixture(); const id = await f.add(1,3,4); f.flags.batchFailPo=103;
@@ -129,7 +137,7 @@ describe("Pricing bundle → existing accounting batches, isolated with no datab
     expect(await f.service.send(actor,id,1)).toEqual({success:true,effectsDone:true});
     expect(f.ports.render).not.toHaveBeenCalled(); expect(f.state().bundles[0].pdfContent).toBeNull();
     await expect(f.service.pdf(actor,id)).rejects.toThrow("أعد محاولة التنزيل");
-    expect(f.state().batches).toHaveLength(1); expect(f.state().bundles[0].status).toBe("sent");
+    expect(f.state().batches).toHaveLength(1); expect(f.state().bundles[0].status).toBe("archived");
     f.flags.renderFail=false; expect((await f.service.pdf(actor,id)).name).toMatch(/DPB-.*\.pdf/);
     expect(f.state().batches).toHaveLength(1); expect(f.state().bundles[0].pdfContent).not.toBeNull();
   });

@@ -1,0 +1,122 @@
+[
+  {
+    "case": "lots-1",
+    "labels": 1,
+    "pages": 1,
+    "blankPages": [],
+    "details": [
+      {
+        "page": 1,
+        "text": "LOT-2026-00007\nﻓﻠﺗر ﺗﻛﯾﯾف ﺗﺟرﯾﺑﻲ طوﯾل\nﻻﺧﺗﺑﺎر اﻟﻣﻠﺻﻖ\n ﺣﺑﺔ10دﻓﻌﺔ اﺳﺗﻼم",
+        "darkPixels": 15163,
+        "blank": false,
+        "widthMm": 57.83,
+        "heightMm": 38.1
+      }
+    ]
+  },
+  {
+    "case": "lots-2",
+    "labels": 2,
+    "pages": 2,
+    "blankPages": [],
+    "details": [
+      {
+        "page": 1,
+        "text": "LOT-2026-00007\nﻓﻠﺗر ﺗﻛﯾﯾف ﺗﺟرﯾﺑﻲ طوﯾل\nﻻﺧﺗﺑﺎر اﻟﻣﻠﺻﻖ\n ﺣﺑﺔ10دﻓﻌﺔ اﺳﺗﻼم",
+        "darkPixels": 15163,
+        "blank": false,
+        "widthMm": 57.83,
+        "heightMm": 38.1
+      },
+      {
+        "page": 2,
+        "text": "LOT-2026-00007\nﻓﻠﺗر ﺗﻛﯾﯾف ﺗﺟرﯾﺑﻲ طوﯾل\nﻻﺧﺗﺑﺎر اﻟﻣﻠﺻﻖ\n ﺣﺑﺔ10دﻓﻌﺔ اﺳﺗﻼم",
+        "darkPixels": 15163,
+        "blank": false,
+        "widthMm": 57.83,
+        "heightMm": 38.1
+      }
+    ]
+  },
+  {
+    "case": "po-receive-1",
+    "labels": 1,
+    "pages": 1,
+    "blankPages": [],
+    "details": [
+      {
+        "page": 1,
+        "text": "LOT-2026-00007\nﻓﻠﺗر ﺗﻛﯾﯾف ﺗﺟرﯾﺑﻲ طوﯾل\nﻻﺧﺗﺑﺎر اﻟﻣﻠﺻﻖ\n ﺣﺑﺔ10دﻓﻌﺔ اﺳﺗﻼم",
+        "darkPixels": 15163,
+        "blank": false,
+        "widthMm": 57.83,
+        "heightMm": 38.1
+      }
+    ]
+  },
+  {
+    "case": "po-receive-2",
+    "labels": 2,
+    "pages": 2,
+    "blankPages": [],
+    "details": [
+      {
+        "page": 1,
+        "text": "LOT-2026-00007\nﻓﻠﺗر ﺗﻛﯾﯾف ﺗﺟرﯾﺑﻲ طوﯾل\nﻻﺧﺗﺑﺎر اﻟﻣﻠﺻﻖ\n ﺣﺑﺔ10دﻓﻌﺔ اﺳﺗﻼم",
+        "darkPixels": 15163,
+        "blank": false,
+        "widthMm": 57.83,
+        "heightMm": 38.1
+      },
+      {
+        "page": 2,
+        "text": "LOT-2026-00007\nﻓﻠﺗر ﺗﻛﯾﯾف ﺗﺟرﯾﺑﻲ طوﯾل\nﻻﺧﺗﺑﺎر اﻟﻣﻠﺻﻖ\n ﺣﺑﺔ10دﻓﻌﺔ اﺳﺗﻼم",
+        "darkPixels": 15163,
+        "blank": false,
+        "widthMm": 57.83,
+        "heightMm": 38.1
+      }
+    ]
+  },
+  {
+    "case": "standalone-receive-1",
+    "labels": 1,
+    "pages": 1,
+    "blankPages": [],
+    "details": [
+      {
+        "page": 1,
+        "text": "LOT-2026-00007\nﻓﻠﺗر ﺗﻛﯾﯾف ﺗﺟرﯾﺑﻲ طوﯾل\nﻻﺧﺗﺑﺎر اﻟﻣﻠﺻﻖ\n ﺣﺑﺔ10دﻓﻌﺔ اﺳﺗﻼم",
+        "darkPixels": 15163,
+        "blank": false,
+        "widthMm": 57.83,
+        "heightMm": 38.1
+      }
+    ]
+  },
+  {
+    "case": "standalone-receive-2",
+    "labels": 2,
+    "pages": 2,
+    "blankPages": [],
+    "details": [
+      {
+        "page": 1,
+        "text": "LOT-2026-00007\nﻓﻠﺗر ﺗﻛﯾﯾف ﺗﺟرﯾﺑﻲ طوﯾل\nﻻﺧﺗﺑﺎر اﻟﻣﻠﺻﻖ\n ﺣﺑﺔ10دﻓﻌﺔ اﺳﺗﻼم",
+        "darkPixels": 15163,
+        "blank": false,
+        "widthMm": 57.83,
+        "heightMm": 38.1
+      },
+      {
+        "page": 2,
+        "text": "LOT-2026-00007\nﻓﻠﺗر ﺗﻛﯾﯾف ﺗﺟرﯾﺑﻲ طوﯾل\nﻻﺧﺗﺑﺎر اﻟﻣﻠﺻﻖ\n ﺣﺑﺔ10دﻓﻌﺔ اﺳﺗﻼم",
+        "darkPixels": 15163,
+        "blank": false,
+        "widthMm": 57.83,
+        "heightMm": 38.1
+      }
+    ]
+  }
+]

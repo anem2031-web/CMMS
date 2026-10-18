@@ -39,17 +39,36 @@ export interface PurchaseItemNeedTiming {
   requiredDate?: string | null;
 }
 
-/** Drafts keep only the duration. Legacy dates remain unchanged, without backfill. */
-export function resolvePurchaseItemNeedTiming(item: PurchaseItemNeedTiming, submittedAt?: Date) {
-  if (item.deliveryLeadDays != null) {
-    if (!validPurchaseDeliveryDays(item.deliveryLeadDays)) throw new Error("مدة التوريد غير صالحة");
-    return {
-      deliveryLeadDays: item.deliveryLeadDays,
-      requiredDate: submittedAt ? purchaseRequiredDateFromSubmission(item.deliveryLeadDays, submittedAt) : null,
-    };
+export function purchaseNeedTimingFromDays(deliveryLeadDays: number | null, now = new Date()) {
+  return {
+    deliveryLeadDays,
+    requiredDate: validPurchaseDeliveryDays(deliveryLeadDays)
+      ? purchaseRequiredDateFromSubmission(deliveryLeadDays, now) : "",
+  };
+}
+
+export function purchaseNeedTimingFromDate(requiredDate: string, now = new Date()) {
+  const days = remainingPurchaseCalendarDays(requiredDate, now);
+  return { requiredDate, deliveryLeadDays: validPurchaseDeliveryDays(days) ? days : null };
+}
+
+/** A saved date is authoritative; submission recalculates days, never moves it. */
+export function resolvePurchaseItemNeedTiming(item: PurchaseItemNeedTiming, submittedAt?: Date, now = new Date()) {
+  const clock = submittedAt ?? now;
+  if (item.requiredDate && !purchaseDateOnly(item.requiredDate)) throw new Error("تاريخ الاحتياج غير صالح");
+  if (item.deliveryLeadDays != null && !validPurchaseDeliveryDays(item.deliveryLeadDays)) throw new Error("مدة التوريد غير صالحة");
+  const requiredDate = purchaseDateOnly(item.requiredDate)
+    ?? (item.deliveryLeadDays != null ? purchaseRequiredDateFromSubmission(item.deliveryLeadDays, clock) : null);
+  if (!requiredDate) {
+    if (submittedAt) throw new Error("يجب تحديد تاريخ الاحتياج أو عدد الأيام قبل الإرسال");
+    return { deliveryLeadDays: null, requiredDate: null };
   }
-  if (!purchaseDateOnly(item.requiredDate)) throw new Error("يجب تحديد مدة التوريد أو تاريخ احتياج محفوظ سابقًا");
-  return { deliveryLeadDays: null, requiredDate: item.requiredDate! };
+  const deliveryLeadDays = remainingPurchaseCalendarDays(requiredDate, clock)!;
+  if (submittedAt && !validPurchaseDeliveryDays(deliveryLeadDays)) {
+    throw new Error("اختر تاريخ احتياج من اليوم وحتى 3650 يومًا قبل الإرسال");
+  }
+  // Keep an expired draft editable without storing an invalid negative duration.
+  return { deliveryLeadDays: validPurchaseDeliveryDays(deliveryLeadDays) ? deliveryLeadDays : null, requiredDate };
 }
 
 export function remainingPurchaseCalendarDays(requiredDate: string | null | undefined, now = new Date()): number | null {

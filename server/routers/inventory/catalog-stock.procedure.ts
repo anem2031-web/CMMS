@@ -3,6 +3,7 @@ import { z } from "zod";
 import { eq, inArray, sql } from "drizzle-orm";
 import { catalogItems, catalogUnits, inventory, warehouses } from "../../../drizzle/schema";
 import { canRoleAccessPath } from "../../../shared/roles";
+import { isBusinessGuardedRole } from "../../../shared/business-role-policy";
 import { summarizeCatalogStock } from "../../../shared/catalog-stock";
 import { inventoryReadProcedure } from "../_shared/procedures";
 
@@ -11,7 +12,9 @@ export function createCatalogStockProcedure(getDatabase: () => Promise<any>) {
   return inventoryReadProcedure.input(z.object({
     catalogItemIds: z.array(z.number().int().positive()).min(1).max(500),
   })).query(async ({ input, ctx }) => {
-    if (!canRoleAccessPath(ctx.user.role, "/inventory")) {
+    // Purchase-form availability remains a reference capability even when the
+    // standalone inventory-management page is not part of this role's workspace.
+    if (!isBusinessGuardedRole(ctx.user.role) && !canRoleAccessPath(ctx.user.role, "/inventory")) {
       throw new TRPCError({ code: "FORBIDDEN", message: "ليس لديك صلاحية لعرض أرصدة المخزون" });
     }
     const database = await getDatabase();

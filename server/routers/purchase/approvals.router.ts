@@ -7,6 +7,7 @@ import { assertCanPerformPOAction } from "../../_core/authz/guard";
 import { getActivePricingBatchItems, rejectPricingBatchIfEmpty } from "./pricing-batch-state";
 import { syncPathBTicketFromPurchaseOrder } from "./ticket-purchase-workflow";
 import { generatePurchaseRequestPDF } from "../../services/export/exportService";
+import { captureAccountingSignature } from "../../services/pdf/accountingSignature";
 import { storagePut } from "../../_core/storage";
 import { createTranslatedProcurementComment, queuePurchaseTranslation } from "./translation-queue";
 
@@ -176,7 +177,7 @@ export const approvalsRouter = router({
         throw new TRPCError({ code: "BAD_REQUEST", message: "مبلغ العهدة إلزامي لاعتماد الطلب من الحسابات" });
       }
       // Normal flow: PO goes to management
-      await db.updatePurchaseOrder(input.id, { status: "pending_management", accountingApprovedById: ctx.user.id, accountingApprovedAt: new Date(), accountingNotes: input.notes, custodyAmount: input.custodyAmount || null });
+      await db.updatePurchaseOrder(input.id, { status: "pending_management", accountingApprovedById: ctx.user.id, accountingApprovedAt: new Date(), accountingSignatureSnapshot: captureAccountingSignature(ctx.user), accountingNotes: input.notes, custodyAmount: input.custodyAmount || null });
       await queuePurchaseTranslation("PO", input.id, [
         { fieldName: "accountingNotes", text: input.notes },
       ], ctx.user.id);
@@ -278,6 +279,7 @@ export const approvalsRouter = router({
         status: "pending_management",
         accountingApprovedById: ctx.user.id,
         accountingApprovedAt: new Date(),
+        accountingSignatureSnapshot: captureAccountingSignature(ctx.user),
         accountingNotes: input.notes,
         custodyAmount: input.custodyAmount || null,
       });

@@ -66,7 +66,9 @@ export const pmv2TechnicianRouter = router({
     .input(z.object({ taskItemId: z.number().int().positive() }))
     .query(async ({ ctx, input }) => {
       try {
-        return await pmv2TicketHandoffService.getCreateContext(ctx.user.id, input.taskItemId);
+        const context = await pmv2TicketHandoffService.getCreateContext(ctx.user.id, input.taskItemId);
+        const { readPmv2TicketReferences } = await import("../../_core/authz/technician-resources");
+        return { ...context, references: ctx.user.role === "technician" ? await readPmv2TicketReferences(context, (ctx.user.preferredLanguage || "ar") as SupportedLanguage) : undefined };
       } catch (error) {
         mapTechnicianError(error);
       }

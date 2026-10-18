@@ -9,6 +9,8 @@
 import { canManageTicketTeams } from "./maintenance-team-tickets/team-management";
 import { canReadTicketTeamExecution } from "./maintenance-team-tickets/execution-permissions";
 import { OBSERVER_ROLE, isObserver } from "./observer-policy";
+import { technicianPageAllowed } from "./technician-policy";
+import { businessPageAllowed, isBusinessGuardedRole } from "./business-role-policy";
 
 export const APP_ROLE = {
   USER: "user",
@@ -256,9 +258,10 @@ export function canRoleAccessPath(role: string | null | undefined, path: string)
   if (!role) return false;
   if (isObserver(role)) return canRoleAccessPath(APP_ROLE.ADMIN, path);
   const normalizedPath = path.split(/[?#]/, 1)[0] || "/";
+  if (isBusinessGuardedRole(role)) return businessPageAllowed(role, normalizedPath);
   if (matchesPrefix(normalizedPath, "/delegate-pricing-bundles")) return ["owner", "admin", "delegate", "accountant"].includes(role);
   if (matchesPrefix(normalizedPath, "/operational-issues")) return ["owner", "admin", "warehouse", "maintenance_manager", "general_maintenance_manager", "construction_procurement_manager", "it_manager"].includes(role);
-  if (role === APP_ROLE.TECHNICIAN) return normalizedPath === "/scheduled-maintenance/my-tasks";
+  if (role === APP_ROLE.TECHNICIAN) return technicianPageAllowed(normalizedPath);
   if (matchesPrefix(normalizedPath, "/maintenance-team-tickets")) {
     return canReadTicketTeamExecution(role);
   }

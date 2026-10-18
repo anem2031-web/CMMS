@@ -3,6 +3,8 @@ import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure } from "../_shared/procedures";
 import { invokeLLM } from "../../_core/llm";
 import * as db from "../../_core/db";
+import { isBusinessGuardedRole } from "../../../shared/business-role-policy";
+import { filterVisiblePurchaseOrders } from "../../_core/authz/guard";
 
 export const aiRouter = router({
   analyze: protectedProcedure.input(z.object({
@@ -13,15 +15,18 @@ export const aiRouter = router({
     })).optional(),
   })).mutation(async ({ input, ctx }) => {
     // جمع بيانات شاملة من قاعدة البيانات
-    const [tickets, pos, inventoryItems, allUsers, allSites, stats, recentAudit] = await Promise.all([
+    const scoped = isBusinessGuardedRole(ctx.user.role);
+    const [tickets, orders, inventoryItems, allUsers, allSites, globalStats, recentAudit] = await Promise.all([
       db.getTickets(),
       db.getPurchaseOrders(),
       db.getInventoryItems(),
       db.getAllUsers(),
       db.getAllSites(),
-      db.getDashboardStats(),
-      db.getAuditLogsEnhanced({ limit: 50 }),
+      scoped ? Promise.resolve(null) : db.getDashboardStats(),
+      scoped ? Promise.resolve([]) : db.getAuditLogsEnhanced({ limit: 50 }),
     ]);
+    // The assistant may only receive data the current role can read directly.
+    const pos = scoped ? await filterVisiblePurchaseOrders(ctx.user, orders) : orders;
 
     // تحليل البلاغات
     const ticketsByStatus = tickets.reduce((acc: any, t) => { acc[t.status] = (acc[t.status] || 0) + 1; return acc; }, {});
@@ -60,11 +65,11 @@ export const aiRouter = router({
 
 ـــ إحصائيات عامة ـــ
 • إجمالي البلاغات: ${tickets.length}
-• البلاغات المفتوحة: ${stats?.openTickets || 0}
-• المغلقة اليوم: ${stats?.closedToday || 0}
-• الحرجة: ${stats?.criticalTickets || 0}
-• طلبات شراء بانتظار الاعتماد: ${stats?.pendingApprovals || 0}
-• إجمالي تكلفة الصيانة: ${stats?.totalMaintenanceCost || 0} ر.س
+${!scoped ? `• البلاغات المفتوحة: ${globalStats?.openTickets || 0}
+• المغلقة اليوم: ${globalStats?.closedToday || 0}
+• الحرجة: ${globalStats?.criticalTickets || 0}
+• طلبات شراء بانتظار الاعتماد: ${globalStats?.pendingApprovals || 0}
+• إجمالي تكلفة الصيانة: ${globalStats?.totalMaintenanceCost || 0} ر.س` : ""}
 
 ـــ توزيع البلاغات ـــ
 حسب الحالة: ${JSON.stringify(ticketsByStatus)}
@@ -111,7 +116,7 @@ ${JSON.stringify(recentAudit.map((a: any) => ({ action: a.action, entity: a.enti
  - If user writes in English → Reply in English
  - اگر صارف اردو میں لکھے → اردو میں جواب دیں
 
-2. لديك وصول كامل لقاعدة بيانات النظام. استخدم البيانات المرفقة للإجابة بدقة.
+2. استخدم البيانات المرفقة فقط للإجابة بدقة، ولا تفترض صلاحية الاطلاع على بيانات غير مرفقة.
 
 3. يمكنك الإجابة عن:
  - البلاغات: عددها، حالاتها، أولوياتها، فئاتها، من أنشأها، من مسند إليه، الموقع، التاريخ

@@ -232,10 +232,11 @@ export async function savePushSubscription(data: {
   return result[0].insertId;
 }
 
-export async function deletePushSubscription(endpoint: string) {
+export async function deletePushSubscription(endpoint: string, userId?: number) {
   const db = await getDb();
   if (!db) return;
-  await db.delete(pushSubscriptions).where(eq(pushSubscriptions.endpoint, endpoint));
+  await db.delete(pushSubscriptions).where(userId == null ? eq(pushSubscriptions.endpoint, endpoint)
+    : and(eq(pushSubscriptions.endpoint, endpoint), eq(pushSubscriptions.userId, userId)));
 }
 
 export async function getPushSubscriptionsByUser(userId: number) {

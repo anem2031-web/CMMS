@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { TrpcContext } from "../_core/context";
+import { router } from "../_core/trpc";
 
 vi.mock("../routers/_shared/router-helpers", () => ({
   notifyItemRejection: vi.fn(async () => undefined),
@@ -12,6 +13,7 @@ vi.mock("../routers/purchase/purchase-orders.router", () => ({
 vi.mock("../routers/purchase/ticket-purchase-workflow", () => ({
   syncPathBTicketFromPurchaseOrder: vi.fn(async () => undefined),
 }));
+vi.mock("../routers/purchase/translation-queue", () => ({ queuePurchaseTranslation: vi.fn(async () => undefined) }));
 
 vi.mock("../services/export/exportService", () => ({
   generatePurchaseRequestPDF: vi.fn(async () => Buffer.from("%PDF-package-submission")),
@@ -86,7 +88,10 @@ vi.mock("../_core/db", () => {
   };
 });
 
-const { purchasePackagesRouter } = await import("../routers/purchase/purchase-packages.router");
+const { purchasePackagesRouter: packageRoutes } = await import("../routers/purchase/purchase-packages.router");
+// Exercise the same canonical path seen by the app's central middleware.
+const packageApi = router({ purchasePackages: packageRoutes });
+const purchasePackagesRouter = { createCaller: (ctx: TrpcContext) => packageApi.createCaller(ctx).purchasePackages };
 const db = await import("../_core/db") as any;
 const ticketWorkflow = await import("../routers/purchase/ticket-purchase-workflow") as any;
 const exportService = await import("../services/export/exportService") as any;
@@ -105,6 +110,7 @@ function createContext(role: string, userId: number): TrpcContext {
     createdAt: new Date(),
     updatedAt: new Date(),
     lastSignedIn: new Date(),
+    isActive: 1,
   };
   return {
     user,
@@ -143,6 +149,7 @@ describe("Purchase Packages — Phase 2 accounting submission", () => {
       submissionId: 501,
       actorId: 70,
       custodyBalance: "4500.00",
+      accountingSignatureSnapshot: expect.any(String),
     });
     expect(ticketWorkflow.syncPathBTicketFromPurchaseOrder).toHaveBeenCalledTimes(2);
     expect(exportService.generatePurchaseRequestPDF).toHaveBeenCalledWith(101, 70, undefined, 501);

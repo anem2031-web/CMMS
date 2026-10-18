@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Camera, Keyboard, X, ScanLine } from "lucide-react";
+import { lotScannerPhysicalKey, resolveLotScannerInput } from "@/lib/lotScannerKeyboard";
 
 interface BarcodeScannerProps {
   onScan: (code: string) => void;
@@ -15,6 +16,7 @@ export default function BarcodeScanner({ onScan, placeholder = "امسح أو أ
   const [scanning, setScanning] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const physicalInput = useRef({ text: "", expectedChange: false });
 
   const stopCamera = () => {
     if (streamRef.current) {
@@ -63,10 +65,11 @@ export default function BarcodeScanner({ onScan, placeholder = "امسح أو أ
     return () => stopCamera();
   }, []);
 
-  const handleManualSubmit = () => {
-    if (value.trim()) {
-      onScan(value.trim());
+  const handleManualSubmit = (currentValue = value) => {
+    if (currentValue.trim()) {
+      onScan(resolveLotScannerInput(currentValue, physicalInput.current.text));
       setValue("");
+      physicalInput.current = { text: "", expectedChange: false };
     }
   };
 
@@ -129,13 +132,29 @@ export default function BarcodeScanner({ onScan, placeholder = "امسح أو أ
         <div className="flex gap-2">
           <Input
             value={value}
-            onChange={e => setValue(e.target.value)}
-            onKeyDown={e => e.key === "Enter" && handleManualSubmit()}
+            onChange={e => {
+              if (!physicalInput.current.expectedChange) physicalInput.current.text = "";
+              physicalInput.current.expectedChange = false;
+              setValue(e.target.value);
+            }}
+            onKeyDown={e => {
+              if (e.key === "Enter") { e.preventDefault(); handleManualSubmit(e.currentTarget.value); return; }
+              if (e.ctrlKey || e.metaKey || e.altKey) { physicalInput.current.text = ""; return; }
+              if (["Shift", "CapsLock"].includes(e.key)) return;
+              const input = e.currentTarget;
+              const replacingAll = input.selectionStart === 0 && input.selectionEnd === input.value.length;
+              if (replacingAll) physicalInput.current.text = "";
+              if (!replacingAll && (input.selectionStart !== input.value.length || input.selectionEnd !== input.value.length)) { physicalInput.current.text = ""; return; }
+              if (e.key === "Backspace") { physicalInput.current.text = physicalInput.current.text.slice(0, -1); physicalInput.current.expectedChange = true; return; }
+              const key = lotScannerPhysicalKey(e);
+              if (key != null) { physicalInput.current.text += key; physicalInput.current.expectedChange = true; }
+              else physicalInput.current.text = "";
+            }}
             placeholder={placeholder}
             dir="ltr"
             className="font-mono"
           />
-          <Button type="button" onClick={handleManualSubmit} disabled={!value.trim()}>
+          <Button type="button" onClick={() => handleManualSubmit()} disabled={!value.trim()}>
             بحث
           </Button>
         </div>

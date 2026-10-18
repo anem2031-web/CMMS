@@ -58,6 +58,7 @@ import { materialExecutionCostsEnabled } from "../../services/material-costs/fea
 import { resolveExecutionCostContext } from "../../services/material-costs/context";
 import { getActiveCatalogUnitCanonicalName } from "../catalog-unit-governance";
 import { assertOperationalIssueReference, recordOperationalDelivery } from "../../services/operational-issues/issue-reference";
+import { captureDocumentSignature } from "../../../shared/documentSignatureSnapshot";
 
 export async function createWarehouseReturn(data: InsertWarehouseReturn, tx?: any) {
   const db = tx || await getDb();
@@ -1088,6 +1089,7 @@ export async function createDeliveryDocument(data: {
   deliveredToId?: number;
   itemName: string;
   deliveredByName: string;
+  deliveredBySignatureSnapshot?: string | null;
   deliveredToName: string;
   quantity: number;
   unit?: string;
@@ -1498,6 +1500,7 @@ export async function issueDelivery(params: {
       deliveredToId: params.deliveredToId,
       itemName: consumedLot?.supplierItemName || item.itemName,
       deliveredByName: (performer as any)?.name || "مستخدم المستودع",
+      deliveredBySignatureSnapshot: captureDocumentSignature({ id: params.performedById, name: performer?.name, signatureUrl: performer?.signatureUrl }),
       deliveredToName: (receiver as any)?.name || "غير محدد",
       quantity: deliveryQuantity,
       unit: effectiveUnit || undefined,
@@ -1629,6 +1632,13 @@ export async function getDeliveryDocuments() {
   const db = await getDb();
   if (!db) return [];
   return db.select().from(deliveryDocuments).orderBy(desc(deliveryDocuments.createdAt));
+}
+
+export async function getDeliveryDocumentById(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("تعذر الاتصال بقاعدة البيانات");
+  const [row] = await db.select().from(deliveryDocuments).where(eq(deliveryDocuments.id, id)).limit(1);
+  return row ?? null;
 }
 
 // الاستيرادات المطلوبة موجودة مسبقاً في db.ts

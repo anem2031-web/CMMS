@@ -1,4 +1,5 @@
 import { AXIOS_TIMEOUT_MS, COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
+import { isBusinessGuardedRole } from "../../shared/business-role-policy";
 import axios, { type AxiosInstance } from "axios";
 import { parse as parseCookieHeader } from "cookie";
 import type { Request } from "express";
@@ -307,6 +308,9 @@ class SDKServer {
 
     if (!user) {
       throw new SessionAuthenticationError("User not found");
+    }
+    if (isBusinessGuardedRole(user.role) && user.isActive !== 1) {
+      throw new SessionAuthenticationError("Account disabled");
     }
 
     // lastSignedIn is a sign-in audit field. It is updated by the actual login

@@ -25,8 +25,8 @@ export const pushRouter = router({
 
   unsubscribe: protectedProcedure.input(z.object({
     endpoint: z.string(),
-  })).mutation(async ({ input }) => {
-    await db.deletePushSubscription(input.endpoint);
+  })).mutation(async ({ input, ctx }) => {
+    await db.deletePushSubscription(input.endpoint, ctx.user.role === "technician" ? ctx.user.id : undefined);
     return { success: true };
   }),
 

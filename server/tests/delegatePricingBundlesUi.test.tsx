@@ -11,7 +11,7 @@ vi.mock("../../client/src/lib/trpc", () => {
     if (key === "useUtils") return () => proxy("utils");
     if (key === "useMutation") return () => ({ isPending: path.endsWith(`.${state.pending}`), mutate: vi.fn() });
     if (key === "invalidate") return vi.fn();
-    if (key === "useQuery") return () => ({ data: path.endsWith(".status") ? { enabled: state.enabled } : path.endsWith(".list") ? [{ id: 1, bundleNumber: "DPB-2026-000001", status: state.status, itemCount: 2 }]
+    if (key === "useQuery") return () => ({ data: path.endsWith(".status") ? { enabled: state.enabled } : path.endsWith(".list") ? [{ id: 1, bundleNumber: "DPB-2026-000001", status: state.status, itemCount: 2, total:45, createdAt:"2026-10-18T08:00:00Z" }]
       : path.endsWith(".detail") ? { id: 1, bundleNumber: "DPB-2026-000001", status: state.status, revision: 2, delegateName: "Delegate fixture", createdAt: "2026-10-17T12:00:00Z", effectsDone: 1, total: 45,
         items: [{ id: state.member ? 5 : 1, itemName: "مادة الاختبار", categoryName: "الكهرباء", purchaseOrderId: 101, poNumber: "PR-101", sectionName: "Section A", quantity: 3, unit: "قطعة", estimatedUnitCost: "10", estimatedTotalCost: "30", supplierName: "Supplier A" },
           { id: 2, itemName: "Test material", categoryName: "Plumbing", purchaseOrderId: 102, poNumber: "PR-102", sectionName: "Section B", quantity: 1, unit: "Piece", estimatedUnitCost: "15", estimatedTotalCost: "15", supplierName: "Supplier B" }] } : [], isLoading: false, error: null });
@@ -27,13 +27,14 @@ describe("Real pricing bundle page and delegate controls", () => {
     const text = pricingBundleText[language as keyof typeof pricingBundleText], html = renderToStaticMarkup(<DelegatePricingBundles />);
     for (const value of [text.title, text.send, text.back, text.price, text.supplier, "DPB-2026-000001", "PR-101", "PR-102", "Section A", "Section B", "Supplier A"]) expect(html).toContain(value);
     expect(html).not.toContain("<input"); expect(html).toContain("/purchase-orders/102?itemId=2");
-    expect(html).not.toContain(text.pdf); expect(html).not.toContain("<iframe"); expect(html).not.toContain(`>${text.archive}<`);
+    expect(html).not.toContain(text.pdf); expect(html).not.toContain("<iframe");
+    expect(html).toContain(text.number); expect(html).toContain(text.date); expect(html).toContain(text.archiveList);
   });
   it.each(["ar","en","ur"])("offers download after send/archival without an archive action or iframe in %s",language=>{
     state.enabled=true; state.language=language; state.role="delegate";
     const text=pricingBundleText[language as keyof typeof pricingBundleText];
     for(const status of ["sent","archived"]){state.status=status;const html=renderToStaticMarkup(<DelegatePricingBundles/>);
-      expect(html).toContain(text.pdf); expect(html).not.toContain(`<iframe`); expect(html).not.toContain(`>${text.archive}<`); expect(html).not.toContain(text.send);
+      expect(html).toContain(text.pdf); expect(html).not.toContain(`<iframe`); expect(html).not.toContain(text.send); expect(html).toContain(text.archiveList);
     }
   });
   it("shows a pending action for sending and preparing a download",()=>{

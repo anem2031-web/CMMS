@@ -260,14 +260,15 @@ export default function DocumentsCenter() {
   const incrementReceiptPrintMut  = trpc.warehouseReceipts.incrementPrint.useMutation();
 
   // يبني بيانات وثيقة التسليم من صف القائمة (نفس الحقول التي يتوقعها القالب)
-  const buildDeliveryData = (row: DocRow) => {
-    const full = (deliveryQ.data as any[] || []).find(d => d.id === row.id);
+  const buildDeliveryData = async (row: DocRow) => {
+    const full = await utils.deliveryDocuments.getForPrint.fetch({ id: row.id });
     if (!full) throw new Error("تعذر إيجاد بيانات سند التسليم");
     return {
-      itemName: full.itemName, quantity: full.quantity, unit: full.unit,
-      supplierName: full.supplierName, actualUnitCost: full.actualUnitCost,
-      warehousePhotoUrl: full.warehousePhotoUrl, deliveredByName: full.deliveredByName,
-      deliveredToName: full.deliveredToName, notes: full.notes, poNumber: full.poNumber,
+      itemName: full.itemName, quantity: full.quantity, unit: full.unit || "",
+      supplierName: full.supplierName ?? undefined, actualUnitCost: full.actualUnitCost ?? undefined,
+      warehousePhotoUrl: full.warehousePhotoUrl ?? undefined, deliveredByName: full.deliveredByName,
+      deliveredBySignature: full.deliveredBySignature,
+      deliveredToName: full.deliveredToName, notes: full.notes ?? undefined, poNumber: full.poNumber ?? undefined,
       deliveryNumber: full.deliveryNumber,
       deliveredAt: relativeOrDate(full.createdAt),
       itemId: full.poItemId, initialPrintCount: full.printCount,
@@ -283,7 +284,7 @@ export default function DocumentsCenter() {
         return buildReceiptHtml(receipt);
       }
       case "delivery":
-        return buildDeliveryReceiptHtml(buildDeliveryData(row));
+        return buildDeliveryReceiptHtml(await buildDeliveryData(row));
       case "warehouse_issue": {
         const data = await utils.warehouseIssueBatches.getById.fetch({ id: row.id });
         return buildWarehouseIssueHtml(data as any);

@@ -16,6 +16,10 @@ import multer from "multer";
 import { storagePut, storageGetStream, storagePresignedPut, checkStorageHealth } from "./storage";
 import { nanoid } from "nanoid";
 import { observerHttpAllowed } from "../../shared/observer-policy";
+import { technicianHttpAllowed } from "../../shared/technician-policy";
+import { businessHttpAllowed } from "../../shared/business-role-policy";
+import { assertMediaAccess } from "./authz/media-access";
+import { authorizePurchaseDocument } from "./authz/purchase-document";
 import sharp from "sharp";
 import { transcodeVideoToCompatibleMp4 } from "./videoTranscode";
 import { exportTicketsToExcel, exportPurchaseOrdersToExcel, exportTechnicianPerformanceToExcel, exportAuditLogToExcel, exportInventoryToExcel, exportPreventivePlansToExcel, exportPMWorkOrdersToExcel, generateDelegateItemsPDF, generatePurchaseRequestPDF } from "../services/export/exportService";
@@ -108,6 +112,8 @@ async function requireAuthMiddleware(req: any, res: any, next: any) {
       return res.status(401).json({ error: "غير مصرح — يجب تسجيل الدخول أولاً" });
     }
     if (!observerHttpAllowed(user.role)) return res.status(403).json({ error: "دور المراقب للاستعراض فقط؛ هذا الإجراء غير مسموح" });
+    if (!technicianHttpAllowed(user, req.method, req.path)) return res.status(403).json({ error: "هذا المسار خارج صلاحيات تنفيذ مهام الفني" });
+    if (!businessHttpAllowed(user, req.method, req.path)) return res.status(403).json({ error: "هذا المسار خارج صلاحيات حسابك" });
     req.authenticatedUser = user;
     next();
   } catch (error) {
@@ -129,6 +135,7 @@ function makeRequireExportRole(allowedRoles: Set<string>) {
       if (!allowedRoles.has(user.role)) {
         return res.status(403).json({ error: "ليس لديك صلاحية تصدير البيانات" });
       }
+      if (!businessHttpAllowed(user, req.method, req.path)) return res.status(403).json({ error: "هذا المسار خارج صلاحيات حسابك" });
       req.authenticatedUser = user;
       next();
     } catch (error) {
@@ -360,9 +367,8 @@ async function startServer() {
 
   // MEDIA PROXY: serves images from iDrive e2 through the server
   // ============================================================
-  // Media proxy is intentionally public to allow <img> tags to load images
-  // without sending session cookies. Security is enforced by restricting
-  // access to the cmms/ key prefix only.
+  // Same-origin <img> requests include the session cookie. Resolve the file's
+  // actual parent before opening storage; a known key is not authorization.
   app.get("/api/media", async (req: any, res: any) => {
     try {
       const key = req.query.key as string;
@@ -379,9 +385,13 @@ async function startServer() {
       if (!normalizedKey.startsWith("cmms/")) {
         return res.status(400).json({ error: "Invalid key" });
       }
+      const user = await sdk.authenticateRequest(req);
+      await assertMediaAccess(user, normalizedKey);
       const { stream, contentType } = await storageGetStream(normalizedKey);
       res.setHeader("Content-Type", contentType || "application/octet-stream");
-      res.setHeader("Cache-Control", "public, max-age=86400");
+      res.setHeader("Cache-Control", "private, no-store, max-age=0");
+      res.setHeader("Vary", "Cookie");
+      res.setHeader("X-Content-Type-Options", "nosniff");
       // إذا طُلب التنزيل، أضف Content-Disposition آمنًا للأسماء العربية.
       // Node.js يرفض الأحرف غير ASCII عندما توضع مباشرة داخل filename=، لذلك
       // نرسل اسمًا احتياطيًا ASCII مع filename*=UTF-8'' للاسم الحقيقي المشفّر.
@@ -407,7 +417,9 @@ async function startServer() {
       (stream as any).pipe(res);
     } catch (error: any) {
       console.error("Media proxy error:", error);
-      res.status(404).json({ error: "Media not found" });
+      const status = isSessionAuthenticationError(error) ? 401 : error?.code === "FORBIDDEN" ? 403 : error?.code === "INTERNAL_SERVER_ERROR" ? 503 : 404;
+      res.setHeader("Cache-Control", "private, no-store, max-age=0");
+      res.status(status).json({ error: status === 401 ? "يجب تسجيل الدخول لفتح الملف" : "الملف غير متاح لحسابك" });
     }
   });
 
@@ -429,7 +441,7 @@ async function startServer() {
                  : mime === "image/png"  ? "png"
                  : mime === "image/webp" ? "webp"
                  : mime === "application/pdf" ? "pdf" : "jpg";
-      const fileKey = `cmms/uploads/${Date.now()}-${nanoid(8)}.${ext}`;
+      const fileKey = `cmms/uploads/u-${req.authenticatedUser.id}/${Date.now()}-${nanoid(8)}.${ext}`;
       const { uploadUrl, proxyUrl } = await storagePresignedPut(fileKey, mime);
       res.json({ uploadUrl, proxyUrl, fileKey });
     } catch (e: any) {
@@ -491,7 +503,7 @@ async function startServer() {
           // في حال فشل التحويل لأي سبب، نرفع الملف الأصلي بدل إيقاف العملية بالكامل
         }
       }
-      const fileKey = `cmms/uploads/${Date.now()}-${nanoid(8)}.${ext}`;
+      const fileKey = `cmms/uploads/u-${req.authenticatedUser.id}/${Date.now()}-${nanoid(8)}.${ext}`;
       await storagePutWithRetry(fileKey, fileBuffer, mimeType);
       // Always return proxy URL so images load reliably regardless of bucket ACL or CORS
       const proxyUrl = `/api/media?key=${encodeURIComponent(fileKey)}`;
@@ -1063,22 +1075,23 @@ async function startServer() {
   // Purchase Request PDF export — delegate pricing workflow (auth required)
   app.get("/api/export/po/:id/pdf", requireAuthMiddleware, async (req: any, res: any) => {
     try {
-      const poId = parseInt(req.params.id);
-      if (isNaN(poId)) return res.status(400).json({ error: "Invalid purchase request ID" });
+      const poId = Number(req.params.id);
+      if (!/^[1-9]\d*$/.test(req.params.id) || !Number.isSafeInteger(poId)) return res.status(400).json({ error: "Invalid purchase request ID" });
       const batchIdRaw = req.query.batchId;
-      const batchId = batchIdRaw ? parseInt(batchIdRaw as string) : undefined;
+      const batchId = batchIdRaw === undefined ? undefined : typeof batchIdRaw === "string" && /^[1-9]\d*$/.test(batchIdRaw) ? Number(batchIdRaw) : NaN;
       // [PB 2026-08-29] وضع الدفعة الفرعية — مستند واحد لإرسال واحد قد يضم
       // أصنافًا من عدة طلبات، بنفس القالب مع عمود "رقم الطلب". بدون هذا
       // المعامل يعمل المسار تمامًا كما كان.
       const submissionIdRaw = req.query.submissionId;
-      const submissionId = submissionIdRaw ? parseInt(submissionIdRaw as string) : undefined;
+      const submissionId = submissionIdRaw === undefined ? undefined : typeof submissionIdRaw === "string" && /^[1-9]\d*$/.test(submissionIdRaw) ? Number(submissionIdRaw) : NaN;
       const user = req.authenticatedUser;
+      const po = await authorizePurchaseDocument(user, poId, batchId, submissionId);
 
       // إذا أُرسل التسعير ضمن دفعة حزمة، فالمستند الرسمي للمندوب والحسابات
       // هو مستند purchase_package_submission. نمنع PDF مستقل للـ PR لهذين
       // الدورين حتى لا توجد وثيقتا عهدة لنفس الإرسال. الإدارة/المالك يحتفظون
       // بصلاحيات الاستعراض الحالية لأغراض التدقيق.
-      const { getPurchaseOrderById, getPOPricingBatchById, getPOPricingBatches } = await import("./db");
+      const { getPOPricingBatchById, getPOPricingBatches } = await import("./db");
       const mustUsePackageOfficialDocument = ["delegate", "accountant"].includes(user?.role || "");
       if (mustUsePackageOfficialDocument && !submissionId) {
         if (batchId) {
@@ -1107,7 +1120,6 @@ async function startServer() {
       }
 
       const buffer = await generatePurchaseRequestPDF(poId, user.id, batchId, submissionId);
-      const po = await getPurchaseOrderById(poId);
       const filename = po?.poNumber
         ? (submissionId ? `دفعة-${submissionId}.pdf` : batchId ? `${po.poNumber}-batch${batchId}.pdf` : `${po.poNumber}.pdf`)
         : `po-${poId}.pdf`;
@@ -1124,7 +1136,7 @@ async function startServer() {
         `attachment; filename="${asciiFilename}"; filename*=UTF-8''${encodedFilename}`
       );
       res.send(buffer);
-} catch (e: any) { console.error("[PDF Export Error]", e.message); res.status(500).json({ error: e.message }); }
+} catch (e: any) { console.error("[PDF Export Error]", e.message); res.status(e?.code === "FORBIDDEN" ? 403 : e?.code === "NOT_FOUND" ? 404 : 500).json({ error: e.message }); }
   });
 
   // OAuth callback under /api/oauth/callback

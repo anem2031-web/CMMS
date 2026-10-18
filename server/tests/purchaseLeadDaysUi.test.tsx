@@ -51,38 +51,46 @@ const fixedNow = new Date("2026-10-15T12:00:00Z");
 const fixture = { id: 2, purchaseOrderId: 7, purchaseOrderNumber: "PR-7", itemName: "Material", quantity: 3, unit: "حبة", actionMode: "purchase", requiredDate: "2026-10-18", requestedByName: "Test creator" };
 
 describe("Actual item deadline controls", () => {
-  it.each(["ar", "en", "ur"])("shows an editable duration and readonly automatic date in %s", language => {
+  it.each(["ar", "en", "ur"])("shows an editable duration and editable fixed date in %s", language => {
     ui.language = language;
     const t = translations[language as keyof typeof translations];
-    const html = renderToStaticMarkup(<PurchaseItemNeedFields index={0} deliveryLeadDays={3} onChange={() => {}} now={fixedNow} />);
+    const html = renderToStaticMarkup(<PurchaseItemNeedFields index={0} deliveryLeadDays={3} requiredDate="2026-10-18" onChange={() => {}} now={fixedNow} />);
     expect(html).toContain(t.purchaseOrders.deliveryLeadDays);
     expect(html).toContain('value="2026-10-18"');
-    expect(html).toMatch(/type="date"[^>]*readonly=""/i);
+    expect(html).not.toContain('readonly=""');
     expect(html).toContain(t.purchaseOrders.requiredDateSubmissionHint);
     expect(html).not.toContain('value="2026-10-19"');
   });
   it("passes explicit zero, whole days, and an empty value without silently replacing them", () => {
     const onChange = vi.fn();
-    const tree = PurchaseItemNeedFields({ index: 0, deliveryLeadDays: 3, onChange, now: fixedNow });
+    const tree = PurchaseItemNeedFields({ index: 0, deliveryLeadDays: 3, requiredDate: "2026-10-18", onChange, now: fixedNow });
     const inputs: React.ReactElement<any>[] = [];
     const walk = (node: React.ReactNode) => React.Children.forEach(node, child => {
       if (!React.isValidElement<any>(child)) return;
       const element = child as React.ReactElement<any>;
-      if (element.props.type === "number") inputs.push(element);
+      if (["number", "date"].includes(element.props.type)) inputs.push(element);
       if (element.props.children) walk(element.props.children);
     });
     walk(tree);
     for (const value of ["0", "5", ""]) inputs[0].props.onChange({ target: { value } });
-    expect(onChange.mock.calls).toEqual([[0], [5], [null]]);
+    expect(onChange.mock.calls).toEqual([
+      [{ deliveryLeadDays: 0, requiredDate: "2026-10-15" }],
+      [{ deliveryLeadDays: 5, requiredDate: "2026-10-20" }],
+      [{ deliveryLeadDays: null, requiredDate: "" }],
+    ]);
+    inputs[1].props.onChange({ target: { value: "2026-10-21" } });
+    expect(onChange).toHaveBeenLastCalledWith({ deliveryLeadDays: 6, requiredDate: "2026-10-21" });
+    inputs[1].props.onChange({ target: { value: "" } });
+    expect(onChange).toHaveBeenLastCalledWith({ deliveryLeadDays: null, requiredDate: "" });
   });
   it("keeps the saved historical date visible until a duration is entered", () => {
     ui.language = "ar";
-    const html = renderToStaticMarkup(<PurchaseItemNeedFields index={0} deliveryLeadDays={null} legacyRequiredDate="2026-01-02" onChange={() => {}} now={fixedNow} />);
+    const html = renderToStaticMarkup(<PurchaseItemNeedFields index={0} deliveryLeadDays={null} requiredDate="2026-01-02" onChange={() => {}} now={fixedNow} />);
     expect(html).toContain('value="2026-01-02"');
-    expect(html).toContain(ar.purchaseOrders.legacyRequiredDateHint);
+    expect(html).toContain(ar.purchaseOrders.requiredDateSubmissionHint);
   });
   it("shows validation at the duration field and never displays an invalid preview", () => {
-    const html = renderToStaticMarkup(<PurchaseItemNeedFields index={0} deliveryLeadDays={-2} error="Invalid lead time" onChange={() => {}} now={fixedNow} />);
+    const html = renderToStaticMarkup(<PurchaseItemNeedFields index={0} deliveryLeadDays={-2} requiredDate="" error="Invalid lead time" onChange={() => {}} now={fixedNow} />);
     expect(html).toContain('aria-invalid="true"'); expect(html).toContain("Invalid lead time");
     expect(html).not.toContain("2026-");
   });

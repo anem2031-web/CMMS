@@ -1,5 +1,7 @@
 import QRCode from "qrcode";
 import { useEffect, useRef } from "react";
+import { printInventoryLabels } from "@/lib/printInventoryLabels";
+import { toast } from "sonner";
 
 export interface LotLabelItem {
   lotId: number;
@@ -45,7 +47,7 @@ export default function LotLabelsPrintScreen({
         </div>
         <div className="flex gap-2">
           <button
-            onClick={() => window.print()}
+            onClick={() => void printInventoryLabels(items).catch(error => toast.error(error.message))}
             className="bg-black text-white px-4 py-2 rounded-lg text-sm font-medium"
           >
             🖨️ طباعة الملصقات
@@ -95,22 +97,7 @@ export default function LotLabelsPrintScreen({
         ))}
       </div>
 
-      <style>{`
-        @media print {
-          @page { size: 58mm 38mm; margin: 0; }
-          body * { visibility: hidden; }
-          .lot-label-print-area, .lot-label-print-area * { visibility: visible; }
-          .lot-label-print-area { position: absolute; top: 0; left: 0; }
-          .print-hidden { display: none !important; }
-          .lot-label-card {
-            width: 56mm !important;
-            height: 36mm !important;
-            page-break-after: always;
-            page-break-inside: avoid;
-          }
-          .lot-label-card:last-child { page-break-after: avoid; }
-        }
-      `}</style>
+
     </div>
   );
 }

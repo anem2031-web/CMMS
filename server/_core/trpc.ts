@@ -9,12 +9,43 @@ import type { TrpcContext } from "./context";
 import { assertObserverRpc } from "./authz/observer-guard";
 import { isObserver, redactObserverValue } from "../../shared/observer-policy";
 import { runObserverRead } from "./authz/observer-read-scope";
+import { assertTechnicianRpc } from "./authz/technician-guard";
+import { assertBusinessRpc } from "./authz/business-guard";
+import { isBusinessGuardedRole } from "../../shared/business-role-policy";
+import { redactUserSecrets } from "../../shared/user-response";
 
 const t = initTRPC.context<TrpcContext>().create({
   transformer: superjson,
 });
 
 export const router = t.router;
+const responseGuard = t.middleware(async opts => {
+  const result = await opts.next();
+  return result.ok ? { ...result, data: redactUserSecrets(result.data) } : result;
+});
+const mediaInputGuard = t.middleware(async opts => {
+  const user = opts.ctx.authenticatedUser ?? opts.ctx.user;
+  if (user && opts.type === "mutation") {
+    const { assertMediaMutationAccess } = await import("./authz/media-access");
+    await assertMediaMutationAccess(user, opts.path, await opts.getRawInput());
+  }
+  return opts.next();
+});
+const businessGuard = t.middleware(async opts => {
+  const user = opts.ctx.authenticatedUser ?? opts.ctx.user;
+  if (!isBusinessGuardedRole(user?.role)) return opts.next();
+  assertBusinessRpc(user, opts.type, opts.path, await opts.getRawInput());
+  let businessProjectIds: number[] | undefined;
+  if (opts.path.startsWith("construction.")) {
+    const { assertBusinessProjectAccess } = await import("./authz/business-projects");
+    businessProjectIds = await assertBusinessProjectAccess(user!, opts.type, opts.path, await opts.getRawInput());
+  }
+  if (opts.path === "translation.getEntityTranslations" || opts.path === "translation.getBatchTranslations") {
+    const { assertBusinessTranslationAccess } = await import("./authz/business-resources");
+    await assertBusinessTranslationAccess(user!, await opts.getRawInput(), opts.path === "translation.getBatchTranslations" ? "batch" : "single");
+  }
+  return opts.next({ ctx: { ...opts.ctx, user: user!, businessProjectIds } });
+});
 const observerGuard = t.middleware(async opts => {
   const originalUser = opts.ctx.authenticatedUser ?? opts.ctx.user;
   assertObserverRpc(originalUser, opts.type, opts.path);
@@ -32,7 +63,20 @@ const observerGuard = t.middleware(async opts => {
   if (result.ok) return { ...result, data: redactObserverValue(result.data, 0, opts.path === "backups.list") };
   return result;
 });
-const baseProcedure = t.procedure.use(observerGuard);
+const technicianGuard = t.middleware(async opts => {
+  const user = opts.ctx.authenticatedUser ?? opts.ctx.user;
+  if (user?.role === "technician") {
+    // Reject the capability before parsing or loading any resource data.
+    assertTechnicianRpc(user, opts.type, opts.path, await opts.getRawInput());
+    if (opts.path === "translation.getEntityTranslations" || opts.path === "translation.getBatchTranslations") {
+      const { assertTechnicianTranslationAccess } = await import("./authz/technician-resources");
+      await assertTechnicianTranslationAccess(user, await opts.getRawInput(), opts.path === "translation.getBatchTranslations" ? "batch" : "single");
+    }
+    return opts.next({ ctx: { ...opts.ctx, user } });
+  }
+  return opts.next();
+});
+const baseProcedure = t.procedure.use(responseGuard).use(businessGuard).use(technicianGuard).use(observerGuard).use(mediaInputGuard);
 export const publicProcedure = baseProcedure;
 
 const requireUser = t.middleware(async opts => {

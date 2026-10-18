@@ -2,6 +2,7 @@ import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { router, protectedProcedure, managerProcedure } from "../_shared/procedures";
 import * as db from "../../_core/db";
+import { storagePut, storageGetStream } from "../../_core/storage";
 
 export const backupsRouter = router({
   list: protectedProcedure.query(async ({ ctx }) => {
@@ -59,9 +60,10 @@ export const backupsRouter = router({
     if (!backup) throw new TRPCError({ code: "NOT_FOUND", message: "النسخة الاحتياطية غير موجودة" });
 
     // Download backup file
-    const response = await fetch(backup.fileUrl);
-    if (!response.ok) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "فشل تحميل ملف النسخة الاحتياطية" });
-    const backupData = await response.json();
+    const { stream } = await storageGetStream(backup.fileKey);
+    const chunks: Buffer[] = [];
+    for await (const chunk of stream as any) chunks.push(Buffer.from(chunk));
+    const backupData = JSON.parse(Buffer.concat(chunks).toString("utf8"));
 
     // Restore data
     await db.restoreFromBackup(backupData);

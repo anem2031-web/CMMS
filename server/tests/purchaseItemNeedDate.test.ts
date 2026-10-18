@@ -1,19 +1,40 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import {
   comparePurchaseRequiredDates, purchaseDateOnly, purchaseRequiredDateFromSubmission,
   remainingPurchaseCalendarDays, resolvePurchaseItemNeedTiming, riyadhPurchaseDate,
+  purchaseNeedTimingFromDate, purchaseNeedTimingFromDays,
 } from "../../shared/purchaseItemNeedDate";
 import { purchaseItemNeedTimingShape, validatePurchaseItemNeedTiming } from "../routers/purchase/item-need-timing";
 import { formatRemainingPurchaseDuration } from "../../client/src/lib/purchaseItemTiming";
 
 const schema = z.object(purchaseItemNeedTimingShape).superRefine(validatePurchaseItemNeedTiming);
 describe("Purchase item lead time and submission deadlines", () => {
-  it("does not start any deadline when saving or reopening a draft", () => {
-    const draft = resolvePurchaseItemNeedTiming({ deliveryLeadDays: 3, requiredDate: "2026-10-11" });
-    expect(draft).toEqual({ deliveryLeadDays: 3, requiredDate: null });
+  beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(new Date("2026-10-18T09:00:00Z")); });
+  afterEach(() => vi.useRealTimers());
+  it("keeps day 21 selected on day 18 and recalculates two days when submitted on day 19", () => {
+    const draft = resolvePurchaseItemNeedTiming(purchaseNeedTimingFromDays(3));
+    expect(draft).toEqual({ deliveryLeadDays: 3, requiredDate: "2026-10-21" });
     expect(resolvePurchaseItemNeedTiming(draft)).toEqual(draft);
-    expect(resolvePurchaseItemNeedTiming(draft, new Date("2026-10-15T09:00:00Z"))).toEqual({ deliveryLeadDays: 3, requiredDate: "2026-10-18" });
+    expect(resolvePurchaseItemNeedTiming(draft, new Date("2026-10-19T09:00:00Z"))).toEqual({ deliveryLeadDays: 2, requiredDate: "2026-10-21" });
+  });
+  it("synchronizes either input and clears both explicitly", () => {
+    expect(purchaseNeedTimingFromDate("2026-10-21")).toEqual(purchaseNeedTimingFromDays(3));
+    expect(purchaseNeedTimingFromDate("2026-10-18")).toEqual(purchaseNeedTimingFromDays(0));
+    expect(purchaseNeedTimingFromDate("")).toEqual({ requiredDate: "", deliveryLeadDays: null });
+    expect(purchaseNeedTimingFromDays(null)).toEqual({ requiredDate: "", deliveryLeadDays: null });
+  });
+  it("permits a draft with no timing but requires timing on submission", () => {
+    expect(z.object(purchaseItemNeedTimingShape).safeParse({}).success).toBe(true);
+    expect(z.object(purchaseItemNeedTimingShape).safeParse({ requiredDate: null, deliveryLeadDays: null }).success).toBe(true);
+    expect(resolvePurchaseItemNeedTiming({})).toEqual({ requiredDate: null, deliveryLeadDays: null });
+    expect(() => resolvePurchaseItemNeedTiming({}, new Date())).toThrow("قبل الإرسال");
+    expect(schema.safeParse({}).success).toBe(false);
+  });
+  it("reopening or saving tomorrow keeps the date and refreshes its remaining duration", () => {
+    const draft = resolvePurchaseItemNeedTiming({ deliveryLeadDays: 3, requiredDate: "2026-10-21" });
+    vi.setSystemTime(new Date("2026-10-19T09:00:00Z"));
+    expect(resolvePurchaseItemNeedTiming(draft)).toEqual({ requiredDate: "2026-10-21", deliveryLeadDays: 2 });
   });
   it("calculates each item from the same actual submission day", () => {
     const at = new Date("2026-10-15T09:00:00Z");
@@ -32,14 +53,26 @@ describe("Purchase item lead time and submission deadlines", () => {
   ])("handles year/month/leap boundaries: %s", (at, days, date) => {
     expect(purchaseRequiredDateFromSubmission(days as number, new Date(at as string))).toBe(date);
   });
-  it("keeps historical dates intact when duration is NULL or omitted", () => {
-    for (const input of [{ requiredDate: "2026-01-02" }, { deliveryLeadDays: null, requiredDate: "2026-01-02" }]) {
-      expect(resolvePurchaseItemNeedTiming(input)).toEqual({ deliveryLeadDays: null, requiredDate: "2026-01-02" });
-      expect(resolvePurchaseItemNeedTiming(input, new Date("2026-10-17T12:00:00Z"))).toEqual({ deliveryLeadDays: null, requiredDate: "2026-01-02" });
+  it("supports date-only input and old duration-only drafts without moving a supplied date", () => {
+    for (const input of [{ requiredDate: "2026-10-21" }, { deliveryLeadDays: null, requiredDate: "2026-10-21" }]) {
+      expect(resolvePurchaseItemNeedTiming(input)).toEqual({ deliveryLeadDays: 3, requiredDate: "2026-10-21" });
+      expect(resolvePurchaseItemNeedTiming(input, new Date("2026-10-19T12:00:00Z"))).toEqual({ deliveryLeadDays: 2, requiredDate: "2026-10-21" });
     }
+    expect(resolvePurchaseItemNeedTiming({ deliveryLeadDays: 3 }, new Date("2026-10-19T12:00:00Z"))).toEqual({ deliveryLeadDays: 3, requiredDate: "2026-10-22" });
   });
-  it("ignores a supplied date when a valid duration is provided", () => {
-    expect(resolvePurchaseItemNeedTiming({ deliveryLeadDays: 2, requiredDate: "2030-01-01" }, new Date("2026-10-17T12:00:00Z"))).toEqual({ deliveryLeadDays: 2, requiredDate: "2026-10-19" });
+  it("uses the saved date over stale client days and rejects expired dates at submission", () => {
+    expect(resolvePurchaseItemNeedTiming({ deliveryLeadDays: 99, requiredDate: "2026-10-21" }, new Date("2026-10-19T12:00:00Z"))).toEqual({ deliveryLeadDays: 2, requiredDate: "2026-10-21" });
+    expect(() => resolvePurchaseItemNeedTiming({ requiredDate: "2026-10-17" }, new Date())).toThrow("تاريخ احتياج");
+    expect(schema.safeParse({ requiredDate: "2026-10-17" }).success).toBe(false);
+  });
+  it("keeps expired drafts editable and schema-compatible without moving their saved date", () => {
+    const timing = purchaseNeedTimingFromDate("2026-10-17");
+    expect(timing).toEqual({ requiredDate: "2026-10-17", deliveryLeadDays: null });
+    const draft = resolvePurchaseItemNeedTiming(timing);
+    expect(draft).toEqual(timing);
+    expect(z.object(purchaseItemNeedTimingShape).safeParse(draft).success).toBe(true);
+    expect(resolvePurchaseItemNeedTiming(draft)).toEqual(draft);
+    expect(() => resolvePurchaseItemNeedTiming(draft, new Date())).toThrow("تاريخ احتياج");
   });
   it.each([-1, 1.5, NaN, Infinity, 3651, "3", null, undefined])("rejects an invalid duration without a legacy date: %s", deliveryLeadDays => {
     expect(schema.safeParse({ deliveryLeadDays }).success).toBe(false);
@@ -50,10 +83,10 @@ describe("Purchase item lead time and submission deadlines", () => {
   });
   it("accepts 0 and retains legacy API date input", () => {
     expect(schema.parse({ deliveryLeadDays: 0 })).toEqual({ deliveryLeadDays: 0 });
-    expect(schema.parse({ requiredDate: "2026-10-17" })).toEqual({ requiredDate: "2026-10-17" });
+    expect(schema.parse({ requiredDate: "2026-10-21" })).toEqual({ requiredDate: "2026-10-21" });
   });
   it("refuses missing timing and invalid clocks", () => {
-    expect(() => resolvePurchaseItemNeedTiming({})).toThrow();
+    expect(() => resolvePurchaseItemNeedTiming({}, new Date())).toThrow();
     expect(() => purchaseRequiredDateFromSubmission(2, new Date("invalid"))).toThrow();
   });
 });

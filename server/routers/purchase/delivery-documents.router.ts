@@ -1,4 +1,7 @@
 import { z } from "zod";
+import { TRPCError } from "@trpc/server";
+import { captureDocumentSignature } from "../../../shared/documentSignatureSnapshot";
+import { getWarehouseSignatureForPrint } from "../../services/pdf/warehouseSignature";
 import { protectedProcedure, warehouseProcedure, router } from "../_shared/procedures";
 import * as db from "../../_core/db";
 import { queueTranslation } from "../../services/translation/translationEngine";
@@ -37,7 +40,8 @@ export const deliveryDocumentsRouter = router({
       deliveryNumber: input.deliveryNumber,
       poItemId: input.poItemId,
       itemName: input.itemName,
-      deliveredByName: input.deliveredByName,
+      deliveredByName: ctx.user.name || "مستخدم المستودع",
+      deliveredBySignatureSnapshot: captureDocumentSignature(ctx.user),
       deliveredToName: input.deliveredToName,
       quantity: input.quantity,
       unit: input.unit,
@@ -57,6 +61,13 @@ export const deliveryDocumentsRouter = router({
   // جلب الوثائق مباشرة دون إنشاء مهام ترجمة أثناء القراءة.
   list: protectedProcedure.query(async () => {
     return db.getDeliveryDocuments();
+  }),
+
+  getForPrint: protectedProcedure.input(z.object({ id: z.number().int().positive() })).query(async ({ input }) => {
+    const row = await db.getDeliveryDocumentById(input.id);
+    if (!row) throw new TRPCError({ code: "NOT_FOUND", message: "سند التسليم غير موجود" });
+    const { deliveredBySignatureSnapshot, ...document } = row;
+    return { ...document, deliveredBySignature: await getWarehouseSignatureForPrint(deliveredBySignatureSnapshot) };
   }),
 
   // رفع عداد الطباعة

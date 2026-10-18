@@ -4,6 +4,8 @@ import fs from "node:fs";
 import vm from "node:vm";
 import { transformSync } from "esbuild";
 import * as costing from "../../server/_core/inventory-costing";
+import * as signing from "../../shared/documentSignatureSnapshot";
+import * as operational from "../../server/services/operational-issues/issue-reference";
 
 // Executes the actual central writer with strictly injected boundaries.
 // No application, environment, schema module or database client is imported.
@@ -40,6 +42,8 @@ function fixture(options: { enabled?: boolean; fail?: string; unit?: string } = 
     "../../services/material-costs/feature": { materialExecutionCostsEnabled: () => options.enabled !== false },
     "../../services/material-costs/context": { resolveExecutionCostContext: async () => ({ executionSource: "ticket_named", executionId: 4, executionItemId: 5, executionNumber: "MT-4", ticketId: 4 }) },
     "../catalog-unit-governance": { getActiveCatalogUnitCanonicalName: async (unit: string) => unit },
+    "../../../shared/documentSignatureSnapshot": signing,
+    "../../services/operational-issues/issue-reference": operational,
   };
   const module = { exports: {} as any };
   const code = transformSync(fs.readFileSync("server/_core/db/warehouse-returns.ts", "utf8"), { loader: "ts", format: "cjs", target: "es2022" }).code;

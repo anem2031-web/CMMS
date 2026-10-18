@@ -50,7 +50,17 @@ it("admin keeps the original inline PMV2 presentation rather than a forced techn
 it("visit timer uses real visit timestamps and stops at the recorded end time", () => { const html = render(<ExecutionElapsedTime language="ar" startedAt="2026-10-14T09:00:00Z" endedAt="2026-10-14T09:12:30Z" />); expect(html).toContain("00:12:30"); });
 it("login, path guard, named tickets and linked-ticket creation preserve the single workspace boundary", () => { expect(fs.readFileSync("client/src/pages/auth/Login.tsx", "utf8")).toContain('data.user.role === "technician" ? "/scheduled-maintenance/my-tasks"'); expect(fs.readFileSync("client/src/pages/maintenance-teams/NamedTechnicianTickets.tsx", "utf8")).toContain("embeddedTicketId={selected}"); expect(fs.readFileSync("client/src/pages/pmv2/Pmv2MyTasks.tsx", "utf8")).toContain("linkedPmv2ItemId={createLinkedItemId}"); });
 it("PMV2 start/resume/result/end-visit mutations retain their original implementation byte for byte", () => { const before = fs.readFileSync("tools/technician-workspace/artifacts/client__src__pages__pmv2__Pmv2MyTasks.tsx.before", "utf8"); const after = fs.readFileSync("client/src/pages/pmv2/Pmv2MyTasks.tsx", "utf8"); const extract = (value: string) => value.slice(value.indexOf("  const startItem ="), value.indexOf("  const resultMutationPending =")); expect(extract(after)).toBe(extract(before)); });
-it("the shared route policy changes only the technician condition; all other policy code is identical", () => { const before = fs.readFileSync("tools/technician-workspace/artifacts/shared__roles.ts.before", "utf8"); const after = fs.readFileSync("shared/roles.ts", "utf8").replace('  if (role === APP_ROLE.TECHNICIAN) return normalizedPath === "/scheduled-maintenance/my-tasks";\n', ""); expect(after).toBe(before); });
+it("the historical route policy remains identical outside the approved technician and business-role gates", () => {
+  const before = fs.readFileSync("tools/technician-workspace/artifacts/shared__roles.ts.before", "utf8");
+  const after = fs.readFileSync("shared/roles.ts", "utf8")
+    .replace('import { technicianPageAllowed } from "./technician-policy";\n', "")
+    .replace('  if (role === APP_ROLE.TECHNICIAN) return technicianPageAllowed(normalizedPath);\n', "")
+    .replace('import { businessPageAllowed, isBusinessGuardedRole } from "./business-role-policy";\n', "")
+    .replace('  if (isBusinessGuardedRole(role)) return businessPageAllowed(role, normalizedPath);\n', "")
+    // Approved pricing/operational routes postdate this historical baseline.
+    .replace(/^  if \(matchesPrefix\(normalizedPath, "\/(delegate-pricing-bundles|operational-issues)"\)\).*\n/gm, "");
+  expect(after).toBe(before);
+});
 it("layout waits for authentication before mounting a direct-link page and redirects technicians to their workspace", () => { const source = fs.readFileSync("client/src/components/layout/DashboardLayout.tsx", "utf8"); expect(source).toContain("!authLoading && canRoleAccessPath(role, location)"); expect(source).toContain("if (authLoading || canAccessCurrentPath) return;"); expect(source).toContain('const fallback = role === "technician"\n      ? "/scheduled-maintenance/my-tasks"'); });
 it("PMV2 status cards filter the actual task list and do not mutate tasks on card selection", () => {
   const base = f.data["pmv2.technician.today"].items[0];

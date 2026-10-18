@@ -1,3 +1,4 @@
+import { printInventoryLabels } from "@/lib/printInventoryLabels";
 import { ReceiptConversionFields } from "@/components/inventory/ReceiptConversionFields";
 import { INVALID_CONVERSION_MESSAGE } from "@shared/receipt-conversion";
 import { useState, useEffect, useRef } from "react";
@@ -1988,7 +1989,7 @@ function QRCodeCanvas({ value, size = 120 }: { value: string; size?: number }) {
 
 function BarcodesPrintScreen({ items, onDone, onPrintReceipt }: { items: any[]; onDone: () => void; onPrintReceipt?: () => void }) {
   const handlePrint = () => {
-    window.print();
+    void printInventoryLabels(items).catch(error => toast.error(error.message));
   };
 
   return (
@@ -2064,36 +2065,7 @@ function BarcodesPrintScreen({ items, onDone, onPrintReceipt }: { items: any[]; 
         ))}
       </div>
 
-      {/* CSS للطباعة */}
-      <style>{`
-        @media print {
-          @page {
-            size: 58mm 38mm;
-            margin: 0;
-          }
-          body * { visibility: hidden; }
-          .barcode-print-area, .barcode-print-area * { visibility: visible; }
-          .barcode-print-area {
-            position: absolute;
-            top: 0; left: 0;
-          }
-          .print-hidden { display: none !important; }
-          .barcode-card {
-            width: 56mm !important;
-            height: 36mm !important;
-            page-break-after: always;
-            page-break-inside: avoid;
-            display: flex !important;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            padding: 1mm;
-          }
-          .barcode-card:last-child {
-            page-break-after: avoid;
-          }
-        }
-      `}</style>
+
     </div>
   );
 }

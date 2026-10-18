@@ -11,6 +11,7 @@ import {
 import { syncPathBTicketFromPurchaseOrder } from "../purchase/ticket-purchase-workflow";
 import { isItTeamRole, MAINTENANCE_RESPONSIBLE_DEPARTMENT } from "@shared/roles";
 import { operationalIssuesEnabled } from "../../services/operational-issues/feature";
+import { getWarehouseSignatureForPrint } from "../../services/pdf/warehouseSignature";
 
 interface InventoryTicketDeliveryContext {
   purchaseOrderItemId: number | null;
@@ -699,7 +700,8 @@ export const warehouseIssueBatchesRouter = router({
     .query(async ({ input }) => {
       const row = await db.getWarehouseIssueBatchById(input.id);
       if (!row) throw new TRPCError({ code: "NOT_FOUND", message: "سند الصرف المخزني غير موجود" });
-      return row;
+      const { issuedBySignatureSnapshot, ...document } = row;
+      return { ...document, issuedBySignature: await getWarehouseSignatureForPrint(issuedBySignatureSnapshot, row.issuedById) };
     }),
 
   incrementPrint: protectedProcedure

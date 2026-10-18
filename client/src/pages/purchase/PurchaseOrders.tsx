@@ -1,4 +1,5 @@
 import { PricingBundleLink, PricingBundleAddButton } from "@/components/purchase/PricingBundleActions";
+import { DelegateSupplyRows } from "@/components/purchase/DelegateSupplyRows";
 import { trpc } from "@/lib/trpc";
 import { readHistoryEntryState, writeHistoryEntryState } from "@/lib/backStack";
 import { useLocation } from "wouter";
@@ -269,7 +270,7 @@ export default function PurchaseOrders() {
   const myRequestedItemsCount = myRequestedItemsData?.total ?? 0;
 
   const { data: supplyTrackingData, isLoading: supplyTrackingLoading } =
-    trpc.purchaseOrders.supplyTracking.useQuery(undefined, { enabled: !!user && canAccessSupplyTracking });
+    trpc.purchaseOrders.supplyTracking.useQuery(undefined, { enabled: !!user && canAccessSupplyTracking, refetchInterval: user?.role === "delegate" && view === "supply" ? 30_000 : false });
   const supplyTrackingItems = supplyTrackingData?.items ?? [];
   const supplyTrackingCount = supplyTrackingData?.total ?? 0;
 
@@ -460,7 +461,7 @@ export default function PurchaseOrders() {
     const normalized = supplySearch.trim().toLowerCase();
     const normalizedAmount = normalized.replace(/[,\s]/g, "");
     const completedStatuses = new Set(["delivered_to_warehouse", "delivered_to_requester", "rejected", "cancelled", "needs_item_revision", "purchase_cancelled"]);
-    const threshold = supplyDelayFilter === "all"
+    const threshold = user?.role === "delegate" || supplyDelayFilter === "all"
       ? null
       : supplyDelayFilter === "custom"
         ? Math.max(1, Number.parseInt(supplyCustomDays || "1", 10) || 1)
@@ -518,6 +519,7 @@ export default function PurchaseOrders() {
     supplyDelegateFilter,
     canViewAllSupplyTracking,
     user?.id,
+    user?.role,
     language,
     locale,
   ]);
@@ -1160,7 +1162,7 @@ export default function PurchaseOrders() {
                 </div>
               )}
 
-              <div className="flex flex-wrap items-center gap-2">
+              {user?.role !== "delegate" && <div className="flex flex-wrap items-center gap-2">
                 <span className="text-xs font-medium text-muted-foreground me-1">{t.workflow.purchase.supplyDelayFilter}</span>
                 {([
                   ["all", t.workflow.purchase.supplyDelayAll],
@@ -1192,7 +1194,7 @@ export default function PurchaseOrders() {
                     <span className="text-xs text-muted-foreground">{t.workflow.purchase.supplyDaysOrMore}</span>
                   </div>
                 )}
-              </div>
+              </div>}
             </CardContent>
           </Card>
 
@@ -1209,7 +1211,7 @@ export default function PurchaseOrders() {
                 {t.workflow.purchase.supplyNoResults}
               </CardContent>
             </Card>
-          ) : (
+          ) : user?.role === "delegate" ? <DelegateSupplyRows items={filteredSupplyTrackingItems} /> : (
             <div className="space-y-2">
               {filteredSupplyTrackingItems.map((item: any) => {
                 const availableDays = getAvailableCalendarDays(item.requiredDate, item.delegateAssignedAt);

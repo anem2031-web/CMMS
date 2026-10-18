@@ -1,20 +1,18 @@
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useTranslation } from "@/contexts/LanguageContext";
-import { MAX_PURCHASE_DELIVERY_DAYS, purchaseRequiredDateFromSubmission, validPurchaseDeliveryDays } from "@shared/purchaseItemNeedDate";
+import { MAX_PURCHASE_DELIVERY_DAYS, purchaseNeedTimingFromDate, purchaseNeedTimingFromDays, type PurchaseItemNeedTiming } from "@shared/purchaseItemNeedDate";
 import { cn } from "@/lib/utils";
 
-export function PurchaseItemNeedFields({ index, deliveryLeadDays, legacyRequiredDate, error, onChange, now = new Date() }: {
+export function PurchaseItemNeedFields({ index, deliveryLeadDays, requiredDate, error, onChange, now = new Date() }: {
   index: number;
   deliveryLeadDays: number | null;
-  legacyRequiredDate?: string;
+  requiredDate: string;
   error?: string;
-  onChange: (days: number | null) => void;
+  onChange: (timing: PurchaseItemNeedTiming) => void;
   now?: Date;
 }) {
   const { t } = useTranslation();
-  const date = validPurchaseDeliveryDays(deliveryLeadDays)
-    ? purchaseRequiredDateFromSubmission(deliveryLeadDays, now) : legacyRequiredDate || "";
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
       <div className="space-y-2">
@@ -25,16 +23,18 @@ export function PurchaseItemNeedFields({ index, deliveryLeadDays, legacyRequired
           value={deliveryLeadDays ?? ""}
           aria-invalid={Boolean(error)}
           className={cn(error && "border-destructive focus-visible:ring-destructive")}
-          onChange={event => onChange(event.target.value === "" ? null : Number(event.target.value))}
+          onChange={event => onChange(purchaseNeedTimingFromDays(event.target.value === "" ? null : Number(event.target.value), now))}
         />
         {error && <p className="text-xs text-destructive">{error}</p>}
         <p className="text-[11px] text-muted-foreground">{t.purchaseOrders.deliveryLeadDaysHint}</p>
       </div>
       <div className="space-y-2">
         <Label htmlFor={`purchase-item-${index}-requiredDate`}>{t.purchaseOrders.requiredDate}</Label>
-        <Input id={`purchase-item-${index}-requiredDate`} type="date" value={date} readOnly className="bg-muted/40" />
+        <Input id={`purchase-item-${index}-requiredDate`} type="date" value={requiredDate} aria-invalid={Boolean(error)}
+          className={cn(error && "border-destructive focus-visible:ring-destructive")}
+          onChange={event => onChange(purchaseNeedTimingFromDate(event.target.value, now))} />
         <p className="text-[11px] text-muted-foreground">
-          {deliveryLeadDays == null && legacyRequiredDate ? t.purchaseOrders.legacyRequiredDateHint : t.purchaseOrders.requiredDateSubmissionHint}
+          {t.purchaseOrders.requiredDateSubmissionHint}
         </p>
       </div>
     </div>

@@ -49,9 +49,16 @@ export class PricingBundleService {
   }
   async list(actor: PricingBundleActor) {
     this.read(actor);
-    return rows(await this.ports.database(), sql`SELECT b.id,b.bundleNumber,b.delegateId,b.status,b.revision,b.createdAt,b.sentAt,b.effectsDone,u.name AS delegateName,
-      (SELECT COUNT(*) FROM delegate_pricing_bundle_items i WHERE i.bundleId=b.id AND i.removedAt IS NULL) AS itemCount
+    const bundles = await rows(await this.ports.database(), sql`SELECT b.id,b.bundleNumber,b.delegateId,b.status,b.revision,b.createdAt,b.sentAt,b.effectsDone,u.name AS delegateName,
+      (SELECT COUNT(*) FROM delegate_pricing_bundle_items i WHERE i.bundleId=b.id AND i.removedAt IS NULL) AS itemCount,
+      (SELECT SUM(p.estimatedTotalCost) FROM delegate_pricing_bundle_items i INNER JOIN purchase_order_items p ON p.id=i.purchaseOrderItemId WHERE i.bundleId=b.id AND i.removedAt IS NULL) AS openTotal,
+      JSON_EXTRACT(b.snapshotJson,'$.rows[*].estimatedTotalCost') AS sentTotals
       FROM delegate_pricing_bundles b INNER JOIN users u ON u.id=b.delegateId WHERE ${actor.role === "delegate" ? sql`b.delegateId=${actor.id}` : sql`1=1`} ORDER BY b.id DESC LIMIT 200`);
+    return bundles.map(({ openTotal, sentTotals, ...bundle }: any) => {
+      const totals = sentTotals == null ? null : json(sentTotals);
+      const total = bundle.status === "open" ? Number(openTotal || 0) : Array.isArray(totals) && totals.length > 0 ? totals.reduce((sum: number, value: unknown) => sum + Math.round(Number(value) * 100), 0) / 100 : null;
+      return { ...bundle, total: total != null && Number.isFinite(total) ? total : null };
+    });
   }
   async detail(actor: PricingBundleActor, id: number) {
     const tx = await this.ports.database(), bundle = await this.header(tx, actor, id);
@@ -156,8 +163,9 @@ export class PricingBundleService {
         await tx.execute(sql`INSERT INTO delegate_pricing_bundle_batches (bundleId,purchaseOrderId,pricingBatchId,purchasePackageSubmissionId) VALUES (${id},${poId},${batch.batchId},${submissionId ?? null})`);
       }
       await tx.execute(sql`UPDATE delegate_pricing_bundle_items SET reservedItemId=NULL WHERE bundleId=${id} AND removedAt IS NULL`);
-      await tx.execute(sql`UPDATE delegate_pricing_bundles SET status='sent',openDelegateId=NULL,sentAt=CURRENT_TIMESTAMP,revision=revision+1,snapshotJson=${JSON.stringify(snapshot)},pdfContent=NULL WHERE id=${id}`);
+      await tx.execute(sql`UPDATE delegate_pricing_bundles SET status='archived',openDelegateId=NULL,sentAt=CURRENT_TIMESTAMP,revision=revision+1,snapshotJson=${JSON.stringify(snapshot)},pdfContent=NULL WHERE id=${id}`);
       await this.audit(tx, actor.id, id, "pricing_bundle_sent", { itemIds: snapshot.rows.map(item => item.id) });
+      await this.audit(tx, actor.id, id, "pricing_bundle_archived", { automatic: true });
     });
     // Durable per-PO finalization retries existing notifications/audit/ticket sync, never accounting submission.
     try { return { success: true, effectsDone: await this.finish(actor, id) }; }

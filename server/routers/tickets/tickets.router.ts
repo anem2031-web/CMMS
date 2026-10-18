@@ -342,6 +342,11 @@ export const ticketsRouter = router({
     return { ...localizedTicket, currentUserTaskAssignee };
   }),
 
+  executionReferences: protectedProcedure.input(z.object({ ticketId: z.number().int().positive() })).query(async ({ input, ctx }) => {
+    const { readTicketExecutionReferences } = await import("../../_core/authz/technician-resources");
+    return readTicketExecutionReferences(ctx.user, input.ticketId);
+  }),
+
   /**
    * بنود البلاغ (المهام المتعددة داخله) — قراءة فقط.
    *
