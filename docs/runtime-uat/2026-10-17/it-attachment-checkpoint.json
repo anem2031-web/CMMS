@@ -1,0 +1,22 @@
+{
+  "attachmentCount": [
+    {
+      "count": 0
+    }
+  ],
+  "ticketImage": [
+    {
+      "id": 2040005,
+      "ticketNumber": "MT-2026-00589",
+      "hasPrimaryPhoto": 1
+    }
+  ],
+  "itAccount": [
+    {
+      "id": 19170001,
+      "username": "RADD",
+      "role": "it_manager",
+      "isActive": 1
+    }
+  ]
+}

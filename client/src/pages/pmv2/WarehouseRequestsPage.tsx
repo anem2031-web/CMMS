@@ -8,6 +8,8 @@ import {
 } from "@shared/maintenance-team-tickets/warehouse-navigation";
 import Pmv2WarehouseQueue from "./Pmv2WarehouseQueue";
 import TicketWarehouseRequests from "../maintenance-teams/TicketWarehouseRequests";
+import OperationalWarehouseRequests from "../operational-issues/OperationalWarehouseRequests";
+import { operationalIssueText } from "@/i18n/operationalIssues";
 
 export default function WarehouseRequestsPage() {
   const { language, dir } = useTranslation();
@@ -21,7 +23,7 @@ export default function WarehouseRequestsPage() {
       className="space-y-4"
       onValueChange={value =>
         navigate(
-          value === "tickets"
+          value === "operational" ? `${WAREHOUSE_REQUESTS_PATH}?source=operational` : value === "tickets"
             ? warehouseRequestsLink()
             : WAREHOUSE_REQUESTS_PATH
         )
@@ -44,10 +46,12 @@ export default function WarehouseRequestsPage() {
               ? "مرمت کے ٹکٹ"
               : "Maintenance Tickets"}
         </TabsTrigger>
+        <TabsTrigger value="operational">{operationalIssueText[language].title}</TabsTrigger>
       </TabsList>
       <TabsContent value="pmv2">
         {source === "pmv2" && <Pmv2WarehouseQueue />}
       </TabsContent>
+      <TabsContent value="operational">{source === "operational" && <OperationalWarehouseRequests />}</TabsContent>
       <TabsContent value="tickets">
         {source === "tickets" && (
           <TicketWarehouseRequests ticketId={ticketId} />

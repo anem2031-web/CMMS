@@ -114,27 +114,8 @@ export default function CreateTicket({ linkedPmv2ItemId, onCreated, onCancel, on
 
   const at = (t as any).attachments || {};
 
-  const createAttachmentMut = trpc.attachments.add.useMutation();
-
   const createMut = trpc.tickets.create.useMutation({
-    onSuccess: async (data) => {
-      const doneEntries = fileEntries.filter(e => e.status === "done" && e.url);
-      for (const entry of doneEntries) {
-        try {
-          await createAttachmentMut.mutateAsync({
-            entityType: "ticket",
-            entityId: data.id!,
-            fileName: entry.file.name,
-            fileUrl: entry.url!,
-            // ✅ استخدام fileKey النظيف القادم من السيرفر مباشرة بدل استخراجه يدوياً من الرابط
-            fileKey: entry.fileKey || entry.file.name,
-            mimeType: entry.file.type,
-            fileSize: entry.file.size,
-          });
-        } catch (err) {
-          console.error("Failed to save attachment:", err);
-        }
-      }
+    onSuccess: (data) => {
       toast.success(pmv2TaskItemId ? `${t.workflow.ticket.pmv2TicketCreated}: ${data.ticketNumber}` : `${t.tickets.createNew} ${data.ticketNumber}`);
       if (onCreated) onCreated(data.id!);
       else setLocation(`/tickets/${data.id}`);
@@ -330,6 +311,13 @@ if (f.size > maxSize) {
     createMut.mutate({
       ...form,
       beforePhotoUrl: freshBeforePhotoUrl,
+      attachments: fileEntries.filter(e => e.status === "done" && e.url).map(entry => ({
+        fileName: entry.file.name,
+        fileUrl: entry.url!,
+        fileKey: entry.fileKey || entry.file.name,
+        mimeType: entry.file.type,
+        fileSize: entry.file.size,
+      })),
       categoryId: form.categoryId ? parseInt(form.categoryId) : undefined,
       siteId: form.siteId ? parseInt(form.siteId) : undefined,
       sectionId: form.sectionId ? parseInt(form.sectionId) : undefined,
@@ -460,7 +448,7 @@ if (f.size > maxSize) {
 
           {/* Location Detail */}
           <div className="space-y-2">
-            <Label>{t.common.other}</Label>
+            <Label>{t.tickets.reason}</Label>
             <Input value={form.locationDetail} onChange={e => setForm(f => ({ ...f, locationDetail: e.target.value }))} />
           </div>
 

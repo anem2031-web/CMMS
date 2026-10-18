@@ -1,0 +1,7 @@
+{
+  "current": 663,
+  "baseline": 663,
+  "baselineSource": "Earlier HEAD in-memory comparison; excludes the new parent-completion test absent from HEAD",
+  "newFileDiagnostics": [],
+  "added": []
+}

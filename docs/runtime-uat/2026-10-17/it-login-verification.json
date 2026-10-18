@@ -1,0 +1,16 @@
+{
+  "database": "copycmms",
+  "checkedAtUtc": "2026-10-17T08:00:55.448Z",
+  "matchingAccounts": 1,
+  "checks": [
+    {
+      "id": 19170001,
+      "username": "RADD",
+      "role": "it_manager",
+      "isActive": 1,
+      "hasPassword": true,
+      "suppliedPasswordMatches": true
+    }
+  ],
+  "mode": "READ_ONLY_NO_CREDENTIAL_CHANGES"
+}

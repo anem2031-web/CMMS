@@ -1,0 +1,44 @@
+{
+  "status": "FIXED_LOCALLY_PENDING_DEPLOYMENT",
+  "finding": "UAT-10",
+  "cause": "The read-only banner selected the IT message only for maintenance managers. An unclaimed IT ticket viewed by an IT team member fell through to the Construction message.",
+  "changes": [
+    "Select IT text from the ticket department before considering other read-only messages.",
+    "Show the waiting-for-IT-team-claim text only for unassigned department_tasks tickets in department_planning.",
+    "Use the responsible IT team member text after claim; retain Construction and out-of-department messages.",
+    "Provide matching Arabic, English and Urdu text."
+  ],
+  "productionFiles": [
+    "client/src/pages/tickets/TicketDetail.tsx",
+    "client/src/i18n/ar.ts",
+    "client/src/i18n/en.ts",
+    "client/src/i18n/ur.ts"
+  ],
+  "tests": {
+    "newCases": 27,
+    "totalPassed": 121,
+    "failed": 0,
+    "languages": [
+      "ar",
+      "en",
+      "ur"
+    ],
+    "ui": "Actual page predicates and banner JSX rendered offline with real translation dictionaries; existing server read-only guard tested with a database stub.",
+    "typecheck": {
+      "current": 663,
+      "baseline": 663,
+      "baselineSource": "Earlier HEAD in-memory comparison; excludes the new parent-completion test absent from HEAD",
+      "newTestDiagnostics": [],
+      "added": []
+    }
+  },
+  "databaseConnection": false,
+  "databaseSchemaChanged": false,
+  "sqlCommandsRequired": false,
+  "permissionsChanged": false,
+  "claimWorkflowChanged": false,
+  "historicalRecordsChanged": false,
+  "railwayChanged": false,
+  "deployedVerification": false,
+  "workspace": "C:/Users/mh/Desktop/CMMSFINAL"
+}

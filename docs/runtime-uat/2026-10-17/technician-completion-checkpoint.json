@@ -1,0 +1,47 @@
+{
+  "assignment": [
+    {
+      "id": 30002,
+      "stage": "awaiting_review",
+      "outcome": "fixed",
+      "revision": 10
+    }
+  ],
+  "need": [
+    {
+      "id": 30001,
+      "requestedQuantity": 3,
+      "usedQuantity": 2
+    }
+  ],
+  "actions": [
+    {
+      "id": 30015,
+      "kind": "visit_ended",
+      "note": "{\"version\":1,\"visitKey\":\"mtt:4abc53d9-2c0f-4c8f-8928-41ec2156a45c\"}",
+      "revision": 10,
+      "createdAt": "2026-10-17 07:15:40"
+    },
+    {
+      "id": 30014,
+      "kind": "fixed",
+      "note": "اختبار UAT فقط: اكتمل الإصلاح التجريبي باستخدام قطعتين من أصل ثلاث قطع مصروفة، وستعاد القطعة المتبقية إلى مستودع الفريق. لا تنفيذ ميداني حقيقي.",
+      "revision": 9,
+      "createdAt": "2026-10-17 07:15:24"
+    },
+    {
+      "id": 30013,
+      "kind": "execution_started",
+      "note": "{\"version\":1,\"visitKey\":\"mtt:4abc53d9-2c0f-4c8f-8928-41ec2156a45c\",\"materialRound\":1}",
+      "revision": 8,
+      "createdAt": "2026-10-17 07:15:05"
+    },
+    {
+      "id": 30012,
+      "kind": "warehouse_issue",
+      "note": "صرف المواد إلى سهيل فدا",
+      "revision": 7,
+      "createdAt": "2026-10-17 07:13:36"
+    }
+  ]
+}

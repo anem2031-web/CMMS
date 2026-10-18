@@ -50,6 +50,7 @@ import { ENV } from '../env';
 
 import { getDb } from "./client";
 import { calculateInventoryValue, calculateMovementTotal, normalizeInventoryQuantity } from "../inventory-costing";
+import { operationalIssuesEnabled } from "../../services/operational-issues/feature";
 
 // ============================================================
 // INVENTORY
@@ -311,6 +312,7 @@ export async function updateInventoryItem(id: number, data: any) {
 }
 
 export async function addInventoryTransaction(data: any) {
+  if (data.type === "out" && operationalIssuesEnabled()) throw new Error("الصرف يتطلب سندًا مرتبطًا ببلاغ أو مهمة أو أمر صرف تشغيلي معتمد");
   const db = await getDb();
   if (!db) return;
 

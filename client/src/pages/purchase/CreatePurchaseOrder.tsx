@@ -1,5 +1,10 @@
 import { trpc } from "@/lib/trpc";
 import { CatalogPickerDialog } from "@/components/catalog/CatalogPickerDialog";
+import { CatalogStockField } from "@/components/purchase/CatalogStockField";
+import { PurchaseItemNeedFields } from "@/components/purchase/PurchaseItemNeedFields";
+import { DEFAULT_PURCHASE_DELIVERY_DAYS, validPurchaseDeliveryDays } from "@shared/purchaseItemNeedDate";
+import { useAuth } from "@/_core/hooks/useAuth";
+import { canRoleAccessPath } from "@shared/roles";
 import { goBackOrFallback } from "@/lib/backStack";
 import { useLocation, useSearch, useRoute } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -9,8 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { ArrowRight, Plus, Trash2, Loader2, ShoppingCart, Camera, Link2, Upload, BookOpen, FilePlus, Save, AlertCircle } from "lucide-react";
+import { ArrowRight, Plus, Trash2, Loader2, ShoppingCart, Camera, Link2, Upload, BookOpen, Save, AlertCircle } from "lucide-react";
 import DropZone, { type UploadedFile } from "@/components/common/DropZone";
 import { useState, useMemo, useRef, useEffect } from "react";
 import { toast } from "sonner";
@@ -24,7 +28,6 @@ import {
 } from "@/lib/purchaseOrderValidation";
 import { getLocalizedItemField } from "@/hooks/useContentTranslation";
 import { getLocalizedCatalogDescription, getLocalizedCatalogName, getLocalizedCatalogUnitName, resolveCatalogUnit } from "@/i18n/catalogMasterData";
-import { getDefaultRequiredDate } from "@/lib/purchaseItemTiming";
 import { getLocalizedName } from "@/hooks/useTranslatedField";
 import { WarehousePurchaseQuantities } from "../maintenance-teams/WarehousePurchaseQuantities";
 import { MAX_TICKET_PURCHASE_QUANTITY, validWarehouseExtra } from "@shared/maintenance-team-tickets/purchase-quantities";
@@ -40,6 +43,7 @@ type ItemForm = {
   quantity: number;
   unit: string;
   requiredDate: string;
+  deliveryLeadDays: number | null;
 
   photoUrls: string[];
   notes: string;
@@ -47,7 +51,7 @@ type ItemForm = {
   _catalogNameEn?: string;
 };
 
-type ItemValidationField = "itemName" | "quantity" | "requiredDate" | "unit";
+type ItemValidationField = "itemName" | "quantity" | "deliveryLeadDays" | "unit";
 
 type PurchaseFormErrors = {
   siteId?: string;
@@ -58,8 +62,8 @@ type PurchaseFormErrors = {
 
 const emptyPurchaseFormErrors = (): PurchaseFormErrors => ({ items: {} });
 
-const emptyItem = (defaultUnit = "", requiredDate = getDefaultRequiredDate()): ItemForm => ({
-  sourceType: "manual",
+const emptyItem = (defaultUnit = ""): ItemForm => ({
+  sourceType: "catalog",
   catalogItemId: null,
 
   itemName: "",
@@ -67,67 +71,18 @@ const emptyItem = (defaultUnit = "", requiredDate = getDefaultRequiredDate()): I
 
   quantity: 1,
   unit: defaultUnit,
-  requiredDate,
+  requiredDate: "",
+  deliveryLeadDays: DEFAULT_PURCHASE_DELIVERY_DAYS,
 
   photoUrls: [],
   notes: ""
 });
 
-// ── Add Item Choice Dialog ─────────────────────────────────────────────────
-function AddItemChoiceDialog({
-  open,
-  onClose,
-  onChooseCatalog,
-  onChooseNew,
-}: {
-  open: boolean;
-  onClose: () => void;
-  onChooseCatalog: () => void;
-  onChooseNew: () => void;
-}) {
-  const { t } = useTranslation();
-  return (
-    <Dialog open={open} onOpenChange={o => { if (!o) onClose(); }}>
-      <DialogContent className="max-w-sm">
-        <DialogHeader>
-          <DialogTitle className="text-center">{t.workflow.purchase.addItem}</DialogTitle>
-        </DialogHeader>
-        <div className="grid grid-cols-2 gap-3 pt-2">
-          <button
-            onClick={() => { onClose(); onChooseCatalog(); }}
-            className="flex flex-col items-center gap-3 p-5 rounded-xl border-2 border-primary/20 hover:border-primary hover:bg-primary/5 transition-all"
-          >
-            <div className="p-3 rounded-full bg-primary/10">
-              <BookOpen className="w-6 h-6 text-primary" />
-            </div>
-            <div className="text-center">
-              <p className="font-semibold text-sm">{t.workflow.purchase.fromCatalog}</p>
-              <p className="text-xs text-muted-foreground mt-0.5">{t.workflow.purchase.chooseRegisteredItems}</p>
-            </div>
-          </button>
-          <button
-            onClick={() => { onClose(); onChooseNew(); }}
-            className="flex flex-col items-center gap-3 p-5 rounded-xl border-2 border-muted hover:border-muted-foreground/40 hover:bg-muted/30 transition-all"
-          >
-            <div className="p-3 rounded-full bg-muted">
-              <FilePlus className="w-6 h-6 text-muted-foreground" />
-            </div>
-            <div className="text-center">
-              <p className="font-semibold text-sm">{t.workflow.purchase.newItem}</p>
-              <p className="text-xs text-muted-foreground mt-0.5">{t.workflow.purchase.enterManually}</p>
-            </div>
-          </button>
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
 // ── Main Component ─────────────────────────────────────────────────────────
 export default function CreatePurchaseOrder() {
   const [, setLocation] = useLocation();
   const { t, language, dir } = useTranslation();
-  const defaultRequiredDate = useMemo(() => getDefaultRequiredDate(), []);
+  const { user } = useAuth();
   const searchStr = useSearch();
   const params = new URLSearchParams(searchStr);
   const ticketId = params.get("ticketId") ? parseInt(params.get("ticketId")!) : undefined;
@@ -275,7 +230,8 @@ export default function CreatePurchaseOrder() {
     const map: Partial<Record<string, { field: ItemValidationField; message: string }>> = {
       itemName: { field: "itemName", message: itemMessage(t.purchaseOrders.validationItemNameRequired, itemIndex) },
       quantity: { field: "quantity", message: itemMessage(t.purchaseOrders.validationQuantityInvalid, itemIndex) },
-      requiredDate: { field: "requiredDate", message: itemMessage(t.purchaseOrders.validationRequiredDate, itemIndex) },
+      requiredDate: { field: "deliveryLeadDays", message: itemMessage(t.purchaseOrders.validationDeliveryLeadDays, itemIndex) },
+      deliveryLeadDays: { field: "deliveryLeadDays", message: itemMessage(t.purchaseOrders.validationDeliveryLeadDays, itemIndex) },
       unit: { field: "unit", message: itemMessage(t.purchaseOrders.validationUnitRequired, itemIndex) },
     };
     const mapped = typeof field === "string" ? map[field] : undefined;
@@ -357,11 +313,21 @@ export default function CreatePurchaseOrder() {
         description: "",
         quantity: materialPurchaseTotalUnits,
         unit: materialUnit,
-        requiredDate: defaultRequiredDate,
+        requiredDate: "",
+        deliveryLeadDays: DEFAULT_PURCHASE_DELIVERY_DAYS,
         photoUrls: [],
         notes: `${isTicketMaterial ? "تذكرة الصيانة" : "PM V2"} ${materialTaskNumber}${materialItemCode ? ` · ${t.workflow.purchase.pmv2CodeLabel} ${materialItemCode}` : ""} · ${t.workflow.purchase.pmv2ShortageLinkedQty} ${materialMinimumPurchaseUnits} ${materialUnit}`.trim(),
       }]
-    : [emptyItem("", defaultRequiredDate)]);
+    : [emptyItem()]);
+
+  const canReadCatalogStock = canRoleAccessPath(user?.role, "/inventory");
+  const stockCatalogItemIds = useMemo(() => Array.from(new Set(items
+    .filter(item => item.sourceType === "catalog" && Number(item.catalogItemId) > 0)
+    .map(item => Number(item.catalogItemId)))).sort((a, b) => a - b), [items]);
+  const catalogStock = trpc.inventory.catalogStock.useQuery(
+    { catalogItemIds: stockCatalogItemIds },
+    { enabled: canReadCatalogStock && stockCatalogItemIds.length > 0, staleTime: 15_000, retry: false, refetchOnWindowFocus: false },
+  );
 
   // Catalog item names are governed master data. If the viewer changes the UI
   // language while the form is still open, keep the read-only catalog name in
@@ -398,7 +364,7 @@ export default function CreatePurchaseOrder() {
       const current = prev.find(item => Number(item.catalogItemId) === materialCatalogItemId) || prev[0];
       const canonicalUnit = String(materialResolvedCatalogUnit?.nameAr || current?.unit || materialUnit || "").trim();
       const lockedItem: ItemForm = {
-        ...(current || emptyItem("", defaultRequiredDate)),
+        ...(current || emptyItem()),
         sourceType: "catalog",
         catalogItemId: materialCatalogItemId,
         itemName: materialItemName,
@@ -413,7 +379,7 @@ export default function CreatePurchaseOrder() {
         && prev[0].unit === canonicalUnit;
       return alreadyLocked ? prev : [lockedItem];
     });
-  }, [hasMaterialPurchaseContext, materialCatalogItemId, materialItemName, materialPurchaseTotalUnits, materialResolvedCatalogUnit?.nameAr, materialUnit, draftLoaded, defaultRequiredDate]);
+  }, [hasMaterialPurchaseContext, materialCatalogItemId, materialItemName, materialPurchaseTotalUnits, materialResolvedCatalogUnit?.nameAr, materialUnit, draftLoaded]);
 
   // تحميل أصناف المسودة عند فتح صفحة التعديل
   useEffect(() => {
@@ -431,7 +397,8 @@ export default function CreatePurchaseOrder() {
           description: getLocalizedItemField(i, "description", language) || i.description || "",
           quantity: i.quantity || 1,
           unit: i.unit || t.purchaseOrders.defaultUnit,
-          requiredDate: i.requiredDate || getDefaultRequiredDate(draftPO.createdAt ? new Date(draftPO.createdAt) : new Date()),
+          requiredDate: i.requiredDate || "",
+          deliveryLeadDays: i.deliveryLeadDays ?? (i.requiredDate ? null : DEFAULT_PURCHASE_DELIVERY_DAYS),
           photoUrls: i.photoUrls || (i.photoUrl ? [i.photoUrl] : []),
           notes: i.notes || "",
           _existingId: i.id, // نحفظ id الصنف الأصلي
@@ -454,13 +421,12 @@ export default function CreatePurchaseOrder() {
   const [showDropZoneIdx, setShowDropZoneIdx] = useState<number | null>(null);
 
   // ── Dialog States ──────────────────────────────────────────
-  const [showChoiceDialog, setShowChoiceDialog] = useState(true);
   const [showCatalogPicker, setShowCatalogPicker] = useState(false);
   const [catalogTargetIndex, setCatalogTargetIndex] = useState<number | null>(null);
 
   const updateItem = (idx: number, field: keyof ItemForm, value: any) => {
     setItems(prev => prev.map((item, i) => i === idx ? { ...item, [field]: value } : item));
-    if (["itemName", "quantity", "requiredDate", "unit"].includes(field)) {
+    if (["itemName", "quantity", "deliveryLeadDays", "unit"].includes(field)) {
       setFormErrors(prev => {
         const current = prev.items[idx];
         if (!current?.[field as ItemValidationField]) return prev;
@@ -539,7 +505,7 @@ const handleCatalogSelect = (catalogItem: any) => {
     purchaseItemsForSubmit().map(i => ({
       catalogItemId: i.catalogItemId,
       itemName:    i.itemName,
-      requiredDate: i.requiredDate,
+      ...(i.deliveryLeadDays != null ? { deliveryLeadDays: i.deliveryLeadDays } : { requiredDate: i.requiredDate }),
       description: i.description || undefined,
       quantity:    hasMaterialPurchaseContext ? materialPurchaseTotalUnits : i.quantity,
       unit:        i.unit || undefined,
@@ -615,8 +581,8 @@ const handleCatalogSelect = (catalogItem: any) => {
         addItemError(itemIndex, "quantity", itemMessage(t.purchaseOrders.validationQuantityInvalid, itemIndex));
       }
 
-      if (!isValidPurchaseRequiredDate(item.requiredDate)) {
-        addItemError(itemIndex, "requiredDate", itemMessage(t.purchaseOrders.validationRequiredDate, itemIndex));
+      if (item.deliveryLeadDays != null ? !validPurchaseDeliveryDays(item.deliveryLeadDays) : !isValidPurchaseRequiredDate(item.requiredDate)) {
+        addItemError(itemIndex, "deliveryLeadDays", itemMessage(t.purchaseOrders.validationDeliveryLeadDays, itemIndex));
       }
 
       if (hasMaterialPurchaseContext && itemIndex === 0 && !String(item.unit || "").trim()) {
@@ -650,7 +616,7 @@ const handleCatalogSelect = (catalogItem: any) => {
         id: i._existingId || undefined,
         catalogItemId: i.catalogItemId ?? null,
         itemName: i.itemName,
-        requiredDate: i.requiredDate,
+        ...(i.deliveryLeadDays != null ? { deliveryLeadDays: i.deliveryLeadDays } : { requiredDate: i.requiredDate }),
         description: i.description || undefined,
         quantity: hasMaterialPurchaseContext ? materialPurchaseTotalUnits : i.quantity,
         unit: i.unit || undefined,
@@ -942,9 +908,19 @@ const handleCatalogSelect = (catalogItem: any) => {
           }}
           className="w-full h-10 rounded-md border bg-background px-3 text-sm"
         >
-          <option value="manual">{t.purchaseOrders.itemSourceManual}</option>
+          {(item as any)._existingId && item.sourceType === "manual" && (
+            <option value="manual">{t.purchaseOrders.legacyManualItem}</option>
+          )}
           <option value="catalog">{t.purchaseOrders.itemSourceCatalog}</option>
         </select>
+        {!isMaterialBoundItem && (
+          <Button variant="outline" size="sm" className="gap-2" onClick={() => {
+            setCatalogTargetIndex(idx);
+            setShowCatalogPicker(true);
+          }}>
+            <BookOpen className="w-4 h-4" />{t.workflow.purchase.fromCatalog}
+          </Button>
+        )}
       </div>
 
       {/* اسم الصنف */}
@@ -974,6 +950,15 @@ const handleCatalogSelect = (catalogItem: any) => {
         <p className="text-[11px] text-muted-foreground text-start">
           {item.itemName.length} / 300
         </p>
+        {item.sourceType === "catalog" && item.catalogItemId != null && (
+          <CatalogStockField
+            stock={catalogStock.data?.find(value => value.catalogItemId === item.catalogItemId)}
+            loading={catalogStock.isFetching}
+            failed={catalogStock.isError}
+            canRead={canReadCatalogStock}
+            units={catalogUnits || []}
+          />
+        )}
       </div>
 
       {/* الوصف */}
@@ -994,21 +979,17 @@ const handleCatalogSelect = (catalogItem: any) => {
         </p>
       </div>
 
-      {/* تاريخ الاحتياج — افتراضيًا بعد 4 أيام تقويمية ويمكن تعديله لكل صنف */}
-      <div className="space-y-2">
-        <Label>{t.purchaseOrders.requiredDate} *</Label>
-        <Input
-          id={`purchase-item-${idx}-requiredDate`}
-          type="date"
-          value={item.requiredDate}
-          required
-          aria-invalid={Boolean(itemErrors.requiredDate)}
-          className={cn(itemErrors.requiredDate && "border-destructive focus-visible:ring-destructive")}
-          onChange={e => updateItem(idx, "requiredDate", e.target.value)}
-        />
-        {itemErrors.requiredDate && <p className="text-xs text-destructive">{itemErrors.requiredDate}</p>}
-        <p className="text-[11px] text-muted-foreground">{t.purchaseOrders.requiredDateDefaultHint}</p>
-      </div>
+      <PurchaseItemNeedFields
+        index={idx}
+        deliveryLeadDays={item.deliveryLeadDays}
+        legacyRequiredDate={item.requiredDate}
+        error={itemErrors.deliveryLeadDays}
+        onChange={days => {
+          updateItem(idx, "deliveryLeadDays", days);
+          // Once edited, an empty duration must not silently reuse a legacy date.
+          if (item.requiredDate) updateItem(idx, "requiredDate", "");
+        }}
+      />
 
       {/* الكمية والوحدة والصورة */}
       <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
@@ -1203,7 +1184,7 @@ const handleCatalogSelect = (catalogItem: any) => {
 {!hasMaterialPurchaseContext && (
   <Button
     variant="outline"
-    onClick={() => setItems(prev => [...prev, emptyItem("", defaultRequiredDate)])}
+    onClick={() => setItems(prev => [...prev, emptyItem()])}
     className="w-full gap-2 border-dashed h-12"
   >
     <Plus className="w-4 h-4" /> {t.common.add}
@@ -1271,8 +1252,6 @@ const handleCatalogSelect = (catalogItem: any) => {
           </CardContent>
         </Card>
       </div>
-
-      {/* Dialog اختيار طريقة الإضافة */}
 
       {/* Dialog الكاتلوج */}
       <CatalogPickerDialog

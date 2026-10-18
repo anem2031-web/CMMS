@@ -12,7 +12,7 @@ import { assertTicketReadable } from "../tickets/tickets.access";
 
 const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(value => !Number.isNaN(Date.parse(value)) && new Date(value).toISOString().slice(0, 10) === value, "التاريخ غير صالح");
 const reportInput = z.object({
-  source: z.enum(["all", "ticket", "pmv2", "independent"]).default("all"),
+  source: z.enum(["all", "ticket", "pmv2", "independent", "operational"]).default("all"),
   groupBy: z.enum(["site", "section", "asset", "document"]).default("site"),
   siteId: z.number().int().positive().optional(), sectionId: z.number().int().positive().optional(), assetId: z.number().int().positive().optional(),
   from: date.optional(), to: date.optional(), page: z.number().int().min(1).default(1),
@@ -31,7 +31,13 @@ async function scopeIssues(issues: MaterialCostIssue[], user: { id: number; role
   for (const ticket of tickets) ticketIds.add(ticket.id);
   const tasks = await connection.select({ id: pmv2Tasks.id }).from(pmv2Tasks).innerJoin(pmv2ExecutionActor, pmv2ExecutionActorCondition(user.id)).where(pmv2ExecutionTeamCondition(user.id, pmv2Tasks.teamId));
   const taskIds = new Set<number>(tasks.map((task: any) => Number(task.id)));
+  const operationalIds = new Set<number>();
+  if (issues.some(issue => issue.source === "operational")) {
+    const [orders]: any = await connection.execute(sql`SELECT id FROM operational_issue_orders WHERE createdById=${user.id}`);
+    for (const order of orders) operationalIds.add(Number(order.id));
+  }
   return issues.filter(issue => issue.source === "pmv2" ? taskIds.has(issue.sourceId!)
+    : issue.source === "operational" ? operationalIds.has(issue.sourceId!)
     : issue.source === "independent" ? false : ticketIds.has(issue.sourceId!));
 }
 

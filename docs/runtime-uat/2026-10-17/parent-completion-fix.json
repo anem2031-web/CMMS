@@ -1,0 +1,44 @@
+{
+  "status": "FIXED_LOCALLY_PENDING_DEPLOYMENT",
+  "finding": "UAT-11",
+  "cause": "Only existing child tickets were counted, ignoring non-cancelled tasks that had not yet been promoted.",
+  "result": {
+    "oneClosedChildAndOneUnpromotedTask": {
+      "finished": 1,
+      "total": 2,
+      "percent": 50,
+      "closeButton": false
+    },
+    "completedFamily": {
+      "percent": 100,
+      "closeButton": "Existing authorized manager/supervisor only"
+    },
+    "cancelledTasks": "Do not block completion",
+    "promotedTasks": "Counted once through their child tickets",
+    "emptyFamily": "Never complete"
+  },
+  "productionFiles": [
+    "shared/ticketUiRules.ts",
+    "server/routers/tickets/tickets.workflow.ts",
+    "server/_core/db/tickets.ts",
+    "client/src/pages/tickets/TicketDetail.tsx",
+    "client/src/pages/tickets/GeneralTicketsList.tsx",
+    "client/src/i18n/ar.ts",
+    "client/src/i18n/en.ts",
+    "client/src/i18n/ur.ts"
+  ],
+  "queryScope": "Existing page query adds aggregate pending-task count; task/child visibility filters and existing closure mutation remain unchanged.",
+  "tests": {
+    "new": 22,
+    "related": 54,
+    "totalPassed": 76,
+    "evidence": "parent-completion-tests.json",
+    "typeCheckEvidence": "parent-completion-typecheck.json"
+  },
+  "databaseConnection": false,
+  "databaseSchemaChanged": false,
+  "sqlCommandsRequired": false,
+  "railwayChanged": false,
+  "deployedVerification": false,
+  "workspace": "C:/Users/mh/Desktop/CMMSFINAL"
+}

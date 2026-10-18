@@ -1,0 +1,51 @@
+[
+  {
+    "entry": "./server/routers/index.ts",
+    "success": true,
+    "bytes": 3182086,
+    "warnings": [
+      {
+        "text": "Import \"getAllVendors\" will always be undefined because there is no matching export in \"workspace:C:\\\\Users\\\\mh\\\\Desktop\\\\CMMSFINAL\\\\server\\\\_core\\\\db\\\\index.ts\"",
+        "file": "workspace:C:\\Users\\mh\\Desktop\\CMMSFINAL\\server\\routers\\purchase\\vendors.router.ts",
+        "line": 9
+      },
+      {
+        "text": "Import \"getVendorById\" will always be undefined because there is no matching export in \"workspace:C:\\\\Users\\\\mh\\\\Desktop\\\\CMMSFINAL\\\\server\\\\_core\\\\db\\\\index.ts\"",
+        "file": "workspace:C:\\Users\\mh\\Desktop\\CMMSFINAL\\server\\routers\\purchase\\vendors.router.ts",
+        "line": 15
+      },
+      {
+        "text": "Import \"createVendor\" will always be undefined because there is no matching export in \"workspace:C:\\\\Users\\\\mh\\\\Desktop\\\\CMMSFINAL\\\\server\\\\_core\\\\db\\\\index.ts\"",
+        "file": "workspace:C:\\Users\\mh\\Desktop\\CMMSFINAL\\server\\routers\\purchase\\vendors.router.ts",
+        "line": 30
+      },
+      {
+        "text": "Import \"updateVendor\" will always be undefined because there is no matching export in \"workspace:C:\\\\Users\\\\mh\\\\Desktop\\\\CMMSFINAL\\\\server\\\\_core\\\\db\\\\index.ts\"",
+        "file": "workspace:C:\\Users\\mh\\Desktop\\CMMSFINAL\\server\\routers\\purchase\\vendors.router.ts",
+        "line": 47
+      },
+      {
+        "text": "Import \"deleteVendor\" will always be undefined because there is no matching export in \"workspace:C:\\\\Users\\\\mh\\\\Desktop\\\\CMMSFINAL\\\\server\\\\_core\\\\db\\\\index.ts\"",
+        "file": "workspace:C:\\Users\\mh\\Desktop\\CMMSFINAL\\server\\routers\\purchase\\vendors.router.ts",
+        "line": 55
+      }
+    ]
+  },
+  {
+    "entry": "./client/src/App.tsx",
+    "success": true,
+    "bytes": 5157281,
+    "warnings": [
+      {
+        "text": "Duplicate \"placeholder\" attribute in JSX element",
+        "file": "workspace:C:\\Users\\mh\\Desktop\\CMMSFINAL\\client\\src\\pages\\inventory\\InventoryStandaloneReceive.tsx",
+        "line": 900
+      },
+      {
+        "text": "Duplicate \"placeholder\" attribute in JSX element",
+        "file": "workspace:C:\\Users\\mh\\Desktop\\CMMSFINAL\\client\\src\\pages\\inventory\\WarehouseReceiveV2.tsx",
+        "line": 1881
+      }
+    ]
+  }
+]

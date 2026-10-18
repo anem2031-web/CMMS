@@ -1,0 +1,23 @@
+{
+  "status": "FIXED_LOCALLY_PENDING_DEPLOYMENT",
+  "finding": "UAT-06",
+  "change": "Remove the early warehouse receipt shortcut and its green wrapper from purchase order details. Receiving remains in the existing PurchaseCycle workflow.",
+  "productionFiles": [
+    "client/src/pages/purchase/PurchaseOrderDetail.tsx"
+  ],
+  "verification": {
+    "tsxTransform": "passed",
+    "warnings": [],
+    "purchaseCycleUnchanged": true,
+    "purchaseCycleSha256": "06AD2FD73E661D33C59C3FF0E779A6EDE7DD5D60298B269FC4DEC16FF77A59E1",
+    "earlyReceiptShortcutAbsent": true
+  },
+  "databaseConnection": false,
+  "databaseSchemaChanged": false,
+  "sqlCommandsRequired": false,
+  "permissionsChanged": false,
+  "receivingWorkflowChanged": false,
+  "railwayChanged": false,
+  "deployedVerification": false,
+  "workspace": "C:/Users/mh/Desktop/CMMSFINAL"
+}

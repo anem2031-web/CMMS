@@ -2078,6 +2078,7 @@ export const purchaseOrderItems = mysqlTable("purchase_order_items", {
 	notes: text(),
 	delegateId: int(),
 	requiredDate: date({ mode: 'string' }),
+	deliveryLeadDays: int(),
 	delegateAssignedAt: timestamp({ mode: 'string' }),
 	delegateChangeRequestedById: int(),
 	delegateChangeReason: text(),

@@ -152,6 +152,7 @@ class Transaction implements TeamAssignmentTransaction {
           status: "under_inspection",
           priority: parent.priority,
           category: parent.category,
+          categoryId: parent.categoryId ?? null,
           siteId: parent.siteId,
           sectionId: parent.sectionId,
           assetId: parent.assetId,

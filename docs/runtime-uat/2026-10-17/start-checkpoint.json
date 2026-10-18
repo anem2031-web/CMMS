@@ -1,0 +1,41 @@
+{
+  "identity": {
+    "db": "copycmms",
+    "checkedUtc": "2026-10-17 07:00:44"
+  },
+  "orders": [
+    {
+      "id": 3780001,
+      "poNumber": "PR-2026-180471",
+      "status": "pending_management",
+      "ticketId": 2040004,
+      "ticketItemId": 240004
+    }
+  ],
+  "items": [
+    {
+      "id": 3750001,
+      "status": "estimated",
+      "quantity": 5,
+      "unit": "قطعة",
+      "estimatedUnitCost": "10.00",
+      "actualUnitCost": null,
+      "actualTotalCost": null,
+      "delegateId": 19110002
+    }
+  ],
+  "assignments": [
+    {
+      "id": 30002,
+      "ticketId": 2040004,
+      "stage": "waiting_material",
+      "outcome": "needs_material",
+      "revision": 5
+    }
+  ],
+  "costs": [
+    {
+      "contextRows": 0
+    }
+  ]
+}

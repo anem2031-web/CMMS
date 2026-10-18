@@ -1,0 +1,50 @@
+[
+  {
+    "file": "shared/purchaseItemNeedDate.ts",
+    "warnings": []
+  },
+  {
+    "file": "server/routers/purchase/item-need-timing.ts",
+    "warnings": []
+  },
+  {
+    "file": "server/routers/purchase/purchase-orders.router.ts",
+    "warnings": []
+  },
+  {
+    "file": "server/_core/db/purchase.ts",
+    "warnings": []
+  },
+  {
+    "file": "drizzle/schema.ts",
+    "warnings": []
+  },
+  {
+    "file": "client/src/components/purchase/PurchaseItemNeedFields.tsx",
+    "warnings": []
+  },
+  {
+    "file": "client/src/lib/purchaseItemTiming.ts",
+    "warnings": []
+  },
+  {
+    "file": "client/src/pages/purchase/CreatePurchaseOrder.tsx",
+    "warnings": []
+  },
+  {
+    "file": "client/src/pages/purchase/PurchaseOrders.tsx",
+    "warnings": []
+  },
+  {
+    "file": "client/src/i18n/ar.ts",
+    "warnings": []
+  },
+  {
+    "file": "client/src/i18n/en.ts",
+    "warnings": []
+  },
+  {
+    "file": "client/src/i18n/ur.ts",
+    "warnings": []
+  }
+]

@@ -1,0 +1,49 @@
+{
+  "database": "copycmms",
+  "allocation": [
+    {
+      "id": 120002,
+      "inventoryTransactionId": 630007,
+      "deliveryNumber": "DLV-2026-450002",
+      "quantity": "2.000",
+      "lotIssueUnitCostSnapshot": "20.0000",
+      "allocatedCostTotal": "40.00",
+      "beneficiarySiteId": 480001,
+      "beneficiarySectionId": 210002,
+      "executionSource": "ticket_named",
+      "executionId": 2040007,
+      "executionItemId": 240007,
+      "executionNumber": "MT-2026-00589-02"
+    }
+  ],
+  "transactions": [
+    {
+      "id": 630006,
+      "inventoryId": 360001,
+      "lotId": 120002,
+      "type": "in",
+      "quantity": "2.000",
+      "ticketId": null,
+      "unitCost": "20.0000",
+      "totalCost": "40.00"
+    },
+    {
+      "id": 630007,
+      "inventoryId": 360001,
+      "lotId": 120002,
+      "type": "out",
+      "quantity": "2.000",
+      "ticketId": 2040007,
+      "unitCost": "15.0000",
+      "totalCost": "30.00"
+    }
+  ],
+  "ticket": [
+    {
+      "id": 2040007,
+      "ticketNumber": "MT-2026-00589-02",
+      "status": "received_warehouse",
+      "maintenancePath": "B"
+    }
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "mode": "isolated actual client UI with fixtures; no app server or database",
+  "languages": [
+    "ar",
+    "en",
+    "ur"
+  ],
+  "durationEdit": {
+    "from": 3,
+    "to": 5,
+    "previewBefore": "2026-10-20",
+    "previewAfter": "2026-10-22",
+    "fixtureClock": "2026-10-17T12:00:00Z"
+  },
+  "dateReadonly": true,
+  "defaultViewportHorizontalOverflow": false,
+  "queueOrder": [
+    "2026-10-15 overdue",
+    "2026-10-17 due today",
+    "2026-10-20 remaining 3 days"
+  ],
+  "screenshot": "purchase-lead-days-preview-ar.jpg"
+}

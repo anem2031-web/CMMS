@@ -1,0 +1,60 @@
+{
+  "database": "copycmms",
+  "returns": [
+    {
+      "id": 210002,
+      "returnNumber": "RTN-2026-210002",
+      "sourceDeliveryDocumentId": 360002,
+      "returnedQuantity": 1,
+      "createdAt": "2026-10-17 08:25:30"
+    }
+  ],
+  "transactions": [
+    {
+      "id": 630006,
+      "lotId": 120002,
+      "type": "in",
+      "quantity": "2.000",
+      "ticketId": null,
+      "unitCost": "20.0000",
+      "totalCost": "40.00",
+      "returnId": null
+    },
+    {
+      "id": 630007,
+      "lotId": 120002,
+      "type": "out",
+      "quantity": "2.000",
+      "ticketId": 2040007,
+      "unitCost": "15.0000",
+      "totalCost": "30.00",
+      "returnId": null
+    },
+    {
+      "id": 630008,
+      "lotId": 120002,
+      "type": "in",
+      "quantity": "1.000",
+      "ticketId": 2040007,
+      "unitCost": "15.0000",
+      "totalCost": "15.00",
+      "returnId": 210002
+    }
+  ],
+  "stock": [
+    {
+      "id": 360001,
+      "warehouseId": 1,
+      "quantity": "3.000",
+      "averageCost": "15.0000",
+      "totalCostValue": "45.00"
+    },
+    {
+      "id": 360002,
+      "warehouseId": 60002,
+      "quantity": "1.000",
+      "averageCost": "10.0000",
+      "totalCostValue": "10.00"
+    }
+  ]
+}

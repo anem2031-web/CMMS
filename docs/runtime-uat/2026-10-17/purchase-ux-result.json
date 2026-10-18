@@ -1,0 +1,71 @@
+{
+  "status": "IMPLEMENTED_LOCALLY_PENDING_DEPLOYMENT",
+  "scope": [
+    "Read-only selected-catalog stock totals and warehouse breakdown in purchase creation",
+    "Rename optional ticket locationDetail label to Reason without changing storage",
+    "Delegate uses two existing item/supply views only, with original item navigation",
+    "Unified delegate purchase-required display text"
+  ],
+  "productionFiles": [
+    "shared/catalog-stock.ts",
+    "server/routers/inventory/catalog-stock.procedure.ts",
+    "server/routers/inventory/inventory.router.ts",
+    "shared/observer-native-reads.ts",
+    "client/src/components/purchase/CatalogStockField.tsx",
+    "client/src/pages/purchase/CreatePurchaseOrder.tsx",
+    "client/src/pages/purchase/PurchaseOrders.tsx",
+    "client/src/pages/tickets/CreateTicket.tsx",
+    "client/src/i18n/ar.ts",
+    "client/src/i18n/en.ts",
+    "client/src/i18n/ur.ts"
+  ],
+  "tests": {
+    "newCases": 49,
+    "totalPassed": 102,
+    "failed": 0,
+    "typecheck": {
+      "current": 662,
+      "baseline": 663,
+      "comparisonNote": "The pre-existing submitForAccounting missing-key diagnostic is compared without its expanded dictionary type, which changed when stock translations were added.",
+      "added": []
+    }
+  },
+  "browserVerification": {
+    "kind": "isolated actual UI and program CSS; explicit sample data; no app/API/database",
+    "languages": [
+      "ar",
+      "en",
+      "ur"
+    ],
+    "stockTotal": 30,
+    "warehouseQuantities": [
+      20,
+      7,
+      3
+    ],
+    "dropdownOpened": true,
+    "horizontalOverflow": false,
+    "delegateTabs": 2,
+    "screenshot": "purchase-ux-preview-ar.jpg"
+  },
+  "permissions": {
+    "existingInventoryGuardsRetained": true,
+    "noInventoryAccessExpansion": true,
+    "excludedRoles": [
+      "general_maintenance_manager",
+      "construction_procurement_manager",
+      "it_manager",
+      "it_member",
+      "technician"
+    ],
+    "observerReadOnlyEndpointReviewed": true
+  },
+  "databaseConnection": false,
+  "databaseSchemaChanged": false,
+  "sqlCommandsRequired": false,
+  "operationalIssueImplemented": false,
+  "purchaseWorkflowChanged": false,
+  "railwayChanged": false,
+  "deployedVerification": false,
+  "workspace": "C:/Users/mh/Desktop/CMMSFINAL"
+}

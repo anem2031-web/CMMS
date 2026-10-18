@@ -1,0 +1,21 @@
+{
+  "scope": "Isolated React fixture using actual TicketDetail route boundary and inspection hook code; no application API or database",
+  "checks": [
+    {
+      "name": "same_ticket_rerender_retains_input",
+      "pass": true
+    },
+    {
+      "name": "route_change_clears_notes_cause_and_severity",
+      "pass": true
+    },
+    {
+      "name": "own_saved_draft_loads",
+      "pass": true
+    },
+    {
+      "name": "embedded_ticket_change_clears_prior_input",
+      "pass": true
+    }
+  ]
+}

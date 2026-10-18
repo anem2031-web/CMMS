@@ -9,8 +9,10 @@ import { catalogSuppliers, inventory, inventoryLotBalances, inventoryLots, wareh
 import { and, desc, eq, gt, or, sql } from "drizzle-orm";
 import { issueCostAllocationsSchema } from "./issue-cost-allocation.schema";
 import { isItTeamRole, MAINTENANCE_RESPONSIBLE_DEPARTMENT } from "@shared/roles";
+import { createCatalogStockProcedure } from "./catalog-stock.procedure";
 
 export const inventoryRouter = router({
+  catalogStock: createCatalogStockProcedure(db.getDb),
   list: inventoryReadProcedure.query(async () => {
     return db.getInventoryItems();
   }),

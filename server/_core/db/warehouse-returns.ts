@@ -57,6 +57,7 @@ import { consumeInventoryLotForIssue, isInventoryLotsEnabled, resolveInventoryLo
 import { materialExecutionCostsEnabled } from "../../services/material-costs/feature";
 import { resolveExecutionCostContext } from "../../services/material-costs/context";
 import { getActiveCatalogUnitCanonicalName } from "../catalog-unit-governance";
+import { assertOperationalIssueReference, recordOperationalDelivery } from "../../services/operational-issues/issue-reference";
 
 export async function createWarehouseReturn(data: InsertWarehouseReturn, tx?: any) {
   const db = tx || await getDb();
@@ -1264,6 +1265,9 @@ export async function issueDelivery(params: {
   ticketId?:            number;
   ticketItemId?:        number;
   pmv2TaskItemId?:      number;
+  operationalIssueItemId?: number;
+  operationalOperationKey?: string;
+  operationalRequestFingerprint?: string;
   ticketNumber?:        string;
   assignedTechnicianId?: number;
   assignedTechnicianName?: string;
@@ -1316,6 +1320,12 @@ export async function issueDelivery(params: {
     await tx.execute(sql`SELECT id FROM inventory WHERE id = ${params.inventoryId} FOR UPDATE`);
     const item = await getInventoryItemById(params.inventoryId, tx);
     if (!item) throw new Error("الصنف غير موجود في المخزون");
+    const operational = await assertOperationalIssueReference(tx, {
+      ...params, selectedTicketItemId: params.costAllocations?.[0]?.ticketItemId,
+      operationKey: params.operationalOperationKey, catalogItemId: (item as any).linkedItemId ?? null,
+    });
+    if (operational && !lotsEnabled) throw new Error("الصرف التشغيلي يتطلب تتبع الدفعات");
+    const effectiveUnit = operational ? String((item as any).issueUnit || item.unit || "") : params.unit || item.unit || "";
     if (materialExecutionCostsEnabled() && params.unit) {
       const stockUnit = String((item as any).issueUnit || item.unit || "").trim();
       if (params.unit.trim() !== stockUnit) {
@@ -1349,13 +1359,17 @@ export async function issueDelivery(params: {
           deliveryQuantity,
         })
       : [];
+    if (operational && (normalizedCostAllocations.length !== 1 || normalizedCostAllocations[0].beneficiarySiteId !== operational.siteId || normalizedCostAllocations[0].beneficiarySectionId !== operational.sectionId || normalizedCostAllocations[0].beneficiaryAssetId != null)) {
+      throw new Error("جهة تحميل التكلفة يجب أن تطابق أمر الصرف التشغيلي");
+    }
 
     const lotIssueUnitCostSnapshot = lotsEnabled
       ? Number(consumedLot?.issueUnitCost ?? 0)
       : 0;
 
     const costContext = materialExecutionCostsEnabled()
-      ? await resolveExecutionCostContext(tx, {
+      ? operational ? { executionSource: "operational" as const, executionId: operational.orderId, executionItemId: operational.itemId, executionNumber: operational.orderNumber, ticketId: undefined }
+      : await resolveExecutionCostContext(tx, {
           ticketId: params.ticketId, ticketItemId: params.ticketItemId, pmv2TaskItemId: params.pmv2TaskItemId,
           selectedTicketItemId: params.costAllocations?.[0]?.ticketItemId,
           beneficiarySiteId: normalizedCostAllocations[0]?.beneficiarySiteId,
@@ -1486,7 +1500,7 @@ export async function issueDelivery(params: {
       deliveredByName: (performer as any)?.name || "مستخدم المستودع",
       deliveredToName: (receiver as any)?.name || "غير محدد",
       quantity: deliveryQuantity,
-      unit: params.unit || item.unit || undefined,
+      unit: effectiveUnit || undefined,
       supplierName,
       actualUnitCost,
       poNumber,
@@ -1494,6 +1508,14 @@ export async function issueDelivery(params: {
       notes: params.notes,
     }, tx);
     const deliveryDocumentId = Number((deliveryDocumentInsert as any)?.insertId || 0) || null;
+    if (operational) {
+      if (!deliveryDocumentId || !params.operationalOperationKey || !params.operationalRequestFingerprint) throw new Error("تعذر توثيق سند الصرف التشغيلي");
+      await recordOperationalDelivery(tx, operational, {
+        deliveryDocumentId, inventoryTransactionId, quantity: deliveryQuantity,
+        lotUnitCost: lotIssueUnitCostSnapshot, cost: calculateMovementTotal(deliveryQuantity, lotIssueUnitCostSnapshot),
+        operationKey: params.operationalOperationKey, requestFingerprint: params.operationalRequestFingerprint, actorId: params.performedById,
+      });
+    }
 
     return {
       deliveryNumber,
@@ -1503,7 +1525,7 @@ export async function issueDelivery(params: {
       executionNumber: costContext?.executionNumber ?? null,
       itemName: consumedLot?.supplierItemName || item.itemName,
       quantity: deliveryQuantity,
-      unit: params.unit || item.unit || "",
+      unit: effectiveUnit,
       inventoryTransactionId,
       lotId: consumedLot?.lotId ?? null,
       lotCode: consumedLot?.lotCode ?? null,

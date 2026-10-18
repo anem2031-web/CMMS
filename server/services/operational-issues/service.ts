@@ -1,0 +1,148 @@
+import { sql } from "drizzle-orm";
+import { createHash } from "node:crypto";
+import { TRPCError } from "@trpc/server";
+import { canCreateOperationalIssue, canProcessOperationalIssue, canReadOperationalIssue, operationalNetCost, type OperationalActor, type OperationalOrder, type OperationalLine, type OperationalDelivery } from "../../../shared/operational-issues";
+import { executionRows as rows } from "./issue-reference";
+
+export interface OperationalPorts {
+  database(): Promise<any>;
+  issue(tx: any, input: any): Promise<any>;
+  resolveLot(input: { warehouseId: number; identifier: string }): Promise<any>;
+  returnDelivery(tx: any, input: any): Promise<any>;
+}
+function deny(message = "ليس لديك صلاحية لهذا الإجراء"): never { throw new TRPCError({ code: "FORBIDDEN", message }); }
+const fingerprint = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
+export class OperationalIssueService {
+  constructor(private ports: OperationalPorts) {}
+  private actor(actor: OperationalActor, type: "create" | "warehouse" | "read") {
+    if (actor.isActive !== 1 || !(type === "create" ? canCreateOperationalIssue(actor.role) : type === "warehouse" ? canProcessOperationalIssue(actor.role) : canReadOperationalIssue(actor.role))) deny();
+  }
+  private async order(tx: any, actor: OperationalActor, id: number, lock = false): Promise<OperationalOrder> {
+    this.actor(actor, "read");
+    const [row] = await rows(tx, sql`SELECT o.*,u.name AS creatorName,c.name AS collectorName,s.name AS siteName,x.name AS sectionName
+      FROM operational_issue_orders o LEFT JOIN users u ON u.id=o.createdById LEFT JOIN users c ON c.id=o.collectorId
+      LEFT JOIN sites s ON s.id=o.siteId LEFT JOIN sections x ON x.id=o.sectionId WHERE o.id=${id} ${lock ? sql`FOR UPDATE` : sql``}`);
+    if (!row) throw new TRPCError({ code: "NOT_FOUND", message: "أمر الصرف غير موجود" });
+    if (!["warehouse", "owner", "admin", "observer"].includes(actor.role) && Number(row.createdById) !== actor.id) deny();
+    return row;
+  }
+  async list(actor: OperationalActor) {
+    this.actor(actor, "read"); const db = await this.ports.database();
+    return await rows(db, sql`SELECT o.*,u.name AS creatorName,c.name AS collectorName,s.name AS siteName,x.name AS sectionName
+      FROM operational_issue_orders o LEFT JOIN users u ON u.id=o.createdById LEFT JOIN users c ON c.id=o.collectorId
+      LEFT JOIN sites s ON s.id=o.siteId LEFT JOIN sections x ON x.id=o.sectionId
+      WHERE ${["warehouse", "owner", "admin", "observer"].includes(actor.role) ? sql`1=1` : sql`o.createdById=${actor.id}`} ORDER BY o.id DESC LIMIT 500`) as OperationalOrder[];
+  }
+  async detail(actor: OperationalActor, id: number) {
+    this.actor(actor, "read");
+    const db = await this.ports.database(); const order = await this.order(db, actor, id);
+    const items = await rows(db, sql`SELECT i.*,COALESCE((SELECT SUM(d.quantity) FROM operational_issue_deliveries d WHERE d.orderItemId=i.id),0) AS issuedQuantity FROM operational_issue_items i WHERE i.orderId=${id} ORDER BY i.id`) as OperationalLine[];
+    const deliveries = await rows(db, sql`SELECT x.*,d.deliveryNumber,l.lotCode,COALESCE((SELECT SUM(r.returnedQuantity) FROM warehouse_returns r WHERE r.sourceDeliveryDocumentId=x.deliveryDocumentId),0) AS returnedQuantity
+      FROM operational_issue_deliveries x INNER JOIN operational_issue_items i ON i.id=x.orderItemId
+      INNER JOIN delivery_documents d ON d.id=x.deliveryDocumentId LEFT JOIN inventory_lots l ON l.id=d.lotId WHERE i.orderId=${id} ORDER BY x.id`) as OperationalDelivery[];
+    return { order, items, deliveries, cost: operationalNetCost(deliveries) };
+  }
+  private async stockUnit(tx: any, catalogItemId: number, catalogUnit: string): Promise<string> {
+    const units = await rows(tx, sql`SELECT DISTINCT COALESCE(NULLIF(i.issueUnit,''),i.unit) AS unit FROM inventory i INNER JOIN warehouses w ON w.id=i.warehouseId WHERE i.linkedItemId=${catalogItemId} AND i.quantity>0 AND w.isActive=1`);
+    const names = Array.from(new Set<string>(units.map(row => String(row.unit || "").trim()).filter(Boolean)));
+    if (names.length > 1) throw new TRPCError({ code: "CONFLICT", message: "للصنف أرصدة بوحدات صرف مختلفة؛ يلزم توحيد وحدته قبل إنشاء أمر الصرف" });
+    return names[0] || catalogUnit.trim();
+  }
+  async itemUnits(actor: OperationalActor, catalogItemIds: number[]): Promise<Array<{ catalogItemId: number; unit: string }>> {
+    this.actor(actor, "read"); const tx = await this.ports.database(); const result = [];
+    for (const id of catalogItemIds) {
+      const [item] = await rows(tx, sql`SELECT id,nameAr,nameEn,unit FROM catalog_items WHERE id=${id} AND isActive=1`);
+      if (!item?.unit) throw new TRPCError({ code: "BAD_REQUEST", message: "الصنف أو وحدته غير صالحين" });
+      result.push({ catalogItemId: id, unit: await this.stockUnit(tx, id, item.unit) });
+    }
+    return result;
+  }
+  async create(actor: OperationalActor, input: { siteId: number; sectionId: number; collectorId: number; reason: string; operationKey: string; items: Array<{ catalogItemId: number; quantity: number; unit?: string }> }) {
+    this.actor(actor, "create"); const db = await this.ports.database();
+    if (!input.items.length || input.items.length > 20 || new Set(input.items.map(i => i.catalogItemId)).size !== input.items.length) throw new TRPCError({ code: "BAD_REQUEST", message: "أضف من 1 إلى 20 صنفًا دون تكرار" });
+    return db.transaction(async (tx: any) => {
+      await rows(tx, sql`SELECT id FROM users WHERE id=${actor.id} FOR UPDATE`);
+      const requestFingerprint = fingerprint({ ...input, operationKey: undefined });
+      const [existing] = await rows(tx, sql`SELECT id,orderNumber,requestFingerprint FROM operational_issue_orders WHERE operationKey=${input.operationKey} AND createdById=${actor.id}`);
+      if (existing) {
+        if (existing.requestFingerprint !== requestFingerprint) throw new TRPCError({ code: "CONFLICT", message: "معرف العملية مستخدم لأمر مختلف" });
+        return { id: existing.id, orderNumber: existing.orderNumber };
+      }
+      const [section] = await rows(tx, sql`SELECT id FROM sections WHERE id=${input.sectionId} AND siteId=${input.siteId}`);
+      const [collector] = await rows(tx, sql`SELECT id FROM users WHERE id=${input.collectorId} AND role='technician' AND isActive=1`);
+      if (!section || !collector) throw new TRPCError({ code: "BAD_REQUEST", message: "تحقق من القسم والموقع والفني النشط" });
+      const catalog: any[] = [];
+      for (const item of input.items) {
+        const [row] = await rows(tx, sql`SELECT id,nameAr,nameEn,unit FROM catalog_items WHERE id=${item.catalogItemId} AND isActive=1`);
+        if (!row?.unit || !(item.quantity >= 1) || !Number.isInteger(item.quantity)) throw new TRPCError({ code: "BAD_REQUEST", message: "الصنف أو وحدته أو الكمية غير صالحة" });
+        const unit = await this.stockUnit(tx, item.catalogItemId, row.unit);
+        if (item.unit !== undefined && item.unit.trim() !== unit) throw new TRPCError({ code: "CONFLICT", message: "تغيرت وحدة الصرف؛ حدّث بيانات الصنف قبل الحفظ" });
+        catalog.push({ ...row, unit, quantity: item.quantity });
+      }
+      const inserted = await tx.execute(sql`INSERT INTO operational_issue_orders (createdById,collectorId,siteId,sectionId,reason,operationKey,requestFingerprint,status) VALUES (${actor.id},${input.collectorId},${input.siteId},${input.sectionId},${input.reason},${input.operationKey},${requestFingerprint},'pending')`);
+      const id = Number(inserted[0].insertId); if (!id) throw new Error("تعذر إنشاء أمر الصرف");
+      const orderNumber = `OPR-${new Date().getFullYear()}-${String(id).padStart(6, "0")}`;
+      await tx.execute(sql`UPDATE operational_issue_orders SET orderNumber=${orderNumber} WHERE id=${id}`);
+      for (const item of catalog) await tx.execute(sql`INSERT INTO operational_issue_items (orderId,catalogItemId,itemName,unit,quantity) VALUES (${id},${Number(item.id)},${item.nameAr || item.nameEn},${item.unit},${item.quantity})`);
+      await this.audit(tx, actor.id, id, "operational_issue_created");
+      return { id, orderNumber };
+    });
+  }
+  async approve(actor: OperationalActor, id: number, revision: number) {
+    this.actor(actor, "warehouse");
+    const db = await this.ports.database();
+    return db.transaction(async (tx: any) => {
+      const order = await this.order(tx, actor, id, true);
+      if (order.status !== "pending" || Number(order.revision) !== revision) throw new TRPCError({ code: "CONFLICT", message: "تغير أمر الصرف؛ حدّث الصفحة" });
+      await tx.execute(sql`UPDATE operational_issue_orders SET status='approved',approvedById=${actor.id},revision=revision+1 WHERE id=${id}`);
+      await this.audit(tx, actor.id, id, "operational_issue_approved"); return { success: true };
+    });
+  }
+  async issue(actor: OperationalActor, input: { orderId: number; itemId: number; warehouseId: number; lotTrackingToken: string; quantity: number; operationKey: string }) {
+    this.actor(actor, "warehouse");
+    if (!Number.isInteger(input.quantity) || input.quantity <= 0) throw new TRPCError({ code: "BAD_REQUEST", message: "كمية الصرف التشغيلي يجب أن تكون عددًا صحيحًا موجبًا" });
+    const db = await this.ports.database();
+    return db.transaction(async (tx: any) => {
+      const order = await this.order(tx, actor, input.orderId, true);
+      const requestFingerprint = fingerprint({ ...input, operationKey: undefined });
+      const [old] = await rows(tx, sql`SELECT x.*,d.deliveryNumber FROM operational_issue_deliveries x INNER JOIN delivery_documents d ON d.id=x.deliveryDocumentId WHERE x.operationKey=${input.operationKey}`);
+      if (old) {
+        const [line] = await rows(tx, sql`SELECT id FROM operational_issue_items WHERE id=${Number(old.orderItemId)} AND orderId=${input.orderId}`);
+        if (!line || old.requestFingerprint !== requestFingerprint || Number(old.orderItemId) !== input.itemId || Number(old.quantity) !== input.quantity) throw new TRPCError({ code: "CONFLICT", message: "معرف العملية مستخدم لعملية مختلفة" });
+        return old;
+      }
+      const [line] = await rows(tx, sql`SELECT * FROM operational_issue_items WHERE id=${input.itemId} AND orderId=${input.orderId} FOR UPDATE`);
+      if (!line || order.status !== "approved") throw new TRPCError({ code: "BAD_REQUEST", message: "الصنف لا ينتمي إلى أمر معتمد" });
+      const lot = await this.ports.resolveLot({ warehouseId: input.warehouseId, identifier: input.lotTrackingToken });
+      if (Number(lot.linkedItemId) !== Number(line.catalogItemId)) throw new TRPCError({ code: "BAD_REQUEST", message: "اللوت لا يطابق الصنف المطلوب" });
+      if (String(lot.unit || "").trim() !== String(line.unit).trim()) throw new TRPCError({ code: "CONFLICT", message: "وحدة اللوت لا تطابق وحدة أمر الصرف؛ لا يتم تحويل الكمية تلقائيًا" });
+      const result = await this.ports.issue(tx, {
+        operationalIssueItemId: input.itemId, operationalOperationKey: input.operationKey, operationalRequestFingerprint: requestFingerprint,
+        inventoryId: lot.inventoryId, quantity: input.quantity, unit: String(line.unit),
+        performedById: actor.id, deliveredToId: Number(order.collectorId), lotTrackingToken: lot.trackingToken,
+        notes: `${order.orderNumber}: ${order.reason}`,
+        costAllocations: [{ beneficiarySiteId: Number(order.siteId), beneficiarySectionId: Number(order.sectionId), quantity: input.quantity }],
+      });
+      await this.audit(tx, actor.id, input.orderId, "operational_issue_delivered"); return result;
+    });
+  }
+  async returnMaterial(actor: OperationalActor, input: { orderId: number; deliveryDocumentId: number; quantity: number; reason: string; operationKey: string }) {
+    this.actor(actor, "warehouse"); const db = await this.ports.database();
+    return db.transaction(async (tx: any) => {
+      await this.order(tx, actor, input.orderId, true);
+      const [existing] = await rows(tx, sql`SELECT * FROM operational_issue_return_operations WHERE operationKey=${input.operationKey}`);
+      if (existing) {
+        if (Number(existing.orderId) !== input.orderId || Number(existing.deliveryDocumentId) !== input.deliveryDocumentId || Number(existing.quantity) !== input.quantity || existing.reason !== input.reason) throw new TRPCError({ code: "CONFLICT", message: "معرف المرتجع مستخدم لعملية أخرى" });
+        return typeof existing.resultJson === "string" ? JSON.parse(existing.resultJson) : existing.resultJson;
+      }
+      const [source] = await rows(tx, sql`SELECT d.id FROM operational_issue_deliveries d INNER JOIN operational_issue_items i ON i.id=d.orderItemId WHERE i.orderId=${input.orderId} AND d.deliveryDocumentId=${input.deliveryDocumentId}`);
+      if (!source) throw new TRPCError({ code: "BAD_REQUEST", message: "السند لا يتبع أمر الصرف" });
+      const result = await this.ports.returnDelivery(tx, { sourceDeliveryDocumentId: input.deliveryDocumentId, returnedQuantity: input.quantity, reason: input.reason, returnedById: actor.id });
+      await tx.execute(sql`INSERT INTO operational_issue_return_operations (operationKey,orderId,deliveryDocumentId,quantity,reason,resultJson) VALUES (${input.operationKey},${input.orderId},${input.deliveryDocumentId},${input.quantity},${input.reason},${JSON.stringify(result)})`);
+      await this.audit(tx, actor.id, input.orderId, "operational_issue_returned"); return result;
+    });
+  }
+  private async audit(tx: any, actorId: number, orderId: number, action: string) {
+    await tx.execute(sql`INSERT INTO audit_logs (userId,action,entityType,entityId) VALUES (${actorId},${action},'operational_issue',${orderId})`);
+  }
+}

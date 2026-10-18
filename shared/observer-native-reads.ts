@@ -1,5 +1,13 @@
 /** Native read procedures reviewed for observer visibility; unlisted/new endpoints are denied. */
 export const OBSERVER_NATIVE_READ_PATHS = [
+  "delegatePricingBundles.status",
+  "delegatePricingBundles.list",
+  "delegatePricingBundles.detail",
+  "operationalIssues.status",
+  "operationalIssues.list",
+  "operationalIssues.detail",
+  "operationalIssues.itemUnits",
+  "operationalIssues.choices",
   "materialCosts.status",
   "materialCosts.report",
   "materialCosts.document",
@@ -105,6 +113,7 @@ export const OBSERVER_NATIVE_READ_PATHS = [
   "inventory.getTransactions",
   "inventory.issueCostAllocations",
   "inventory.list",
+  "inventory.catalogStock",
   "inventory.listLots",
   "inventory.lotSummaries",
   "inventory.scanBarcode",

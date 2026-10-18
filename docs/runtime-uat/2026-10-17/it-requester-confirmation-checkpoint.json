@@ -1,0 +1,27 @@
+{
+  "database": "copycmms",
+  "checkedAtUtc": "2026-10-17T08:30:46.969Z",
+  "tickets": [
+    {
+      "id": 2040005,
+      "ticketNumber": "MT-2026-00589",
+      "status": "closed",
+      "itemId": 240005,
+      "itemStatus": "closed"
+    },
+    {
+      "id": 2040006,
+      "ticketNumber": "MT-2026-00589-01",
+      "status": "requester_confirmed",
+      "itemId": 240006,
+      "itemStatus": "requester_confirmed"
+    },
+    {
+      "id": 2040007,
+      "ticketNumber": "MT-2026-00589-02",
+      "status": "requester_confirmed",
+      "itemId": 240007,
+      "itemStatus": "requester_confirmed"
+    }
+  ]
+}

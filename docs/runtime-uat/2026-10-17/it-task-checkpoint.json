@@ -1,0 +1,19 @@
+{
+  "tasks": [
+    {
+      "id": 180003,
+      "ticketId": 2040005,
+      "ticketDepartmentId": 180003,
+      "title": "اختبار IT إصلاح بلا مواد UAT-IT01-A",
+      "status": "assigned",
+      "convertedTicketId": null,
+      "createdById": 19170001
+    }
+  ],
+  "assignees": [
+    {
+      "taskId": 180003,
+      "userId": 19170001
+    }
+  ]
+}

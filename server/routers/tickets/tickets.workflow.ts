@@ -12,7 +12,7 @@ import {
   MAINTENANCE_RESPONSIBLE_DEPARTMENT,
 } from "@shared/roles";
 import * as db from "../../_core/db";
-import { summarizeSubTicketFamily } from "@shared/ticketUiRules";
+import { countPendingSubTicketTasks, summarizeSubTicketFamily } from "@shared/ticketUiRules";
 import { detectLanguage } from "../../services/translation/translation";
 import { queueTranslation } from "../../services/translation/translationEngine";
 import {
@@ -518,6 +518,8 @@ export const ticketsWorkflowRouter = router({
     await assertTicketReadable(ctx.user, ticket as any);
     let departments = await db.getTicketDepartments(input.ticketId);
     let tasks = await db.getTicketTasks(input.ticketId);
+    // أرقام اكتمال الرأس تشمل جميع مهامه؛ تفاصيل المهام تبقى ضمن نطاق الدور أدناه.
+    const pendingTaskCount = countPendingSubTicketTasks(tasks);
     let assignees = await db.getTaskAssigneesForTasks(tasks.map((t: any) => t.id));
     if (isItTeamRole(ctx.user.role)) {
       departments = departments.filter((d: any) => d.department === MAINTENANCE_RESPONSIBLE_DEPARTMENT.IT);
@@ -546,7 +548,7 @@ export const ticketsWorkflowRouter = router({
     // لأنه أرقام تجميعية لا تكشف تفاصيل جهة أو فني آخر، ولأن نسبة اكتمال
     // منقوصة (تحسب أبناء الفني وحده) ستكون مضللة لمن يقرر الإغلاق.
     const subTickets = await db.getSubTicketsByParent(input.ticketId);
-    const subTicketsSummary = summarizeSubTicketFamily(subTickets as any);
+    const subTicketsSummary = summarizeSubTicketFamily(subTickets as any, pendingTaskCount);
     const pendingSubTickets = (subTickets as any[])
       .filter((child: any) => !["closed", "requester_confirmed"].includes(child.status))
       .map((child: any) => ({ id: child.id, ticketNumber: child.ticketNumber, status: child.status }));
@@ -698,7 +700,7 @@ export const ticketsWorkflowRouter = router({
       const primaryTechnicianId = freshAssignees[0].userId;
       const childId = await db.createTicket({
         ticketNumber, title: freshTask.title?.trim() || `${parent.title} — مهمة ${freshTask.taskNumber}`, description: freshTask.description,
-        status: "under_inspection", priority: parent.priority, category: parent.category, siteId: parent.siteId, sectionId: parent.sectionId,
+        status: "under_inspection", priority: parent.priority, category: parent.category, categoryId: parent.categoryId ?? null, siteId: parent.siteId, sectionId: parent.sectionId,
         assetId: parent.assetId, locationDetail: parent.locationDetail, reportedById: parent.reportedById, beforePhotoUrl: parent.beforePhotoUrl,
         originalLanguage: parent.originalLanguage, ticketType: parent.ticketType || "internal", supervisorId: parent.supervisorId ?? ctx.user.id,
         maintenanceResponsibleDepartment: department.department, maintenanceResponsibleManagerId: department.responsibleManagerId,

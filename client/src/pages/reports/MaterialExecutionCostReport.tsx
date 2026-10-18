@@ -9,7 +9,7 @@ import { MaterialCostRows, MaterialCostTotals } from "@/components/inventory/Mat
 
 export default function MaterialExecutionCostReport() {
   const { language } = useLanguage();
-  const [source, setSource] = useState<"all" | "ticket" | "pmv2" | "independent">("all");
+  const [source, setSource] = useState<"all" | "ticket" | "pmv2" | "independent" | "operational">("all");
   const [groupBy, setGroupBy] = useState<"site" | "section" | "asset" | "document">("site");
   const [from, setFrom] = useState(""), [to, setTo] = useState(""), [page, setPage] = useState(1);
   const [siteId, setSite] = useState(""), [sectionId, setSection] = useState(""), [assetId, setAsset] = useState("");
@@ -21,7 +21,7 @@ export default function MaterialExecutionCostReport() {
     <Card><CardHeader><CardTitle className="flex items-center justify-between">صافي تكلفة مواد التنفيذ حسب اللوت<Button variant="outline" onClick={() => void query.refetch()} disabled={query.isFetching || invalidPeriod}>تحديث</Button></CardTitle></CardHeader><CardContent className="space-y-3">
       <p className="text-sm text-muted-foreground">بلاغات بالاسم والفريق ومهام PMV2. كل حركة تُحسب مرة واحدة، دون إضافة قيمة الشراء. هذا كشف تكلفة مواد، ويعرض فرقها عن حركات المخزون بالمتوسط.</p>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <Select value={source} onValueChange={value => { setSource(value as typeof source); setPage(1); }}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">كل المصادر</SelectItem><SelectItem value="ticket">بلاغات الصيانة</SelectItem><SelectItem value="pmv2">مهام PMV2</SelectItem><SelectItem value="independent">الصرف المستقل</SelectItem></SelectContent></Select>
+        <Select value={source} onValueChange={value => { setSource(value as typeof source); setPage(1); }}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">كل المصادر</SelectItem><SelectItem value="ticket">بلاغات الصيانة</SelectItem><SelectItem value="pmv2">مهام PMV2</SelectItem><SelectItem value="independent">الصرف المستقل</SelectItem><SelectItem value="operational">الصرف التشغيلي</SelectItem></SelectContent></Select>
         <Select value={groupBy} onValueChange={value => { setGroupBy(value as typeof groupBy); setPage(1); }}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="site">حسب الموقع</SelectItem><SelectItem value="section">حسب القسم</SelectItem><SelectItem value="asset">حسب الأصل</SelectItem><SelectItem value="document">حسب البلاغ / المهمة</SelectItem></SelectContent></Select>
         <Input aria-label="من تاريخ" type="date" value={from} onChange={event => { setFrom(event.target.value); setPage(1); }} /><Input aria-label="إلى تاريخ" type="date" value={to} onChange={event => { setTo(event.target.value); setPage(1); }} />
         <Select value={siteId || "all"} onValueChange={value => { setSite(value === "all" ? "" : value); setSection(""); setAsset(""); setPage(1); }}><SelectTrigger><SelectValue placeholder="الموقع" /></SelectTrigger><SelectContent><SelectItem value="all">كل المواقع</SelectItem>{(sites.data || []).map((site: any) => <SelectItem key={site.id} value={String(site.id)}>{site.name}</SelectItem>)}</SelectContent></Select>

@@ -380,6 +380,13 @@ export async function getTicketsPaginated(
       reporterName: reporter.name,
       centerCategoryName: centerCategories.name,
       centerCategorySystemKey: centerCategories.systemKey,
+      // تجميع رقمي فقط ضمن استعلام الصفحة نفسه، دون كشف تفاصيل مهام جهة أخرى.
+      ...(groupSubTickets ? {
+        pendingTaskCount: sql<number>`(select count(*) from ${ticketTasks}
+          where ${ticketTasks.ticketId} = ${tickets.id}
+            and ${ticketTasks.status} <> 'cancelled'
+            and ${ticketTasks.convertedTicketId} is null)`.mapWith(Number),
+      } : {}),
     })
     .from(tickets)
     .leftJoin(centerCategories, eq(tickets.categoryId, centerCategories.id))
@@ -398,6 +405,7 @@ export async function getTicketsPaginated(
     reportedByName: r.reporterName ?? null,
     centerCategoryName: r.centerCategoryName ?? null,
     centerCategorySystemKey: r.centerCategorySystemKey ?? null,
+    ...(groupSubTickets ? { pendingTaskCount: Number(r.pendingTaskCount ?? 0) } : {}),
   }));
 
   if (!groupSubTickets || mappedParents.length === 0) {

@@ -11,6 +11,7 @@ import * as db from "../../_core/db";
 import { prepareIdeaExecution, linkCreatedExecution, assertNotTrackedIdeaSource } from "../../services/improvement-ideas/execution";
 import { assertTicketReadable, isRoleDeniedFromTickets } from "./tickets.access";
 import { Pmv2TicketHandoffError, pmv2TicketHandoffService } from "../../pmv2/tickets/handoff-service";
+import { saveTicketCreationAttachments, ticketCreationAttachmentSchema } from "./ticket-creation-attachments";
 
 
 
@@ -382,6 +383,7 @@ export const ticketsRouter = router({
     assetId: z.number().optional(),
     locationDetail: z.string().optional(),
     beforePhotoUrl: z.string().optional(),
+    attachments: z.array(ticketCreationAttachmentSchema).optional(),
     pmv2TaskItemId: z.number().int().positive().optional(),
     fromIdeaId: z.number().int().positive().optional(),
   })).mutation(async ({ input, ctx }) => {
@@ -392,7 +394,7 @@ export const ticketsRouter = router({
       throw new TRPCError({ code: "BAD_REQUEST", message: "يرجى إضافة صورة واحدة على الأقل للبلاغ" });
     }
 
-    const { pmv2TaskItemId, fromIdeaId, ...rawTicketInput } = input;
+    const { pmv2TaskItemId, fromIdeaId, attachments: initialAttachments = [], ...rawTicketInput } = input;
     if (fromIdeaId && pmv2TaskItemId) throw new TRPCError({ code: "BAD_REQUEST", message: "لا يمكن الجمع بين مصدر فكرة تحسين ومهمة PMV2" });
     const centerCategory = await resolveCenterCategoryForTicket(rawTicketInput.categoryId);
     if (!centerCategory && !rawTicketInput.category) {
@@ -431,6 +433,7 @@ export const ticketsRouter = router({
           result = { id: Number(childId), ticketNumber: atomicTicketNumber };
         }
         await linkCreatedExecution(tx, idea, "ticket", result.id, ctx.user.id);
+        await saveTicketCreationAttachments(tx, result.id, ctx.user.id, initialAttachments);
         return result;
       });
       id = created.id; ticketNumber = created.ticketNumber;
@@ -481,6 +484,7 @@ export const ticketsRouter = router({
             ticketId: result.id,
             ticketNumber: result.ticketNumber,
           });
+          await saveTicketCreationAttachments(tx, result.id, ctx.user.id, initialAttachments);
           return result;
         });
         id = created.id;
@@ -494,7 +498,7 @@ export const ticketsRouter = router({
     } else if (itManager) {
       const created = await db.withTransaction(async (tx) => {
         const atomicTicketNumber = await db.getNextTicketNumber(tx);
-        return createDirectItPlanningTicket({
+        const result = await createDirectItPlanningTicket({
           tx,
           ticketNumber: atomicTicketNumber,
           actorUserId: ctx.user.id,
@@ -505,20 +509,29 @@ export const ticketsRouter = router({
             reportedById: ctx.user.id,
           },
         });
+        await saveTicketCreationAttachments(tx, result.id, ctx.user.id, initialAttachments);
+        return result;
       });
       id = created.id;
       ticketNumber = created.ticketNumber;
     } else {
-      ticketNumber = await db.getNextTicketNumber();
-      id = await db.createTicket({
-        ...ticketInput,
-        originalLanguage: detectedLang,
-        ticketNumber,
-        reportedById: ctx.user.id,
-        status: "pending_triage",
-        // كل بلاغ جديد يبدأ على نموذج الجهات/المهام؛ البلاغات السابقة للترحيل تبقى legacy.
-        workflowModel: "department_tasks",
+      const created = await db.withTransaction(async tx => {
+        const atomicTicketNumber = await db.getNextTicketNumber(tx);
+        const ticketId = await db.createTicket({
+          ...ticketInput,
+          originalLanguage: detectedLang,
+          ticketNumber: atomicTicketNumber,
+          reportedById: ctx.user.id,
+          status: "pending_triage",
+          // كل بلاغ جديد يبدأ على نموذج الجهات/المهام؛ البلاغات السابقة للترحيل تبقى legacy.
+          workflowModel: "department_tasks",
+        }, tx);
+        if (!ticketId) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر إنشاء البلاغ" });
+        await saveTicketCreationAttachments(tx, Number(ticketId), ctx.user.id, initialAttachments);
+        return { id: Number(ticketId), ticketNumber: atomicTicketNumber };
       });
+      id = created.id;
+      ticketNumber = created.ticketNumber;
     }
     if (!id) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر إنشاء البلاغ" });
 

@@ -297,6 +297,12 @@
     - المرجع التنفيذي يُحفظ داخل معاملة الصرف نفسها؛ فشل السياق أو المستند يلغيها كاملة. إعادة ربط PMV2 لا تنقل سندًا جديدًا مسجلًا لمرجع تكلفة آخر. لا تستخدم `inventory.addTransaction(out)` كمسار يتجاوز الطبقة عند تفعيلها.
     - راجع `docs/material-costs/IMPLEMENTATION_AR.md` للتفعيل والحدود والاختبار.
 
+26. **مدة احتياج أصناف الشراء تبدأ عند الإرسال — 2026-10-17.**
+    - `purchase_order_items.deliveryLeadDays` اختياري لتوافق السجلات القديمة. للأصناف الجديدة ذات المدة، تحفظ المسودة المدة فقط و`requiredDate=NULL`؛ يحسب الخادم التاريخ عند `create` أو `submitDraft` من يوم الإرسال في الرياض، ويثبت التاريخ مع رأس الطلب داخل المعاملة نفسها.
+    - تعديل المسودة والإرسال يستخدمان قفل الرأس نفسه مع إعادة فحص `draft` لمنع محرر قديم أو إرسال مكرر من مسح/إعادة بدء المهل. لا تحسب التاريخ من `createdAt` القديم أو معاينة المتصفح.
+    - `deliveryLeadDays=NULL` يعني تاريخًا تاريخيًا محفوظًا؛ لا إعادة حساب أو Backfill. يبقى إدخال التاريخ القديم مدعومًا في API للتوافق. SQL ينفذه المالك يدويًا على `copycmms` قبل نشر المخطط الجديد، دون اتصال الوكيل بأي قاعدة.
+    - طابور أصناف المندوب يبقى مقيدًا بـ`delegateId` وحالات الإجراء الحالية؛ يعرض المنشئ من `purchase_orders.requestedById`، ويرتب حسب تاريخ الاحتياج مع المفقود أخيرًا. العد التنازلي من اليوم الحالي في الرياض، وليس المدة الأصلية عند الإسناد.
+
 ## 📂 أين أجد التفاصيل الكاملة
 
 - **كل إصلاح، سببه، ومثال قبل/بعد (ما تم إنجازه فعلًا):** `docs/CHANGELOG_TECHNICAL.md`
@@ -376,3 +382,7 @@
     - Dynamic localization is display-only. Never overwrite canonical Site/Section/Asset/Center Category/Asset Category/User names merely because a translated label was shown. Admin edit screens must use the canonical/source value (`sourceName` where provided).
     - `entity_translations` is the shared persisted translation source for Site/Section/Asset/Center Category/Asset Category/User display names. Existing `sites.nameEn/nameUr` and `sections.nameEn/nameUr` remain compatibility/seed values only; on first localized read they may be copied into `entity_translations`, not treated as a second source of truth.
     - Missing master-name translations are generated through the external translation engine in batches, stored once in `entity_translations`, and reused. User display names must be transliterated, not semantically translated. Language changes refetch display data rather than mutate source records.
+
+
+27. **الصرف التشغيلي وحزم تسعير المندوب (2026-10-17):** الإضافتان متوقفتان افتراضيًا حتى ينفذ المالك SQL يدويًا. لا تشغّل migration أو اتصالًا بالقاعدة تلقائيًا. حارس الصرف التشغيلي في الكاتب الفيزيائي الأصلي يجب أن يبقى ذريًا مع اللوت والحركة وDLV، ويجب حمل مرجع مهمة PMV2 في WIS أيضًا. لا تغيّر المتوسط أو المرتجع الأصلي. وحدة الأمر هي وحدة صرف المخزون الفعلية، وليست وحدة عبوة الشراء؛ لا تخمّن التحويل.
+28. **DPB طبقة تجميع للمندوب فقط:** حزمة مفتوحة واحدة وحد 20 بند PR، بلا نسخ طلبات أو نقل packageId/sectionId. الإرسال يستعمل submitPricedBatchForPO الأصلي داخل transaction واحدة وبنود محددة، مع دفعات فرعية للحزم الأصلية. لا تُرجع الإرسال الجزئي القديم لحزمة DPB. PDF النهائي ولقطته ثابتان ومحميان من تصدير المراقب. فك العضوية لا يغيّر السعر أو الحالة. استكمال الإشعارات/البلاغات بعد التثبيت يعاد من السجل دون إرسال دفعات جديدة. راجع docs/runtime-uat/2026-10-17/OPERATIONAL_ISSUES_AND_PRICING_BUNDLES_AR.md قبل تعديل هذه الحدود.

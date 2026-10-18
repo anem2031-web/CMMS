@@ -1,0 +1,20 @@
+{
+  "poItem": [
+    {
+      "id": 3750001,
+      "status": "delivered_to_warehouse",
+      "receivedQuantity": 5,
+      "receivedById": 19080003,
+      "supplierInvoiceNumber": "UAT-20261017-588",
+      "quantity": 5,
+      "unit": "قطعة",
+      "actualTotalCost": null
+    }
+  ],
+  "stock": [],
+  "contexts": [
+    {
+      "count": 0
+    }
+  ]
+}

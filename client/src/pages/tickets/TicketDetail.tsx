@@ -54,6 +54,7 @@ import { TicketItemStepCard } from "@/components/tickets/TicketItemStepCard";
 import { EntityTranslatedText } from "@/components/i18n/EntityTranslatedText";
 import { localizeApiError } from "@/i18n/apiError";
 import { localizeTicketTimelineSystemText } from "@/i18n/ticketTimelineUi";
+import { formatTicketMaterialsUsed } from "@/lib/ticketMaterialsUsed";
 
 // ── مشغّل فيديو للمرفقات ──
 // بعض المتصفحات (تحديداً Safari على آيفون) لا تدعم صيغة WebM إطلاقاً،
@@ -99,13 +100,19 @@ function AttachmentVideo({ url, fileName }: { url: string; fileName: string }) {
 
 export default function TicketDetail({ embeddedTicketId, onBack }: { params?: unknown; embeddedTicketId?: number; onBack?: () => void } = {}) {
   const [, params] = useRoute("/tickets/:id");
+  const ticketId = embeddedTicketId ?? parseInt(params?.id || "0");
+  // Route changes reuse this page. Remount its forms so no draft, photo or
+  // mutation state from one ticket can be submitted on another ticket.
+  return <TicketDetailContent key={ticketId} ticketId={ticketId} onBack={onBack} />;
+}
+
+function TicketDetailContent({ ticketId, onBack }: { ticketId: number; onBack?: () => void }) {
   const [, setLocation] = useLocation();
   const { user } = useAuth();
   const { t, language, dir } = useTranslation();
   const { getStatusLabel, getPriorityLabel, getCategoryLabel, getPOStatusLabel } = useStaticLabels();
 const locale = language === "ar" ? "ar-SA" : language === "ur" ? "ur-PK" : "en-US";
 const currency = language === "en" ? "SAR" : "ر.س";
-const ticketId = embeddedTicketId ?? parseInt(params?.id || "0");
 
 const { data: ticket, isLoading, refetch } = trpc.tickets.getById.useQuery({ id: ticketId }, { enabled: !!ticketId });
 const { data: parentTicket } = trpc.tickets.getById.useQuery(
@@ -178,6 +185,8 @@ const { getField } = useResolvedTranslation(
     );
   const isItDepartmentTicket = !!ticket &&
     ticket.maintenanceResponsibleDepartment === MAINTENANCE_RESPONSIBLE_DEPARTMENT.IT;
+  const isWaitingForItTeamClaim = isItDepartmentTicket && ticket?.workflowModel === "department_tasks" &&
+    ticket?.status === "department_planning" && !ticket?.assignedToId;
   const isLinkedTicketReadOnly = user?.role === APP_ROLE.CONSTRUCTION_PROCUREMENT_MANAGER &&
     !isManagedConstructionTicket && ticket?.reportedById !== user?.id;
   const isItReadOnlyForMaintenanceManagers = isItDepartmentTicket && [
@@ -671,6 +680,8 @@ const { getField } = useResolvedTranslation(
 
   if (!ticket) return <div className="text-center py-12 text-muted-foreground">{t.common.noData}</div>;
 
+  const materialsUsedText = formatTicketMaterialsUsed(ticket.materialsUsed, getField("materialsUsed"), t.tickets.unspecified);
+
   const reportedBy = users?.find(u => u.id === ticket.reportedById);
   const assignedTo = users?.find(u => u.id === ticket.assignedToId);
   const assignedExternalTechnician = externalTechs?.find((tech: any) => tech.id === ticket.assignedTechnicianId);
@@ -797,7 +808,7 @@ const { getField } = useResolvedTranslation(
                 <div className={`rounded-lg border p-3 space-y-2 ${summary.allFinished && !parentClosed ? "border-emerald-300 bg-emerald-50/60 dark:border-emerald-800 dark:bg-emerald-950/30" : "bg-muted/30"}`}>
                   <div className="flex items-center justify-between gap-3 flex-wrap">
                     <div className="text-sm font-medium">
-                      {t.workflow.ticket.subTicketCompletion}: {summary.finished} / {summary.total}
+                      {t.workflow.ticket.parentTaskCompletion}: {summary.finished} / {summary.total}
                       <span className="text-xs text-muted-foreground font-normal mr-2">
                         ({summary.confirmed} {t.workflow.ticket.requesterConfirmed})
                       </span>
@@ -828,9 +839,14 @@ const { getField } = useResolvedTranslation(
                       )}
                     </div>
                   ) : (
-                    <p className="text-xs text-muted-foreground">
-                      {t.workflow.ticket.waitingFor}: {pending.map((child: any) => child.ticketNumber).join(language === "en" ? ", " : "، ")}
-                    </p>
+                    <div className="text-xs text-muted-foreground space-y-1">
+                      {pending.length > 0 && (
+                        <p>{t.workflow.ticket.waitingFor}: {pending.map((child: any) => child.ticketNumber).join(language === "en" ? ", " : "، ")}</p>
+                      )}
+                      {summary.pendingTaskCount > 0 && (
+                        <p>{t.workflow.ticket.pendingTaskPromotion.replace("{count}", String(summary.pendingTaskCount))}</p>
+                      )}
+                    </div>
                   )}
                 </div>
               );
@@ -1209,11 +1225,11 @@ const { getField } = useResolvedTranslation(
 
       {isTicketReadOnly && (
         <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/20 dark:text-amber-300">
-          {/* ⚠️ 2026-08-13: الرسالة كانت مخصَّصة لحالة "مرتبط بطلب شراء" الضيقة
-              فقط. isLinkedTicketReadOnly أصبحت تغطي أيضًا استعراضه العام لأي
-              بلاغ خارج نطاق جهته — رسالة عامة تصح للحالتين معًا. */}
-          {isItReadOnlyForMaintenanceManagers
-            ? t.workflow.ticket.readOnlyIt
+          {/* اختَر النص من جهة البلاغ وحالة استلامه، دون تغيير حارس القراءة فقط. */}
+          {isItDepartmentTicket
+            ? isWaitingForItTeamClaim
+              ? t.workflow.ticket.waitingForItTeamClaim
+              : t.workflow.ticket.readOnlyIt
             : isLinkedTicketReadOnly
               ? t.workflow.ticket.readOnlyOutOfDepartment
               : t.workflow.ticket.readOnlyConstruction}
@@ -1350,10 +1366,10 @@ const { getField } = useResolvedTranslation(
                   <p className="text-sm text-muted-foreground">{getField("repairNotes")}</p>
                 </div>
               )}
-              {ticket.materialsUsed && (
+              {materialsUsedText && (
                 <div className="bg-muted/50 rounded-lg p-3">
                   <p className="text-sm font-medium mb-1">{t.tickets.materialsUsed}</p>
-                  <p className="text-sm text-muted-foreground">{getField(ticket, "materialsUsed")}</p>
+                  <p className="text-sm text-muted-foreground whitespace-pre-wrap" dir="auto">{materialsUsedText}</p>
                 </div>
               )}
             </CardContent>

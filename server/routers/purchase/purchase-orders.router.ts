@@ -1,11 +1,14 @@
+import { pricingBundlesEnabled, reservedPricingItemIds, assertItemOutsidePricingBundle } from "../../services/delegate-pricing-bundles/reservations";
 import { isItTeamRole } from "@shared/roles";
 import { assertLegacyTeamExecutionAllowed } from "../maintenance-teams/execution.guard";
 import { createTicketMaterialPurchase } from "../maintenance-teams/purchase-form";
 import { TeamTicketError } from "../../../shared/maintenance-team-tickets/model";
 import { ticketPurchaseBreakdown, MAX_TICKET_PURCHASE_QUANTITY } from "../../../shared/maintenance-team-tickets/purchase-quantities";
 import { withPurchaseSubmissionTime } from "../../../shared/purchaseSubmissionTime";
-import { eq, sql } from "drizzle-orm";
-import { itPurchaseNeeds } from "../../../drizzle/schema";
+import { comparePurchaseRequiredDates, resolvePurchaseItemNeedTiming } from "../../../shared/purchaseItemNeedDate";
+import { purchaseItemNeedTimingShape, validatePurchaseItemNeedTiming } from "./item-need-timing";
+import { and, eq, sql } from "drizzle-orm";
+import { itPurchaseNeeds, purchaseOrderItems, purchaseOrders } from "../../../drizzle/schema";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { router, protectedProcedure, managerProcedure, warehouseProcedure, delegateProcedure, inventoryReadProcedure } from "../_shared/procedures";
@@ -41,13 +44,6 @@ import { resolveInventoryLotForIssue, isInventoryLotsEnabled } from "../../_core
 import { issueCostAllocationsSchema } from "../inventory/issue-cost-allocation.schema";
 import { APP_ROLE, MAINTENANCE_RESPONSIBLE_DEPARTMENT, canRoleViewAllPurchaseSupplyTracking } from "@shared/roles";
 import { createTranslatedProcurementComment, queuePurchaseTranslation } from "./translation-queue";
-
-const requiredDateSchema = z.string().refine((value) => {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
-  const [year, month, day] = value.split("-").map(Number);
-  const parsed = new Date(Date.UTC(year, month - 1, day));
-  return parsed.getUTCFullYear() === year && parsed.getUTCMonth() === month - 1 && parsed.getUTCDate() === day;
-}, "تاريخ الاحتياج غير صالح");
 
 // ── دالة مشتركة: ترجمة أصناف طلب الشراء في الخلفية ──────────────────────────
 async function queuePOItemsTranslation(items: any[], userId: number): Promise<void> {
@@ -546,31 +542,62 @@ async function archiveDelegatePricingBatchPdf(args: {
  * حرفيًا (scope يبقى 'single' بالقيمة الافتراضية، و
  * purchasePackageSubmissionId يبقى NULL). تُمرَّر فقط من مسار الحزمة.
  */
+export async function finalizePricedBatchForPO(purchaseOrderId: number, user: { id: number; name?: string | null }, po: any, batchId: number, batchNumber: number, readyItems: any[]) {
+  // أخطر المحاسبين بالدفعة الجديدة
+  const accountants = await db.getUsersByRole("accountant");
+  for (const acc of accountants) {
+    await db.createNotification({
+      userId: acc.id,
+      title: "طلب شراء بانتظار الاعتماد",
+      message: `طلب شراء رقم ${po.poNumber} — دفعة جديدة رقم ${batchNumber} (${readyItems.length} صنف) بانتظار اعتماد الحسابات.`,
+      type: "warning",
+      relatedPoId: purchaseOrderId,
+    });
+  }
+
+  await syncPathBTicketFromPurchaseOrder(purchaseOrderId, user.id, "تم إرسال دفعة التسعير إلى الحسابات");
+
+  await db.createAuditLog({
+    userId: user.id,
+    action: "submit_pricing_batch",
+    entityType: "purchase_order",
+    entityId: purchaseOrderId,
+    newValues: { batchId, batchNumber, itemCount: readyItems.length },
+  });
+
+}
+
 export async function submitPricedBatchForPO(
   purchaseOrderId: number,
   user: { id: number; role: string; [key: string]: any },
-  opts?: { purchasePackageSubmissionId?: number },
+  opts?: { purchasePackageSubmissionId?: number; selectedItemIds?: number[]; tx?: any; skipArchive?: boolean; bundleId?: number; delegateSignatureSnapshot?: string | null },
 ) {
-  const po = await db.getPurchaseOrderById(purchaseOrderId);
+  if (pricingBundlesEnabled() && user.role === "delegate" && !opts?.bundleId) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "أضف الأصناف إلى حزمة التسعير ثم أرسلها من شاشة الحزمة" });
+  const po = await db.getPurchaseOrderById(purchaseOrderId, opts?.tx);
   if (!po) throw new TRPCError({ code: "NOT_FOUND", message: "طلب الشراء غير موجود" });
 
-  const allItems = await db.getPOItems(purchaseOrderId);
+  const allItems = await db.getPOItems(purchaseOrderId, opts?.tx);
+  if (opts?.selectedItemIds && (!opts.tx || !opts.bundleId)) throw new TRPCError({ code: "BAD_REQUEST", message: "إرسال أصناف محددة يتطلب معاملة الحزمة المقفلة" });
+  const selected = opts?.selectedItemIds ? new Set(opts.selectedItemIds) : null;
+  const reserved = opts?.bundleId ? new Set<number>() : await reservedPricingItemIds(pricingBundlesEnabled() ? (opts?.tx || await db.getDb()) : null, allItems.map((i: any) => i.id));
+  const included = (i: any) => (!selected || selected.has(i.id)) && !reserved.has(i.id);
   const blockedEstimatedItems = allItems.filter(
-    (i: any) => i.status === "estimated" && !i.batchId && i.delegateChangeRequestedAt && isItemAssignedToPODelegate(user as any, i)
+    (i: any) => included(i) && i.status === "estimated" && !i.batchId && i.delegateChangeRequestedAt && isItemAssignedToPODelegate(user as any, i)
   );
   if (blockedEstimatedItems.length > 0) {
     throw new TRPCError({ code: "CONFLICT", message: "لا يمكن إرسال صنف للحسابات أثناء وجود طلب تغيير مندوب معلّق" });
   }
   // الأصناف الجاهزة للإرسال: مسعّرة، غير مرسلة، ولا يوجد عليها طلب تغيير مندوب
   const readyItems = allItems.filter(
-    (i: any) => i.status === "estimated" && !i.batchId && !i.delegateChangeRequestedAt && isItemAssignedToPODelegate(user as any, i)
+    (i: any) => included(i) && i.status === "estimated" && !i.batchId && !i.delegateChangeRequestedAt && isItemAssignedToPODelegate(user as any, i)
   );
 
   if (readyItems.length === 0) {
     throw new TRPCError({ code: "BAD_REQUEST", message: "لا توجد أصناف مسعّرة جاهزة للإرسال للحسابات" });
   }
 
-  const batchNumber = await db.getNextBatchNumber(purchaseOrderId);
+  if (selected && readyItems.length !== selected.size) throw new TRPCError({ code: "CONFLICT", message: "تغيرت أصناف الحزمة قبل الإرسال" });
+  const batchNumber = await db.getNextBatchNumber(purchaseOrderId, opts?.tx);
   const totalBatchCost = readyItems.reduce((sum: number, i: any) => sum + parseFloat(i.estimatedTotalCost || "0"), 0);
 
   const batchId = await db.createPOPricingBatch({
@@ -580,16 +607,17 @@ export async function submitPricedBatchForPO(
     itemCount: readyItems.length,
     totalEstimatedCost: String(totalBatchCost),
     status: "pending_accounting",
+    ...(opts?.bundleId && { delegateSignatureSnapshot: opts.delegateSignatureSnapshot ?? null }),
     // [PB] يُضبطان معًا فقط عند الإرسال ضمن حزمة. بدونهما يبقى السلوك
     // مطابقًا للإرسال العادي حرفيًا.
     ...(opts?.purchasePackageSubmissionId != null && {
       purchasePackageSubmissionId: opts.purchasePackageSubmissionId,
       scope: "multi" as const,
     }),
-  } as any);
+  } as any, opts?.tx);
 
   for (const item of readyItems) {
-    await db.updatePOItem(item.id, { batchId }, undefined, {
+    await db.updatePOItem(item.id, { batchId }, opts?.tx, {
       actorUserId: user.id,
       actorName: user.name || null,
       eventType: "pricing_batch_changed",
@@ -603,38 +631,14 @@ export async function submitPricedBatchForPO(
   // حتى يظهر بشكل صحيح عند الفلترة من شاشة الحسابات/الإدارة العليا، ولا يُشترط تسعير الطلب بالكامل.
   // الاستثناء الوحيد: طلب مغلق أو مرفوض نهائياً لا يجب أن تتغير حالته.
   if (!["closed", "rejected"].includes(po.status)) {
-    await db.updatePurchaseOrder(purchaseOrderId, { status: "pending_accounting" });
+    await db.updatePurchaseOrder(purchaseOrderId, { status: "pending_accounting" }, opts?.tx);
   }
 
-  // أخطر المحاسبين بالدفعة الجديدة
-  const accountants = await db.getUsersByRole("accountant");
-  for (const acc of accountants) {
-    await db.createNotification({
-      userId: acc.id,
-      title: "طلب شراء بانتظار الاعتماد",
-      message: `طلب شراء رقم ${po.poNumber} — دفعة جديدة رقم ${batchNumber} (${readyItems.length} صنف) بانتظار اعتماد الحسابات.`,
-      type: "warning",
-      relatedPoId: purchaseOrderId,
-    });
-  }
-
-  await syncPathBTicketFromPurchaseOrder(
-    purchaseOrderId,
-    user.id,
-    "تم إرسال دفعة التسعير إلى الحسابات",
-  );
-
-  await db.createAuditLog({
-    userId: user.id,
-    action: "submit_pricing_batch",
-    entityType: "purchase_order",
-    entityId: purchaseOrderId,
-    newValues: { batchId, batchNumber, itemCount: readyItems.length },
-  });
+  if (!opts?.bundleId) await finalizePricedBatchForPO(purchaseOrderId, user, po, Number(batchId), Number(batchNumber), readyItems);
 
   // داخل الحزمة نؤرشف مستندًا واحدًا للإرسال كله بعد اكتمال جميع طلباته،
   // لذلك لا ننشئ هنا مستندًا منفصلًا لكل PR تابع للحزمة.
-  const pricingDocumentArchived = opts?.purchasePackageSubmissionId == null
+  const pricingDocumentArchived = !opts?.skipArchive && opts?.purchasePackageSubmissionId == null
     ? await archiveDelegatePricingBatchPdf({
         poId: purchaseOrderId,
         poNumber: po.poNumber,
@@ -1147,14 +1151,14 @@ export const purchaseOrdersRouter = router({
     items: z.array(z.object({
       catalogItemId: z.number().int().positive().nullable().optional(),
       itemName: z.string().min(1),
-      requiredDate: requiredDateSchema,
+      ...purchaseItemNeedTimingShape,
       description: z.string().optional(),
       quantity: z.number().min(1),
       unit: z.string().optional(),
       photoUrl: z.string().optional(),
       photoUrls: z.array(z.string()).optional(),
       notes: z.string().optional(),
-    })),
+    }).superRefine(validatePurchaseItemNeedTiming)),
   })).mutation(async ({ input, ctx }) => {
     if (input.items.length === 0) throw new TRPCError({ code: "BAD_REQUEST", message: "يجب إضافة صنف واحد على الأقل" });
     if (input.fromIdeaId && (input.ticketId || input.ticketItemId)) throw new TRPCError({ code: "BAD_REQUEST", message: "اختر مصدر تنفيذ واحدًا؛ مرجع فكرة التذكرة ينتقل تلقائيًا" });
@@ -1181,7 +1185,7 @@ export const purchaseOrdersRouter = router({
         notes: input.notes,
         ...purchaseContext,
       }, tx);
-      const itemsData = input.items.map(item => ({ ...item, purchaseOrderId: newPoId!, status: "pending" }));
+      const itemsData = input.items.map(item => ({ ...item, ...resolvePurchaseItemNeedTiming(item), purchaseOrderId: newPoId!, status: "pending" }));
       await db.createPOItems(itemsData, tx);
       if (idea) await linkCreatedExecution(tx, idea, "purchase", Number(newPoId), ctx.user.id);
       return newPoId;
@@ -1214,16 +1218,6 @@ export const purchaseOrdersRouter = router({
       categoryId: po.categoryId,
     }, { allowInactiveCategoryId: po.categoryId });
 
-    const items = await db.getPOItems(input.id);
-    if (items.length === 0) throw new TRPCError({ code: "BAD_REQUEST", message: "لا يوجد أصناف في الطلب" });
-    const missingRequiredDate = items.find((item: any) => !item.requiredDate);
-    if (missingRequiredDate) {
-      throw new TRPCError({
-        code: "BAD_REQUEST",
-        message: `يجب تحديد تاريخ الاحتياج للصنف: ${missingRequiredDate.itemName || missingRequiredDate.id}`,
-      });
-    }
-
     // ⚠️ 2026-08-13: هذه اللحظة — لا لحظة حفظ المسودة — هي التي يُخصَّص فيها
     // الرقم الرسمي فعليًا (بنفس نظام الترقيم الحالي getNextPONumber، بلا تعديل
     // عليه) ويُستبدَل رقم المسودة (DFT-) به نهائيًا. createdAt يُصبح أيضًا لحظة
@@ -1232,14 +1226,33 @@ export const purchaseOrdersRouter = router({
     // هنا يجعل كل ذلك العرض صحيحًا تلقائيًا بلا أي تعديل على صفحات/تقارير أخرى.
     // submittedAt يبقى كما كان (لم يُحذف ولم يتغيّر سلوكه) — يصبح مطابقًا لـ
     // createdAt لطلبات هذا المسار فقط، وهذا تكرار غير ضار لا يستحق إزالته الآن.
-    const officialPoNumber = await db.getNextPONumber();
-    const submittedAt = new Date();
-    await db.updatePurchaseOrder(input.id, {
-      status: "pending_review",
-      poNumber: officialPoNumber,
-      createdAt: submittedAt,
-      submittedAt,
-      ...purchaseContext,
+    // Header and deadlines commit together. Lock before rereading saved durations,
+    // so a repeated submission cannot restart the item deadlines.
+    const { items, officialPoNumber } = await db.withTransaction(async (tx: any) => {
+      const [current] = await tx.select({ status: purchaseOrders.status }).from(purchaseOrders)
+        .where(eq(purchaseOrders.id, input.id)).for("update");
+      if (current?.status !== "draft") throw new TRPCError({ code: "CONFLICT", message: "الطلب لم يعد مسودة؛ يرجى تحديث الصفحة" });
+      const items = await db.getPOItems(input.id, tx);
+      if (items.length === 0) throw new TRPCError({ code: "BAD_REQUEST", message: "لا يوجد أصناف في الطلب" });
+      const submittedAt = new Date();
+      const datedItems = items.map((item: any) => {
+        try { return { ...item, ...resolvePurchaseItemNeedTiming(item, submittedAt) }; }
+        catch { throw new TRPCError({ code: "BAD_REQUEST", message: `يجب تحديد مدة التوريد أو تاريخ الاحتياج للصنف: ${item.itemName || item.id}` }); }
+      });
+      const officialPoNumber = await db.getNextPONumber();
+      for (const item of datedItems) {
+        if (item.deliveryLeadDays != null) {
+          await db.updatePOItem(item.id, { requiredDate: item.requiredDate }, tx, {
+            actorUserId: ctx.user.id, actorName: ctx.user.name, eventType: "item_updated",
+            note: "تحديد تاريخ الاحتياج تلقائيًا عند إرسال طلب الشراء",
+          });
+        }
+      }
+      await db.updatePurchaseOrder(input.id, {
+        status: "pending_review", poNumber: officialPoNumber,
+        createdAt: submittedAt, submittedAt, ...purchaseContext,
+      }, tx);
+      return { items: datedItems, officialPoNumber };
     });
 
     // أخطر المدراء
@@ -1279,14 +1292,14 @@ export const purchaseOrdersRouter = router({
       id: z.number().optional(), // موجود = تحديث، غير موجود = إضافة جديد
       catalogItemId: z.number().int().positive().nullable().optional(),
       itemName: z.string().min(1),
-      requiredDate: requiredDateSchema,
+      ...purchaseItemNeedTimingShape,
       description: z.string().optional(),
       quantity: z.number().min(1),
       unit: z.string().optional(),
       photoUrl: z.string().optional(),
       photoUrls: z.array(z.string()).optional(),
       notes: z.string().optional(),
-    })),
+    }).superRefine(validatePurchaseItemNeedTiming)),
   })).mutation(async ({ input, ctx }) => {
     const po = await db.getPurchaseOrderById(input.id);
     if (!po) throw new TRPCError({ code: "NOT_FOUND", message: "المسودة غير موجودة" });
@@ -1294,6 +1307,7 @@ export const purchaseOrdersRouter = router({
     assertCanPerformPOAction("editDraft", ctx.user, po, { isCreator: String(po.requestedById) === String(ctx.user.id) });
     await assertTicketAllowsNewPurchaseOrder(ctx.user, po.ticketId ?? undefined, { currentPurchaseOrderId: po.id, submittingExistingDraft: true, ticketItemId: po.ticketItemId ?? undefined });
     if (input.items.length > 20) throw new TRPCError({ code: "BAD_REQUEST", message: "الحد الأقصى 20 صنف" });
+    if (input.items.length === 0) throw new TRPCError({ code: "BAD_REQUEST", message: "يجب إضافة صنف واحد على الأقل" });
 
     // جلب الأصناف الحالية قبل أي كتابة حتى نميّز بين رابط Catalog تاريخي محفوظ
     // وبين رابط جديد يجب أن يشير إلى Master Item نشط (2B-10-2B).
@@ -1307,61 +1321,46 @@ export const purchaseOrdersRouter = router({
       assetId: input.assetId !== undefined ? input.assetId : po.assetId,
       categoryId: input.categoryId !== undefined ? input.categoryId : po.categoryId,
     }, { allowInactiveCategoryId: po.categoryId });
-    const existingIds = new Set(existingItems.map((i: any) => i.id));
-
-    await db.withTransaction(tx => validateDirectIdeaPurchaseContext(tx, input.id, purchaseContext));
-
-    // تحديث ملاحظات وسياق الطلب بعد نجاح فحص العلاقات بالكامل.
-    await db.updatePurchaseOrder(input.id, { notes: input.notes || null, ...purchaseContext });
-
-    // الأصناف التي أُرسلت من الواجهة
-    const submittedIds = new Set(input.items.filter(i => i.id).map(i => i.id!));
-
-    // احذف الأصناف التي لم تعد موجودة في القائمة (حذف نهائي)، باستثناء السجلات
-    // النهائية cancelled/rejected؛ تبقى مرجعًا داخل الطلب ولا تُحذف من محرر المسودة.
-    for (const existing of existingItems) {
-      if (["cancelled", "rejected"].includes(existing.status)) continue;
-      if (!submittedIds.has(existing.id)) {
-        await db.deletePOItem(existing.id);
+    // Use the same header lock as submission. A late editor cannot clear/restart
+    // operational deadlines after the order has already been sent.
+    await db.withTransaction(async (tx: any) => {
+      const [current] = await tx.select({ status: purchaseOrders.status }).from(purchaseOrders)
+        .where(eq(purchaseOrders.id, input.id)).for("update");
+      if (current?.status !== "draft") throw new TRPCError({ code: "CONFLICT", message: "الطلب لم يعد مسودة؛ يرجى تحديث الصفحة" });
+      const currentItems = await db.getPOItems(input.id, tx);
+      const existingIds = new Set(currentItems.map((item: any) => item.id));
+      if (input.items.some(item => item.id != null && !existingIds.has(item.id))) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "أحد الأصناف لا ينتمي إلى طلب الشراء" });
       }
-    }
-
-    // تحديث الموجود أو إضافة جديد
-    for (const item of input.items) {
-      if (item.id && existingIds.has(item.id)) {
-        const existingItem = existingItems.find((existing: any) => existing.id === item.id);
-        if (existingItem && ["cancelled", "rejected"].includes(existingItem.status)) {
-          continue;
+      await validateDirectIdeaPurchaseContext(tx, input.id, purchaseContext);
+      await db.updatePurchaseOrder(input.id, { notes: input.notes || null, ...purchaseContext }, tx);
+      const submittedIds = new Set(input.items.filter(item => item.id).map(item => item.id!));
+      for (const existing of currentItems) {
+        if (["cancelled", "rejected"].includes(existing.status)) continue;
+        if (!submittedIds.has(existing.id)) {
+          await tx.delete(purchaseOrderItems).where(and(eq(purchaseOrderItems.id, existing.id), eq(purchaseOrderItems.purchaseOrderId, input.id)));
         }
-        // تحديث صنف موجود
-        await db.updatePOItem(item.id, {
-          ...(item.catalogItemId !== undefined ? { catalogItemId: item.catalogItemId } : {}),
-          itemName: item.itemName,
-          requiredDate: item.requiredDate,
-          description: item.description || null,
-          quantity: item.quantity,
-          unit: item.unit || null,
-          photoUrl: item.photoUrl || null,
-          photoUrls: item.photoUrls || null,
-          notes: item.notes || null,
-        });
-      } else {
-        // إضافة صنف جديد
-        await db.createPOItems([{
-          purchaseOrderId: input.id,
-          catalogItemId: item.catalogItemId ?? null,
-          itemName: item.itemName,
-          requiredDate: item.requiredDate,
-          description: item.description || null,
-          quantity: item.quantity,
-          unit: item.unit || null,
-          photoUrl: item.photoUrl || null,
-          photoUrls: item.photoUrls || null,
-          notes: item.notes || null,
-          status: "pending",
-        }]);
       }
-    }
+      for (const item of input.items) {
+        const existing = item.id ? currentItems.find((entry: any) => entry.id === item.id) : null;
+        if (existing && ["cancelled", "rejected"].includes(existing.status)) continue;
+        const values = {
+          itemName: item.itemName, ...resolvePurchaseItemNeedTiming(item),
+          description: item.description || null, quantity: item.quantity,
+          unit: item.unit || null, photoUrl: item.photoUrl || null,
+          photoUrls: item.photoUrls || null, notes: item.notes || null,
+        };
+        if (existing) {
+          await db.updatePOItem(item.id!, {
+            ...(item.catalogItemId !== undefined ? { catalogItemId: item.catalogItemId } : {}), ...values,
+          }, tx);
+        } else {
+          await db.createPOItems([{
+            purchaseOrderId: input.id, catalogItemId: item.catalogItemId ?? null, ...values, status: "pending",
+          }], tx);
+        }
+      }
+    });
 
     await db.createAuditLog({ userId: ctx.user.id, action: "update_draft_po", entityType: "purchase_order", entityId: input.id });
 
@@ -1388,7 +1387,7 @@ export const purchaseOrdersRouter = router({
     items: z.array(z.object({
       catalogItemId: z.number().int().positive().nullable().optional(),
       itemName: z.string().min(1),
-      requiredDate: requiredDateSchema,
+      ...purchaseItemNeedTimingShape,
       description: z.string().optional(),
       quantity: z.number().min(1),
       unit: z.string().optional(),
@@ -1396,7 +1395,7 @@ export const purchaseOrdersRouter = router({
       photoUrls: z.array(z.string()).optional(),
       notes: z.string().optional(),
       delegateId: z.number().optional(),
-    })),
+    }).superRefine(validatePurchaseItemNeedTiming)),
   })).mutation(async ({ input, ctx }) => {
     // ✅ Batching Limit: Max 20 items per PO
     if (input.items.length === 0) {
@@ -1425,8 +1424,9 @@ export const purchaseOrdersRouter = router({
         if (input.ticketTeam) {
           const linked = await createTicketMaterialPurchase(tx, { id: ctx.user.id, role: ctx.user.role, active: ctx.user.isActive === 1 }, input, async handoff => {
             const breakdown = ticketPurchaseBreakdown(handoff, handoff.unit);
-            const id = Number(await db.createPurchaseOrder({ poNumber, ticketId: input.ticketId, ticketItemId: input.ticketItemId, requestedById: ctx.user.id, status: "pending_review", submittedAt: new Date(), notes: [input.notes?.trim(), breakdown].filter(Boolean).join("\n"), ...purchaseContext }, tx));
-            await db.createPOItems(input.items.map(item => ({ ...item, quantity: handoff.purchaseTotalQuantity, notes: [item.notes?.trim(), breakdown].filter(Boolean).join("\n"), purchaseOrderId: id, status: "pending" })), tx);
+            const submittedAt = new Date();
+            const id = Number(await db.createPurchaseOrder({ poNumber, ticketId: input.ticketId, ticketItemId: input.ticketItemId, requestedById: ctx.user.id, status: "pending_review", submittedAt, notes: [input.notes?.trim(), breakdown].filter(Boolean).join("\n"), ...purchaseContext }, tx));
+            await db.createPOItems(input.items.map(item => ({ ...item, ...resolvePurchaseItemNeedTiming(item, submittedAt), quantity: handoff.purchaseTotalQuantity, notes: [item.notes?.trim(), breakdown].filter(Boolean).join("\n"), purchaseOrderId: id, status: "pending" })), tx);
             const items = await db.getPOItems(id, tx);
             if (items.length !== 1 || !items[0]?.id) throw new TeamTicketError("CONFLICT", "تعذر إنشاء بند شراء الفريق");
             return { id, poNumber, source: { sourceId: Number(items[0].id), sourceNumber: poNumber, quantity: Number(items[0].quantity), status: "pending" as const } };
@@ -1459,18 +1459,19 @@ export const purchaseOrdersRouter = router({
             })
           : null;
 
+        const submittedAt = new Date();
         const newPoId = await db.createPurchaseOrder({
           poNumber,
           ticketId: input.ticketId,
           ticketItemId: input.ticketItemId,
           requestedById: ctx.user.id,
           status: "pending_review",
-          submittedAt: new Date(),
+          submittedAt,
           notes: input.notes,
           ...purchaseContext,
         }, tx);
         // delegateId is optional at creation — assigned during reviewItems step
-        const itemsData = input.items.map(item => ({ ...item, purchaseOrderId: newPoId!, status: "pending" }));
+        const itemsData = input.items.map(item => ({ ...item, ...resolvePurchaseItemNeedTiming(item, submittedAt), purchaseOrderId: newPoId!, status: "pending" }));
         await db.createPOItems(itemsData, tx);
 
         if (input.itPurchaseNeedId) await tx.update(itPurchaseNeeds).set({ status: "ordered", purchaseOrderId: newPoId }).where(eq(itPurchaseNeeds.id, input.itPurchaseNeedId));
@@ -1636,6 +1637,7 @@ export const purchaseOrdersRouter = router({
     estimatedUnitCost: z.string().optional(),
     lastKnownUpdatedAt: z.string().optional(),
   })).mutation(async ({ input, ctx }) => {
+    if (pricingBundlesEnabled()) await assertItemOutsidePricingBundle(await db.getDb(), input.id);
     const po = await db.getPurchaseOrderById(input.purchaseOrderId);
     if (!po) throw new TRPCError({ code: "NOT_FOUND" });
 
@@ -1690,7 +1692,7 @@ export const purchaseOrdersRouter = router({
       updates.estimatedTotalCost = String(parseFloat(oldItem.estimatedUnitCost) * input.quantity);
     }
     if (input.estimatedUnitCost !== undefined) {
-      const updated = await db.updatePOItemIfDelegateChangeUnlocked(input.id, updates);
+      const updated = await db.updatePOItemIfDelegateChangeUnlocked(input.id, updates, undefined, undefined, undefined, oldItem.batchId);
       if (!updated) {
         throw new TRPCError({
           code: "CONFLICT",
@@ -1698,7 +1700,7 @@ export const purchaseOrdersRouter = router({
         });
       }
     } else {
-      await db.updatePOItem(input.id, updates);
+      await db.updatePOItem(input.id, updates, undefined, undefined, oldItem.batchId);
     }
     await db.createAuditLog({
       userId: ctx.user.id,
@@ -2268,11 +2270,12 @@ list: protectedProcedure.input(z.object({
     const assignedItems = await db.getPOItemsByDelegate(ctx.user.id);
     if (assignedItems.length === 0) return { items: [], total: 0 };
 
+    const bundleReserved = await reservedPricingItemIds(pricingBundlesEnabled() ? await db.getDb() : null, assignedItems.map((i: any) => i.id));
     const enriched = await enrichPurchaseCycleItemsBatch(assignedItems);
     const items = enriched.flatMap((item: any) => {
       const poStatus = String(item.purchaseOrderStatus || "");
       const actionMode = getDelegateItemActionMode(poStatus, item);
-      if (!actionMode) return [];
+      if (!actionMode || (actionMode === "estimate" && bundleReserved.has(item.id))) return [];
 
       const actionLabel = actionMode === "purchase"
         ? (poStatus === "partial_purchase" ? "إكمال الشراء" : "تنفيذ الشراء")
@@ -2281,7 +2284,9 @@ list: protectedProcedure.input(z.object({
       return [{ ...item, actionMode, actionLabel }];
     });
 
-    return { items, total: items.length };
+    const localized = await localizePurchaseUserNames(items, (ctx.user.preferredLanguage || "ar") as SupportedLanguage);
+    localized.sort(comparePurchaseRequiredDates);
+    return { items: localized, total: localized.length };
   }),
 
   pendingEstimateItems: protectedProcedure.query(async ({ ctx }) => {
@@ -2293,7 +2298,9 @@ list: protectedProcedure.input(z.object({
     // الحل الدائم: تصفية البنود بالذاكرة أولاً، ثم إثراء الناجين منها بضربة واحدة
     // عبر enrichPurchaseCycleItemsBatch (استعلام JOIN واحد لكل البنود دفعة واحدة).
     const collectEligibleItems = async (allItems: any[]) => {
+      const bundleReserved = await reservedPricingItemIds(pricingBundlesEnabled() ? await db.getDb() : null, allItems.map((i: any) => i.id));
       const eligible = allItems.filter(item => {
+        if (bundleReserved.has(item.id)) return false;
         const isUnpriced = item.status === "pending" && !item.delegateChangeRequestedAt;
         const isPricedNotSubmitted = item.status === "estimated" && !item.batchId && !item.delegateChangeRequestedAt;
         return isUnpriced || isPricedNotSubmitted;

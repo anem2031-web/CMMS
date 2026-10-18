@@ -1,0 +1,42 @@
+- region "Notifications alt+T"
+- main:
+  - button "Toggle Sidebar":
+    - generic: Toggle Sidebar
+  - generic: طلبات مواد PM V2
+  - generic: 9+
+  - main:
+    - tablist "مصدر طلبات المستودع":
+      - tab "PMV2"
+      - tab "تذاكر الصيانة" [selected]
+    - tabpanel "تذاكر الصيانة":
+      - heading "طلبات مواد تذاكر الصيانة" [level=1]
+      - paragraph: كل بطاقة تمثل احتياج مادة مرتبطًا بتذكرته وفريقه؛ اختر الإجراء حسب المخزون والحالة.
+      - button "تحديث"
+      - tablist:
+        - tab "تحتاج معالجة 2" [selected]:
+          - text: تحتاج معالجة
+          - generic: "2"
+        - tab "جاهزة للصرف 0":
+          - text: جاهزة للصرف
+          - generic: "0"
+        - tab "المرتجعات 0":
+          - text: المرتجعات
+          - generic: "0"
+      - tabpanel "تحتاج معالجة 2":
+        - heading "بوية سيجما ذهبي موديل20000 تجربة — برميل" [level=3]
+        - paragraph:
+          - link "MT-2026-00574-01":
+            - /url: /tickets/2010118
+          - text: "· احتياج #1 · فريق التكييف"
+        - generic: غير موجود في الدليل
+        - button "عرض التفاصيل"
+        - alert: انتهى البلاغ الأصلي؛ لا يمكن متابعة التنفيذ
+        - heading "بطاريتين ديوراسيل (Duracell) قلوية بجهد 9 فولت — قطعة" [level=3]
+        - paragraph:
+          - link "MT-2026-00567-01":
+            - /url: /tickets/2010098
+          - text: "· احتياج #2 · فريق التكييف"
+        - generic: تعذر التحقق من المخزون
+        - button "عرض التفاصيل" [active]
+        - alert: انتهى البلاغ الأصلي؛ لا يمكن متابعة التنفيذ
+- button "🔔"

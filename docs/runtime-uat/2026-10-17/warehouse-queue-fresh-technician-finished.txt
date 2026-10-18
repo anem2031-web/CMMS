@@ -1,0 +1,41 @@
+- region "Notifications alt+T"
+- main:
+  - button:
+    - generic: Toggle Sidebar
+  - generic: مهامي اليوم
+  - generic: 9+
+  - main:
+    - tablist:
+      - tab [selected]: تذاكر الصيانة
+      - tab: الصيانة المجدولة
+    - tabpanel "تذاكر الصيانة":
+      - button [disabled]: تحديث
+      - generic "حالات مهام الفني":
+        - button "0" [pressed]:
+          - paragraph: مهام التنفيذ
+          - paragraph: "0"
+        - button "2":
+          - paragraph: بانتظار المواد
+          - paragraph: "2"
+        - button "1":
+          - paragraph: بانتظار المسؤول
+          - paragraph: "1"
+        - button "6":
+          - paragraph: تم تنفيذها
+          - paragraph: "6"
+      - generic: تذاكر الصيانة (0)
+      - paragraph: لا توجد تذاكر مسندة إلى فريقك.
+      - generic: التذاكر المسندة بالاسم
+      - paragraph: لا توجد تذاكر مسندة بالاسم.
+- button: 🔔
+- dialog "تذاكر الصيانة — MT-2026-00590-01" [active]:
+  - heading "تذاكر الصيانة — MT-2026-00590-01" [level=2]
+  - paragraph: Accommodations / سكن العمال-Workers Accommodation
+  - generic: "إنجاز إجراءات الفني: 1 / 1"
+  - generic: 100%
+  - progressbar
+  - text: اكتملت إجراءات الفني؛ تبقى المراجعة والإغلاق وفق المسار الحالي.
+  - generic "البنود المنجزة والمعلقة"
+  - button "إغلاق النافذة"
+  - button "Close":
+    - generic: Close

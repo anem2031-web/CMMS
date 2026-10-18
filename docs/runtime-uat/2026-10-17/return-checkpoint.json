@@ -1,0 +1,110 @@
+{
+  "stock": [
+    {
+      "id": 360001,
+      "warehouseId": 1,
+      "quantity": "2.000",
+      "unit": "قطعة",
+      "averageCost": "10.0000",
+      "totalCostValue": "20.00"
+    },
+    {
+      "id": 360002,
+      "warehouseId": 60002,
+      "quantity": "1.000",
+      "unit": "قطعة",
+      "averageCost": "10.0000",
+      "totalCostValue": "10.00"
+    }
+  ],
+  "lot": [
+    {
+      "id": 120001,
+      "lotCode": "LOT-2026-00777",
+      "originalQuantity": "5.000",
+      "remainingQuantity": "3.000",
+      "issueUnitCost": "10.0000"
+    }
+  ],
+  "returns": [
+    {
+      "id": 210001,
+      "returnNumber": "RTN-2026-180008",
+      "sourceDeliveryDocumentId": 360001,
+      "returnedQuantity": 1,
+      "createdAt": "2026-10-17 07:16:59"
+    }
+  ],
+  "movements": [
+    {
+      "id": 630001,
+      "inventoryId": 360001,
+      "lotId": 120001,
+      "type": "in",
+      "quantity": "5.000",
+      "ticketId": null,
+      "returnId": null,
+      "transactionType": "purchase",
+      "unitCost": "10.0000",
+      "totalCost": "50.00"
+    },
+    {
+      "id": 630002,
+      "inventoryId": 360001,
+      "lotId": 120001,
+      "type": "out",
+      "quantity": "3.000",
+      "ticketId": null,
+      "returnId": null,
+      "transactionType": "transfer",
+      "unitCost": "10.0000",
+      "totalCost": "30.00"
+    },
+    {
+      "id": 630003,
+      "inventoryId": 360002,
+      "lotId": 120001,
+      "type": "in",
+      "quantity": "3.000",
+      "ticketId": null,
+      "returnId": null,
+      "transactionType": "transfer",
+      "unitCost": "10.0000",
+      "totalCost": "30.00"
+    },
+    {
+      "id": 630004,
+      "inventoryId": 360002,
+      "lotId": 120001,
+      "type": "out",
+      "quantity": "3.000",
+      "ticketId": 2040004,
+      "returnId": null,
+      "transactionType": "delivery",
+      "unitCost": "10.0000",
+      "totalCost": "30.00"
+    },
+    {
+      "id": 630005,
+      "inventoryId": 360002,
+      "lotId": 120001,
+      "type": "in",
+      "quantity": "1.000",
+      "ticketId": 2040004,
+      "returnId": 210001,
+      "transactionType": "return",
+      "unitCost": "10.0000",
+      "totalCost": "10.00"
+    }
+  ],
+  "deliveries": [
+    {
+      "id": 1,
+      "deliveryNumber": "DLV-2026-450001",
+      "lotId": 120001,
+      "issuedQuantity": 3,
+      "usedQuantity": 2,
+      "returnedQuantity": 1
+    }
+  ]
+}

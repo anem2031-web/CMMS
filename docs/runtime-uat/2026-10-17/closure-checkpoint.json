@@ -1,0 +1,37 @@
+{
+  "tickets": [
+    {
+      "id": 2040003,
+      "ticketNumber": "MT-2026-00588",
+      "status": "department_planning",
+      "maintenancePath": null,
+      "closedAt": null,
+      "materialsUsed": null
+    },
+    {
+      "id": 2040004,
+      "ticketNumber": "MT-2026-00588-01",
+      "status": "closed",
+      "maintenancePath": "B",
+      "closedAt": "2026-10-17 07:19:43",
+      "materialsUsed": "[{\"name\":\"فرشاة تنظيف المكيفات\",\"unit\":\"قطعة\",\"used\":2,\"requested\":3}]"
+    }
+  ],
+  "item": [
+    {
+      "id": 240004,
+      "ticketId": 2040004,
+      "status": "closed",
+      "maintenancePath": "B",
+      "closedAt": "2026-10-17 07:19:43"
+    }
+  ],
+  "assignment": [
+    {
+      "id": 30002,
+      "stage": "closed",
+      "outcome": "fixed",
+      "revision": 12
+    }
+  ]
+}

@@ -1,0 +1,42 @@
+{
+  "status": "FIXED_LOCALLY_PENDING_DEPLOYMENT",
+  "finding": "UAT-07",
+  "cause": "TicketDetail passed the ticket object as the field name and materialsUsed as the fallback to useResolvedTranslation.getField. The fallback rendered the literal key.",
+  "changes": [
+    "Use the correct field-name-only translation call.",
+    "Render stored team material snapshots as material name, actual used quantity and unit, one material per line.",
+    "Retain legacy free-text notes and existing translations; hide empty structured snapshots.",
+    "Do not infer missing usage from requested quantity or accept translated prose as a replacement for original structured quantities."
+  ],
+  "example": "فرشاة تنظيف المكيفات — 2 قطعة",
+  "productionFiles": [
+    "client/src/pages/tickets/TicketDetail.tsx",
+    "client/src/lib/ticketMaterialsUsed.ts"
+  ],
+  "tests": {
+    "newCases": 21,
+    "totalPassed": 94,
+    "failed": 0,
+    "languages": [
+      "ar",
+      "en",
+      "ur"
+    ],
+    "ui": "Actual page initializer and JSX block rendered with the real translation hook; external query stubbed.",
+    "typecheck": {
+      "current": 663,
+      "baseline": 663,
+      "baselineSource": "Earlier HEAD in-memory comparison; excludes the new parent-completion test absent from HEAD",
+      "newFileDiagnostics": [],
+      "added": []
+    }
+  },
+  "databaseConnection": false,
+  "databaseSchemaChanged": false,
+  "sqlCommandsRequired": false,
+  "storedMaterialsChanged": false,
+  "costCalculationsChanged": false,
+  "railwayChanged": false,
+  "deployedVerification": false,
+  "workspace": "C:/Users/mh/Desktop/CMMSFINAL"
+}

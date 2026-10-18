@@ -1,0 +1,17 @@
+{
+  "database": "copycmms",
+  "readOnly": true,
+  "rows": [
+    {
+      "id": 30003,
+      "stage": "ready_to_repair",
+      "revision": 6,
+      "needId": 30002,
+      "requestedQuantity": 2,
+      "usedQuantity": null,
+      "issuedQuantity": 2,
+      "returnedQuantity": 0,
+      "deliveryNumber": "DLV-2026-450003"
+    }
+  ]
+}

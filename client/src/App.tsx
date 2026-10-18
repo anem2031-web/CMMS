@@ -1,3 +1,4 @@
+import DelegatePricingBundles from "@/pages/purchase/DelegatePricingBundles";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import AppUpdateBanner from "@/components/system/AppUpdateBanner";
@@ -11,6 +12,7 @@ import DashboardLayout from "@/components/layout/DashboardLayout";
 import Login from "@/pages/auth/Login";
 import Home from "@/pages/dashboard/Home";
 import Tickets from "@/pages/tickets/Tickets";
+import OperationalIssues from "@/pages/operational-issues/OperationalIssues";
 import ImprovementIdeas from "@/pages/improvement/ImprovementIdeas";
 import TicketDetail from "@/pages/tickets/TicketDetail";
 import TicketsInbox from "@/pages/tickets/TicketsInbox";
@@ -96,6 +98,8 @@ function Router() {
             <Route path="/maintenance-teams" component={MaintenanceTeams} />
             <Route path="/maintenance-team-tickets" component={AssignedMaintenanceTickets} />
             <Route path="/tickets" component={Tickets} />
+            <Route path="/delegate-pricing-bundles" component={DelegatePricingBundles} />
+            <Route path="/operational-issues" component={OperationalIssues} />
             <Route path="/improvement-ideas" component={ImprovementIdeas} />
             <Route path="/tickets/new" component={CreateTicket} />
             {/* صندوق البلاغات — يجب أن يسبق /tickets/:id حتى لا تُفسَّر "inbox" كمعرّف بلاغ */}

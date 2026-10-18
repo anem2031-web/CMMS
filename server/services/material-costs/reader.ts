@@ -9,7 +9,7 @@ async function rows(database: any, statement: any): Promise<any[]> {
 /** SELECT-only. Historical allocations without an explicit execution context are excluded.
  * No PO cost or current lot price is used as a fallback for an original snapshot.
  */
-export async function readMaterialCostIssues(database: any, filter: { sourceId?: number; source?: "ticket" | "pmv2" | "independent"; from?: string; to?: string; siteId?: number; sectionId?: number; assetId?: number } = {}): Promise<MaterialCostIssue[]> {
+export async function readMaterialCostIssues(database: any, filter: { sourceId?: number; source?: "ticket" | "pmv2" | "independent" | "operational"; from?: string; to?: string; siteId?: number; sectionId?: number; assetId?: number } = {}): Promise<MaterialCostIssue[]> {
   const conditions = [sql`e.executionSource IS NOT NULL`];
   if (filter.source === "ticket") conditions.push(sql`e.executionSource IN ('ticket_named','ticket_team')`);
   else if (filter.source) conditions.push(sql`e.executionSource=${filter.source}`);

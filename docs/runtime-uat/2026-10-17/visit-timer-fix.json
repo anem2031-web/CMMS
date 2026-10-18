@@ -1,0 +1,30 @@
+{
+  "status": "FIXED_LOCALLY_PENDING_DEPLOYMENT",
+  "scope": "Visit elapsed-time display only",
+  "cause": "UTC MySQL/Drizzle timestamp strings without offsets were interpreted in the browser local timezone",
+  "changes": [
+    "Parse timezone-free visit timestamps as UTC",
+    "Preserve Date, ISO Z and explicit-offset instants",
+    "Use the recorded end time for completed visits",
+    "Refresh the local clock when visit boundaries change"
+  ],
+  "productionFiles": [
+    "client/src/components/maintenance/TechnicianExecutionWindow.tsx",
+    "shared/executionElapsedTime.ts"
+  ],
+  "tests": {
+    "timezones": [
+      "Asia/Riyadh",
+      "UTC",
+      "America/New_York"
+    ],
+    "casesPerTimezone": 13,
+    "totalTimezoneCases": 39,
+    "focusedTypeCheck": "passed",
+    "relatedTechnicianUiCases": 16
+  },
+  "databaseConnection": false,
+  "databaseSchemaChanged": false,
+  "sqlCommandsRequired": false,
+  "railwayChanged": false
+}

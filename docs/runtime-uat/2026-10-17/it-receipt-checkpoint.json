@@ -1,0 +1,42 @@
+{
+  "database": "copycmms",
+  "lot": [
+    {
+      "id": 120002,
+      "lotCode": "LOT-2026-00778",
+      "receiptId": 540002,
+      "originalQuantity": "2.000",
+      "remainingQuantity": "2.000",
+      "conversionFactor": "1.0000",
+      "issueUnitCost": "20.0000"
+    }
+  ],
+  "stock": [
+    {
+      "id": 360001,
+      "warehouseId": 1,
+      "quantity": "4.000",
+      "unit": "قطعة",
+      "averageCost": "15.0000",
+      "totalCostValue": "60.00"
+    },
+    {
+      "id": 360002,
+      "warehouseId": 60002,
+      "quantity": "1.000",
+      "unit": "قطعة",
+      "averageCost": "10.0000",
+      "totalCostValue": "10.00"
+    }
+  ],
+  "poItem": [
+    {
+      "id": 3750002,
+      "status": "delivered_to_warehouse",
+      "quantity": 2,
+      "unit": "قطعة",
+      "actualUnitCost": "20.00",
+      "actualTotalCost": "46.00"
+    }
+  ]
+}

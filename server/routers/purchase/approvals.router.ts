@@ -281,6 +281,13 @@ export const approvalsRouter = router({
         accountingNotes: input.notes,
         custodyAmount: input.custodyAmount || null,
       });
+      // Synchronize the header before translation/PDF work. Otherwise a reader
+      // can see an approved batch but the old header throughout PDF generation.
+      const allBatchesAfterAccounting = await db.getPOPricingBatches(po.id);
+      const anyStillPendingAccounting = allBatchesAfterAccounting.some(b => b.status === "pending_accounting");
+      if (!anyStillPendingAccounting && po.status === "pending_accounting") {
+        await db.updatePurchaseOrder(po.id, { status: "pending_management" });
+      }
       await queuePurchaseTranslation("PO_BATCH", batch.id, [
         { fieldName: "accountingNotes", text: input.notes },
       ], ctx.user.id);
@@ -294,16 +301,6 @@ export const approvalsRouter = router({
         batchNumber: batch.batchNumber,
         userId: ctx.user.id,
       });
-
-      // ── تحديث حالة الطلب العامة على أساس مجموع الدفعات ──
-      // بدون هذا، حالة الطلب الرئيسي تفضل "pending_accounting" للأبد حتى بعد
-      // ما كل دفعاته تتاعتمد من الحسابات وتنتقل فعلياً للإدارة العليا — نفس
-      // النمط المطبّق فعلاً بمرحلة اعتماد الإدارة العليا (approveManagementBatch).
-      const allBatchesAfterAccounting = await db.getPOPricingBatches(po.id);
-      const anyStillPendingAccounting = allBatchesAfterAccounting.some(b => b.status === "pending_accounting");
-      if (!anyStillPendingAccounting && po.status === "pending_accounting") {
-        await db.updatePurchaseOrder(po.id, { status: "pending_management" });
-      }
 
       const mgmt = await db.getUsersByRole("senior_management");
       for (const m of mgmt) {

@@ -1,0 +1,39 @@
+{
+  "status": "FIXED_LOCALLY_PENDING_DEPLOYMENT",
+  "finding": "UAT-04",
+  "cause": "Child creators copied the legacy category shadow but omitted the modern Center Category ID.",
+  "change": "Copy parent.categoryId when creating a child, preserving parent.category for legacy compatibility.",
+  "productionFiles": [
+    "server/routers/maintenance-teams/assignment.repository.ts",
+    "server/routers/tickets/tickets.workflow.ts"
+  ],
+  "paths": [
+    "Team assignment",
+    "Named technician task promotion",
+    "IT task promotion"
+  ],
+  "tests": {
+    "newCases": 10,
+    "totalPassed": 73,
+    "afterFailures": 0,
+    "beforeReproductionInMemory": {
+      "failed": 4,
+      "passed": 6,
+      "workspaceSourceReverted": false
+    },
+    "typecheck": {
+      "current": 663,
+      "baseline": 663,
+      "baselineSource": "Earlier HEAD in-memory comparison; excludes the new parent-completion test absent from HEAD",
+      "newTestDiagnostics": [],
+      "added": []
+    }
+  },
+  "databaseConnection": false,
+  "databaseSchemaChanged": false,
+  "sqlCommandsRequired": false,
+  "historicalRecordsChanged": false,
+  "railwayChanged": false,
+  "deployedVerification": false,
+  "workspace": "C:/Users/mh/Desktop/CMMSFINAL"
+}

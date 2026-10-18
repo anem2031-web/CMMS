@@ -14,6 +14,7 @@ import {
   nextExecutionStep,
   type ExecutionStep,
 } from "@shared/technician-workspace";
+import { formatExecutionElapsedTime } from "@shared/executionElapsedTime";
 
 export function ExecutionElapsedTime({
   startedAt,
@@ -26,21 +27,12 @@ export function ExecutionElapsedTime({
 }) {
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
+    setNow(Date.now());
     if (!startedAt || endedAt) return;
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
   }, [startedAt, endedAt]);
-  const start = startedAt ? new Date(startedAt).getTime() : NaN;
-  const end = endedAt ? new Date(endedAt).getTime() : now;
-  const seconds =
-    Number.isFinite(start) && Number.isFinite(end)
-      ? Math.max(0, Math.floor((end - start) / 1000))
-      : 0;
-  const value = `${Math.floor(seconds / 3600)
-    .toString()
-    .padStart(2, "0")}:${Math.floor((seconds / 60) % 60)
-    .toString()
-    .padStart(2, "0")}:${(seconds % 60).toString().padStart(2, "0")}`;
+  const value = formatExecutionElapsedTime(startedAt, endedAt, now);
   return (
     <span className="flex items-center gap-2 text-sm text-muted-foreground">
       <Clock className="h-4 w-4" />

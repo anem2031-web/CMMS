@@ -361,7 +361,7 @@ export default function GeneralTicketsList() {
                         {hasSubTickets && (() => {
                           // تمييز بصري فوري: بطاقتا "عائلة انتهت" و"عائلة قيد العمل"
                           // كانتا متطابقتين تمامًا قبل هذا — نفس شارة الحالة البنفسجية.
-                          const summary = summarizeSubTicketFamily(subTickets);
+                          const summary = summarizeSubTicketFamily(subTickets, ticket.pendingTaskCount);
                           return (
                             <>
                               <Badge variant="secondary" className="text-[10px] gap-1">

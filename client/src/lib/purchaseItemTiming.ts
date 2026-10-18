@@ -93,6 +93,20 @@ export function formatOverdueDuration(days: number, language: string): string {
   return `${safeDays} day${safeDays === 1 ? "" : "s"} late`;
 }
 
+/** Positive days remain; zero is due today; negative days are overdue. */
+export function formatRemainingPurchaseDuration(days: number | null, language: string): string {
+  if (days == null) return "—";
+  if (days < 0) return formatOverdueDuration(Math.abs(days), language);
+  if (language === "ar") {
+    if (days === 0) return "مطلوب اليوم";
+    if (days === 1) return "متبقي يوم";
+    if (days === 2) return "متبقي يومان";
+    return `متبقي ${days} أيام`;
+  }
+  if (language === "ur") return days === 0 ? "آج درکار ہے" : `${days} دن باقی ہیں`;
+  return days === 0 ? "Due today" : `${days} day${days === 1 ? "" : "s"} remaining`;
+}
+
 export function formatAvailableDuration(days: number | null, language: string): string {
   if (days == null) return "—";
 

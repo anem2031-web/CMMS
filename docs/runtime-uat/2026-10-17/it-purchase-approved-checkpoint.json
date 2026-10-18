@@ -1,0 +1,29 @@
+{
+  "batch": [
+    {
+      "id": 360002,
+      "status": "approved",
+      "accountingApprovedById": 19110003,
+      "managementApprovedById": 19110007,
+      "custodyAmount": "40.00"
+    }
+  ],
+  "purchase": [
+    {
+      "id": 3780002,
+      "poNumber": "PR-2026-180472",
+      "status": "purchased",
+      "ticketId": 2040007,
+      "ticketItemId": null
+    }
+  ],
+  "items": [
+    {
+      "id": 3750002,
+      "status": "purchased",
+      "quantity": 2,
+      "unit": "قطعة",
+      "catalogItemId": 1140352
+    }
+  ]
+}

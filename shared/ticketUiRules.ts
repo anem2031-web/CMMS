@@ -206,14 +206,23 @@ export interface SubTicketFamilySummary {
   total: number;
   finished: number;
   confirmed: number;
+  /** مهام غير ملغاة لم تتحول بعد إلى بلاغات تنفيذ. */
+  pendingTaskCount: number;
   /** نسبة الاكتمال 0-100 — تُرجع 0 عند غياب الأبناء بدل NaN */
   percent: number;
-  /** جاهز للإغلاق: يوجد أبناء فعليًا **وكلهم** منتهون */
+  /** جاهز للإغلاق: يوجد أبناء منتهون ولا مهام تنتظر التحويل. */
   allFinished: boolean;
 }
 
+/** نفس شرط المهام المانعة للإغلاق في closeParentTicket. */
+export function countPendingSubTicketTasks(
+  tasks: ReadonlyArray<{ status?: string | null; convertedTicketId?: number | null }> | null | undefined,
+): number {
+  return (tasks ?? []).filter((task) => task.status !== "cancelled" && !task.convertedTicketId).length;
+}
+
 /**
- * ملخّص اكتمال البلاغات الفرعية تحت بلاغ رئيسي واحد.
+ * ملخّص اكتمال البلاغات الفرعية والمهام التي لم تتحول بعد تحت بلاغ رئيسي واحد.
  *
  * ⚠️ **قاعدة #1 بـCLAUDE.md**: `total > 0` **قبل** `every()` — بلاغ رئيسي لم
  * تُحوَّل مهامه بعد ليس "مكتملًا بنسبة 100%"، ومصفوفة فارغة تُرجع true من
@@ -221,16 +230,21 @@ export interface SubTicketFamilySummary {
  */
 export function summarizeSubTicketFamily(
   subTickets: Array<{ status?: string | null }> | null | undefined,
+  pendingTaskCount = 0,
 ): SubTicketFamilySummary {
   const list = Array.isArray(subTickets) ? subTickets : [];
-  const total = list.length;
+  const pending = Number.isFinite(pendingTaskCount) ? Math.max(0, Math.trunc(pendingTaskCount)) : 0;
+  const total = list.length + pending;
   const finished = list.filter((t) => !!t.status && SUB_TICKET_FINISHED_STATUSES.has(t.status)).length;
   const confirmed = list.filter((t) => t.status === "requester_confirmed").length;
+  const allFinished = total > 0 && finished === total;
   return {
     total,
     finished,
     confirmed,
-    percent: total > 0 ? Math.round((finished / total) * 100) : 0,
-    allFinished: total > 0 && finished === total,
+    pendingTaskCount: pending,
+    // لا تعرض 100% بالتقريب عند بقاء مهمة واحدة وسط عدد كبير من المهام.
+    percent: allFinished ? 100 : total > 0 ? Math.min(99, Math.round((finished / total) * 100)) : 0,
+    allFinished,
   };
 }

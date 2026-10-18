@@ -1,0 +1,474 @@
+{
+  "database": "copycmms",
+  "date": "2026-10-17",
+  "scope": "Team and named IT tickets: linked purchase, receipt conversion, Lot issue, original-delivery return, closure, requester confirmation and cost reports",
+  "status": "PASS_TEAM_AND_IT_A_B_WITH_DOCUMENTED_FINDINGS",
+  "testDataOnly": true,
+  "changes": {
+    "applicationCode": false,
+    "databaseSchema": false,
+    "directDatabaseWrites": false,
+    "browserWorkflowWrites": true
+  },
+  "previousEvidence": "../2026-10-15/evidence.json",
+  "documents": {
+    "parent": "MT-2026-00588",
+    "child": "MT-2026-00588-01",
+    "purchase": "PR-2026-180471",
+    "receipt": "RCV-2026-510104",
+    "lot": "LOT-2026-00777",
+    "transferBatch": "TRB-2026-120001",
+    "delivery": "DLV-2026-450001",
+    "returned": "RTN-2026-180008"
+  },
+  "checks": [
+    {
+      "step": "live_feature_ready",
+      "pass": true
+    },
+    {
+      "step": "management_approval",
+      "actor": "RED8",
+      "pass": true
+    },
+    {
+      "step": "purchase_recorded",
+      "actor": "RED3",
+      "pass": true
+    },
+    {
+      "step": "warehouse_arrival",
+      "actor": "RED",
+      "pass": true
+    },
+    {
+      "step": "reject_zero_conversion",
+      "actor": "RED",
+      "pass": true
+    },
+    {
+      "step": "actual_receipt_one_carton_five_pieces",
+      "actor": "RED",
+      "pass": true,
+      "quantity": 1,
+      "receiptUnit": "كرتون",
+      "factor": 5,
+      "issueUnit": "قطعة",
+      "added": 5,
+      "priceBeforeTax": 50,
+      "lotUnitCost": 10
+    },
+    {
+      "step": "transfer_three_leave_two_main",
+      "actor": "RED",
+      "pass": true
+    },
+    {
+      "step": "issue_three_to_technician",
+      "actor": "RED",
+      "pass": true,
+      "lotCost": 30
+    },
+    {
+      "step": "technician_used_two_pending_return_one",
+      "actor": "SUHAIL",
+      "pass": true
+    },
+    {
+      "step": "end_visit_not_ticket_close",
+      "actor": "SUHAIL",
+      "pass": true
+    },
+    {
+      "step": "accept_original_delivery_return",
+      "actor": "RED",
+      "pass": true,
+      "quantity": 1,
+      "returnValue": 10
+    },
+    {
+      "step": "manager_approval_then_child_and_parent_closure",
+      "actor": "RED2",
+      "pass": true
+    },
+    {
+      "step": "requester_confirmation",
+      "actor": "RED7",
+      "pass": true
+    },
+    {
+      "step": "paint_technician_ui_isolation",
+      "actor": "ROBIL",
+      "pass": true,
+      "apiBypassTested": false
+    },
+    {
+      "step": "material_cost_report_net_20",
+      "actor": "RED8",
+      "pass": true,
+      "issued": 30,
+      "returned": 10,
+      "net": 20,
+      "events": 2
+    },
+    {
+      "step": "period_before_movements_excluded",
+      "actor": "RED8",
+      "pass": true,
+      "from": "2026-10-15",
+      "to": "2026-10-15",
+      "events": 0
+    },
+    {
+      "step": "period_of_movements_included_and_document_group",
+      "actor": "RED8",
+      "pass": true,
+      "from": "2026-10-17",
+      "to": "2026-10-17",
+      "events": 2,
+      "net": 20,
+      "group": "MT-2026-00588-01",
+      "actualDOMVerified": true
+    },
+    {
+      "step": "IT_named_ticket_different_lot_average_issue_return",
+      "pass": true,
+      "lotIssue": 40,
+      "lotReturn": 20,
+      "netLotCost": 20,
+      "financialNet": 15,
+      "difference": 5
+    },
+    {
+      "step": "IT_A_B_parent_closure",
+      "pass": true,
+      "children": 2,
+      "tasksCompleted": 2,
+      "departmentCompleted": true,
+      "parentNetLotCost": 20
+    }
+  ],
+  "findings": [
+    {
+      "id": "UAT-01",
+      "status": "reproduced",
+      "summary": "Visit timer starts near three hours rather than zero",
+      "evidence": "09-visit-timer-offset-reproduced.jpg",
+      "localFix": {
+        "status": "implemented_and_tested_locally",
+        "evidence": "visit-timer-fix.json",
+        "deployedVerification": false
+      }
+    },
+    {
+      "id": "UAT-07",
+      "status": "confirmed_display_only",
+      "summary": "Ticket details renders materialsUsed literal; saved material JSON is correct",
+      "evidence": "14-ready-for-closure-materials-label.jpg",
+      "localFix": {
+        "status": "implemented_and_tested_locally",
+        "evidence": "ticket-materials-display-fix.json",
+        "deployedVerification": false,
+        "storedMaterialsChanged": false
+      }
+    },
+    {
+      "id": "UAT-06",
+      "status": "ux_observation",
+      "summary": "PO receipt shortcut before warehouse arrival opens no-eligible-items page",
+      "localFix": {
+        "status": "implemented_and_checked_locally",
+        "evidence": "receipt-shortcut-fix.json",
+        "deployedVerification": false,
+        "permissionsChanged": false
+      }
+    },
+    {
+      "id": "UAT-08",
+      "status": "performance_observation_not_benchmarked",
+      "summary": "Noticeable waits for several queries and actions; all main scenario mutations eventually completed"
+    },
+    {
+      "id": "UAT-02",
+      "status": "closed_by_user_after_successful_fresh_retest",
+      "summary": "Two old terminated tickets remain counted in warehouse need queue with execution guard",
+      "freshRetest": {
+        "status": "NOT_REPRODUCED_IN_FRESH_NORMAL_WORKFLOW",
+        "evidence": "warehouse-queue-fresh-result.json",
+        "testTicket": "MT-2026-00590-01",
+        "oldRecordsUnchanged": true,
+        "normalFreshWorkflowReproduced": false
+      },
+      "disposition": {
+        "decision": "User accepted issue 3 as resolved and requested moving to the next issue.",
+        "basis": "Fresh normal workflow MT-2026-00590-01 completed without reproducing the issue.",
+        "applicationFixApplied": false,
+        "historicalRecordsChanged": false,
+        "oldMismatchObservationRetained": true
+      }
+    },
+    {
+      "id": "UAT-04",
+      "status": "still_present",
+      "summary": "Parent HVAC category, generated child General",
+      "localFix": {
+        "status": "implemented_and_tested_locally",
+        "evidence": "sub-ticket-category-fix.json",
+        "deployedVerification": false,
+        "historicalRecordsChanged": false
+      }
+    },
+    {
+      "id": "UAT-09",
+      "status": "confirmed",
+      "summary": "IT ticket creation succeeds but post-create attachment registration is forbidden for reporter; primary photo survives, attachment record absent",
+      "evidence": "it-attachment-checkpoint.json",
+      "uiEvidence": "it-01-auto-routed.jpg"
+    },
+    {
+      "id": "UAT-10",
+      "status": "confirmed_display_only",
+      "summary": "Before IT claim, generic read-only banner incorrectly mentions construction; IT claim and A workflow remain available",
+      "evidence": "it-02-before-claim.jpg",
+      "localFix": {
+        "status": "implemented_and_tested_locally",
+        "evidence": "it-banner-fix.json",
+        "deployedVerification": false,
+        "permissionsChanged": false
+      }
+    },
+    {
+      "id": "UAT-11",
+      "severity": "medium",
+      "summary": "Parent shows 100 percent and close button while a newly assigned task remains unpromoted; backend close guard rejects unpromoted tasks; early close was not attempted",
+      "evidence": "it-04-parent-before-second-promotion.txt",
+      "localFix": {
+        "status": "implemented_and_tested_locally",
+        "evidence": "parent-completion-fix.json",
+        "deployedVerification": false
+      }
+    },
+    {
+      "id": "UAT-12",
+      "severity": "medium",
+      "summary": "IT child B inspection form retained child A notes and risk before saving; actual DOM verified and notes replaced with B-specific text before persistence",
+      "evidence": "it-05-second-ticket-prefill.txt"
+    },
+    {
+      "id": "UAT-05",
+      "status": "reproduced_after_accounting",
+      "summary": "IT accounting batch advanced to management while header stayed pending_accounting and visible item count became zero until session refresh; underlying item remained intact",
+      "purchaseId": 3780002,
+      "batchId": 360002
+    }
+  ],
+  "resolvedReadiness": [
+    {
+      "id": "UAT-03",
+      "summary": "Live material execution cost layer enabled and displayed after deployment"
+    }
+  ],
+  "limitations": [
+    "Two Lots with different prices verified; multiple Lots within one issue and repeated partial returns remain",
+    "Asset was not selected; asset allocation test remains",
+    "No full API authorization bypass test",
+    "Old data/backfill not touched",
+    "Custody settlement after VAT difference not tested"
+  ],
+  "remaining": [
+    "Other team outcomes: OK, no-material fix, blocked, external",
+    "Named maintenance technician execution cost; named IT manager path passed",
+    "Construction and gate roles",
+    "PMV2 cost path",
+    "Independent stock purchase then issue to ticket",
+    "IT member to IT manager materials request branch: no it_member test account"
+  ],
+  "checkpoint": {
+    "tickets": [
+      {
+        "id": 2040003,
+        "ticketNumber": "MT-2026-00588",
+        "status": "closed",
+        "maintenancePath": null,
+        "closedAt": "2026-10-17 07:20:21",
+        "materialsUsed": null
+      },
+      {
+        "id": 2040004,
+        "ticketNumber": "MT-2026-00588-01",
+        "status": "requester_confirmed",
+        "maintenancePath": "B",
+        "closedAt": "2026-10-17 07:19:43",
+        "materialsUsed": "[{\"name\":\"فرشاة تنظيف المكيفات\",\"unit\":\"قطعة\",\"used\":2,\"requested\":3}]"
+      }
+    ],
+    "item": [
+      {
+        "id": 240004,
+        "ticketId": 2040004,
+        "status": "requester_confirmed",
+        "maintenancePath": "B",
+        "closedAt": "2026-10-17 07:19:43"
+      }
+    ],
+    "assignment": [
+      {
+        "id": 30002,
+        "stage": "closed",
+        "outcome": "fixed",
+        "revision": 12
+      }
+    ],
+    "poItem": [
+      {
+        "id": 3750001,
+        "purchaseOrderId": 3780001,
+        "status": "delivered_to_warehouse",
+        "quantity": 5,
+        "unit": "قطعة",
+        "receivedQuantity": 5,
+        "actualUnitCost": "10.00",
+        "actualTotalCost": "57.50"
+      }
+    ],
+    "stock": [
+      {
+        "id": 360001,
+        "warehouseId": 1,
+        "quantity": "2.000",
+        "unit": "قطعة",
+        "averageCost": "10.0000",
+        "totalCostValue": "20.00"
+      },
+      {
+        "id": 360002,
+        "warehouseId": 60002,
+        "quantity": "1.000",
+        "unit": "قطعة",
+        "averageCost": "10.0000",
+        "totalCostValue": "10.00"
+      }
+    ],
+    "lot": [
+      {
+        "id": 120001,
+        "lotCode": "LOT-2026-00777",
+        "originalQuantity": "5.000",
+        "remainingQuantity": "3.000",
+        "purchaseUnit": "كرتون",
+        "issueUnit": "قطعة",
+        "conversionFactor": "5.0000",
+        "purchaseUnitCost": "50.0000",
+        "issueUnitCost": "10.0000"
+      }
+    ],
+    "allocation": [
+      {
+        "id": 120001,
+        "inventoryTransactionId": 630004,
+        "deliveryNumber": "DLV-2026-450001",
+        "beneficiarySiteId": 480001,
+        "beneficiarySectionId": 210002,
+        "beneficiaryAssetId": null,
+        "quantity": "3.000",
+        "lotIssueUnitCostSnapshot": "10.0000",
+        "allocatedCostTotal": "30.00",
+        "executionSource": "ticket_team",
+        "executionId": 2040004,
+        "executionItemId": 240004,
+        "executionNumber": "MT-2026-00588-01"
+      }
+    ],
+    "returns": [
+      {
+        "id": 210001,
+        "returnNumber": "RTN-2026-180008",
+        "sourceDeliveryDocumentId": 360001,
+        "returnedQuantity": 1
+      }
+    ],
+    "expectedNet": 20,
+    "testScope": "TEAM_TICKET_PURCHASE_RECEIPT_CONVERSION_LOT_ISSUE_RETURN_CLOSURE",
+    "database": "copycmms"
+  },
+  "itScenario": {
+    "ticket": "MT-2026-00589",
+    "ticketId": 2040005,
+    "actor": "RED7",
+    "autoRoute": "IT",
+    "managerId": 19170001,
+    "departmentId": 180003,
+    "claimStatus": "claimed_by_IT_manager",
+    "runtimeStatus": "PASS_IT_A_B_PARENT_CLOSED_REQUESTER_CONFIRMED",
+    "loginResult": "success_after_user_reconfirmation_and_fresh_login",
+    "accountActiveVerified": true,
+    "attachments": {
+      "uploadedTestPng": true,
+      "primaryPhotoSaved": true,
+      "attachmentRows": 0,
+      "error": "البلاغ المرتبط متاح للعرض فقط"
+    },
+    "loginResolvedAtUtc": "2026-10-17T08:03:03.532Z",
+    "loginVerification": "it-login-verification.json",
+    "pathA": {
+      "taskId": 180003,
+      "childId": 2040006,
+      "childNumber": "MT-2026-00589-01",
+      "status": "requester_confirmed",
+      "headerAndItemMatch": true,
+      "purchaseCount": 0,
+      "materialCost": 0,
+      "actor": "RADD"
+    },
+    "pathB": {
+      "status": "requester_confirmed",
+      "purpose": "Linked IT purchase, different-price Lot versus average valuation, issue and original-document return",
+      "proposedQuantity": 2,
+      "proposedUnitCost": 20,
+      "testOnly": true,
+      "taskId": 180004,
+      "childId": 2040007,
+      "childNumber": "MT-2026-00589-02",
+      "purchaseId": 3780002,
+      "purchaseNumber": "PR-2026-180472",
+      "pricedUnitCost": 20,
+      "pricedTotal": 40,
+      "lot": "LOT-2026-00778",
+      "lotId": 120002,
+      "delivery": "DLV-2026-450002",
+      "movementId": 630007,
+      "ticketItemId": 240007,
+      "executionSource": "ticket_named",
+      "issuedQuantity": 2,
+      "lotIssueCost": 40,
+      "financialIssueCost": 30,
+      "issueDifference": 10,
+      "returnNumber": "RTN-2026-210002",
+      "returnedQuantity": 1,
+      "lotReturnedCost": 20,
+      "netLotCost": 20,
+      "financialReturnCost": 15,
+      "financialNetCost": 15,
+      "netDifference": 5,
+      "liveCostPanelVerified": true,
+      "closedAtUtc": "2026-10-17 08:27:31",
+      "headerAndItemMatch": true
+    },
+    "parentStatus": "closed",
+    "parentClosedAtUtc": "2026-10-17 08:28:40",
+    "parentNetLotCost": 20,
+    "finalEvidence": "it-requester-confirmation-checkpoint.json",
+    "loginAttemptsBeforeSuccess": 3
+  },
+  "combinedCostReport": {
+    "lotIssued": 70,
+    "lotReturned": 30,
+    "netLotCost": 40,
+    "financialNet": 35,
+    "difference": 5,
+    "eventCount": 4,
+    "uiVerified": true,
+    "groupByExecutionVerified": true,
+    "groupEvidence": "it-12-management-by-execution.txt"
+  }
+}

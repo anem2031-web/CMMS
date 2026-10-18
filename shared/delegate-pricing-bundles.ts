@@ -1,0 +1,22 @@
+export const PRICING_BUNDLE_LIMIT = 20;
+export type PricingBundleActor = { id: number; role: string; isActive: number; name?: string | null };
+export type PricingBundleRow = {
+  id: number; purchaseOrderId: number; poNumber: string; packageId: number | null;
+  itemName: string; categoryName: string; sectionName: string; siteName: string;
+  siteId: number | null; sectionId: number | null; ticketId: number | null; ticketItemId: number | null;
+  quantity: number; unit: string; estimatedUnitCost: string; estimatedTotalCost: string;
+  supplierName: string; delegateId: number; status: string;
+};
+export type PricingBundleSnapshot = {
+  number: string; submittedAt: string; delegate: { id: number; name: string; signature: string; signatureSource?: string | null };
+  rows: PricingBundleRow[];
+  signatures: Array<{ purchaseOrderId: number; poNumber: string; requesterName: string; requesterSignature: string; reviewerName: string; reviewerSignature: string; requesterSource?: string | null; reviewerSource?: string | null }>;
+};
+export function canReadPricingBundles(actor: PricingBundleActor) {
+  return actor.isActive === 1 && ["delegate", "owner", "admin", "accountant", "observer"].includes(actor.role);
+}
+export function assertBundleItemEligible(item: any, actorId: number) {
+  if (Number(item.delegateId) !== actorId || item.status !== "estimated" || item.batchId || item.delegateChangeRequestedAt || ["draft", "pending_review", "closed", "rejected", "revision_needed"].includes(item.purchaseOrderStatus)) throw new Error("الصنف غير جاهز للإضافة أو لم يعد مسندًا إليك");
+  const unit = Number(item.estimatedUnitCost), total = Number(item.estimatedTotalCost), quantity = Number(item.quantity);
+  if (![unit, total, quantity].every(Number.isFinite) || unit <= 0 || total <= 0 || quantity <= 0 || Math.abs(Math.round(unit * quantity * 100) - Math.round(total * 100)) > 0) throw new Error("احفظ تسعيرًا صحيحًا للصنف قبل إضافته للحزمة");
+}

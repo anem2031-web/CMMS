@@ -10,6 +10,7 @@ import {
 } from "@shared/ticketMaterialDelivery";
 import { syncPathBTicketFromPurchaseOrder } from "../purchase/ticket-purchase-workflow";
 import { isItTeamRole, MAINTENANCE_RESPONSIBLE_DEPARTMENT } from "@shared/roles";
+import { operationalIssuesEnabled } from "../../services/operational-issues/feature";
 
 interface InventoryTicketDeliveryContext {
   purchaseOrderItemId: number | null;
@@ -42,6 +43,7 @@ type WarehouseIssueCostTargetSuggestion = {
 
 type Pmv2WarehouseIssueContext = {
   materialRequestItemId: number;
+  taskItemId: number;
   taskNumber: string | null;
   siteId: number | null;
   sectionId: number | null;
@@ -123,6 +125,7 @@ async function getPmv2WarehouseIssueContext(purchaseOrderItemId?: number | null)
   const result = await database.execute(`
     SELECT
       link.materialRequestItemId,
+      taskItem.id AS taskItemId,
       task.taskNumber,
       target.siteId,
       target.sectionId,
@@ -150,6 +153,7 @@ async function getPmv2WarehouseIssueContext(purchaseOrderItemId?: number | null)
   });
   return {
     materialRequestItemId: Number(row.materialRequestItemId),
+    taskItemId: Number(row.taskItemId),
     taskNumber: row.taskNumber == null ? null : String(row.taskNumber),
     siteId: normalized.siteId,
     sectionId: normalized.sectionId,
@@ -545,6 +549,7 @@ export const warehouseIssueBatchesRouter = router({
           for (const row of preflight) {
             const { line, lot, context, pmv2Context, linkToTicket, markPurchaseOrderItemDelivered, sourcePoNumber } = row;
             const delivery = await db.issueDelivery({
+              pmv2TaskItemId: operationalIssuesEnabled() && !linkToTicket ? pmv2Context?.taskItemId : undefined,
               inventoryId: line.inventoryId,
               quantity: line.quantity,
               unit: line.unit,

@@ -1,0 +1,70 @@
+{
+  "status": "NOT_REPRODUCED_IN_FRESH_NORMAL_WORKFLOW",
+  "database": "copycmms",
+  "test": "UAT-20261017-03",
+  "parent": {
+    "id": 2040008,
+    "number": "MT-2026-00590",
+    "status": "closed"
+  },
+  "child": {
+    "id": 2040009,
+    "number": "MT-2026-00590-01",
+    "status": "closed"
+  },
+  "assignmentId": 30003,
+  "needId": 30002,
+  "requested": 2,
+  "unit": "قطعة",
+  "initialTeamStock": 1,
+  "transferred": 1,
+  "transferBatch": "TRB-2026-120002",
+  "lot": "LOT-2026-00777",
+  "delivery": "DLV-2026-450003",
+  "issued": 2,
+  "actors": {
+    "reporter": "RED7",
+    "manager": "RED2",
+    "technician": "SUHAIL",
+    "warehouse": "RED"
+  },
+  "observations": [
+    "New need appeared in waiting queue, count 3 including the two old tickets.",
+    "After transfer, waiting count fell to 2 and ready count became 1.",
+    "After issue, ready count became 0."
+  ],
+  "databaseWrites": "Only through ordinary browser workflows; SQL use SELECT only.",
+  "applicationCodeChanged": false,
+  "schemaChanged": false,
+  "remaining": [],
+  "used": 2,
+  "pendingReturn": 0,
+  "teamStage": "closed",
+  "evidence": {
+    "database": "warehouse-queue-fresh-final-db.json",
+    "closedChildScreenshot": "warehouse-queue-fresh-child-closed.png",
+    "beforeQueue": "warehouse-queue-fresh-waiting.txt",
+    "afterQueue": "warehouse-queue-fresh-after.txt",
+    "afterScreenshot": "warehouse-queue-fresh-after.png"
+  },
+  "finishedAt": "2026-10-17T10:39:54.391Z",
+  "finalWarehouseQueue": {
+    "waiting": 2,
+    "ready": 0,
+    "returns": 0,
+    "remainingTickets": [
+      "MT-2026-00574-01",
+      "MT-2026-00567-01"
+    ],
+    "newTicketVisible": false,
+    "verifiedAs": "RED",
+    "newSessionAfterClosure": true
+  },
+  "result": "A fresh request completed normally and left the operational warehouse queues. The two old closed headers still have waiting_material team assignments and no delivery links. This confirms historical state inconsistency, not a reproduced failure in the newly tested normal lifecycle.",
+  "limitations": [
+    "One fresh normal team-material lifecycle with main-to-team transfer and full use was tested.",
+    "The historical cause of the two old mismatches was not established, and no old data was altered.",
+    "This retest does not assert every untested purchase/external/cancellation path is error-free."
+  ],
+  "userDisposition": "Accepted as resolved; proceed to the next issue."
+}

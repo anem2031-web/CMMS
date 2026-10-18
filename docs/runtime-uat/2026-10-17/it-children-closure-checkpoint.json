@@ -1,0 +1,43 @@
+{
+  "database": "copycmms",
+  "tickets": [
+    {
+      "id": 2040005,
+      "ticketNumber": "MT-2026-00589",
+      "status": "department_planning",
+      "maintenancePath": null,
+      "closedAt": null
+    },
+    {
+      "id": 2040006,
+      "ticketNumber": "MT-2026-00589-01",
+      "status": "closed",
+      "maintenancePath": "A",
+      "closedAt": "2026-10-17 08:06:32"
+    },
+    {
+      "id": 2040007,
+      "ticketNumber": "MT-2026-00589-02",
+      "status": "closed",
+      "maintenancePath": "B",
+      "closedAt": "2026-10-17 08:27:31"
+    }
+  ],
+  "items": [
+    {
+      "id": 240005,
+      "ticketId": 2040005,
+      "status": "department_planning"
+    },
+    {
+      "id": 240006,
+      "ticketId": 2040006,
+      "status": "closed"
+    },
+    {
+      "id": 240007,
+      "ticketId": 2040007,
+      "status": "closed"
+    }
+  ]
+}

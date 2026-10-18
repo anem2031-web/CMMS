@@ -1,0 +1,79 @@
+{
+  "database": "copycmms",
+  "readOnly": true,
+  "at": "2026-10-17T10:28:38.306Z",
+  "assignments": [
+    {
+      "ticketNumber": "MT-2026-00567-01",
+      "ticketStatus": "closed",
+      "stage": "waiting_material",
+      "assignmentId": 1,
+      "revision": 2
+    },
+    {
+      "ticketNumber": "MT-2026-00574-01",
+      "ticketStatus": "closed",
+      "stage": "waiting_material",
+      "assignmentId": 3,
+      "revision": 1
+    },
+    {
+      "ticketNumber": "MT-2026-00588-01",
+      "ticketStatus": "requester_confirmed",
+      "stage": "closed",
+      "assignmentId": 30002,
+      "revision": 12
+    },
+    {
+      "ticketNumber": "MT-2026-00590-01",
+      "ticketStatus": "under_inspection",
+      "stage": "waiting_material",
+      "assignmentId": 30003,
+      "revision": 3
+    }
+  ],
+  "actions": [
+    {
+      "ticketNumber": "MT-2026-00567-01",
+      "kind": "materials_started",
+      "revision": 1,
+      "createdAt": "2026-10-11T10:40:54.000Z"
+    },
+    {
+      "ticketNumber": "MT-2026-00567-01",
+      "kind": "needs_material",
+      "revision": 2,
+      "createdAt": "2026-10-11T10:41:20.000Z"
+    },
+    {
+      "ticketNumber": "MT-2026-00574-01",
+      "kind": "needs_material",
+      "revision": 1,
+      "createdAt": "2026-10-11T04:11:58.000Z"
+    },
+    {
+      "ticketNumber": "MT-2026-00590-01",
+      "kind": "execution_protocol",
+      "revision": 0,
+      "createdAt": "2026-10-17T07:25:36.000Z"
+    },
+    {
+      "ticketNumber": "MT-2026-00590-01",
+      "kind": "execution_started",
+      "revision": 1,
+      "createdAt": "2026-10-17T07:26:33.000Z"
+    },
+    {
+      "ticketNumber": "MT-2026-00590-01",
+      "kind": "materials_started",
+      "revision": 2,
+      "createdAt": "2026-10-17T07:26:45.000Z"
+    },
+    {
+      "ticketNumber": "MT-2026-00590-01",
+      "kind": "needs_material",
+      "revision": 3,
+      "createdAt": "2026-10-17T07:27:52.000Z"
+    }
+  ]
+}

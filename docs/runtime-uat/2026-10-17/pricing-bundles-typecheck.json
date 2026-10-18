@@ -1,0 +1,32 @@
+{
+  "current": 662,
+  "baseline": 663,
+  "comparisonNote": "Existing dictionary expansion and two schema property-count expansions normalized; diagnostic identity and incompatible types retained.",
+  "added": [
+    {
+      "file": "server/_core/db/purchase.ts",
+      "code": 2345,
+      "message": "Argument of type '{ delegateChangeRequestedById: number; delegateChangeReason: string; delegateChangeRequestedAt: Date; }' is not assignable to parameter of type '{ purchaseOrderId?: number | SQL<unknown> | undefined; itemName?: string | SQL<unknown> | undefined; id?: number | SQL<unknown> | undefined; createdAt?: string | SQL<unknown> | undefined; ... 60 more ...; purchaseCancelledAt?: string | ... 2 more ... | undefined; }'.\n  Types of property 'delegateChangeRequestedAt' are incompatible.\n    Type 'Date' is not assignable to type 'string | SQL<unknown> | null | undefined'."
+    },
+    {
+      "file": "server/_core/db/purchase.ts",
+      "code": 2345,
+      "message": "Argument of type '{ status: string; batchId: null; delegateChangeRequestedById: null; delegateChangeReason: null; delegateChangeRequestedAt: null; delegateAssignedAt?: Date | undefined; delegateId: number; }' is not assignable to parameter of type '{ purchaseOrderId?: number | SQL<unknown> | undefined; itemName?: string | SQL<unknown> | undefined; id?: number | SQL<unknown> | undefined; createdAt?: string | SQL<unknown> | undefined; ... 60 more ...; purchaseCancelledAt?: string | ... 2 more ... | undefined; }'.\n  Types of property 'status' are incompatible.\n    Type 'string' is not assignable to type '\"estimated\" | \"pending_review\" | \"rejected\" | SQL<unknown> | \"pending\" | \"cancelled\" | \"approved\" | \"purchased\" | \"funded\" | \"delivered_to_warehouse\" | \"delivered_to_requester\" | \"needs_item_revision\" | \"purchase_cancelled\" | undefined'."
+    },
+    {
+      "file": "server/_core/db/users.ts",
+      "code": 2769,
+      "message": "No overload matches this call.\n  Overload 1 of 2, '(value: { userId: number | SQL<unknown> | Placeholder<string, any>; action: string | SQL<unknown> | Placeholder<string, any>; success: number | SQL<unknown> | Placeholder<...>; ... 4 more ...; details?: string | ... 3 more ... | undefined; }): MySqlInsertBase<...>', gave the following error.\n    Type 'boolean' is not assignable to type 'number | SQL<unknown> | Placeholder<string, any>'.\n  Overload 2 of 2, '(values: { userId: number | SQL<unknown> | Placeholder<string, any>; action: string | SQL<unknown> | Placeholder<string, any>; success: number | SQL<unknown> | Placeholder<...>; ... 4 more ...; details?: string | ... 3 more ... | undefined; }[]): MySqlInsertBase<...>', gave the following error.\n    Object literal may only specify known properties, and 'userId' does not exist in type '{ userId: number | SQL<unknown> | Placeholder<string, any>; action: string | SQL<unknown> | Placeholder<string, any>; success: number | SQL<unknown> | Placeholder<...>; ... 4 more ...; details?: string | ... 3 more ... | undefined; }[]'."
+    },
+    {
+      "file": "server/routers/construction/other-routers.ts",
+      "code": 2769,
+      "message": "No overload matches this call.\n  Overload 1 of 2, '(value: { name: string | SQL<unknown> | Placeholder<string, any>; createdById: number | SQL<unknown> | Placeholder<string, any>; projectId: number | SQL<unknown> | Placeholder<...>; ... 6 more ...; isRequired?: number | ... 2 more ... | undefined; }): MySqlInsertBase<...>', gave the following error.\n    Argument of type '{ options: string[] | null; orderIndex: number; createdById: any; projectId: number; name: string; fieldType: \"number\" | \"date\" | \"text\" | \"dropdown\" | \"user\" | \"file\" | \"rating\" | \"url\"; isRequired: boolean; }' is not assignable to parameter of type '{ name: string | SQL<unknown> | Placeholder<string, any>; createdById: number | SQL<unknown> | Placeholder<string, any>; projectId: number | SQL<unknown> | Placeholder<...>; ... 6 more ...; isRequired?: number | ... 2 more ... | undefined; }'.\n      Types of property 'isRequired' are incompatible.\n        Type 'boolean' is not assignable to type 'number | SQL<unknown> | Placeholder<string, any> | undefined'.\n  Overload 2 of 2, '(values: { name: string | SQL<unknown> | Placeholder<string, any>; createdById: number | SQL<unknown> | Placeholder<string, any>; projectId: number | SQL<unknown> | Placeholder<...>; ... 6 more ...; isRequired?: number | ... 2 more ... | undefined; }[]): MySqlInsertBase<...>', gave the following error.\n    Object literal may only specify known properties, and 'options' does not exist in type '{ name: string | SQL<unknown> | Placeholder<string, any>; createdById: number | SQL<unknown> | Placeholder<string, any>; projectId: number | SQL<unknown> | Placeholder<...>; ... 6 more ...; isRequired?: number | ... 2 more ... | undefined; }[]'."
+    },
+    {
+      "file": "server/routers/construction/tasks.router.ts",
+      "code": 2345,
+      "message": "Argument of type '{ title?: string | undefined; description?: string | undefined; priority?: \"low\" | \"medium\" | \"high\" | \"critical\" | undefined; assignedToId?: number | null | undefined; startDatePlanned?: string | undefined; ... 17 more ...; isCriticalPath?: boolean | undefined; }' is not assignable to parameter of type '{ createdById?: number | SQL<unknown> | undefined; projectId?: number | SQL<unknown> | undefined; phaseId?: number | SQL<unknown> | undefined; activityId?: number | SQL<unknown> | undefined; ... 34 more ...; completedById?: number | ... 2 more ... | undefined; }'.\n  Types of property 'isCriticalPath' are incompatible.\n    Type 'boolean | undefined' is not assignable to type 'number | SQL<unknown> | undefined'.\n      Type 'false' is not assignable to type 'number | SQL<unknown> | undefined'."
+    }
+  ]
+}

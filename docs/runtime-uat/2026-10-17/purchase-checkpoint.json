@@ -1,0 +1,29 @@
+{
+  "po": [
+    {
+      "id": 3780001,
+      "poNumber": "PR-2026-180471",
+      "status": "purchased"
+    }
+  ],
+  "item": [
+    {
+      "id": 3750001,
+      "status": "purchased",
+      "purchasedById": 19110002,
+      "purchasedAt": "2026-10-17 07:04:16",
+      "quantity": 5,
+      "unit": "قطعة",
+      "actualUnitCost": null,
+      "actualTotalCost": null
+    }
+  ],
+  "batch": [
+    {
+      "id": 360001,
+      "status": "approved",
+      "managementApprovedById": 19110007,
+      "managementApprovedAt": "2026-10-17 07:02:12"
+    }
+  ]
+}

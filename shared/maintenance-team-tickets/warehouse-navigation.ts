@@ -14,7 +14,7 @@ export function warehouseRequestsSelection(search: string) {
   const ticketId = Number(query.get("ticketId"));
   return {
     source:
-      query.get("source") === "tickets"
+      query.get("source") === "operational" ? ("operational" as const) : query.get("source") === "tickets"
         ? ("tickets" as const)
         : ("pmv2" as const),
     ticketId:

@@ -1,0 +1,80 @@
+- region "Notifications alt+T"
+- main:
+  - button:
+    - generic: Toggle Sidebar
+  - generic: مهامي اليوم
+  - generic: 9+
+  - main:
+    - tablist:
+      - tab [selected]: تذاكر الصيانة
+      - tab: الصيانة المجدولة
+    - tabpanel "تذاكر الصيانة":
+      - button [disabled]: تحديث
+      - generic "حالات مهام الفني":
+        - button "1" [pressed]:
+          - paragraph: مهام التنفيذ
+          - paragraph: "1"
+        - button "2":
+          - paragraph: بانتظار المواد
+          - paragraph: "2"
+        - button "1":
+          - paragraph: بانتظار المسؤول
+          - paragraph: "1"
+        - button "5":
+          - paragraph: تم تنفيذها
+          - paragraph: "5"
+      - generic: تذاكر الصيانة (1)
+      - button:
+        - paragraph: MT-2026-00590-01
+        - paragraph: Accommodations / سكن العمال-Workers Accommodation
+        - paragraph: اختبار إغلاق طلب المواد للفريق
+        - paragraph: فريق التكييف · مخزن التكييف
+        - paragraph: 0 / 1
+        - progressbar
+        - text: بدء التنفيذ / متابعة
+      - generic: التذاكر المسندة بالاسم
+      - paragraph: لا توجد تذاكر مسندة بالاسم.
+- button: 🔔
+- dialog "تذاكر الصيانة — MT-2026-00590-01":
+  - heading "تذاكر الصيانة — MT-2026-00590-01" [level=2]
+  - paragraph: Accommodations / سكن العمال-Workers Accommodation
+  - generic: "إنجاز إجراءات الفني: 0 / 1"
+  - generic: 0%
+  - progressbar
+  - paragraph: البند 1 / 1
+  - heading "اختبار إغلاق طلب المواد للفريق" [level=3]
+  - paragraph: "اختبار فقط: طلب فرشاة تنظيف مكيفات واحدة من المستودع، ثم الاستلام والاستخدام وإنهاء الزيارة واعتماد النتيجة للتحقق من اختفاء الطلب من تحتاج معالجة."
+  - text: صافي تكلفة مواد التنفيذ حسب اللوت
+  - button "تحديث" [disabled]
+  - paragraph: المصروف حسب اللوت
+  - paragraph: 0.00 ر.س
+  - paragraph: المرتجع حسب اللوت
+  - paragraph: 0.00 ر.س
+  - paragraph: صافي تكلفة المواد
+  - paragraph: 0.00 ر.س
+  - paragraph: صافي الحركات بالمتوسط
+  - paragraph: 0.00 ر.س
+  - paragraph: فرق أساس التكلفة
+  - paragraph: 0.00 ر.س
+  - paragraph: المصدر هو الصرف والمرتجع الفعليان. المشتريات لا تُضاف مرة ثانية. قيمة حركة المخزون بالمتوسط معروضة للمقارنة فقط. السجلات السابقة للتفعيل خارج هذا الكشف.
+  - generic "المواد والمستندات (0)"
+  - paragraph: بانتظار المواد
+  - status: تم حفظ الإجراء
+  - text: "وقت الزيارة:"
+  - generic: 03:02:29
+  - generic: سهيل فدا — قائد الزيارة
+  - button "جارٍ إنهاء الزيارة..." [disabled]
+  - paragraph: يمكن إنهاء الزيارة؛ حالة البلاغ تبقى ضمن مساره الحالي.
+  - button "إضافة مادة أخرى" [disabled]:
+    - text: إضافة مادة أخرى
+  - text: المواد والاستلام والاستخدام والمرتجع
+  - generic: "1"
+  - generic: فرشاة تنظيف المكيفات — 2 قطعة
+  - generic: بانتظار قرار المستودع الرئيسي
+  - paragraph: "المصروف للمهمة: 0 قطعة · المتبقي للمهمة: 2 قطعة"
+  - paragraph: "المتاح الآن: 1 قطعة. المطلوب للاستلام الكامل: 2 قطعة."
+  - generic "سجل إجراءات الفريق"
+  - generic "البنود المنجزة والمعلقة"
+  - button "إغلاق النافذة" [disabled]
+  - button "Close":
+    - generic: Close

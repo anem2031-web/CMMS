@@ -1,0 +1,64 @@
+{
+  "tasks": [
+    {
+      "id": 180003,
+      "title": "اختبار IT إصلاح بلا مواد UAT-IT01-A",
+      "status": "promoted",
+      "convertedTicketId": 2040006
+    },
+    {
+      "id": 180004,
+      "title": "اختبار IT مواد وتكلفة اللوت UAT-IT01-B",
+      "status": "promoted",
+      "convertedTicketId": 2040007
+    }
+  ],
+  "ticket": [
+    {
+      "id": 2040007,
+      "ticketNumber": "MT-2026-00589-02",
+      "status": "needs_purchase",
+      "maintenancePath": "B",
+      "assignedToId": 19170001
+    }
+  ],
+  "purchase": [
+    {
+      "id": 3780002,
+      "poNumber": "PR-2026-180472",
+      "status": "pending_review",
+      "ticketId": 2040007,
+      "ticketItemId": null,
+      "requestedById": 19170001,
+      "siteId": 480001,
+      "sectionId": 210002
+    }
+  ],
+  "stockBefore": [
+    {
+      "id": 360001,
+      "warehouseId": 1,
+      "quantity": "2.000",
+      "unit": "قطعة",
+      "averageCost": "10.0000",
+      "totalCostValue": "20.00"
+    },
+    {
+      "id": 360002,
+      "warehouseId": 60002,
+      "quantity": "1.000",
+      "unit": "قطعة",
+      "averageCost": "10.0000",
+      "totalCostValue": "10.00"
+    }
+  ],
+  "oldLots": [
+    {
+      "id": 120001,
+      "lotCode": "LOT-2026-00777",
+      "issueUnitCost": "10.0000",
+      "inventoryId": 360001,
+      "quantity": "2.000"
+    }
+  ]
+}

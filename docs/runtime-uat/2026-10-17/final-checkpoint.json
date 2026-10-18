@@ -1,0 +1,108 @@
+{
+  "tickets": [
+    {
+      "id": 2040003,
+      "ticketNumber": "MT-2026-00588",
+      "status": "closed",
+      "maintenancePath": null,
+      "closedAt": "2026-10-17 07:20:21",
+      "materialsUsed": null
+    },
+    {
+      "id": 2040004,
+      "ticketNumber": "MT-2026-00588-01",
+      "status": "requester_confirmed",
+      "maintenancePath": "B",
+      "closedAt": "2026-10-17 07:19:43",
+      "materialsUsed": "[{\"name\":\"فرشاة تنظيف المكيفات\",\"unit\":\"قطعة\",\"used\":2,\"requested\":3}]"
+    }
+  ],
+  "item": [
+    {
+      "id": 240004,
+      "ticketId": 2040004,
+      "status": "requester_confirmed",
+      "maintenancePath": "B",
+      "closedAt": "2026-10-17 07:19:43"
+    }
+  ],
+  "assignment": [
+    {
+      "id": 30002,
+      "stage": "closed",
+      "outcome": "fixed",
+      "revision": 12
+    }
+  ],
+  "poItem": [
+    {
+      "id": 3750001,
+      "purchaseOrderId": 3780001,
+      "status": "delivered_to_warehouse",
+      "quantity": 5,
+      "unit": "قطعة",
+      "receivedQuantity": 5,
+      "actualUnitCost": "10.00",
+      "actualTotalCost": "57.50"
+    }
+  ],
+  "stock": [
+    {
+      "id": 360001,
+      "warehouseId": 1,
+      "quantity": "2.000",
+      "unit": "قطعة",
+      "averageCost": "10.0000",
+      "totalCostValue": "20.00"
+    },
+    {
+      "id": 360002,
+      "warehouseId": 60002,
+      "quantity": "1.000",
+      "unit": "قطعة",
+      "averageCost": "10.0000",
+      "totalCostValue": "10.00"
+    }
+  ],
+  "lot": [
+    {
+      "id": 120001,
+      "lotCode": "LOT-2026-00777",
+      "originalQuantity": "5.000",
+      "remainingQuantity": "3.000",
+      "purchaseUnit": "كرتون",
+      "issueUnit": "قطعة",
+      "conversionFactor": "5.0000",
+      "purchaseUnitCost": "50.0000",
+      "issueUnitCost": "10.0000"
+    }
+  ],
+  "allocation": [
+    {
+      "id": 120001,
+      "inventoryTransactionId": 630004,
+      "deliveryNumber": "DLV-2026-450001",
+      "beneficiarySiteId": 480001,
+      "beneficiarySectionId": 210002,
+      "beneficiaryAssetId": null,
+      "quantity": "3.000",
+      "lotIssueUnitCostSnapshot": "10.0000",
+      "allocatedCostTotal": "30.00",
+      "executionSource": "ticket_team",
+      "executionId": 2040004,
+      "executionItemId": 240004,
+      "executionNumber": "MT-2026-00588-01"
+    }
+  ],
+  "returns": [
+    {
+      "id": 210001,
+      "returnNumber": "RTN-2026-180008",
+      "sourceDeliveryDocumentId": 360001,
+      "returnedQuantity": 1
+    }
+  ],
+  "expectedNet": 20,
+  "testScope": "TEAM_TICKET_PURCHASE_RECEIPT_CONVERSION_LOT_ISSUE_RETURN_CLOSURE",
+  "database": "copycmms"
+}

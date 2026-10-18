@@ -1,3 +1,4 @@
+import type { PricingBundleSnapshot } from "../../../shared/delegate-pricing-bundles";
 import ExcelJS from "exceljs";
 import * as db from "../../_core/db";
 import { htmlToPdf } from "../pdf/htmlToPdfService";
@@ -639,13 +640,14 @@ export async function generatePurchaseRequestPDF(
   // القالب والتوقيعات والأقسام كلها تبقى **نفسها حرفيًا** — الفارق الوحيد أن
   // مصدر الأصناف يصبح عدة دفعات تسعير، ويظهر عمود "رقم الطلب" أمام كل صنف.
   // بدونه تعمل الدالة تمامًا كما كانت (وهو حال كل الطلبات غير المجمّعة).
-  packageSubmissionId?: number
+  packageSubmissionId?: number,
+  bundleSnapshot?: PricingBundleSnapshot
 ): Promise<Buffer> {
   // Fetch PO and items
-  const po = await db.getPurchaseOrderById(purchaseOrderId);
+  const po: any = bundleSnapshot ? { id: purchaseOrderId, poNumber: bundleSnapshot.number } : await db.getPurchaseOrderById(purchaseOrderId);
   if (!po) throw new Error("Purchase Request not found");
 
-  const allItemsRaw = await db.getPOItems(purchaseOrderId);
+  const allItemsRaw = bundleSnapshot ? bundleSnapshot.rows.map(item => ({ ...item, __poNumber: item.poNumber })) : await db.getPOItems(purchaseOrderId);
   if (!allItemsRaw || allItemsRaw.length === 0) throw new Error("No items found for this request");
 
   // ── لو تم تحديد دفعة معينة، اقتصر على أصنافها فقط (لطلب عهدة مرتبط بدفعة محددة) ──
@@ -693,7 +695,7 @@ export async function generatePurchaseRequestPDF(
 
   // Verify delegate owns at least one item in this PO
   const delegateItems = (allItems as any[]).filter((item: any) => item.delegateId === delegateId);
-  const requestingUser = await db.getUserById(delegateId);
+  const requestingUser = bundleSnapshot ? { id: delegateId, role: "delegate" } : await db.getUserById(delegateId);
   const canViewAll = ["admin", "owner", "maintenance_manager", "general_maintenance_manager", "construction_procurement_manager", "purchase_manager", "accountant"].includes(requestingUser?.role || "");
   if (delegateItems.length === 0 && !canViewAll) throw new Error("Access denied: not your request");
 
@@ -728,7 +730,7 @@ export async function generatePurchaseRequestPDF(
   }
 
   // Get delegate user info — نفس المندوب هو "مستلم العهدة" بهذا المستند
-  const delegate = pricingDelegateId
+  const delegate = bundleSnapshot ? { ...bundleSnapshot.delegate, signatureUrl: null } : pricingDelegateId
     ? await db.getUserById(pricingDelegateId)
     : await db.getUserById(delegateId); // احتياطي: طلب بأصناف من عدة مندوبين بلا دفعة محددة
   const delegateName = delegate?.name || "-";
@@ -811,7 +813,7 @@ export async function generatePurchaseRequestPDF(
   const rows = (visibleItems as any[]).map((item: any, idx: number) => {
     const unitCost = parseFloat(item.estimatedUnitCost || item.actualUnitCost || "0");
     const qty = item.quantity || 1;
-    const rowTotal = unitCost * qty;
+    const rowTotal = bundleSnapshot ? Number(item.estimatedTotalCost) : unitCost * qty;
     grandTotal += rowTotal;
     return {
       serial: idx + 1,
@@ -822,6 +824,8 @@ export async function generatePurchaseRequestPDF(
       rowTotal,
       // [PB] رقم الطلب الأصلي — يظهر كعمود إضافي في وضع الدفعة الفرعية فقط
       poNumber: item.__poNumber ?? po.poNumber,
+      sectionName: item.sectionName || "—",
+      supplierName: item.supplierName || "—",
     };
   });
 
@@ -843,18 +847,19 @@ export async function generatePurchaseRequestPDF(
     ? +(Math.max(5.5, Math.min(baseCustodyFS, baseCustodyFS * (100 / Math.max(custodyCharCount, 100))))).toFixed(2)
     : baseCustodyFS;
 
-  const docDate = batch?.submittedAt ? new Date(batch.submittedAt) : new Date();
-  const dateStr = `${docDate.getFullYear()}-${String(docDate.getMonth() + 1).padStart(2, "0")}-${String(docDate.getDate()).padStart(2, "0")} م`;
+  const docDate = bundleSnapshot ? new Date(bundleSnapshot.submittedAt) : batch?.submittedAt ? new Date(batch.submittedAt) : new Date();
+  const dateStr = bundleSnapshot ? new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Riyadh" }).format(docDate) + " م" : `${docDate.getFullYear()}-${String(docDate.getMonth() + 1).padStart(2, "0")}-${String(docDate.getDate()).padStart(2, "0")} م`;
 
   // [PB] عمود رقم الطلب يظهر فقط في وضع الدفعة الفرعية (أصناف من عدة طلبات).
   // في الوضع العادي لا يُضاف إطلاقًا، فيبقى المستند مطابقًا لما هو عليه اليوم.
-  const isMultiOrderDoc = !!packageSubmissionId;
+  const isMultiOrderDoc = !!packageSubmissionId || !!bundleSnapshot;
 
   const rowsHtml = rows.map(r => `
       <tr>
         <td>${r.serial}</td>
         ${isMultiOrderDoc ? `<td style="font-size: 0.85em;">${escapeHtml(r.poNumber)}</td>` : ""}
-        <td style="text-align: right;">${escapeHtml(r.itemName)}</td>
+        <td style="text-align: right;">${escapeHtml(r.itemName)}${bundleSnapshot ? `<small style="display:block;">المورد: ${escapeHtml(r.supplierName)}</small>` : ""}</td>
+        ${bundleSnapshot ? `<td>${escapeHtml(r.sectionName)}</td>` : ""}
         <td>${r.qty}</td>
         <td>${escapeHtml(r.unit)}</td>
         <td>${r.unitCost > 0 ? fmtSAR(r.unitCost) + " ر.س" : "—"}</td>
@@ -942,9 +947,9 @@ export async function generatePurchaseRequestPDF(
                     <div class="info-label">التاريخ:</div>
                     <div class="info-value">${dateStr}</div>
                 </div>
-                ${isMultiOrderDoc && packageSubmissionNumber ? `<div class="info-row" style="margin-top: 4px;">
+                ${isMultiOrderDoc && (packageSubmissionNumber || bundleSnapshot) ? `<div class="info-row" style="margin-top: 4px;">
                     <div class="info-label">رقم دفعة الإرسال:</div>
-                    <div class="info-value" style="font-weight: bold;">${escapeHtml(packageSubmissionNumber)}</div>
+                    <div class="info-value" style="font-weight: bold;">${escapeHtml(bundleSnapshot?.number || packageSubmissionNumber || "")}</div>
                 </div>` : ""}
             </div>
         </div>
@@ -967,7 +972,8 @@ export async function generatePurchaseRequestPDF(
             <tr>
                 <th style="width: 5%;">م</th>
                 ${isMultiOrderDoc ? `<th style="width: 12%;">رقم الطلب</th>` : ""}
-                <th style="width: ${isMultiOrderDoc ? "33%" : "45%"};">المادة المطلوبة</th>
+                <th style="width: ${bundleSnapshot ? "23%" : isMultiOrderDoc ? "33%" : "45%"};">المادة المطلوبة</th>
+                ${bundleSnapshot ? `<th style="width: 10%;">القسم المستفيد</th>` : ""}
                 <th style="width: 8%;">الكمية</th>
                 <th style="width: 10%;">الوحدة</th>
                 <th style="width: 15%;">السعر التقديري</th>
@@ -977,7 +983,7 @@ export async function generatePurchaseRequestPDF(
         <tbody>
             ${rowsHtml}
             <tr class="total-row">
-                <td colspan="${isMultiOrderDoc ? 6 : 5}" style="text-align: left; padding-left: 15px;">الإجمالي الكلي</td>
+                <td colspan="${bundleSnapshot ? 7 : isMultiOrderDoc ? 6 : 5}" style="text-align: left; padding-left: 15px;">الإجمالي الكلي</td>
                 <td>${fmtSAR(grandTotal)} ر.س</td>
             </tr>
         </tbody>
@@ -997,6 +1003,7 @@ export async function generatePurchaseRequestPDF(
             </tr>
         </thead>
         <tbody>
+            ${bundleSnapshot ? bundleSnapshot.signatures.map(entry => `<tr><td>مقدّم الطلب — ${escapeHtml(entry.poNumber)}</td><td>${escapeHtml(entry.requesterName)}</td><td>${sigImg(entry.requesterSignature)}</td></tr><tr><td>مراجع الطلب — ${escapeHtml(entry.poNumber)}</td><td>${escapeHtml(entry.reviewerName)}</td><td>${sigImg(entry.reviewerSignature)}</td></tr>`).join("") : `
             <tr>
                 <td style="font-weight: bold; background-color: #f7fafc;">مقدّم الطلب</td>
                 <td>${escapeHtml(requesterName)}</td>
@@ -1007,10 +1014,11 @@ export async function generatePurchaseRequestPDF(
                 <td>${escapeHtml(reviewerName)}</td>
                 <td>${sigImg(reviewerSig)}</td>
             </tr>
+            `}
             <tr>
                 <td style="font-weight: bold; background-color: #f7fafc;">اسم مستلم العهدة</td>
                 <td>${escapeHtml(delegateName)}</td>
-                <td>${sigImg(delegateSig)}</td>
+                <td>${sigImg(bundleSnapshot ? bundleSnapshot.delegate.signature : delegateSig)}</td>
             </tr>
             ${isDelegateViewer ? "" : `
             <tr>

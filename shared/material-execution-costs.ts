@@ -1,5 +1,5 @@
 /** Operational material cost only. Never posts or revalues inventory. */
-export const MATERIAL_COST_SOURCES = ["ticket_named", "ticket_team", "pmv2", "independent"] as const;
+export const MATERIAL_COST_SOURCES = ["ticket_named", "ticket_team", "pmv2", "independent", "operational"] as const;
 export type MaterialCostSource = typeof MATERIAL_COST_SOURCES[number];
 export type MaterialCostReturn = {
   id: number; number: string; quantity: number | string; createdAt: string;

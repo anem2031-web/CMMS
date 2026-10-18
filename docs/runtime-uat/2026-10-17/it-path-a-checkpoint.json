@@ -1,0 +1,55 @@
+{
+  "tickets": [
+    {
+      "id": 2040005,
+      "ticketNumber": "MT-2026-00589",
+      "status": "department_planning",
+      "maintenancePath": null,
+      "parentTicketId": null,
+      "sourceTaskId": null,
+      "assignedToId": 19170001,
+      "maintenanceResponsibleDepartment": "maintenance_report_department_it",
+      "maintenanceResponsibleManagerId": 19170001,
+      "closedAt": null
+    },
+    {
+      "id": 2040006,
+      "ticketNumber": "MT-2026-00589-01",
+      "status": "closed",
+      "maintenancePath": "A",
+      "parentTicketId": 2040005,
+      "sourceTaskId": 180003,
+      "assignedToId": 19170001,
+      "maintenanceResponsibleDepartment": "maintenance_report_department_it",
+      "maintenanceResponsibleManagerId": 19170001,
+      "closedAt": "2026-10-17 08:06:32"
+    }
+  ],
+  "items": [
+    {
+      "id": 240006,
+      "ticketId": 2040006,
+      "status": "closed",
+      "maintenancePath": "A",
+      "assignedToId": 19170001,
+      "closedAt": "2026-10-17 08:06:32"
+    }
+  ],
+  "task": [
+    {
+      "id": 180003,
+      "status": "promoted",
+      "convertedTicketId": 2040006
+    }
+  ],
+  "purchaseCount": [
+    {
+      "count": 0
+    }
+  ],
+  "costContextCount": [
+    {
+      "count": 0
+    }
+  ]
+}

@@ -1,3 +1,4 @@
+import { pricingBundlesEnabled, assertItemOutsidePricingBundle } from "../../services/delegate-pricing-bundles/reservations";
 // ============================================================
 // db/purchase.ts — المشتريات: أوامر الشراء وبنودها ودفعات التسعير وتعليقاتها
 // (مُقسَّم من db.ts الأصلي حسب المجال الوظيفي)
@@ -616,8 +617,8 @@ export async function hasPurchaseOrderForTicket(ticketId: number): Promise<boole
   return rows.length > 0;
 }
 
-export async function getPurchaseOrderById(id: number) {
-  const db = await getDb();
+export async function getPurchaseOrderById(id: number, tx?: any) {
+  const db = tx || await getDb();
   if (!db) return null;
   // ✅ يُرجِع الآن أيضاً الاسم الكامل لمن راجع الأصناف / اعتمدت الحسابات / اعتمدت
   // الإدارة العليا، عبر ثلاثة LEFT JOIN مستقلة (aliased) لجدول users نفسه —
@@ -705,7 +706,15 @@ export async function getPOItems(purchaseOrderId: number, tx?: any) {
 export async function getPOItemsByDelegate(delegateId: number) {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(purchaseOrderItems).where(eq(purchaseOrderItems.delegateId, delegateId)).orderBy(desc(purchaseOrderItems.createdAt));
+  return db.select({
+    ...getTableColumns(purchaseOrderItems),
+    requestedById: purchaseOrders.requestedById,
+    requestedByName: users.name,
+  }).from(purchaseOrderItems)
+    .innerJoin(purchaseOrders, eq(purchaseOrderItems.purchaseOrderId, purchaseOrders.id))
+    .leftJoin(users, eq(purchaseOrders.requestedById, users.id))
+    .where(eq(purchaseOrderItems.delegateId, delegateId))
+    .orderBy(desc(purchaseOrderItems.createdAt));
 }
 
 /**
@@ -1082,9 +1091,15 @@ export async function getPOItemTimeline(itemId: number) {
   };
 }
 
-export async function updatePOItem(id: number, data: any, tx?: any, historyMeta?: POItemHistoryMeta) {
+export async function updatePOItem(id: number, data: any, tx?: any, historyMeta?: POItemHistoryMeta, expectedBatchId?: number | null) {
   const db = tx || await getDb();
   if (!db) return;
+  if (pricingBundlesEnabled() && ["estimatedUnitCost", "estimatedTotalCost", "quantity", "unit", "itemName", "supplierName"].some(key => key in data)) {
+    if (!tx) return db.transaction((locked: any) => updatePOItem(id, data, locked, historyMeta, expectedBatchId));
+    const [current] = await tx.select({ id: purchaseOrderItems.id, batchId: purchaseOrderItems.batchId }).from(purchaseOrderItems).where(eq(purchaseOrderItems.id, id)).for("update");
+    if (expectedBatchId !== undefined && current?.batchId !== expectedBatchId) throw new Error("تغير إرسال الصنف للحسابات؛ حدّث الصفحة قبل التعديل");
+    await assertItemOutsidePricingBundle(tx, id);
+  }
   const before = await readPOItemHistorySnapshot(db, id);
   await db.update(purchaseOrderItems).set(data).where(eq(purchaseOrderItems.id, id));
   await recordPOItemMutationHistory(db, before, data, historyMeta);
@@ -1129,14 +1144,22 @@ export async function updatePOItemIfDelegateChangeUnlocked(
   data: any,
   expectedStatus?: string,
   historyMeta?: POItemHistoryMeta,
+  tx?: any,
+  expectedBatchId?: number | null,
 ): Promise<boolean> {
-  const db = await getDb();
+  const db = tx || await getDb();
   if (!db) return false;
+  if (pricingBundlesEnabled()) {
+    if (!tx) return db.transaction((locked: any) => updatePOItemIfDelegateChangeUnlocked(id, data, expectedStatus, historyMeta, locked, expectedBatchId));
+    await tx.select({ id: purchaseOrderItems.id }).from(purchaseOrderItems).where(eq(purchaseOrderItems.id, id)).for("update");
+    await assertItemOutsidePricingBundle(tx, id);
+  }
   const before = await readPOItemHistorySnapshot(db, id);
   const conditions = [
     eq(purchaseOrderItems.id, id),
     isNull(purchaseOrderItems.delegateChangeRequestedAt),
   ];
+  if (pricingBundlesEnabled() && expectedBatchId !== undefined) conditions.push(expectedBatchId == null ? isNull(purchaseOrderItems.batchId) : eq(purchaseOrderItems.batchId, expectedBatchId));
   if (expectedStatus) {
     conditions.push(eq(purchaseOrderItems.status, expectedStatus as any));
   }
@@ -1155,13 +1178,15 @@ export async function updatePOItemIfDelegateChangeUnlocked(
     .select({
       delegateChangeRequestedAt: purchaseOrderItems.delegateChangeRequestedAt,
       status: purchaseOrderItems.status,
+      batchId: purchaseOrderItems.batchId,
     })
     .from(purchaseOrderItems)
     .where(eq(purchaseOrderItems.id, id))
     .limit(1);
   return !!row[0]
     && !row[0].delegateChangeRequestedAt
-    && (!expectedStatus || row[0].status === expectedStatus);
+    && (!expectedStatus || row[0].status === expectedStatus)
+    && (!pricingBundlesEnabled() || expectedBatchId === undefined || row[0].batchId === expectedBatchId);
 }
 
 /** تسجيل طلب تغيير المندوب بصورة ذرية: لا ينجح إذا بدأ التسعير أو سبق تقديم طلب. */
@@ -1253,15 +1278,15 @@ export async function getPOItemById(id: number, tx?: any) {
 // ============================================================
 // PO PRICING BATCHES (دفعات التسعير)
 // ============================================================
-export async function createPOPricingBatch(data: InsertPOPricingBatch) {
-  const db = await getDb();
+export async function createPOPricingBatch(data: InsertPOPricingBatch, tx?: any) {
+  const db = tx || await getDb();
   if (!db) return null;
   const result = await db.insert(poPricingBatches).values(data);
   return result[0].insertId;
 }
 
-export async function getNextBatchNumber(purchaseOrderId: number) {
-  const db = await getDb();
+export async function getNextBatchNumber(purchaseOrderId: number, tx?: any) {
+  const db = tx || await getDb();
   if (!db) return 1;
   const rows = await db
     .select({ batchNumber: poPricingBatches.batchNumber })
@@ -1705,9 +1730,10 @@ export async function deletePurchasePackage(packageId: number) {
  */
 export async function createPurchasePackageSubmission(
   purchasePackageId: number,
-  createdById: number
+  createdById: number,
+  tx?: any
 ): Promise<{ id: number; subNumber: number } | null> {
-  const db = await getDb();
+  const db = tx || await getDb();
   if (!db) return null;
 
   const lastSub = await db

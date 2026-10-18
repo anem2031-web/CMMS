@@ -1,3 +1,4 @@
+import { PricingBundleLink, PricingBundleAddButton } from "@/components/purchase/PricingBundleActions";
 import { trpc } from "@/lib/trpc";
 import { readHistoryEntryState, writeHistoryEntryState } from "@/lib/backStack";
 import { useLocation } from "wouter";
@@ -28,7 +29,8 @@ import { PurchaseBatchCard } from "@/components/purchase/PurchaseBatchCard";
 import { Boxes } from "lucide-react";
 import { localizeApiError } from "@/i18n/apiError";
 import { getLocalizedCatalogUnitName } from "@/i18n/catalogMasterData";
-import { formatAvailableDuration, formatDateOnly, formatOverdueDuration, getAvailableCalendarDays, getOverdueCalendarDays } from "@/lib/purchaseItemTiming";
+import { formatAvailableDuration, formatDateOnly, formatOverdueDuration, formatRemainingPurchaseDuration, getAvailableCalendarDays, getOverdueCalendarDays } from "@/lib/purchaseItemTiming";
+import { comparePurchaseRequiredDates, remainingPurchaseCalendarDays } from "@shared/purchaseItemNeedDate";
 import { canRoleAccessPurchaseSupplyTracking, canRoleViewAllPurchaseSupplyTracking } from "@shared/roles";
 import { formatPurchaseSubmissionTime } from "@shared/purchaseSubmissionTime";
 
@@ -94,6 +96,12 @@ export default function PurchaseOrders() {
   const [delegateDateFilter, setDelegateDateFilter] = useState<DelegateDateFilter>("all");
   const [delegateDateFrom, setDelegateDateFrom] = useState("");
   const [delegateDateTo, setDelegateDateTo] = useState("");
+  const [delegateClock, setDelegateClock] = useState(() => new Date());
+  useEffect(() => {
+    if (user?.role !== "delegate") return;
+    const timer = window.setInterval(() => setDelegateClock(new Date()), 60_000);
+    return () => window.clearInterval(timer);
+  }, [user?.role]);
 
   // فلاتر «متابعة التوريد». فلتر التأخير يعني: تجاوز تاريخ الاحتياج بهذه
   // المدة أو أكثر، ويطبّق فقط على الأصناف التي لم تصل لمرحلة الشراء.
@@ -110,8 +118,10 @@ export default function PurchaseOrders() {
 
   // ── عرض "بانتظار إجرائي" مقابل "جميع الطلبات" ──
   // مدير الصيانة دوره إشرافي ويتابع جميع الطلبات بغض النظر عن منشئها، لذلك
-  // يبدأ من العرض الكامل. بقية الأدوار تبدأ من الطلبات التي تنتظر إجراءها.
-  const [view, setView] = useState<"actionable" | "items" | "tracking" | "supply" | "all">(savedHistoryState?.view ?? "actionable");
+  // يبدأ من العرض الكامل. المندوب يبدأ بأصنافه، وبقية الأدوار تبدأ بانتظار إجرائها.
+  const [selectedView, setView] = useState<"actionable" | "items" | "tracking" | "supply" | "all">(savedHistoryState?.view ?? "actionable");
+  // Old saved views remain valid for other roles; delegates enter their existing item queue.
+  const view = user?.role === "delegate" && selectedView !== "items" && selectedView !== "supply" ? "items" : selectedView;
   useEffect(() => {
     if (["maintenance_manager", "general_maintenance_manager", "construction_procurement_manager"].includes(user?.role || "")) {
       setView("all");
@@ -139,7 +149,7 @@ export default function PurchaseOrders() {
   }, [view, user?.role, canAccessMyItemsTracking, canAccessSupplyTracking]);
 
   const { data: actionable, isLoading: actionableLoading } =
-    trpc.purchaseOrders.actionableForMe.useQuery();
+    trpc.purchaseOrders.actionableForMe.useQuery(undefined, { enabled: !!user && user.role !== "delegate" });
   const actionableItems = actionable?.items ?? [];
 
   // [PB-ACTIONABLE 2026-08-31] الحسابات والإدارة العليا تعملان على مستوى
@@ -161,15 +171,12 @@ export default function PurchaseOrders() {
     return ids;
   }, [actionableSubmissionItems]);
 
-  // [PB-DELEGATE-PARTIAL-PRICING 2026-09-02]
-  // للمندوب، حقيقة «ما بقي للتسعير» هي حالة الصنف لا حالة PR العامة.
-  // pendingEstimateItems تعيد الأصناف pending أو estimated غير المرسلة حتى لو
-  // أصبح PR نفسه pending_accounting/approved بسبب دفعة سابقة؛ لذلك تبقى PB
-  // ظاهرة في «بانتظار إجرائي» حتى ينتهي عمل المندوب على كل أصنافها.
+  // Legacy package-pricing view retained, but its query stays disabled while
+  // delegates use only the existing item queue and supply-tracking view.
   const isDelegatePricingActionRole = user?.role === "delegate";
   const { data: delegatePendingEstimateItems = [], isLoading: delegatePendingEstimateItemsLoading } =
     trpc.purchaseOrders.pendingEstimateItems.useQuery(undefined, {
-      enabled: isDelegatePricingActionRole,
+      enabled: isDelegatePricingActionRole && view === "actionable",
     });
 
   // عرض مسطح لكل صنف يحتاج تدخل المندوب الآن، بغض النظر عن عدد طلبات PR.
@@ -234,6 +241,8 @@ export default function PurchaseOrders() {
       return localizedName.toLowerCase().includes(query)
         || String(item.itemName || "").toLowerCase().includes(query)
         || orderNumber.toLowerCase().includes(query)
+        || String(item.requestedByName || "").toLowerCase().includes(query)
+        || String(item.requiredDate || "").includes(query)
         || (normalizedAmountQuery.length > 0 && amountValues.some((value) => value.includes(normalizedAmountQuery)));
     };
 
@@ -241,11 +250,7 @@ export default function PurchaseOrders() {
       .filter((item: any) => delegateActionFilter === "all" || item.actionMode === delegateActionFilter)
       .filter(matchesDate)
       .filter(matchesSearch)
-      .sort((a: any, b: any) => {
-        const aTime = getItemDate(a)?.getTime() ?? 0;
-        const bTime = getItemDate(b)?.getTime() ?? 0;
-        return bTime - aTime; // الأحدث أولًا
-      });
+      .sort(comparePurchaseRequiredDates);
   }, [
     delegateActionableItems,
     delegateItemsSearch,
@@ -256,10 +261,10 @@ export default function PurchaseOrders() {
     language,
   ]);
 
-  // «متابعة أصنافي»: تبقى لبقية الأدوار فقط. مديرو الصيانة والإنشاءات
-  // يستخدمون «متابعة التوريد» التي توفر لهم «الكل | أصنافي» في شاشة واحدة.
+  // Creator follow-up stays with the other roles. Delegate follow-up uses the
+  // existing supply query, already scoped by the server to the assigned delegate.
   const { data: myRequestedItemsData, isLoading: myRequestedItemsLoading } =
-    trpc.purchaseOrders.myRequestedItems.useQuery(undefined, { enabled: !!user && canAccessMyItemsTracking });
+    trpc.purchaseOrders.myRequestedItems.useQuery(undefined, { enabled: !!user && canAccessMyItemsTracking && user.role !== "delegate" });
   const myRequestedItems = myRequestedItemsData?.items ?? [];
   const myRequestedItemsCount = myRequestedItemsData?.total ?? 0;
 
@@ -419,7 +424,8 @@ export default function PurchaseOrders() {
   };
 
   const { data: pos, isLoading } = trpc.purchaseOrders.list.useQuery(
-    Object.keys(queryInput).length > 0 ? queryInput : undefined
+    Object.keys(queryInput).length > 0 ? queryInput : undefined,
+    { enabled: !!user && user.role !== "delegate" },
   );
 
   const deleteMutation = trpc.purchaseOrders.delete.useMutation({
@@ -664,6 +670,7 @@ export default function PurchaseOrders() {
         </div>
       </div>
 
+      <PricingBundleLink />
       {/* ── ملخص + تبويبات العرض ─────────────────────────────────── */}
       {view === "items" && isDelegatePricingActionRole ? (
         delegateActionableItemsLoading ? (
@@ -706,6 +713,7 @@ export default function PurchaseOrders() {
       )}
 
       <div className="flex gap-2 flex-wrap">
+        {user?.role !== "delegate" && (
         <Button
           variant={view === "actionable" ? "default" : "outline"}
           size="sm"
@@ -713,6 +721,7 @@ export default function PurchaseOrders() {
         >
           {t.workflow.purchase.actionableTab} {actionableDisplayCount > 0 && `(${actionableDisplayCount})`}
         </Button>
+        )}
         {isDelegatePricingActionRole && (
           <Button
             variant={view === "items" ? "default" : "outline"}
@@ -722,7 +731,7 @@ export default function PurchaseOrders() {
             {t.workflow.purchase.delegateItemsTab} {delegateActionableItemsCount > 0 && `(${delegateActionableItemsCount})`}
           </Button>
         )}
-        {canAccessMyItemsTracking && (
+        {canAccessMyItemsTracking && user?.role !== "delegate" && (
           <Button
             variant={view === "tracking" ? "default" : "outline"}
             size="sm"
@@ -741,16 +750,16 @@ export default function PurchaseOrders() {
             className="gap-1.5"
           >
             <Truck className="w-4 h-4" />
-            {t.workflow.purchase.supplyTrackingTab} {supplyTrackingCount > 0 && `(${supplyTrackingCount})`}
+            {user?.role === "delegate" ? t.workflow.purchase.myItemsFollowupTab : t.workflow.purchase.supplyTrackingTab} {supplyTrackingCount > 0 && `(${supplyTrackingCount})`}
           </Button>
         )}
-        <Button
+        {user?.role !== "delegate" && <Button
           variant={view === "all" ? "default" : "outline"}
           size="sm"
           onClick={() => setView("all")}
         >
           {t.workflow.purchase.allOrdersTab}
-        </Button>
+        </Button>}
       </div>
 
       {/* ── قائمة "بانتظار إجرائي" ────────────────────────────────── */}
@@ -973,29 +982,33 @@ export default function PurchaseOrders() {
           ) : (
             filteredDelegateActionableItems.map((item: any) => {
               const availableDays = getAvailableCalendarDays(item.requiredDate, item.delegateAssignedAt);
+              const remainingDays = remainingPurchaseCalendarDays(item.requiredDate, delegateClock);
               return (
               <Card
                 key={`delegate-action-item:${item.id}`}
                 className="hover:shadow-sm hover:border-primary/30 transition-all cursor-pointer"
                 onClick={() => setLocation(`/purchase-orders/${item.purchaseOrderId}?action=${item.actionMode}&itemId=${item.id}`)}
               >
-                <CardContent className="py-3 flex items-center justify-between gap-4">
+                <CardContent className="py-3 flex items-center justify-between gap-4 flex-wrap">
                   <div className="min-w-0 flex-1">
                     <div className="font-medium text-sm break-words">{getLocalizedItemField(item, "itemName", language) || item.itemName || t.workflow.purchase.unnamedItem}</div>
                     <div className="text-xs text-muted-foreground mt-1 flex items-center gap-3 flex-wrap">
                       <span className="font-mono">{item.purchaseOrderNumber}</span>
                       <span>{t.workflow.purchase.quantityColon} {item.quantity} {displayUnit(item.unit)}</span>
-                      {item.requiredDate && <span>{t.purchaseOrders.requiredDate}: {formatDateOnly(item.requiredDate, locale)}</span>}
+                      <span>{t.purchaseOrders.requiredDate}: {formatDateOnly(item.requiredDate, locale)}</span>
+                      <span className={remainingDays != null && remainingDays < 0 ? "font-medium text-destructive" : remainingDays === 0 ? "font-medium text-amber-700 dark:text-amber-400" : ""}>
+                        {t.purchaseOrders.remainingDuration}: {formatRemainingPurchaseDuration(remainingDays, language)}
+                      </span>
+                      <span>{t.common.createdBy}: {item.requestedByName || "—"}</span>
                       {item.delegateAssignedAt && <span>{t.purchaseOrders.delegateAssignedDate}: {formatDateOnly(item.delegateAssignedAt, locale)}</span>}
                       {availableDays != null && <span className={availableDays < 0 ? "text-red-600" : ""}>{t.purchaseOrders.availableDuration}: {formatAvailableDuration(availableDays, language)}</span>}
                     </div>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
+                    {item.status === "estimated" && !item.batchId && !item.delegateChangeRequestedAt && <PricingBundleAddButton itemId={item.id} />}
                     <Badge variant={item.actionMode === "purchase" ? "default" : "outline"}>
                       {item.actionMode === "purchase"
-                        ? (item.purchaseOrderStatus === "partial_purchase"
-                          ? t.workflow.purchase.delegateContinuePurchase
-                          : t.workflow.purchase.delegateNeedsPurchase)
+                        ? t.workflow.purchase.delegateNeedsPurchase
                         : (item.status === "estimated"
                           ? t.workflow.purchase.delegateReadyToSend
                           : t.workflow.purchase.delegateNeedsPricing)}

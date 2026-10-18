@@ -1,0 +1,6 @@
+{
+  "current": 662,
+  "baseline": 663,
+  "comparisonNote": "Existing dictionary expansion and two schema property-count expansions normalized; diagnostic identity and incompatible types retained.",
+  "added": []
+}

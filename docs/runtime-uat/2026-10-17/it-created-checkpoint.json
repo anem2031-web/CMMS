@@ -1,0 +1,27 @@
+{
+  "ticket": [
+    {
+      "id": 2040005,
+      "ticketNumber": "MT-2026-00589",
+      "status": "department_planning",
+      "category": "it",
+      "categoryId": 12,
+      "workflowModel": "department_tasks",
+      "maintenanceResponsibleDepartment": "maintenance_report_department_it",
+      "maintenanceResponsibleManagerId": 19170001,
+      "assignedToId": null,
+      "siteId": 480001,
+      "sectionId": 210002
+    }
+  ],
+  "department": [
+    {
+      "id": 180003,
+      "ticketId": 2040005,
+      "department": "maintenance_report_department_it",
+      "responsibleManagerId": 19170001,
+      "claimedById": null,
+      "status": "planning"
+    }
+  ]
+}

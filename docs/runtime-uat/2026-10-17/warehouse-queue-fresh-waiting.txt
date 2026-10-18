@@ -1,0 +1,167 @@
+- region "Notifications alt+T"
+- main:
+  - button "Toggle Sidebar":
+    - generic: Toggle Sidebar
+  - generic: طلبات مواد PM V2
+  - generic: 9+
+  - main:
+    - tablist "مصدر طلبات المستودع":
+      - tab "PMV2"
+      - tab "تذاكر الصيانة" [active] [selected]
+    - tabpanel "تذاكر الصيانة":
+      - heading "طلبات مواد تذاكر الصيانة" [level=1]
+      - paragraph: كل بطاقة تمثل احتياج مادة مرتبطًا بتذكرته وفريقه؛ اختر الإجراء حسب المخزون والحالة.
+      - button "تحديث"
+      - tablist:
+        - tab "تحتاج معالجة 3" [selected]:
+          - text: تحتاج معالجة
+          - generic: "3"
+        - tab "جاهزة للصرف 0":
+          - text: جاهزة للصرف
+          - generic: "0"
+        - tab "المرتجعات 0":
+          - text: المرتجعات
+          - generic: "0"
+      - tabpanel "تحتاج معالجة 3":
+        - heading "فرشاة تنظيف المكيفات — قطعة" [level=3]
+        - paragraph:
+          - link "MT-2026-00590-01":
+            - /url: /tickets/2040009
+          - text: "· احتياج #30002 · فريق التكييف"
+        - generic: متوفر في المستودع الرئيسي
+        - button "إخفاء التفاصيل" [expanded]
+        - heading "الكميات" [level=4]:
+          - text: الكميات
+        - paragraph: احتياج الفني
+        - paragraph: 2 قطعة
+        - paragraph: المصروف / المستلم
+        - paragraph: 0 قطعة
+        - paragraph: المتبقي المطلوب استلامه
+        - paragraph: 2 قطعة
+        - paragraph: النقص المطلوب تغطيته
+        - paragraph: 1 قطعة
+        - heading "المخزون والوجهة" [level=4]:
+          - text: المخزون والوجهة
+        - paragraph: المتاح في مخزن الفريق الآن
+        - paragraph: 1 قطعة
+        - paragraph: المتاح في الرئيسي الآن
+        - paragraph: 3 قطعة
+        - paragraph: مخزن الفريق المستهدف
+        - paragraph: مخزن التكييف
+        - paragraph: الفريق
+        - paragraph: فريق التكييف
+        - generic: كمية الفني
+        - textbox "كمية الفني": "2"
+        - paragraph: قطعة
+        - generic: إضافة المستودع للتخزين
+        - spinbutton "إضافة المستودع للتخزين": "0"
+        - paragraph: قطعة
+        - generic: الإجمالي — الفني + إضافة المستودع
+        - textbox "الإجمالي — الفني + إضافة المستودع": "2"
+        - paragraph: قطعة
+        - paragraph: "عجز الشراء للتذكرة بعد خصم الرصيد والتوفير المعلق: 0 قطعة؛ كمية الشراء الفعلية مع الإضافة: 0 قطعة."
+        - heading "تفاصيل الطلب والحالة" [level=4]
+        - paragraph: التذكرة
+        - paragraph: اختبار إغلاق طلب المواد للفريق
+        - paragraph: الموقع / القسم
+        - paragraph: Accommodations / سكن العمال-Workers Accommodation
+        - paragraph: "متوفر في المستودع الرئيسي — كمية التحويل إلى الفريق: 1 قطعة"
+        - heading "الإجراء" [level=4]:
+          - text: الإجراء
+        - button "تحويل النقص إلى مخزن الفريق — ١ قطعة":
+          - text: تحويل النقص إلى مخزن الفريق — ١ قطعة
+        - heading "بوية سيجما ذهبي موديل20000 تجربة — برميل" [level=3]
+        - paragraph:
+          - link "MT-2026-00574-01":
+            - /url: /tickets/2010118
+          - text: "· احتياج #1 · فريق التكييف"
+        - generic: غير موجود في الدليل
+        - button "إخفاء التفاصيل" [expanded]
+        - alert: انتهى البلاغ الأصلي؛ لا يمكن متابعة التنفيذ
+        - heading "الكميات" [level=4]:
+          - text: الكميات
+        - paragraph: احتياج الفني
+        - paragraph: 2 برميل
+        - paragraph: المصروف / المستلم
+        - paragraph: 0 برميل
+        - paragraph: المتبقي المطلوب استلامه
+        - paragraph: 2 برميل
+        - paragraph: النقص المطلوب تغطيته
+        - paragraph: —
+        - heading "المخزون والوجهة" [level=4]:
+          - text: المخزون والوجهة
+        - paragraph: المتاح في مخزن الفريق الآن
+        - paragraph: —
+        - paragraph: المتاح في الرئيسي الآن
+        - paragraph: —
+        - paragraph: مخزن الفريق المستهدف
+        - paragraph: مخزن التكييف
+        - paragraph: الفريق
+        - paragraph: فريق التكييف
+        - generic: كمية الفني
+        - textbox "كمية الفني": "2"
+        - paragraph: برميل
+        - generic: إضافة المستودع للتخزين
+        - spinbutton "إضافة المستودع للتخزين": "0"
+        - paragraph: برميل
+        - generic: الإجمالي — الفني + إضافة المستودع
+        - textbox "الإجمالي — الفني + إضافة المستودع": "2"
+        - paragraph: برميل
+        - heading "تفاصيل الطلب والحالة" [level=4]
+        - paragraph: التذكرة
+        - paragraph: "1"
+        - paragraph: الموقع / القسم
+        - paragraph: حديقة الوطن-alwatan park / المواقف الشمالية-Northern Parking Area
+        - paragraph: غير موجود في الدليل
+        - heading "الإجراء" [level=4]:
+          - text: الإجراء
+        - button "تحديد المادة من الدليل":
+          - text: تحديد المادة من الدليل
+        - alert: انتهى البلاغ الأصلي؛ لا يمكن متابعة التنفيذ
+        - heading "بطاريتين ديوراسيل (Duracell) قلوية بجهد 9 فولت — قطعة" [level=3]
+        - paragraph:
+          - link "MT-2026-00567-01":
+            - /url: /tickets/2010098
+          - text: "· احتياج #2 · فريق التكييف"
+        - generic: تعذر التحقق من المخزون
+        - button "إخفاء التفاصيل" [expanded]
+        - alert: انتهى البلاغ الأصلي؛ لا يمكن متابعة التنفيذ
+        - heading "الكميات" [level=4]:
+          - text: الكميات
+        - paragraph: احتياج الفني
+        - paragraph: 30 قطعة
+        - paragraph: المصروف / المستلم
+        - paragraph: 0 قطعة
+        - paragraph: المتبقي المطلوب استلامه
+        - paragraph: 30 قطعة
+        - paragraph: النقص المطلوب تغطيته
+        - paragraph: —
+        - heading "المخزون والوجهة" [level=4]:
+          - text: المخزون والوجهة
+        - paragraph: المتاح في مخزن الفريق الآن
+        - paragraph: —
+        - paragraph: المتاح في الرئيسي الآن
+        - paragraph: —
+        - paragraph: مخزن الفريق المستهدف
+        - paragraph: مخزن التكييف
+        - paragraph: الفريق
+        - paragraph: فريق التكييف
+        - generic: كمية الفني
+        - textbox "كمية الفني": "30"
+        - paragraph: قطعة
+        - generic: إضافة المستودع للتخزين
+        - spinbutton "إضافة المستودع للتخزين": "0"
+        - paragraph: قطعة
+        - generic: الإجمالي — الفني + إضافة المستودع
+        - textbox "الإجمالي — الفني + إضافة المستودع": "30"
+        - paragraph: قطعة
+        - heading "تفاصيل الطلب والحالة" [level=4]
+        - paragraph: التذكرة
+        - paragraph: "1"
+        - paragraph: الموقع / القسم
+        - paragraph: Accommodations / سكن العمال-Workers Accommodation
+        - paragraph: تعذر التحقق من المخزون
+        - heading "الإجراء" [level=4]:
+          - text: الإجراء
+        - alert: انتهى البلاغ الأصلي؛ لا يمكن متابعة التنفيذ
+- button "🔔"

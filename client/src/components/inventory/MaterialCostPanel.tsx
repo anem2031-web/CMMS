@@ -3,7 +3,7 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
-export const materialSourceLabels = { ticket_named: "بلاغ بالاسم", ticket_team: "بلاغ فريق", pmv2: "PMV2", independent: "صرف مستقل" };
+export const materialSourceLabels = { ticket_named: "بلاغ بالاسم", ticket_team: "بلاغ فريق", pmv2: "PMV2", independent: "صرف مستقل", operational: "صرف تشغيلي" };
 export function MaterialCostRows({ rows }: { rows: any[] }) {
   return <div className="overflow-x-auto"><table className="w-full text-sm"><thead><tr className="border-b text-muted-foreground">
     {["المستند / المرجع", "الحركة / التاريخ", "الصنف / اللوت", "الكمية", "المصروف باللوت", "المرتجع باللوت", "الصافي", "قيمة الحركة بالمتوسط", "الفرق"].map(title => <th key={title} className="p-2 text-start whitespace-nowrap">{title}</th>)}

@@ -1,3 +1,4 @@
+import { PricingBundleLink, PricingBundleAddButton } from "@/components/purchase/PricingBundleActions";
 import { ImprovementReference } from "@/components/improvement/ImprovementReference";
 import { trpc } from "@/lib/trpc";
 import { mediaUrl } from "@/lib/mediaUrl";
@@ -178,6 +179,7 @@ export default function PurchaseOrderDetail() {
     itemWorkflowTranslations[Number(item.id)]?.[fieldName] || item?.[fieldName] || "";
 
   const estimateMut = trpc.purchaseOrders.estimateCost.useMutation({ onSuccess: () => { toast.success(t.common.save); refetch(); refetchBatches(); }, onError: (e) => toast.error(localizeApiError(e.message)) });
+  const pricingBundleStatus = trpc.delegatePricingBundles.status.useQuery(undefined, { enabled: user?.role === "delegate", retry: false });
   const submitPricedBatchMut = trpc.purchaseOrders.submitPricedBatch.useMutation({
     onSuccess: (res: any) => {
       toast.success(t.workflow.purchase.pricingSentBatch.replace("{count}", String(res.itemCount)).replace("{batch}", String(res.batchNumber)));
@@ -195,13 +197,24 @@ export default function PurchaseOrderDetail() {
     { enabled: !!poId }
   );
   const approveAccountingBatchMut = trpc.purchaseOrders.approveAccountingBatch.useMutation({
-    onSuccess: (result: any, variables: any) => {
+    onSuccess: async (result: any, variables: any) => {
       toast.success(t.workflow.purchase.batchApprovedSuccess);
       if (result?.financialDocumentArchived === false) {
         toast.warning(t.workflow.purchase.financialDocumentWarning);
       }
       utils.attachments.listByType.invalidate({ entityType: "po_financial_batch" });
-      refetch(); refetchBatches();
+      // Discard any read started before approval, then refresh both views from
+      // the committed state before completing the mutation UI.
+      await Promise.all([
+        utils.purchaseOrders.getById.cancel({ id: poId }),
+        utils.purchaseOrders.listPricingBatches.cancel({ purchaseOrderId: poId }),
+      ]);
+      await Promise.all([
+        utils.purchaseOrders.getById.invalidate({ id: poId }),
+        utils.purchaseOrders.listPricingBatches.invalidate({ purchaseOrderId: poId }),
+      ]);
+      void utils.purchaseOrders.list.invalidate();
+      void utils.purchaseOrders.actionableForMe.invalidate();
       printPurchasePdf(variables.batchId);
     },
     onError: (e: any) => { toast.error(localizeApiError(e.message)); refetch(); refetchBatches(); },
@@ -689,12 +702,13 @@ const visibleItems = useMemo(() => {
           <h1 className="text-xl font-bold mt-1">{t.purchaseOrders.title}</h1>
         </div>
         <div className="flex gap-2">
+          <PricingBundleLink />
           {isDelegate && po.status === "pending_estimate" && (
             <Button variant="outline" className="border-rose-200 text-rose-700 hover:bg-rose-50" onClick={() => setIsRevisionDialogOpen(true)}>
               <AlertCircle className="w-4 h-4 mr-1.5" /> {t.purchaseOrders.returnForRevision}
             </Button>
           )}
-          {isDelegate && readyToSubmitCount > 0 && !po.packageId && (
+          {isDelegate && readyToSubmitCount > 0 && !po.packageId && !(role === "delegate" && pricingBundleStatus.data?.enabled) && (
             <Button
               className="bg-teal-600 hover:bg-teal-700 gap-1.5"
               onClick={() => submitPricedBatchMut.mutate({ purchaseOrderId: po.id })}
@@ -1196,6 +1210,8 @@ const visibleItems = useMemo(() => {
   </div>
 )}
 
+{isMyItem && item.status === "estimated" && !item.batchId && !item.delegateChangeRequestedAt && <PricingBundleAddButton itemId={item.id} />}
+
 {isMyItem && item.status === "estimated" && !item.batchId && (
   <div className="bg-teal-50 border border-teal-200 rounded-lg p-2.5 flex items-center justify-between gap-2">
     <p className="text-xs text-teal-800 flex items-center gap-1.5">
@@ -1539,17 +1555,6 @@ const visibleItems = useMemo(() => {
                   </div>
                 )}
 
-                {isWarehouse && item.status === "purchased" && (
-                  <div className="bg-green-50 border border-green-200 rounded-lg p-3">
-                    <p className="text-xs font-medium text-green-800 flex items-center gap-1.5 mb-2">
-                      <Package className="w-3.5 h-3.5" /> {t.workflow.purchase.receiveInventory}
-                    </p>
-                    <Button size="sm" className="w-full gap-1.5 bg-green-600 hover:bg-green-700" onClick={() => setLocation(`/warehouse/receive-v2?poId=${po.id}`)}>
-                      <Package className="w-3.5 h-3.5" />
-                      {t.workflow.purchase.openReceivingPage}
-                    </Button>
-                  </div>
-                )}
                 {false && item.status === "purchased_DISABLED" && (
                   <div className="bg-green-50 border border-green-200 rounded-lg p-3 space-y-3">
                     <p className="text-xs font-medium text-green-800 flex items-center gap-1.5">

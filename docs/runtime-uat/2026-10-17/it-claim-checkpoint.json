@@ -1,0 +1,29 @@
+{
+  "department": [
+    {
+      "id": 180003,
+      "ticketId": 2040005,
+      "department": "maintenance_report_department_it",
+      "responsibleManagerId": 19170001,
+      "claimedById": 19170001,
+      "claimedAt": "2026-10-17 08:02:19",
+      "status": "active"
+    }
+  ],
+  "ticket": [
+    {
+      "id": 2040005,
+      "ticketNumber": "MT-2026-00589",
+      "status": "department_planning",
+      "assignedToId": 19170001
+    }
+  ],
+  "actor": [
+    {
+      "id": 19170001,
+      "username": "RADD",
+      "role": "it_manager",
+      "lastSignedIn": "2026-10-17 08:01:38"
+    }
+  ]
+}

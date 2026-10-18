@@ -1,0 +1,36 @@
+{
+  "status": "FIXED_LOCALLY_PENDING_DEPLOYMENT",
+  "workspace": "C:/Users/mh/Desktop/CMMSFINAL",
+  "productionFiles": [
+    "client/src/pages/tickets/TicketDetail.tsx",
+    "client/src/pages/tickets/CreateTicket.tsx",
+    "client/src/pages/purchase/PurchaseOrderDetail.tsx",
+    "server/routers/tickets/tickets.router.ts",
+    "server/routers/tickets/ticket-creation-attachments.ts",
+    "server/routers/purchase/approvals.router.ts"
+  ],
+  "databaseConnectionDuringFix": false,
+  "databaseSchemaChanges": false,
+  "databaseCommandsRequired": false,
+  "railwayChanged": false,
+  "legacyDataRepaired": false,
+  "tests": {
+    "regressionTests": 11,
+    "relatedRulesAndInspectionTests": 30,
+    "isolatedBrowserChecks": 4,
+    "typeScript": {
+      "before": 663,
+      "after": 663,
+      "added": 0
+    },
+    "legacyContractFailures": 7,
+    "legacyContractFailuresPresentBeforeChange": true,
+    "packageAccountingSuite": "Not run: strict test isolation blocked live environment module import"
+  },
+  "notes": [
+    "Ticket form state is scoped by document ID, including embedded detail views; saved drafts remain scoped to their own ticket.",
+    "Creation evidence is registered and audited in the ticket creation transaction. Existing attachment/edit permissions are unchanged.",
+    "Accounting header sync happens before translation/PDF work; pending sibling batches keep the original accounting stage. UI cancels stale detail/batch reads and refreshes them.",
+    "Runtime UAT on deployed application is still required after deploying client and server together."
+  ]
+}

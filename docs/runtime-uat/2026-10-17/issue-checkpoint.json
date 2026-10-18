@@ -1,0 +1,115 @@
+{
+  "stock": [
+    {
+      "id": 360001,
+      "warehouseId": 1,
+      "quantity": "2.000",
+      "unit": "قطعة",
+      "averageCost": "10.0000",
+      "totalCostValue": "20.00"
+    },
+    {
+      "id": 360002,
+      "warehouseId": 60002,
+      "quantity": "0.000",
+      "unit": "قطعة",
+      "averageCost": "10.0000",
+      "totalCostValue": "0.00"
+    }
+  ],
+  "movements": [
+    {
+      "id": 630001,
+      "inventoryId": 360001,
+      "lotId": 120001,
+      "type": "in",
+      "quantity": "5.000",
+      "ticketId": null,
+      "transactionType": "purchase",
+      "unitCost": "10.0000",
+      "totalCost": "50.00"
+    },
+    {
+      "id": 630002,
+      "inventoryId": 360001,
+      "lotId": 120001,
+      "type": "out",
+      "quantity": "3.000",
+      "ticketId": null,
+      "transactionType": "transfer",
+      "unitCost": "10.0000",
+      "totalCost": "30.00"
+    },
+    {
+      "id": 630003,
+      "inventoryId": 360002,
+      "lotId": 120001,
+      "type": "in",
+      "quantity": "3.000",
+      "ticketId": null,
+      "transactionType": "transfer",
+      "unitCost": "10.0000",
+      "totalCost": "30.00"
+    },
+    {
+      "id": 630004,
+      "inventoryId": 360002,
+      "lotId": 120001,
+      "type": "out",
+      "quantity": "3.000",
+      "ticketId": 2040004,
+      "transactionType": "delivery",
+      "unitCost": "10.0000",
+      "totalCost": "30.00"
+    }
+  ],
+  "costs": [
+    {
+      "id": 120001,
+      "inventoryTransactionId": 630004,
+      "inventoryId": 360002,
+      "lotId": 120001,
+      "deliveryNumber": "DLV-2026-450001",
+      "beneficiarySiteId": 480001,
+      "beneficiarySectionId": 210002,
+      "beneficiaryAssetId": null,
+      "quantity": "3.000",
+      "lotIssueUnitCostSnapshot": "10.0000",
+      "allocatedCostTotal": "30.00",
+      "createdById": 19080003,
+      "createdAt": "2026-10-17 07:13:34"
+    }
+  ],
+  "contexts": [
+    {
+      "inventoryTransactionId": 630004,
+      "executionSource": "ticket_team",
+      "executionId": 2040004,
+      "executionItemId": 240004,
+      "executionNumber": "MT-2026-00588-01",
+      "createdAt": "2026-10-17 07:13:34"
+    }
+  ],
+  "assignment": [
+    {
+      "id": 30002,
+      "stage": "ready_to_repair",
+      "revision": 7
+    }
+  ],
+  "deliveries": [
+    {
+      "id": 1,
+      "needId": 30001,
+      "deliveryDocumentId": 360001,
+      "deliveryNumber": "DLV-2026-450001",
+      "lotId": 120001,
+      "inventoryTransactionId": 630004,
+      "issuedQuantity": 3,
+      "receivedById": 11640105,
+      "usedQuantity": null,
+      "returnedQuantity": 0,
+      "createdAt": "2026-10-17 07:13:35"
+    }
+  ]
+}

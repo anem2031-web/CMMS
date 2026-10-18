@@ -1,0 +1,37 @@
+[
+  {
+    "file": "client/src/pages/tickets/TicketDetail.tsx",
+    "expected": "تحميل التقرير الأرشيفي",
+    "missingBeforeFix": true
+  },
+  {
+    "file": "client/src/pages/tickets/TicketDetail.tsx",
+    "expected": "الفني المسند حاليًا",
+    "missingBeforeFix": true
+  },
+  {
+    "file": "client/src/pages/tickets/TicketDetail.tsx",
+    "expected": "نسخة نتيجة الفحص رقم",
+    "missingBeforeFix": true
+  },
+  {
+    "file": "server/routers/purchase/purchase-orders.router.ts",
+    "expected": "assertTicketAllowsNewPurchaseOrder(input.ticketId)",
+    "missingBeforeFix": true
+  },
+  {
+    "file": "client/src/pages/tickets/TicketDetail.tsx",
+    "expected": "رفع صورة بعد الإصلاح (اختياري)",
+    "missingBeforeFix": true
+  },
+  {
+    "file": "client/src/pages/purchase/CreatePurchaseOrder.tsx",
+    "expected": "ticket.maintenancePath !== \"B\"",
+    "missingBeforeFix": true
+  },
+  {
+    "file": "client/src/pages/purchase/PurchaseCycle.tsx",
+    "expected": "الفني المسند للبلاغ",
+    "missingBeforeFix": true
+  }
+]

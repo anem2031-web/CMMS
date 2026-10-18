@@ -1,4 +1,6 @@
+import { delegatePricingBundlesRouter } from "./delegate-pricing-bundles";
 import { router } from "./_shared/procedures";
+import { operationalIssuesRouter } from "./operational-issues";
 import { maintenanceTeamsRouter, ticketTeamAssignmentsRouter, ticketTeamExecutionRouter } from "./maintenance-teams";
 import { systemRouter } from "../_core/systemRouter";
 import { translationRouter } from "./translation/translation.router";
@@ -88,6 +90,8 @@ export const appRouter = router({
   technicians: techniciansRouter,
 
   tickets: ticketsMergedRouter,
+  operationalIssues: operationalIssuesRouter,
+  delegatePricingBundles: delegatePricingBundlesRouter,
 
 purchaseOrders: router({
   ...purchaseOrdersRouter._def.procedures,

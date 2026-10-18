@@ -1,0 +1,6 @@
+{
+  "current": 662,
+  "baseline": 663,
+  "comparisonNote": "The pre-existing submitForAccounting missing-key diagnostic is compared without its expanded dictionary type, which changed when stock translations were added.",
+  "added": []
+}

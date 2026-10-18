@@ -1,0 +1,112 @@
+{
+  "database": "copycmms",
+  "readOnly": true,
+  "at": "2026-10-17T10:37:27.358Z",
+  "tickets": [
+    {
+      "id": 2010098,
+      "ticketNumber": "MT-2026-00567-01",
+      "status": "closed",
+      "closedAt": "2026-10-12T05:19:41.000Z"
+    },
+    {
+      "id": 2010118,
+      "ticketNumber": "MT-2026-00574-01",
+      "status": "closed",
+      "closedAt": "2026-10-12T00:18:17.000Z"
+    },
+    {
+      "id": 2040008,
+      "ticketNumber": "MT-2026-00590",
+      "status": "closed",
+      "closedAt": "2026-10-17T07:37:12.000Z"
+    },
+    {
+      "id": 2040009,
+      "ticketNumber": "MT-2026-00590-01",
+      "status": "closed",
+      "closedAt": "2026-10-17T07:36:31.000Z"
+    }
+  ],
+  "assignments": [
+    {
+      "id": 30003,
+      "ticketNumber": "MT-2026-00590-01",
+      "stage": "closed",
+      "revision": 10,
+      "requestedQuantity": 2,
+      "usedQuantity": 2,
+      "issuedQuantity": 2,
+      "returnedQuantity": 0,
+      "deliveryNumber": "DLV-2026-450003"
+    },
+    {
+      "id": 3,
+      "ticketNumber": "MT-2026-00574-01",
+      "stage": "waiting_material",
+      "revision": 1,
+      "requestedQuantity": 2,
+      "usedQuantity": null,
+      "issuedQuantity": null,
+      "returnedQuantity": null,
+      "deliveryNumber": null
+    },
+    {
+      "id": 1,
+      "ticketNumber": "MT-2026-00567-01",
+      "stage": "waiting_material",
+      "revision": 2,
+      "requestedQuantity": 30,
+      "usedQuantity": null,
+      "issuedQuantity": null,
+      "returnedQuantity": null,
+      "deliveryNumber": null
+    }
+  ],
+  "actions": [
+    {
+      "kind": "execution_protocol",
+      "revision": 0
+    },
+    {
+      "kind": "execution_started",
+      "revision": 1
+    },
+    {
+      "kind": "materials_started",
+      "revision": 2
+    },
+    {
+      "kind": "needs_material",
+      "revision": 3
+    },
+    {
+      "kind": "visit_ended",
+      "revision": 4
+    },
+    {
+      "kind": "transfer_confirmed",
+      "revision": 5
+    },
+    {
+      "kind": "warehouse_issue",
+      "revision": 6
+    },
+    {
+      "kind": "execution_started",
+      "revision": 7
+    },
+    {
+      "kind": "fixed",
+      "revision": 8
+    },
+    {
+      "kind": "visit_ended",
+      "revision": 9
+    },
+    {
+      "kind": "approve_result",
+      "revision": 10
+    }
+  ]
+}
