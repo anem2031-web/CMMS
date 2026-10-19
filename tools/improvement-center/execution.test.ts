@@ -106,11 +106,12 @@ test("direct PO source, ambiguity, cycles and unlinked document", async () => {
   assert.equal(await executionReference(new FakeSql([[], [{ ticketId: null }]]), "purchase", 2), null);
 });
 test("summary includes child docs but excludes organizational parent cost", async () => {
-  const tx = new FakeSql([[{ ...ticket, actualCost: "999", parentTicketId: null }], [{ id: 11 }], [{ ...ticket, id: 11, parentTicketId: 1, actualCost: "150" }], [], [{ ...order, ticketId: 11 }], [item], [{ ...issue, ticketId: 11, purchaseOrderItemId: 3 }]]);
+  const tx = new FakeSql([[{ ...ticket, actualCost: "999", parentTicketId: null }], [{ id: 11 }], [{ ...ticket, id: 11, parentTicketId: 1, actualCost: "150" }], [], [{ ...order, ticketId: 11 }], [item], [{ ...issue, ticketId: 11, purchaseOrderItemId: 3 }], []]);
   const result = await improvementExecutionSummary(tx, { ...idea, linkedTicketId: 1 });
   assert.equal(result.total, 150); assert.equal(result.executionDone, true); assert.equal(result.estimatedTotal, 100);
-  assert.match(tx.queries.at(-1)!.sql, /COALESCE\(x.purchaseOrderItemId,l.purchaseOrderItemId\)/);
-  assert.match(tx.queries.at(-1)!.sql, /warehouse_returns/);
+  assert.match(tx.queries.at(-2)!.sql, /COALESCE\(x.purchaseOrderItemId,l.purchaseOrderItemId\)/);
+  assert.match(tx.queries.at(-2)!.sql, /warehouse_returns/);
+  assert.equal(result.executionProgress?.percent, 100);
 });
 test("empty or missing documents cannot complete; PO unresolved items cannot complete", async () => {
   assert.equal((await improvementExecutionSummary(new FakeSql([[]]), idea)).executionDone, false);

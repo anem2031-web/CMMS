@@ -574,6 +574,8 @@ function DashboardLayoutContent({ children, setSidebarWidth }: { children: React
     if (authLoading || canAccessCurrentPath) return;
     const fallback = role === "technician"
       ? "/scheduled-maintenance/my-tasks"
+      : role === "gate_security" ? "/gate-security"
+      : role === "delegate" ? "/purchase-orders"
       : role === "warehouse" && location.startsWith("/scheduled-maintenance")
         ? "/scheduled-maintenance/warehouse-requests"
         : isBusinessGuardedRole(role) ? businessHomePath(role)

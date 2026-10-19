@@ -5,6 +5,57 @@ export interface ExecutionTicket { id: number; ticketNumber: string; status: str
 export interface ExecutionPurchase { id: number; poNumber: string; ticketId: number | null; status: string }
 export interface PurchaseCostItem { id: number; purchaseOrderId: number; itemName: string; status: string; actualTotalCost: string | number | null; purchasedAt: unknown; receivedAt?: unknown; quantity?: number | string; ticketLinkedQuantity?: number | string | null }
 export interface StockCostMovement { id: number; ticketId: number; purchaseOrderItemId: number | null; type: string; transactionType: string; totalCost: string | number | null; documentNumber?: string }
+export interface ImprovementProgressIdea { id: number; executionTrackingVersion?: number; linkedTicketId?: number | null; linkedPurchaseOrderId?: number | null }
+export interface ImprovementProgressTicket { id: number; status: string; parentTicketId?: number | null }
+export interface ImprovementProgressOrder { id: number; ticketId?: number | null; status: string }
+export interface ImprovementProgressItem { id: number; purchaseOrderId: number; status: string }
+export interface ImprovementProgressTask { id: number; ticketId: number; status: string; convertedTicketId?: number | null }
+export interface ImprovementExecutionProgress { percent: number; completed: number; total: number; ready: boolean; missingDocument: boolean }
+
+/** Display progress only. Financial settlement and outcome evaluation keep their own rules. */
+export function deriveImprovementExecutionProgress(
+  idea: ImprovementProgressIdea,
+  tickets: ImprovementProgressTicket[],
+  orders: ImprovementProgressOrder[],
+  items: ImprovementProgressItem[],
+  tasks: ImprovementProgressTask[],
+): ImprovementExecutionProgress {
+  const ticketMap = new Map(tickets.map(ticket => [Number(ticket.id), ticket]));
+  const included = new Set<number>();
+  const children = new Map<number, number[]>();
+  for (const ticket of Array.from(ticketMap.values())) {
+    if (ticket.parentTicketId) children.set(Number(ticket.parentTicketId), [...(children.get(Number(ticket.parentTicketId)) ?? []), Number(ticket.id)]);
+  }
+  let missingDocument = !!idea.linkedTicketId && !ticketMap.has(Number(idea.linkedTicketId));
+  const pending = idea.linkedTicketId ? [Number(idea.linkedTicketId)] : [];
+  while (pending.length) {
+    const id = pending.pop()!;
+    if (included.has(id)) { missingDocument = true; continue; }
+    if (!ticketMap.has(id)) continue;
+    if (included.size >= 2000) throw new Error("عدد مستندات التنفيذ يتجاوز حد التحقق");
+    included.add(id);
+    pending.push(...(children.get(id) ?? []));
+  }
+  const linkedOrders = Array.from(new Map(orders.filter(order => Number(order.id) === Number(idea.linkedPurchaseOrderId) || included.has(Number(order.ticketId))).map(order => [Number(order.id), order])).values());
+  const missingPurchase = !!idea.linkedPurchaseOrderId && !linkedOrders.some(order => Number(order.id) === Number(idea.linkedPurchaseOrderId));
+  const unresolvedTasks = Array.from(new Map(tasks.filter(task => included.has(Number(task.ticketId)) && task.status !== "cancelled").map(task => [Number(task.id), task])).values())
+    .filter(task => !task.convertedTicketId || !included.has(Number(task.convertedTicketId)));
+  if (unresolvedTasks.some(task => !!task.convertedTicketId)) missingDocument = true;
+  missingDocument ||= missingPurchase;
+  const completedTickets = Array.from(included).filter(id => ["closed", "requester_confirmed"].includes(ticketMap.get(id)!.status)).length;
+  const uniqueItems = Array.from(new Map(items.map(item => [Number(item.id), item])).values());
+  const completedOrders = linkedOrders.filter(order => {
+    const orderItems = uniqueItems.filter(item => Number(item.purchaseOrderId) === Number(order.id));
+    return ["received", "closed"].includes(order.status) && orderItems.length > 0 &&
+      orderItems.every(item => ["purchased", "delivered_to_warehouse", "delivered_to_requester"].includes(item.status));
+  }).length;
+  const total = included.size + linkedOrders.length + unresolvedTasks.length +
+    (idea.linkedTicketId && !ticketMap.has(Number(idea.linkedTicketId)) ? 1 : 0) + (missingPurchase ? 1 : 0);
+  const completed = completedTickets + completedOrders;
+  const ready = total > 0 && completed === total && !missingDocument && unresolvedTasks.length === 0;
+  const percent = ready ? 100 : total > 0 ? Math.min(99, Math.round(completed * 100 / total)) : 0;
+  return { percent, completed, total, ready, missingDocument };
+}
 export function moneyCents(value: unknown): number | null {
   if (value === null || value === undefined || value === "") return null;
   const text = String(value);

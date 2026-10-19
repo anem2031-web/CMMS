@@ -147,6 +147,9 @@ export function printExternalMaintenanceDocument(type: ExternalDocumentType, row
     <style>
       *{box-sizing:border-box}
       body{font-family:Arial,Tahoma,sans-serif;color:#18212f;padding:10mm;line-height:1.35;font-size:12px}
+      .document-toolbar{display:flex;justify-content:flex-end;position:sticky;top:0;z-index:1;background:#fff;padding:8px 0;margin-bottom:10px}
+      .document-close{font:inherit;font-weight:700;color:#fff;background:#1e3a5f;border:0;border-radius:5px;padding:8px 20px;cursor:pointer}
+      .document-close:focus-visible{outline:3px solid #38bdf8;outline-offset:2px}
       header{display:flex;justify-content:space-between;align-items:center;border-bottom:2.5px solid #1e3a5f;padding-bottom:8px;margin-bottom:10px}
       h1{font-size:16px;margin:0;color:#1e3a5f}
       header .sub{font-size:10.5px;color:#64748b;margin-top:2px}
@@ -163,8 +166,9 @@ export function printExternalMaintenanceDocument(type: ExternalDocumentType, row
       .photo{max-height:110px;max-width:220px;border:1px solid #ddd;border-radius:6px;display:inline-block}
       .pending-note{background:#fff7e6;border:1px solid #f0c36d;color:#8a5a00;border-radius:5px;padding:6px 10px;font-size:11px;margin:-2px 0 8px}
       footer{margin-top:10px;border-top:1px solid #ddd;padding-top:6px;color:#64748b;font-size:9.5px}
-      @media print{@page{size:A4;margin:10mm}button{display:none}}
+      @media print{@page{size:A4;margin:10mm}.document-toolbar,button{display:none}}
     </style></head><body>
+    <div class="document-toolbar"><button id="close-document" class="document-close" type="button">${esc(p("إغلاق"))}</button></div>
     <header>
       <div><h1>${title}</h1><div class="sub">${p("نظام الحارس المركزي لإدارة الصيانة")}</div></div>
       <div class="number">${esc(documentNumber)}</div>
@@ -177,4 +181,5 @@ export function printExternalMaintenanceDocument(type: ExternalDocumentType, row
     <footer>${p("طُبعت الوثيقة بتاريخ {date}. النسخة الورقية الموقعة تُعاد للمستودع وتحفظ مع سجل البلاغ.", { date: new Date().toLocaleString(locale) })}</footer>
     <script>window.onload=()=>setTimeout(()=>window.print(),350)</script></body></html>`);
   win.document.close();
+  win.document.getElementById("close-document")?.addEventListener("click", () => win.close());
 }

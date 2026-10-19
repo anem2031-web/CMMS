@@ -119,7 +119,11 @@ export default function PurchaseOrderDetail() {
     getLocalizedCatalogUnitName(value, catalogUnits as any[], language);
 
   const { data: po, isLoading, refetch } = trpc.purchaseOrders.getById.useQuery({ id: poId }, { enabled: !!poId });
-  const { data: users } = trpc.users.list.useQuery();
+  const { data: directoryUsers } = trpc.users.list.useQuery(undefined, { enabled: !!user && user.role !== "delegate" });
+  const users = user?.role === "delegate" ? [
+    { id: user.id, name: user.name, role: "delegate" },
+    { id: po?.requestedById, name: (po as any)?.requestedByName },
+  ] : directoryUsers;
   const { data: sites = [] } = trpc.sites.list.useQuery();
   const { data: poSections = [] } = trpc.sections.list.useQuery(
     po?.siteId ? { siteId: Number(po.siteId) } : undefined,

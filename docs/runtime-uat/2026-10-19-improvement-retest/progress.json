@@ -1,0 +1,98 @@
+{
+  "date": "2026-10-19",
+  "status": "completed",
+  "application": "https://cmms-production-2f64.up.railway.app",
+  "method": "Browser UI only; no direct database connection or API scripting.",
+  "database_scope": "copycmms per user's prior confirmation; cmms not accessed.",
+  "records": {
+    "idea": "IMP-2026-00012",
+    "ideaId": 270001,
+    "ticket": "MT-2026-00592",
+    "ticketId": 2070001,
+    "child": "MT-2026-00592-01",
+    "childId": 2070002,
+    "operatorIdea": "IMP-2026-00013",
+    "operatorUsername": "RED7",
+    "operatorIdeaTitle": "UAT-20261019-RED7 — Improvement creation retest"
+  },
+  "successful_steps": [
+    "Admin idea list load",
+    "New idea save and persistence after refresh",
+    "Triage/classification and group assignment",
+    "Cost study save (explicit zero-cost test)",
+    "Management decision blocked before cost study",
+    "Senior management approval RED8",
+    "Execution owner and target date save",
+    "Conversion to ticket with inherited site/section",
+    "Bidirectional idea/ticket link",
+    "Synthetic test photo upload and attachment registration",
+    "Premature idea close rejected by server",
+    "Team task execution and visit end",
+    "Team result approval",
+    "Child ticket close",
+    "Parent ticket close",
+    "Final evaluation and idea completion after linked documents closed",
+    "Completed idea and outcome persist after full reload",
+    "Operator RED7 idea list load, creation, persistence after reload",
+    "Search by idea number"
+  ],
+  "observations": [
+    {
+      "id": "IC-01",
+      "kind": "display_refresh",
+      "text": "Classified card remained after senior approval; after returning from new ticket, approved card still offered conversion. Full reload updated each. After final evaluation, initial detail dialog still said no impact evaluation; full reload displayed saved outcome and actual indicator.",
+      "evidence": [
+        "03-senior-after-approval.png",
+        "05-stale-approved-card-after-link.png",
+        "09-completed-details-before-reload.png",
+        "10-final-evaluation-persisted.png"
+      ]
+    },
+    {
+      "id": "IC-02",
+      "kind": "localization",
+      "text": "Arabic classified card displays medium; linked ticket card displays raw pending_triage and later closed. All-tab priority and detailed follow-up localize correctly, so inconsistent display."
+    },
+    {
+      "id": "IC-03",
+      "kind": "loading_feedback",
+      "text": "Several center tabs temporarily render an empty content area while data is loading, without a clear loading indicator. No latency attribution or independent performance diagnosis."
+    },
+    {
+      "id": "IC-04",
+      "kind": "uploaded_image_access",
+      "priority": "first_to_discuss",
+      "text": "RED7 uploaded synthetic PNG in New idea. UI upload completed but preview image complete=true/naturalWidth=0. After Save, idea IMP-2026-00013 appeared and persisted after reload, while console logged Cannot read properties of undefined (reading 'name'). Opening the exact preview src in the same authenticated browser returned الملف غير متاح لحسابك. Cannot infer whether image linkage persisted without further examination; no DB or code investigation in this retest.",
+      "evidence": [
+        "11-operator-idea-created.png",
+        "12-operator-own-image-denied.png"
+      ]
+    }
+  ],
+  "expected_rejection": {
+    "message": "يلزم اكتمال التنفيذ وتسوية بيانات التكلفة قبل الإغلاق",
+    "when": "Attempted evaluation before ticket execution",
+    "result": "rejected; idea remained in progress",
+    "outcome_after_completion": "Allowed; evaluated تحقق الهدف with indicator=1, idea status مكتملة, confirmed after reload."
+  },
+  "untested": [
+    "Purchase-order conversion branch",
+    "Nonzero actual costs, warehouse issue/return in this run",
+    "Rejection/defer decision branches",
+    "Direct read of persisted attachment linkage"
+  ],
+  "source_changes": false,
+  "database_ddl_executed": false,
+  "design_observations": [
+    {
+      "text": "Execution percent remains manual: displayed 0% while linked documents had closed and follow-up said ready to evaluate. Final evaluation completes idea. Treat as clarity/design discussion, not a proven server defect."
+    }
+  ],
+  "boundaries": [
+    "Only new explicitly labeled test records changed through UI",
+    "No pre-existing ideas edited",
+    "No financial commitment, PO creation or stock movement",
+    "No original cmms database access",
+    "No source changes or repair applied in this retest"
+  ]
+}

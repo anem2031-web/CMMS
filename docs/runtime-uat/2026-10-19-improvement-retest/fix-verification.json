@@ -1,0 +1,71 @@
+{
+  "date": "2026-10-19",
+  "status": "implemented_and_locally_verified",
+  "scope": "Five approved Improvement Center repairs",
+  "workspace": "C:/Users/mh/Desktop/CMMSFINAL",
+  "productionFiles": [
+    "client/src/pages/improvement/ImprovementIdeas.tsx",
+    "client/src/components/improvement/ImprovementFinancialPanel.tsx",
+    "client/src/components/improvement/ImprovementLoadingNotice.tsx",
+    "client/src/components/improvement/improvement-ui.ts",
+    "server/routers/improvement-ideas/improvement-ideas.router.ts",
+    "server/services/improvement-ideas/execution.ts",
+    "server/services/improvement-ideas/progress.ts",
+    "shared/improvement-execution.ts",
+    "server/_core/authz/media-access.ts",
+    "server/_core/authz/media-reference-sources.ts"
+  ],
+  "existingRequiredMediaRepair": [
+    "server/_core/authz/media-access.ts",
+    "server/_core/authz/media-reference-sources.ts"
+  ],
+  "implemented": [
+    "Schema-typed existing file reference guard tested for improvement images; owner/reviewer boundaries preserved",
+    "Cache invalidation for list, counts, grouped lists, details, follow-up, image references; mount/focus refresh without polling",
+    "Preserve committed idea ID when attachment binding fails; retry only failed attachments and block concurrent creation",
+    "Localized linked-document statuses and priority; explicit loading/refresh/error/retry/empty views in Arabic, English and Urdu",
+    "Derived document progress for newly tracked ideas; legacy manual data unchanged; outcome rating stays separate"
+  ],
+  "tests": {
+    "nodeDomain": 43,
+    "vitestRouter": 16,
+    "vitestUi": 15,
+    "vitestImprovementMedia": 17,
+    "vitestMediaReference": 19,
+    "vitestBusinessMedia": 26,
+    "vitestBusinessResources": 30,
+    "vitestGate": 141,
+    "totalDistinct": 307,
+    "result": "all passed"
+  },
+  "typecheck": {
+    "isolatedDomain": "passed",
+    "projectBaseline": 660,
+    "projectCurrent": 660,
+    "diagnosticsInChangedScope": 0
+  },
+  "syntax": {
+    "productionFiles": 10,
+    "result": "passed"
+  },
+  "review": {
+    "finding": "Union-wide document limit could break approved list with 2001 valid independent executions",
+    "fixed": "Chunk reads at 500 ids; enforce 2000 per individual graph",
+    "regression": "2001 independent ideas pass in 20 reads; one oversized tree fails closed"
+  },
+  "database": {
+    "connected": false,
+    "modified": false,
+    "migrationsRequired": false
+  },
+  "deployment": {
+    "performed": false,
+    "browserValidationOfNewBuild": "pending publication by user"
+  },
+  "preserved": [
+    "Existing permissions and media guards",
+    "Financial costs and closure settlement contract",
+    "Legacy manual progress and historical records",
+    "No changes outside authorized workspace"
+  ]
+}

@@ -1,6 +1,6 @@
 import { sql, type SQL } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
-import { aggregateImprovementCosts, hasCompleteCostStudy, moneyCents } from "../../../shared/improvement-execution";
+import { aggregateImprovementCosts, deriveImprovementExecutionProgress, hasCompleteCostStudy, moneyCents } from "../../../shared/improvement-execution";
 
 export interface ExecutionSql { execute(query: SQL): Promise<any> }
 async function rows(tx: ExecutionSql, query: SQL): Promise<any[]> { const result = await tx.execute(query); return result[0]; }
@@ -95,6 +95,9 @@ export async function improvementExecutionSummary(tx: ExecutionSql, idea: any) {
     return ["received", "closed", "rejected"].includes(order.status) && orderItems.length > 0 && orderItems.every(item => ["purchased", "delivered_to_warehouse", "delivered_to_requester", "rejected", "cancelled"].includes(item.status));
   });
   const missingDocument = (!!idea.linkedTicketId && !tickets.some(ticket => Number(ticket.id) === Number(idea.linkedTicketId))) || (!!idea.linkedPurchaseOrderId && !orders.some(order => Number(order.id) === Number(idea.linkedPurchaseOrderId)));
+  const tasks = Number(idea.executionTrackingVersion) === 1 && ticketIds.length ? await rows(tx, sql`SELECT id,ticketId,status,convertedTicketId FROM ticket_tasks WHERE ticketId IN (${ids(ticketIds)})`) : [];
+  const executionProgress = Number(idea.executionTrackingVersion) === 1 ? deriveImprovementExecutionProgress(idea, tickets, orders, items, tasks) : undefined;
   return { ...costs, estimatedTotal: estimate, budgetRemaining: Math.round((estimate - costs.total) * 100) / 100, tickets, orders,
+    executionProgress,
     executionDone: !missingDocument && (tickets.length > 0 || orders.length > 0) && (!tickets.length || ticketDone) && (!orders.length || orderDone), missingDocument };
 }

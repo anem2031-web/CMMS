@@ -26,6 +26,7 @@ const M: Record<string, Entry> = {
   "صورة الأصل المرفوعة من المستودع": { en: "Asset photo uploaded by warehouse", ur: "گودام کی اپ لوڈ کردہ اثاثے کی تصویر" },
   "صورة الأصل قبل الخروج": { en: "Asset photo before exit", ur: "خروج سے پہلے اثاثے کی تصویر" },
   "الوثيقة": { en: "Document", ur: "دستاویز" },
+  "إغلاق": { en: "Close", ur: "بند کریں" },
   "موافقة الخروج": { en: "Approve exit", ur: "خروج کی منظوری" },
   "موافقة الدخول": { en: "Approve entry", ur: "داخلے کی منظوری" },
   "بوابة الحراسة — الأصول الخارجية": { en: "Gate Security — Off-site Assets", ur: "گیٹ سیکیورٹی — بیرونی اثاثے" },

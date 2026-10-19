@@ -1,0 +1,41 @@
+{
+  "date": "2026-10-19",
+  "scope": "Shared media reference lookup only",
+  "status": "implemented_locally_pending_deployment_and_browser_retest",
+  "rootCause": "The media registry used catalogItems.primaryImageUrl, a derived API value that is not a persisted schema column.",
+  "beforeFix": "An isolated full-schema test reproduced the exact undefined.name error in media-access.ts:103.",
+  "afterFix": {
+    "registeredSourcesValidated": 28,
+    "tests": {
+      "passed": 75,
+      "files": [
+        "server/tests/mediaReferenceLookup.test.ts",
+        "server/tests/businessMediaAccess.test.ts",
+        "server/tests/businessResourceBoundary.test.ts"
+      ],
+      "liveDatabaseBlocked": true
+    },
+    "registryTypecheckDiagnostics": 0,
+    "authorizationAndRoleRulesUnchanged": true
+  },
+  "database": {
+    "connected": false,
+    "modified": false,
+    "sqlMigrationRequired": false
+  },
+  "deployment": {
+    "performed": false
+  },
+  "typecheckComparison": {
+    "baselineDiagnostics": 660,
+    "currentDiagnostics": 660,
+    "introduced": [],
+    "note": "Compared current project against HEAD media-access.ts in memory; pre-existing diagnostics remain."
+  },
+  "changedFiles": [
+    "server/_core/authz/media-access.ts",
+    "server/_core/authz/media-reference-sources.ts",
+    "server/tests/mediaReferenceLookup.test.ts"
+  ],
+  "independentReview": "No regression or authorization bypass found in scoped read-only review."
+}

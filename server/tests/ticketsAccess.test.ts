@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+vi.mock("../_core/db", () => ({}));
 import { isTicketVisible, assertTicketVisible, isRoleDeniedFromTickets } from "../routers/tickets/tickets.access";
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -68,7 +69,7 @@ describe("construction_procurement_manager — نطاق بلاغات الإنش�
 });
 
 describe("باقي الأدوار — بلا تقييد (مطابقة حرفية لسلوك list الحالي)", () => {
-  for (const role of ["maintenance_manager", "owner", "admin", "supervisor", "gate_security"]) {
+  for (const role of ["maintenance_manager", "owner", "admin", "supervisor"]) {
     it(`${role} يرى أي بلاغ`, () => {
       expect(isTicketVisible({ id: 999, role }, ticket())).toBe(true);
     });
@@ -77,7 +78,7 @@ describe("باقي الأدوار — بلا تقييد (مطابقة حرفية
 
 describe("🔒 الأدوار المحجوبة عن البلاغات بالواجهة — ممنوعة الآن بالخادم أيضًا", () => {
   const denied = [
-    "accountant", "purchase_manager", "warehouse",
+    "accountant", "purchase_manager", "warehouse", "gate_security",
     "purchase_requester", "food_warehouse_manager", "food_warehouse_assistant",
   ];
   for (const role of denied) {
@@ -90,7 +91,7 @@ describe("🔒 الأدوار المحجوبة عن البلاغات بالوا�
   }
 
   it("الأدوار المسموح لها بالواجهة ليست ضمن قائمة المنع", () => {
-    for (const role of ["operator", "technician", "maintenance_manager", "general_maintenance_manager", "construction_procurement_manager", "supervisor", "gate_security", "delegate", "senior_management", "executive_director", "owner", "admin"]) {
+    for (const role of ["operator", "technician", "maintenance_manager", "general_maintenance_manager", "construction_procurement_manager", "supervisor", "delegate", "senior_management", "executive_director", "owner", "admin"]) {
       expect(isRoleDeniedFromTickets(role)).toBe(false);
     }
   });

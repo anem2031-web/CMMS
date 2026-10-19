@@ -18,6 +18,7 @@ import { nanoid } from "nanoid";
 import { observerHttpAllowed } from "../../shared/observer-policy";
 import { technicianHttpAllowed } from "../../shared/technician-policy";
 import { businessHttpAllowed } from "../../shared/business-role-policy";
+import { gateSecurityHttpAllowed } from "../../shared/gate-security-policy";
 import { assertMediaAccess } from "./authz/media-access";
 import { authorizePurchaseDocument } from "./authz/purchase-document";
 import sharp from "sharp";
@@ -114,6 +115,7 @@ async function requireAuthMiddleware(req: any, res: any, next: any) {
     if (!observerHttpAllowed(user.role)) return res.status(403).json({ error: "دور المراقب للاستعراض فقط؛ هذا الإجراء غير مسموح" });
     if (!technicianHttpAllowed(user, req.method, req.path)) return res.status(403).json({ error: "هذا المسار خارج صلاحيات تنفيذ مهام الفني" });
     if (!businessHttpAllowed(user, req.method, req.path)) return res.status(403).json({ error: "هذا المسار خارج صلاحيات حسابك" });
+    if (user.role === "gate_security" && !gateSecurityHttpAllowed(user, req.method, req.path)) return res.status(403).json({ error: "صلاحيات هذا الحساب مقتصرة على أعمال البوابة" });
     req.authenticatedUser = user;
     next();
   } catch (error) {

@@ -160,7 +160,7 @@ export const delegateProcedure = roleMiddleware([
  * because purchase-order creation uses catalog nodes/items/units internally.
  * The standalone catalog module and all catalog mutations remain excluded.
  */
-export const catalogReadProcedure = roleMiddleware([
+const CATALOG_READ_ROLES = [
   APP_ROLE.MAINTENANCE_MANAGER,
   APP_ROLE.GENERAL_MAINTENANCE_MANAGER,
   APP_ROLE.CONSTRUCTION_PROCUREMENT_MANAGER,
@@ -172,6 +172,17 @@ export const catalogReadProcedure = roleMiddleware([
   APP_ROLE.FOOD_WAREHOUSE_ASSISTANT,
   APP_ROLE.OWNER,
   APP_ROLE.ADMIN,
+];
+
+export const catalogReadProcedure = roleMiddleware(CATALOG_READ_ROLES);
+
+/** Purchase forms consume reference lists without granting supplier matching or Catalog management. */
+export const catalogReferenceReadProcedure = roleMiddleware([
+  ...CATALOG_READ_ROLES,
+  APP_ROLE.DELEGATE,
+  APP_ROLE.ACCOUNTANT,
+  APP_ROLE.SENIOR_MANAGEMENT,
+  APP_ROLE.EXECUTIVE_DIRECTOR,
 ]);
 
 /**

@@ -13,12 +13,24 @@ import { assertTechnicianRpc } from "./authz/technician-guard";
 import { assertBusinessRpc } from "./authz/business-guard";
 import { isBusinessGuardedRole } from "../../shared/business-role-policy";
 import { redactUserSecrets } from "../../shared/user-response";
+import { assertDelegateDirectoryRpc } from "./authz/delegate-directory-guard";
+import { assertGateSecurityRpc, assertGateSecurityResourceAccess } from "./authz/gate-security-guard";
 
 const t = initTRPC.context<TrpcContext>().create({
   transformer: superjson,
 });
 
 export const router = t.router;
+const roleScopeGuard = t.middleware(async opts => {
+  const user = opts.ctx.authenticatedUser ?? opts.ctx.user;
+  if (user?.role === "delegate") assertDelegateDirectoryRpc(user, opts.path, await opts.getRawInput());
+  if (user?.role === "gate_security") {
+    assertGateSecurityRpc(user, opts.type, opts.path);
+    await assertGateSecurityResourceAccess(user, opts.type, opts.path, await opts.getRawInput());
+    return opts.next({ ctx: { ...opts.ctx, user } });
+  }
+  return opts.next();
+});
 const responseGuard = t.middleware(async opts => {
   const result = await opts.next();
   return result.ok ? { ...result, data: redactUserSecrets(result.data) } : result;
@@ -76,7 +88,7 @@ const technicianGuard = t.middleware(async opts => {
   }
   return opts.next();
 });
-const baseProcedure = t.procedure.use(responseGuard).use(businessGuard).use(technicianGuard).use(observerGuard).use(mediaInputGuard);
+const baseProcedure = t.procedure.use(responseGuard).use(roleScopeGuard).use(businessGuard).use(technicianGuard).use(observerGuard).use(mediaInputGuard);
 export const publicProcedure = baseProcedure;
 
 const requireUser = t.middleware(async opts => {

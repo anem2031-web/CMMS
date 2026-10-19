@@ -9,7 +9,7 @@ import { consolidateResolvedCatalogInventory } from "../../_core/catalog-item-in
 import { catalogAuditJson, catalogAuditRequestMeta, pickAuditValues } from "../../_core/catalog-audit";
 import { findCatalogUnitByName, getActiveCatalogUnitCanonicalName } from "../../_core/catalog-unit-governance";
 import { executeCatalogTaxonomyMove, previewCatalogTaxonomyMove } from "../../services/catalog/catalogTaxonomyMove.service";
-import { router, catalogAdminProcedure, catalogProcedure, catalogItemLifecycleProcedure, catalogReadProcedure } from "../_shared/procedures";
+import { router, catalogAdminProcedure, catalogProcedure, catalogItemLifecycleProcedure, catalogReadProcedure, catalogReferenceReadProcedure } from "../_shared/procedures";
 import { z } from "zod";
 import { eq, and, or, like, ne, count, desc, asc, inArray, sql, gte, lte } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
@@ -436,7 +436,7 @@ export const catalogRouter = router({
   /**
    * Get all taxonomy nodes (with optional filtering)   */
   nodes: router({
-    list: catalogReadProcedure
+    list: catalogReferenceReadProcedure
       .input(
         z.object({
           parentId: z.number().optional(),
@@ -790,7 +790,7 @@ items: router({
     /**
      * List all catalog items with search and filtering
      */
-    list: catalogReadProcedure
+    list: catalogReferenceReadProcedure
       .input(
         z.object({
           search: z.string().optional(),
@@ -1789,7 +1789,7 @@ create: catalogProcedure
   // ────────────────────────────────────────────────────────
   units: router({
 
-    list: catalogReadProcedure
+    list: catalogReferenceReadProcedure
       .input(z.object({ includeInactive: z.boolean().optional() }).optional())
       .query(async ({ input, ctx }) => {
         const db = await getDb();

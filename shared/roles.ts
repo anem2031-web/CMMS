@@ -11,6 +11,8 @@ import { canReadTicketTeamExecution } from "./maintenance-team-tickets/execution
 import { OBSERVER_ROLE, isObserver } from "./observer-policy";
 import { technicianPageAllowed } from "./technician-policy";
 import { businessPageAllowed, isBusinessGuardedRole } from "./business-role-policy";
+import { gateSecurityPageAllowed } from "./gate-security-policy";
+import { delegateDirectoryPageAllowed } from "./delegate-directory-policy";
 
 export const APP_ROLE = {
   USER: "user",
@@ -258,6 +260,8 @@ export function canRoleAccessPath(role: string | null | undefined, path: string)
   if (!role) return false;
   if (isObserver(role)) return canRoleAccessPath(APP_ROLE.ADMIN, path);
   const normalizedPath = path.split(/[?#]/, 1)[0] || "/";
+  if (role === APP_ROLE.GATE_SECURITY) return gateSecurityPageAllowed(normalizedPath);
+  if (!delegateDirectoryPageAllowed(role, normalizedPath)) return false;
   if (isBusinessGuardedRole(role)) return businessPageAllowed(role, normalizedPath);
   if (matchesPrefix(normalizedPath, "/delegate-pricing-bundles")) return ["owner", "admin", "delegate", "accountant"].includes(role);
   if (matchesPrefix(normalizedPath, "/operational-issues")) return ["owner", "admin", "warehouse", "maintenance_manager", "general_maintenance_manager", "construction_procurement_manager", "it_manager"].includes(role);

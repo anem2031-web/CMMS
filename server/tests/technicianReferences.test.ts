@@ -68,6 +68,11 @@ describe("Scoped display references retain task privacy and localization", () =>
     expect(sectionQuery.sql).toContain("siteId");
     expect(sectionQuery.params).toEqual([4, 1]);
   });
+  it("returns only document participant IDs/names to a delegate", async () => {
+    const result = await readTicketExecutionReferences({ id: 3, role: "delegate", preferredLanguage: "ar" }, 11);
+    expect(result.users.map(row => row.id)).toEqual([3, 9]);
+    for (const row of result.users) expect(Object.keys(row).sort()).toEqual(["id", "name"]);
+  });
 });
 
 describe("Embedded technician forms avoid broad directory requests", () => {
@@ -84,8 +89,8 @@ describe("Embedded technician forms avoid broad directory requests", () => {
     walk(ast); expect(options.length).toBeGreaterThanOrEqual(4);
     for (const option of options) {
       const js = ts.transpileModule(`(${option})`, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
-      expect(vm.runInNewContext(js, { restrictedTechnician: true, user: { role: "technician" }, form: { siteId: "4" } }).enabled).toBe(false);
-      expect(vm.runInNewContext(js, { restrictedTechnician: false, user: { role: "admin" }, form: { siteId: "4" } }).enabled).toBe(true);
+      expect(vm.runInNewContext(js, { restrictedTechnician: true, scopedUserReferences: true, user: { role: "technician" }, form: { siteId: "4" } }).enabled).toBe(false);
+      expect(vm.runInNewContext(js, { restrictedTechnician: false, scopedUserReferences: false, user: { role: "admin" }, form: { siteId: "4" } }).enabled).toBe(true);
     }
   });
 });

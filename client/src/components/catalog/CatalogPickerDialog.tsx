@@ -2,6 +2,7 @@ import { trpc } from "@/lib/trpc";
 import { useTranslation } from "@/contexts/LanguageContext";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { BookOpen, Search, ChevronDown, ChevronRight, FolderOpen, Loader2 } from "lucide-react";
 import { useState, useMemo, useRef, useEffect } from "react";
@@ -52,12 +53,12 @@ onSelect: (item: {
     return () => clearTimeout(t);
   }, [searchQuery]);
 
-  const { data: allNodes } = trpc.catalog.nodes.list.useQuery(
+  const { data: allNodes, error: nodesError, refetch: refetchNodes, isFetching: nodesFetching } = trpc.catalog.nodes.list.useQuery(
     { isActive: true },
-    { enabled: open }
+    { enabled: open, retry: false }
   );
 
-  const { data: catalogUnits } = trpc.catalog.units.list.useQuery(undefined, { enabled: open });
+  const { data: catalogUnits, error: unitsError, refetch: refetchUnits, isFetching: unitsFetching } = trpc.catalog.units.list.useQuery(undefined, { enabled: open, retry: false });
 
   // جمع ID التصنيف المختار + كل أحفاده بشكل تكراري
   const getDescendantIds = (nodeId: number, nodes: CatalogNode[]): number[] => {
@@ -71,15 +72,26 @@ onSelect: (item: {
   }, [selectedNodeId, allNodes]);
 
   // ✅ البحث على السيرفر — يجلب فقط ما يطابق البحث أو التصنيف المختار
-  const { data: serverItems, isFetching } = trpc.catalog.items.list.useQuery(
+  const { data: serverItems, isFetching, error: itemsError, refetch: refetchItems } = trpc.catalog.items.list.useQuery(
     {
       isActive: true,
       limit: 80,
       search: debouncedSearch || undefined,
       nodeIds: selectedNodeIds,
     },
-    { enabled: open }
+    { enabled: open, retry: false }
   );
+
+  const catalogError = itemsError || nodesError || unitsError;
+  const accessDenied = [itemsError, nodesError, unitsError].some(error =>
+    error?.data?.code === "FORBIDDEN" || error?.data?.code === "UNAUTHORIZED"
+  );
+  const retrying = isFetching || nodesFetching || unitsFetching;
+  const retryFailedQueries = () => {
+    if (nodesError) void refetchNodes();
+    if (unitsError) void refetchUnits();
+    if (itemsError) void refetchItems();
+  };
 
   // إعادة ضبط الحالة عند كل فتح للنافذة
   useEffect(() => {
@@ -200,12 +212,20 @@ onSelect: (item: {
 
             {/* Results */}
             <div className="flex-1 overflow-y-auto p-2 space-y-1">
+              {catalogError && (
+                <div role="alert" className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive space-y-2">
+                  <p>{accessDenied ? t.workflow.purchase.catalogAccessDenied : t.workflow.purchase.catalogLoadFailed}</p>
+                  <Button type="button" variant="outline" size="sm" disabled={retrying} onClick={retryFailedQueries}>
+                    {t.workflow.purchase.catalogRetry}
+                  </Button>
+                </div>
+              )}
               {isFetching ? (
                 <div className="text-center py-10 text-sm text-muted-foreground">
                   <Loader2 className="w-5 h-5 animate-spin mx-auto mb-2" />
                   {t.common.loading}
                 </div>
-              ) : items.length === 0 ? (
+              ) : itemsError ? null : items.length === 0 ? (
                 <div className="text-center py-10 text-sm text-muted-foreground">
                   {t.common.noData}
                 </div>

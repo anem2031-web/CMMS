@@ -1,19 +1,20 @@
 const prohibited =
   /(?:إضافة|اضافة|إنشاء|انشاء|حفظ|تعديل|تحرير|حذف|تعطيل|تفعيل|استيراد|تصدير|تحميل|تنزيل|طباعة|اعتماد|موافقة|رفض|إرسال|ارسال|صرف|إرجاع|ارجاع|تأكيد|تاكيد|تنفيذ|معالجة|تسجيل|استعادة|رفع|إسناد|اسناد|تعيين|نقل|تحويل|شراء|إصلاح|اصلاح|تحديث\s+(?:الحالة|البيانات|السجل)|add|create|save|edit|delete|remove|disable|activate|import|export|download|print|approve|reject|submit|send|issue|return|confirm|execute|process|record|restore|upload|assign|transfer|purchase|repair)/i;
 const view =
-  /(?:بحث|تحديث|عرض|تفاصيل|فتح|رجوع|عودة|إلغاء|الغاء|إغلاق|اغلاق|السابق|التالي|الكل|إخفاء|اخفاء|إظهار|اظهار|تصفية|فلتر|مسح البحث|توسيع|طي|خروج|search|refresh|view|details|open|back|cancel|close|previous|next|all|hide|show|filter|clear|expand|collapse|logout)/i;
+  /(?:بحث|تحديث|عرض|تفاصيل|فتح|رجوع|عودة|إلغاء|الغاء|إغلاق|اغلاق|السابق|التالي|الكل|إخفاء|اخفاء|إظهار|اظهار|تصفية|فلتر|فلاتر|مسح البحث|توسيع|طي|خروج|إعادة المحاولة|تلاش|تازہ|تفصیلات|واپس|منسوخ|بند|اگلا|پچھلا|دکھائیں|چھپائیں|search|refresh|retry|view|details|open|back|cancel|close|previous|next|all|hide|show|filter|clear|expand|collapse|logout)/i;
 const dangerousIcon =
   /lucide-(?:plus|pencil|pen-line|square-pen|trash|trash-2|download|upload|printer|save|check-check|file-down|file-up)/;
 const viewingIcon =
-  /lucide-(?:eye|chevron|arrow-left|arrow-right|search|filter|refresh|x(?:\s|$)|menu|ellipsis|more|settings-2|sun|moon|languages|globe)/;
+  /lucide-(?:eye|chevron|arrow-left|arrow-right|search|filter|refresh|x(?:\s|$)|menu|panel-left|panel-right|ellipsis|more|settings-2|sun|moon|languages|globe)/;
 
 export function observerControlBlocked(el: Element): boolean {
-  if (el.closest('[data-observer-navigation="true"]')) return false;
+  // An enclosing navigation region must never make upload/export links usable.
   if (el.matches('input[type="file"],a[download]')) return true;
   if (el.tagName === "A")
     return /(?:\/api\/(?:export|reports)|\.(?:csv|xlsx?|pdf|zip|json)(?:[?#]|$)|^(?:blob|data):)/i.test(
       el.getAttribute("href") ?? ""
     );
+  if (el.closest('[data-observer-navigation="true"]')) return false;
   if (
     !el.matches('button,[role="button"],[role="menuitem"],input[type="submit"]')
   )
@@ -21,17 +22,14 @@ export function observerControlBlocked(el: Element): boolean {
   const role = el.getAttribute("role");
   // Session cleanup is an explicitly allowed action, regardless of its label.
   if (el.getAttribute("data-observer-action") === "logout") return false;
-  // Tabs, accordion headers and select popovers navigate/filter existing data.
-  if (
-    ["tab", "combobox"].includes(role ?? "") ||
-    (el.hasAttribute("aria-controls") && el.hasAttribute("aria-expanded"))
-  )
-    return false;
+  // Tabs/selects may contain business action words in their navigation labels.
+  if (["tab", "combobox"].includes(role ?? "")) return false;
   const text =
     `${el.textContent ?? ""} ${el.getAttribute("aria-label") ?? ""} ${el.getAttribute("title") ?? ""}`.trim();
   const icons = Array.from(el.querySelectorAll("svg"))
     .map(svg => svg.getAttribute("class") ?? "")
     .join(" ");
+  if (dangerousIcon.test(icons)) return true;
   if (
     /(?:إلغاء|الغاء)\s+(?:الطلب|التذكرة|البلاغ|المهمة|العملية|البرنامج)|cancel\s+(?:order|ticket|task|operation|program)/i.test(
       text
@@ -53,7 +51,11 @@ export function observerControlBlocked(el: Element): boolean {
     )
   )
     return false;
-  if (prohibited.test(text) || dangerousIcon.test(icons)) return true;
+  if (prohibited.test(text)) return true;
+  // Account menus, accordions and filter popovers only open existing content.
+  // Evaluate prohibited labels/icons first, including export/import popovers.
+  if (el.hasAttribute("aria-controls") && el.hasAttribute("aria-expanded"))
+    return false;
   return !(view.test(text) || viewingIcon.test(icons));
 }
 
@@ -139,6 +141,10 @@ export function installObserverControls(doc: Document): () => void {
       "type",
       "class",
       "data-observer-action",
+      "data-observer-navigation",
+      "role",
+      "aria-controls",
+      "aria-expanded",
     ],
   });
   return () => {

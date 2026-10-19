@@ -1,0 +1,37 @@
+{
+  "date": "2026-10-19",
+  "timezone": "Asia/Riyadh",
+  "status": "implemented_locally_pending_deployment_and_browser_retest",
+  "scope": "Restore purchase catalog reference reads for delegate, accountant, senior_management and executive_director, including RED8's role.",
+  "authorization": {
+    "newReferenceProcedure": "catalogReferenceReadProcedure",
+    "changedRpcPaths": ["catalog.nodes.list", "catalog.items.list", "catalog.units.list"],
+    "catalogManagementSupplierMatchingAndInvoiceMatchingPermissions": "unchanged",
+    "centralBusinessObserverAndTechnicianGuards": "retained"
+  },
+  "picker": {
+    "errors": "Localized permission and loading failures with a manual retry control; no raw server details.",
+    "automaticQueryRetries": false,
+    "manualRetry": "Only failed queries are retried.",
+    "languages": ["ar", "en", "ur"]
+  },
+  "validation": {
+    "isolatedTestsPassed": 177,
+    "testFiles": {
+      "server/tests/catalogPickerAccess.test.ts": 55,
+      "server/tests/catalogPickerUi.test.ts": 7,
+      "server/tests/catalogStock.test.ts": 20,
+      "server/tests/businessRolesGuard.test.ts": 95
+    },
+    "liveDatabaseAndEnvironmentModules": "forbidden by isolated test configuration",
+    "typescriptDiagnosticsBefore": 660,
+    "typescriptDiagnosticsAfter": 660,
+    "introducedTypeScriptDiagnostics": [],
+    "gitDiffCheck": "passed",
+    "independentReview": "no actionable findings"
+  },
+  "databaseChanges": false,
+  "manualSqlRequiredForCopycmmsOrCmms": false,
+  "railwayDeploymentPerformed": false,
+  "railwayBrowserRetestPerformed": false
+}

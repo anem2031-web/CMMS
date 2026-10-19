@@ -1,4 +1,6 @@
 import { TRPCError } from "@trpc/server";
+import { mediaReferenceUnavailable, resolveMediaReferenceSources } from "./media-reference-sources";
+import { assertGateSecurityMediaReference } from "./gate-security-guard";
 
 export type MediaActor = { id: number; role: string; isActive?: number };
 export type MediaReference = { kind: string; id: number; parentId?: number | null; entityType?: string; ownerId?: number | null };
@@ -36,46 +38,13 @@ function containsKey(value: unknown, key: string): boolean {
   return !!value && typeof value === "object" && Object.values(value).some(child => containsKey(child, key));
 }
 
-// Source columns are an explicit registry, including legacy inline images and
-// JSON attachment lists. Only matching references, never full records, escape it.
-const sources = [
-  ["attachments", "attachment", "entityId", "uploadedById", ["fileKey", "fileUrl"], "entityType"],
-  ["tickets", "ticket", "id", "reportedById", ["beforePhotoUrl", "afterPhotoUrl"]],
-  ["ticketItems", "ticket", "ticketId", null, ["afterPhotoUrl"]],
-  ["purchaseOrderItems", "po", "purchaseOrderId", null, ["photoUrl", "photoUrls", "invoicePhotoUrl", "purchasedPhotoUrl", "warehousePhotoUrl"]],
-  ["ticketConfirmations", "ticket", "ticketId", null, ["photoUrls"]],
-  ["warehouseReceipts", "receipt", "id", null, ["invoicePhotoUrl", "goodsPhotoUrl"]],
-  ["deliveryDocuments", "delivery", "id", "deliveredToId", ["warehousePhotoUrl", "pdfUrl", "pdfKey", "deliveredBySignatureSnapshot"]],
-  ["externalMaintenanceJobs", "external", "ticketId", null, ["assetBeforePhotoUrl", "assetAfterReturnPhotoUrl", "workshopReportUrl"]],
-  ["assets", "reference", "id", null, ["photoUrl"]],
-  ["catalogItemImages", "reference", "itemId", null, ["imageUrl"]],
-  ["catalogItems", "reference", "id", null, ["primaryImageUrl"]],
-  ["catalogKnowledge", "reference", "itemId", null, ["documentUrl"]],
-  ["catalogSupplierCandidates", "warehouse", "id", null, ["invoicePhotoUrl"]],
-  ["users", "signature", "id", "id", ["signatureUrl"]],
-  ["backups", "admin", "id", null, ["fileKey", "fileUrl"]],
-  ["inventoryTransactions", "inventory", "id", null, ["documentUrl"]],
-  ["disposalItems", "inventory", "id", null, ["attachments"]],
-  ["ocrJobs", "warehouse", "id", "createdById", ["imageUrl"]],
-  ["pmWorkOrders", "pm", "id", "assignedToId", ["completionPhotoUrl"]],
-  ["pmExecutionResults", "pm", "workOrderId", null, ["photoUrl"]],
-  ["constructionProjects", "construction", "id", null, ["coverImageUrl", "attachments"]],
-  ["constructionPhases", "construction", "projectId", null, ["attachments"]],
-  ["constructionActivities", "construction", "projectId", null, ["attachments"]],
-  ["constructionTasks", "construction", "projectId", null, ["attachments"]],
-  ["constructionDailyReports", "construction", "projectId", null, ["photoUrls"]],
-  ["constructionSafetyLogs", "construction", "projectId", null, ["photoUrls"]],
-  ["constructionChangeOrders", "construction", "projectId", null, ["attachmentUrls"]],
-  ["constructionTaskComments", "construction", "projectId", null, ["attachmentUrls"]],
-  ["constructionFieldValues", "construction_task", "taskId", null, ["value"]],
-] as const;
-
 const metadataCache = new WeakMap<object, { at: number; columns: Map<string, Set<string>> }>();
 export const mediaAccessPort: MediaAccessPort = {
   async references(key) {
     const { getDb } = await import("../db");
     const schema = await import("../../../drizzle/schema");
-    const { sql, getTableName } = await import("drizzle-orm");
+    const { sql } = await import("drizzle-orm");
+    const sources = resolveMediaReferenceSources(schema);
     const connection = await getDb();
     if (!connection) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من صلاحية الملف" });
     // Older installations need not contain every optional module/table. Read
@@ -83,34 +52,47 @@ export const mediaAccessPort: MediaAccessPort = {
     // all otherwise valid images because an unrelated module is absent.
     let metadata = metadataCache.get(connection);
     if (!metadata || Date.now() - metadata.at > 60_000) {
-      const tableNames = sources.map(([name]) => getTableName((schema as any)[name]));
+      const tableNames = sources.map(source => source.tableName);
       const [rows]: any = await connection.execute(sql`SELECT TABLE_NAME AS tableName, COLUMN_NAME AS columnName
         FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME IN (${sql.join(tableNames.map(name => sql`${name}`), sql`,`)})`);
       const columns = new Map<string, Set<string>>();
+      if (!Array.isArray(rows)) throw mediaReferenceUnavailable("Invalid column metadata response");
       for (const row of rows) {
-        const name = row.tableName ?? row.TABLE_NAME;
+        const name = row?.tableName ?? row?.TABLE_NAME;
+        const column = row?.columnName ?? row?.COLUMN_NAME;
+        if (typeof name !== "string" || !name || typeof column !== "string" || !column) {
+          throw mediaReferenceUnavailable("Invalid column metadata entry");
+        }
         if (!columns.has(name)) columns.set(name, new Set());
-        columns.get(name)!.add(row.columnName ?? row.COLUMN_NAME);
+        columns.get(name)!.add(column);
       }
-      metadata = { at: Date.now(), columns }; metadataCache.set(connection, metadata);
+      metadata = { at: Date.now(), columns };
+      // A missing optional table/file column may be added by a migration. Do
+      // not cache its absence and mistake a newly linked file for an upload.
+      const complete = sources.every(source => [source.id, source.parent, source.owner, source.entity, ...source.files]
+        .every(column => !column || columns.get(source.tableName)?.has(column.name)));
+      if (complete) metadataCache.set(connection, metadata);
     }
     const patterns = [key, encodeURIComponent(key)].map(value => `%${value.replace(/[\\%_]/g, char => `\\${char}`)}%`);
-    const available = sources.filter(source => {
-      const [name, , parent, owner, fields] = source;
-      const entity = (source as readonly unknown[])[5] as string | undefined;
-      const table = (schema as any)[name];
-      const columns = metadata!.columns.get(getTableName(table));
-      return ["id", parent, owner, ...fields, entity].filter(Boolean).every(field => columns?.has(table[field!].name));
+    const available = sources.flatMap(source => {
+      const columns = metadata!.columns.get(source.tableName);
+      if (!columns) return [];
+      // Scan all file columns that actually exist, even on older schemas.
+      const files = source.files.filter(column => columns.has(column.name));
+      if (!files.length) return [];
+      // Existing files must retain every column needed to authorize their parent.
+      for (const column of [source.id, source.parent, source.owner, source.entity]) {
+        if (column && !columns.has(column.name)) {
+          throw mediaReferenceUnavailable(`Missing scope column: ${source.tableName}.${column.name}`);
+        }
+      }
+      return [{ ...source, files }];
     });
     if (!available.length) return [];
     const queries = available.map(source => {
-      const [tableName, kind, parent, owner, fields] = source;
-      const table = (schema as any)[tableName];
-      const columns = fields.map(field => table[field]);
-      const entityField = (source as readonly unknown[])[5] as string | undefined;
-      const entityColumn = entityField ? table[entityField] : sql`NULL`;
-      return sql`SELECT ${kind} AS kind, ${table.id} AS id, ${table[parent]} AS parentId,
-        ${owner ? table[owner] : sql`NULL`} AS ownerId, ${entityColumn} AS entityType,
+      const { table, kind, id, parent, owner, entity, files: columns } = source;
+      return sql`SELECT ${kind} AS kind, ${id} AS id, ${parent} AS parentId,
+        ${owner ?? sql`NULL`} AS ownerId, ${entity ?? sql`NULL`} AS entityType,
         JSON_ARRAY(${sql.join(columns, sql`,`)}) AS payload FROM ${table}
         WHERE ${sql.join(columns.flatMap(column => patterns.map(pattern => sql`${column} LIKE ${pattern}`)), sql` OR `)}`;
     });
@@ -118,6 +100,10 @@ export const mediaAccessPort: MediaAccessPort = {
     return rows.filter((row: any) => containsKey(row.payload, key)).map(({ payload, ...reference }: any) => reference);
   },
   async authorize(user, ref) {
+    if (user.role === "gate_security") {
+      await assertGateSecurityMediaReference(user, ref);
+      return;
+    }
     if (ref.kind === "attachment") {
       const type = ref.entityType || "";
       if (["po_financial_batch", "purchase_package_submission_financial"].includes(type)) {
@@ -196,7 +182,7 @@ export async function assertMediaAccess(user: MediaActor | null | undefined, raw
   const references = await port.references(key);
   // Preview an unlinked upload only. Once saved, its parent determines access
   // even if the uploader later loses access to that document.
-  if (!references.length && key.startsWith(`cmms/uploads/u-${user.id}/`)) return key;
+  if (user.role !== "gate_security" && !references.length && key.startsWith(`cmms/uploads/u-${user.id}/`)) return key;
   for (const reference of references) {
     try { await port.authorize(user, reference); return key; }
     catch (error) { if (!(error instanceof TRPCError) || !["FORBIDDEN", "NOT_FOUND", "BAD_REQUEST"].includes(error.code)) throw error; }

@@ -86,7 +86,8 @@ export async function readTicketExecutionReferences(user: Actor, ticketId: numbe
     localizeNamedRecords("SECTION", sections, language), localizeNamedRecords("TECHNICIAN", technicians, language),
     localizeNamedRecords("CENTER_CATEGORY", categories, language),
   ]);
-  return { users: localizedUsers, sites: localizedSites, sections: localizedSections, technicians: localizedTechnicians, categories: localizedCategories };
+  return { users: user.role === "delegate" ? localizedUsers.map(({ id, name }) => ({ id, name })) : localizedUsers,
+    sites: localizedSites, sections: localizedSections, technicians: localizedTechnicians, categories: localizedCategories };
 }
 
 /** Called only after PMV2's persisted actor/team guard authorized this source. */

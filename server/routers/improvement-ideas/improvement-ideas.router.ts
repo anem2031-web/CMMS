@@ -7,6 +7,7 @@ import * as db from "../../_core/db";
 import * as ideasDb from "../../services/improvement-ideas/improvementIdeas";
 import { validateIdeaLocation, improvementExecutionSummary, executionReference } from "../../services/improvement-ideas/execution";
 import { hasCompleteCostStudy, moneyCents } from "../../../shared/improvement-execution";
+import { loadImprovementExecutionProgress } from "../../services/improvement-ideas/progress";
 import { assertTicketReadable } from "../tickets/tickets.access";
 import { assertCanViewPurchaseOrder, filterVisiblePurchaseOrders } from "../../_core/authz/guard";
 
@@ -19,7 +20,7 @@ function sanitizeForEmployee(idea: any) {
     linkedTicketNumber, linkedTicketStatus, linkedPONumber, linkedPOStatus,
     costStudyRequired, estimatedMaterialsCost, estimatedLaborCost, estimatedServicesCost,
     costStudyNotes, costStudyById, costStudyAuthorName, costStudiedAt, executionTrackingVersion, implementationOwner,
-    implementationStartDate, implementationDueDate, implementationProgress, implementationNotes,
+    implementationStartDate, implementationDueDate, implementationProgress, implementationNotes, executionProgress,
     actualCost, achievedValue, resultRating, resultNotes, evaluatedAt, evaluatedById, ...safe } = idea;
   return safe;
 }
@@ -54,7 +55,9 @@ export const improvementIdeasRouter = router({
       if (idea.submittedById !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN", message: "لا يمكنك الاطلاع على مقترحات الآخرين" });
       return sanitizeForEmployee(idea);
     }
-    return idea;
+    if (Number(idea.executionTrackingVersion) !== 1) return idea;
+    const progress = await db.withTransaction(tx => loadImprovementExecutionProgress(tx, [idea]));
+    return { ...idea, executionProgress: progress.get(Number(idea.id)) };
   }),
 
   create: protectedProcedure.input(z.object({
@@ -114,7 +117,10 @@ export const improvementIdeasRouter = router({
 
   // الأفكار المعتمدة بانتظار تحويلها لتذكرة/طلب شراء — يظهر فقط لأدوار الفرز (ليس الإدارة العليا)
   getApproved: ideaTriageProcedure.query(async () => {
-    return ideasDb.getApprovedIdeas();
+    const ideas = await ideasDb.getApprovedIdeas();
+    if (!ideas.some(idea => Number(idea.executionTrackingVersion) === 1)) return ideas;
+    const progress = await db.withTransaction(tx => loadImprovementExecutionProgress(tx, ideas));
+    return ideas.map(idea => ({ ...idea, executionProgress: progress.get(Number(idea.id)) }));
   }),
 
   // الفرز والتصنيف: تصحيح التصنيف + تحديد المجموعة/الملف + تحديد الأولوية — بإجراء واحد

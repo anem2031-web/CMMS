@@ -17,7 +17,7 @@ import * as db from "../../_core/db";
 import { notifyOwner } from "../../_core/notification";
 import { detectLanguage, type SupportedLanguage } from "../../services/translation/translation";
 import { queueTranslation } from "../../services/translation/translationEngine";
-import { localizeNamedRecords } from "../../services/translation/localizedMasterData";
+import { localizeNamedRecords, localizeMasterDataReferences } from "../../services/translation/localizedMasterData";
 import { notifyItemRejection } from "../_shared/router-helpers";
 import { generatePurchaseRequestPDF } from "../../services/export/exportService";
 import { storagePut } from "../../_core/storage";
@@ -2160,6 +2160,11 @@ export const purchaseOrdersRouter = router({
     const ownItemIds = new Set(items.map((item: any) => item.id));
     const comments = ctx.user.role === "delegate" ? allComments.filter(comment => !comment.purchaseOrderItemId || ownItemIds.has(comment.purchaseOrderItemId)) : allComments;
     const [localizedPo] = await localizePurchaseUserNames([po as any], (ctx.user.preferredLanguage || "ar") as SupportedLanguage);
+    if (ctx.user.role === "delegate") {
+      // Participant names stay on the authorized document; no directory/profile is returned.
+      return localizeMasterDataReferences({ ...localizedPo, requestedByName: localizedPo.requestedByName ?? null,
+        items: items.map((item: any) => ({ ...item, delegateName: null })), comments }, (ctx.user.preferredLanguage || "ar") as SupportedLanguage);
+    }
     return { ...localizedPo, items, comments };
   }),
 

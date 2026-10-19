@@ -1,0 +1,69 @@
+{
+  "testedAt": "2026-10-19T10:15:24.075Z",
+  "scope": "Railway UI browser-only; no direct database access or source edits",
+  "testIdea": {
+    "number": "IMP-2026-00014",
+    "title": "UAT-FIX-20261019 — Image and refresh verification",
+    "createdAs": "RED7",
+    "reviewedAs": "RED9",
+    "finalStatus": "triaged",
+    "financialCommitment": false,
+    "saveClicks": 1
+  },
+  "results": [
+    {
+      "check": "create and triage",
+      "status": "passed",
+      "evidence": "Idea14 saved once and left new ideas immediately after triage; appeared in group without reload"
+    },
+    {
+      "check": "image preview",
+      "status": "failed",
+      "evidence": "Uploaded image element complete=true naturalWidth=0; owner opened exact rendered URL and received file unavailable"
+    },
+    {
+      "check": "image association",
+      "status": "failed",
+      "evidence": "Browser console mutation error Cannot read properties of undefined (reading 'name'); idea14 detail has zero image elements"
+    },
+    {
+      "check": "safe partial save UX",
+      "status": "not_verified_as_fixed",
+      "evidence": "Dialog closed after association failure, without visible retry panel; idea persisted once"
+    },
+    {
+      "check": "Arabic priority labels",
+      "status": "failed",
+      "evidence": "Classified idea14 card still shows medium"
+    },
+    {
+      "check": "loading notice",
+      "status": "not_visible",
+      "evidence": "Classified/all tabs temporarily empty while loading; no new loading notice observed"
+    },
+    {
+      "check": "derived progress",
+      "status": "new_behavior_not_visible",
+      "evidence": "Completed idea12 detail shows both linked tickets closed and retained outcome rating, but neither automatic progress label shown; new idea14 detail also has no automatic progress label"
+    }
+  ],
+  "deployment": {
+    "confirmedLatestFixes": false,
+    "evidence": "Absent new UI labels; console references same index-jX-z6o-U.js observed before fixes",
+    "conclusion": "Published version does not demonstrate the latest local fixes. Browser findings alone do not identify deployment root cause."
+  },
+  "evidenceFiles": [
+    "01-new-image-preview.png",
+    "02-idea-created-owner.png",
+    "03-owner-image-unavailable.png",
+    "04-classified-old-priority.png",
+    "05-all-tab-waiting.png",
+    "06-saved-idea-missing-image.png"
+  ],
+  "limitations": [
+    "No induced attachment failure beyond naturally recurring error; no retry re-save clicked",
+    "No forced server/network error to test retry UI",
+    "No new ticket or purchase order created; previous completed test viewed only",
+    "Did not perform further approval/closure since new build markers absent"
+  ]
+}

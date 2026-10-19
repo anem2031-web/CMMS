@@ -100,8 +100,13 @@ export default function PurchaseBatchDetail() {
     { id: packageId },
     { enabled: Number.isFinite(packageId) }
   );
-  const { data: users = [] } = trpc.users.list.useQuery();
+  const { data: directoryUsers = [] } = trpc.users.list.useQuery(undefined, { enabled: !!user && user.role !== "delegate" });
   const packageOrders = (pkg as any)?.orders ?? [];
+  const users = user?.role === "delegate" ? [
+    { id: user.id, name: user.name },
+    { id: (pkg as any)?.createdById, name: (pkg as any)?.createdByName },
+    ...packageOrders.map((po: any) => ({ id: po.requestedById, name: po.requestedByName })),
+  ] : directoryUsers;
   const packageItems = packageOrders.flatMap((order: any) => order.items ?? []);
   const { translations: packageTranslations } = useEntityTranslation(
     "PO_PACKAGE",

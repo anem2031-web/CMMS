@@ -2,6 +2,8 @@ import { trpc } from "@/lib/trpc";
 import { keepPreviousData } from "@tanstack/react-query";
 import { useLocation, useSearch } from "wouter";
 import { ImprovementFinancialPanel } from "@/components/improvement/ImprovementFinancialPanel";
+import { ImprovementLoadingNotice } from "@/components/improvement/ImprovementLoadingNotice";
+import { IMPROVEMENT_QUERY_OPTIONS, IMPROVEMENT_UI_LABELS, improvementDocumentStatus, newImprovementSaveSession, refreshImprovementViews, saveIdeaWithAttachments } from "@/components/improvement/improvement-ui";
 import { getLocalizedName } from "@/hooks/useTranslatedField";
 import { hasCompleteCostStudy } from "@shared/improvement-execution";
 import { Button } from "@/components/ui/button";
@@ -52,6 +54,7 @@ const IMPROVEMENT_FLOW_LABELS = {
     "startDate": "تاريخ بداية التنفيذ",
     "dueDate": "الموعد المستهدف",
     "progress": "نسبة الإنجاز %",
+    "automaticProgress": "تلقائية من مستندات التنفيذ",
     "planNotes": "ملاحظات التنفيذ",
     "planRequired": "حدد المسؤول والموعد المستهدف قبل التحويل",
     "evaluation": "تقييم نتائج التطوير",
@@ -101,6 +104,7 @@ const IMPROVEMENT_FLOW_LABELS = {
     "startDate": "Start date",
     "dueDate": "Target due date",
     "progress": "Progress %",
+    "automaticProgress": "Automatic from execution documents",
     "planNotes": "Execution notes",
     "planRequired": "Add execution owner and due date before conversion",
     "evaluation": "Development outcome evaluation",
@@ -150,6 +154,7 @@ const IMPROVEMENT_FLOW_LABELS = {
     "startDate": "آغاز کی تاریخ",
     "dueDate": "مطلوبہ تکمیل تاریخ",
     "progress": "پیش رفت %",
+    "automaticProgress": "عملدرآمد دستاویزات سے خودکار",
     "planNotes": "عملدرآمد کے نوٹس",
     "planRequired": "تبدیلی سے پہلے ذمہ دار اور تاریخ لکھیں",
     "evaluation": "نتائج کا جائزہ",
@@ -180,6 +185,18 @@ const IMPROVEMENT_FLOW_LABELS = {
 function useFlowLabels() {
   const { language } = useTranslation();
   return IMPROVEMENT_FLOW_LABELS[language];
+}
+
+function QueryFailure({ retry, fetching = false }: { retry: () => unknown; fetching?: boolean }) {
+  const { language } = useTranslation();
+  const w = IMPROVEMENT_UI_LABELS[language];
+  return <div role="alert" className="space-y-2 rounded-md border border-destructive/30 p-3 text-sm"><p className="text-destructive">{w.loadError}</p><Button data-observer-navigation="true" variant="outline" size="sm" disabled={fetching} onClick={() => retry()}>{fetching ? w.loading : w.retry}</Button></div>;
+}
+
+function useRefreshImprovementViews() {
+  const utils = trpc.useUtils();
+  const { language } = useTranslation();
+  return (ideaId?: number) => { void refreshImprovementViews(utils, ideaId).then(ok => { if (!ok) toast.warning(IMPROVEMENT_UI_LABELS[language].refreshError); }); };
 }
 
 function moneyValue(value: unknown): number | null {
@@ -241,7 +258,8 @@ type FileEntry = { id: string; file: File; status: "pending" | "uploading" | "do
 
 // ── مكوّن رفع الصور (حتى 5 صور) — يُستخدم بنافذة تقديم فكرة جديدة ──────────
 function IdeaImageUploader({ fileEntries, setFileEntries }: { fileEntries: FileEntry[]; setFileEntries: React.Dispatch<React.SetStateAction<FileEntry[]>> }) {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
+  const feedback = IMPROVEMENT_UI_LABELS[language];
   const [isDragging, setIsDragging] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -309,6 +327,7 @@ function IdeaImageUploader({ fileEntries, setFileEntries }: { fileEntries: FileE
             <div key={entry.id} className="relative w-16 h-16 rounded-md overflow-hidden border bg-muted shrink-0">
               {entry.url ? <img src={entry.url} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center"><ImageIcon className="w-5 h-5 text-muted-foreground" /></div>}
               {entry.status === "uploading" && <div className="absolute inset-0 bg-black/40 flex items-center justify-center text-white text-[10px]">{entry.progress}%</div>}
+              {entry.status === "error" && <button type="button" onClick={e => { e.stopPropagation(); void uploadFile(entry); }} className="absolute inset-x-0 bottom-0 bg-destructive text-destructive-foreground text-[10px]">{feedback.retry}</button>}
               <button onClick={(e) => { e.stopPropagation(); removeEntry(entry.id); }} className="absolute top-0.5 right-0.5 bg-black/60 rounded-full p-0.5">
                 <X className="w-3 h-3 text-white" />
               </button>
@@ -316,16 +335,22 @@ function IdeaImageUploader({ fileEntries, setFileEntries }: { fileEntries: FileE
           ))}
         </div>
       )}
+      {fileEntries.some(entry => entry.status === "pending" || entry.status === "uploading") && <p role="status" className="text-xs text-muted-foreground">{feedback.uploadWaiting}</p>}
+      {fileEntries.some(entry => entry.status === "error") && <p role="alert" className="text-xs text-destructive">{feedback.uploadFailed}</p>}
     </div>
   );
 }
 
 // ── شارة صور المرفقات لعرض مصغّر داخل أي بطاقة/نافذة فكرة ──────────────────
 function IdeaImagesPreview({ ideaId }: { ideaId: number }) {
-  const { data: files = [] } = trpc.attachments.list.useQuery({ entityType: "improvement_idea", entityId: ideaId });
-  if (!files.length) return null;
+  const query = trpc.attachments.list.useQuery({ entityType: "improvement_idea", entityId: ideaId }, IMPROVEMENT_QUERY_OPTIONS);
+  const files = query.data ?? [];
+  if (query.isLoading) return <ImprovementLoadingNotice><Skeleton className="h-12" /></ImprovementLoadingNotice>;
+  if (query.error) return <QueryFailure retry={() => query.refetch()} fetching={query.isFetching} />;
+  if (!files.length) return query.isFetching ? <ImprovementLoadingNotice /> : null;
   return (
     <div className="flex gap-1.5 flex-wrap">
+      {query.isFetching && <ImprovementLoadingNotice />}
       {files.map((f: any) => (
         <a key={f.id} href={f.fileUrl} target="_blank" rel="noreferrer" className="w-12 h-12 rounded-md overflow-hidden border shrink-0">
           <img src={f.fileUrl} className="w-full h-full object-cover" />
@@ -343,45 +368,37 @@ function CreateIdeaDialog({ open, onOpenChange }: { open: boolean; onOpenChange:
   const w = useFlowLabels();
   const { getPriorityLabel } = useStaticLabels();
   const utils = trpc.useUtils();
-  const { data: sites = [] } = trpc.sites.list.useQuery();
-  const { data: allSections } = trpc.sections.list.useQuery(undefined);
+  const feedback = IMPROVEMENT_UI_LABELS[language];
+  const sitesQuery = trpc.sites.list.useQuery(undefined, { enabled: open, ...IMPROVEMENT_QUERY_OPTIONS });
+  const sectionsQuery = trpc.sections.list.useQuery(undefined, { enabled: open, ...IMPROVEMENT_QUERY_OPTIONS });
+  const sites = sitesQuery.data ?? [];
+  const allSections = sectionsQuery.data;
 
   const [form, setForm] = useState({ title: "", description: "", category: "operational", priority: "medium", expectedBenefit: "", currentSituation: "", targetOutcome: "", successMetric: "", baselineValue: "", targetValue: "", siteId: "", sectionId: "", assetId: "" });
-  const { data: assets = [] } = trpc.assets.list.useQuery({ sectionId: Number(form.sectionId) }, { enabled: !!form.sectionId });
+  const assetsQuery = trpc.assets.list.useQuery({ sectionId: Number(form.sectionId) }, { enabled: open && !!form.sectionId, ...IMPROVEMENT_QUERY_OPTIONS });
+  const assets = assetsQuery.data ?? [];
   const [fileEntries, setFileEntries] = useState<FileEntry[]>([]);
   const addAttachmentMut = trpc.attachments.add.useMutation();
+  const saveSession = useRef(newImprovementSaveSession<FileEntry>());
+  const [saving, setSaving] = useState(false);
+  const [createdIdea, setCreatedIdea] = useState<{ id: number; requestNumber: string } | null>(null);
+  const [attachmentPending, setAttachmentPending] = useState(false);
 
-  const resetForm = () => { setForm({ title: "", description: "", category: "operational", priority: "medium", expectedBenefit: "", currentSituation: "", targetOutcome: "", successMetric: "", baselineValue: "", targetValue: "", siteId: "", sectionId: "", assetId: "" }); setFileEntries([]); };
+  const resetForm = () => { setForm({ title: "", description: "", category: "operational", priority: "medium", expectedBenefit: "", currentSituation: "", targetOutcome: "", successMetric: "", baselineValue: "", targetValue: "", siteId: "", sectionId: "", assetId: "" }); setFileEntries([]); saveSession.current = newImprovementSaveSession<FileEntry>(); setCreatedIdea(null); setAttachmentPending(false); };
 
-  const createMutation = trpc.improvementIdeas.create.useMutation({
-    onSuccess: async (res) => {
-      const doneEntries = fileEntries.filter(e => e.status === "done" && e.url);
-      for (const entry of doneEntries) {
-        try {
-          await addAttachmentMut.mutateAsync({
-            entityType: "improvement_idea", entityId: res.id!, fileName: entry.file.name,
-            fileUrl: entry.url!, fileKey: entry.fileKey || entry.file.name,
-            mimeType: entry.file.type, fileSize: entry.file.size,
-          });
-        } catch { /* تجاهل فشل مرفق منفرد */ }
-      }
-      toast.success(`${t.improvementIdeas.createNew} ${res.requestNumber}`);
-      utils.improvementIdeas.listPaginated.invalidate();
-      onOpenChange(false);
-      resetForm();
-    },
-    onError: (err) => toast.error(err.message),
-  });
+  const createMutation = trpc.improvementIdeas.create.useMutation();
 
-  const handleCreate = () => {
-    if (!form.title.trim()) { toast.error(t.improvementIdeas.title); return; }
+  const handleCreate = async () => {
+    if (saveSession.current.saving) return;
+    if (!createdIdea && !form.title.trim()) { toast.error(t.improvementIdeas.title); return; }
     if (!form.description.trim() || !form.expectedBenefit.trim() || !form.siteId || !form.sectionId || !form.currentSituation.trim() || !form.targetOutcome.trim() || !form.successMetric.trim()) { toast.error(w.required); return; }
     const baseline = form.baselineValue.trim() ? Number(form.baselineValue) : undefined;
     const target = form.targetValue.trim() ? Number(form.targetValue) : undefined;
     if ((baseline !== undefined && !Number.isFinite(baseline)) || (target !== undefined && !Number.isFinite(target)) || ((baseline === undefined) !== (target === undefined))) { toast.error(w.invalidValues); return; }
     const uploading = fileEntries.some(e => e.status === "uploading" || e.status === "pending");
-    if (uploading) { toast.error(t.attachments?.uploading || "الرجاء انتظار اكتمال رفع الصور"); return; }
-    createMutation.mutate({
+    if (uploading) { toast.error(feedback.uploadWaiting); return; }
+    if (fileEntries.some(entry => entry.status !== "done" || !entry.url)) { toast.error(feedback.uploadFailed); return; }
+    const payload = {
       title: form.title,
       description: form.description.trim(),
       category: form.category,
@@ -395,14 +412,30 @@ function CreateIdeaDialog({ open, onOpenChange }: { open: boolean; onOpenChange:
       siteId: Number(form.siteId),
       sectionId: Number(form.sectionId),
       assetId: form.assetId ? Number(form.assetId) : undefined,
-    });
+    };
+    setSaving(true);
+    try {
+      const result = await saveIdeaWithAttachments(saveSession.current, payload, fileEntries, {
+        create: async input => { const result = await createMutation.mutateAsync(input); const created = { id: result.id!, requestNumber: result.requestNumber }; setCreatedIdea(created); return created; },
+        attach: (ideaId, entry) => addAttachmentMut.mutateAsync({ entityType: "improvement_idea", entityId: ideaId, fileName: entry.file.name, fileUrl: entry.url!, fileKey: entry.fileKey || entry.file.name, mimeType: entry.file.type, fileSize: entry.file.size }),
+      });
+      if (result === "busy") return;
+      const saved = saveSession.current.created!;
+      void refreshImprovementViews(utils, saved.id).then(ok => { if (!ok) toast.warning(feedback.refreshError); });
+      if (result === "partial") { setAttachmentPending(true); toast.warning(`${saved.requestNumber}: ${feedback.savedAttachmentsPending}`); }
+      else { toast.success(`${t.improvementIdeas.createNew} ${saved.requestNumber}`); onOpenChange(false); resetForm(); }
+    } catch (error) { toast.error(error instanceof Error ? error.message : feedback.loadError); }
+    finally { setSaving(false); }
   };
 
   return (
-    <Dialog open={open} onOpenChange={(o) => { onOpenChange(o); if (!o) resetForm(); }}>
+    <Dialog open={open} onOpenChange={(o) => { if (saving) return; onOpenChange(o); if (!o) resetForm(); }}>
       <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
         <DialogHeader><DialogTitle>{t.improvementIdeas.createNew}</DialogTitle></DialogHeader>
-        <div className="space-y-3">
+        {attachmentPending && <div role="alert" className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm"><b>{createdIdea?.requestNumber}</b><p>{feedback.savedAttachmentsPending}</p></div>}
+        {(sitesQuery.isLoading || sectionsQuery.isLoading || assetsQuery.isLoading) && <p role="status" className="text-sm text-muted-foreground">{feedback.loading}</p>}
+        {(sitesQuery.error || sectionsQuery.error || assetsQuery.error) && <QueryFailure retry={() => Promise.allSettled([sitesQuery.refetch(), sectionsQuery.refetch(), ...(form.sectionId ? [assetsQuery.refetch()] : [])])} />}
+        <fieldset disabled={saving || !!createdIdea} className="space-y-3 min-w-0">
           <div className="space-y-1">
             <Label>{t.improvementIdeas.title} *</Label>
             <Input value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} />
@@ -471,10 +504,10 @@ function CreateIdeaDialog({ open, onOpenChange }: { open: boolean; onOpenChange:
             <Label>{t.improvementIdeas.attachImages}</Label>
             <IdeaImageUploader fileEntries={fileEntries} setFileEntries={setFileEntries} />
           </div>
-        </div>
+        </fieldset>
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>{t.common.cancel}</Button>
-          <Button onClick={handleCreate} disabled={createMutation.isPending}>{t.common.save}</Button>
+          <Button variant="outline" disabled={saving} onClick={() => { onOpenChange(false); resetForm(); }}>{createdIdea ? t.common.close : t.common.cancel}</Button>
+          <Button onClick={handleCreate} disabled={saving || fileEntries.some(entry => entry.status !== "done" || !entry.url)}>{saving ? feedback.saving : createdIdea ? feedback.retryAttachments : t.common.save}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -488,7 +521,7 @@ function ClassifyDialog({ idea, onClose }: { idea: any; onClose: () => void }) {
   const { t } = useTranslation();
   const w = useFlowLabels();
   const { getPriorityLabel } = useStaticLabels();
-  const utils = trpc.useUtils();
+  const refresh = useRefreshImprovementViews();
   const [category, setCategory] = useState(idea.category);
   const [groupCategory, setGroupCategory] = useState("");
   const [priority, setPriority] = useState(idea.priority);
@@ -496,8 +529,7 @@ function ClassifyDialog({ idea, onClose }: { idea: any; onClose: () => void }) {
   const classifyMut = trpc.improvementIdeas.classify.useMutation({
     onSuccess: () => {
       toast.success(t.improvementIdeas.classify);
-      utils.improvementIdeas.listPaginated.invalidate();
-      utils.improvementIdeas.getGroupedClassifiedCounts.invalidate();
+      refresh(idea.id);
       onClose();
     },
     onError: (err) => toast.error(err.message),
@@ -560,7 +592,7 @@ function ClassifyDialog({ idea, onClose }: { idea: any; onClose: () => void }) {
 function DecideDialog({ idea, onClose }: { idea: any; onClose: () => void }) {
   const { t } = useTranslation();
   const w = useFlowLabels();
-  const utils = trpc.useUtils();
+  const refresh = useRefreshImprovementViews();
   const [decision, setDecision] = useState<"approved" | "postponed" | "cancelled" | null>(null);
   const [decisionNotes, setDecisionNotes] = useState("");
   const [postponedUntil, setPostponedUntil] = useState("");
@@ -569,8 +601,7 @@ function DecideDialog({ idea, onClose }: { idea: any; onClose: () => void }) {
   const decideMut = trpc.improvementIdeas.decide.useMutation({
     onSuccess: () => {
       toast.success(t.common.savedSuccessfully);
-      utils.improvementIdeas.getClassifiedByGroup.invalidate();
-      utils.improvementIdeas.getGroupedClassifiedCounts.invalidate();
+      refresh(idea.id);
       onClose();
     },
     onError: (err) => toast.error(err.message),
@@ -643,14 +674,17 @@ function NewIdeasTab({ canClassify }: { canClassify: boolean }) {
   const { t } = useTranslation();
   const [page, setPage] = useState(1);
   const [classifyTarget, setClassifyTarget] = useState<any>(null);
-  const { data, isLoading } = trpc.improvementIdeas.listPaginated.useQuery({ status: "new", page, pageSize: PAGE_SIZE }, { placeholderData: keepPreviousData });
+  const query = trpc.improvementIdeas.listPaginated.useQuery({ status: "new", page, pageSize: PAGE_SIZE }, { placeholderData: keepPreviousData, ...IMPROVEMENT_QUERY_OPTIONS });
+  const { data, isLoading } = query;
   const ideas = data?.ideas ?? [];
 
-  if (isLoading) return <div className="space-y-2 pt-3">{Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-20 w-full" />)}</div>;
-  if (!ideas.length) return <p className="text-center text-muted-foreground py-12">{t.improvementIdeas.noIdeas}</p>;
+  if (isLoading) return <ImprovementLoadingNotice><div className="space-y-2 pt-3">{Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-20 w-full" />)}</div></ImprovementLoadingNotice>;
+  if (query.error) return <QueryFailure retry={() => query.refetch()} fetching={query.isFetching} />;
+  if (!ideas.length) return query.isFetching ? <ImprovementLoadingNotice /> : <p className="text-center text-muted-foreground py-12">{t.improvementIdeas.noIdeas}</p>;
 
   return (
     <div className="space-y-2 pt-3">
+      {query.isFetching && <ImprovementLoadingNotice />}
       {ideas.map((idea: any) => (
         <Card key={idea.id} className={canClassify ? "cursor-pointer hover:shadow-md transition-shadow" : ""} onClick={() => canClassify && setClassifyTarget(idea)}>
           <CardContent className="p-4 flex items-center justify-between gap-3 flex-wrap">
@@ -686,13 +720,13 @@ function NewIdeasTab({ canClassify }: { canClassify: boolean }) {
 function CostStudyDialog({ idea, onClose }: { idea: any; onClose: () => void }) {
   const w = useFlowLabels();
   const { t } = useTranslation();
-  const utils = trpc.useUtils();
+  const refresh = useRefreshImprovementViews();
   const [materials, setMaterials] = useState(String(idea.estimatedMaterialsCost ?? "0"));
   const [labor, setLabor] = useState(String(idea.estimatedLaborCost ?? "0"));
   const [services, setServices] = useState(String(idea.estimatedServicesCost ?? "0"));
   const [notes, setNotes] = useState(idea.costStudyNotes ?? "");
   const save = trpc.improvementIdeas.saveCostStudy.useMutation({
-    onSuccess: () => { toast.success(w.studySaveSuccess); utils.improvementIdeas.getClassifiedByGroup.invalidate(); onClose(); },
+    onSuccess: () => { toast.success(w.studySaveSuccess); refresh(idea.id); onClose(); },
     onError: e => toast.error(e.message),
   });
   const costs = [materials, labor, services].map(moneyValue);
@@ -721,14 +755,14 @@ function CostStudyDialog({ idea, onClose }: { idea: any; onClose: () => void }) 
 function ExecutionPlanDialog({ idea, onClose }: { idea: any; onClose: () => void }) {
   const w = useFlowLabels();
   const { t } = useTranslation();
-  const utils = trpc.useUtils();
+  const refresh = useRefreshImprovementViews();
   const [owner, setOwner] = useState(idea.implementationOwner || "");
   const [startDate, setStartDate] = useState(idea.implementationStartDate || "");
   const [dueDate, setDueDate] = useState(idea.implementationDueDate || "");
   const [progress, setProgress] = useState(String(idea.implementationProgress ?? 0));
   const [notes, setNotes] = useState(idea.implementationNotes || "");
   const save = trpc.improvementIdeas.savePlan.useMutation({
-    onSuccess: () => { toast.success(w.planSaveSuccess); utils.improvementIdeas.getApproved.invalidate(); onClose(); },
+    onSuccess: () => { toast.success(w.planSaveSuccess); refresh(idea.id); onClose(); },
     onError: e => toast.error(e.message),
   });
   const progressNumber = Number(progress);
@@ -740,22 +774,25 @@ function ExecutionPlanDialog({ idea, onClose }: { idea: any; onClose: () => void
       <div className="space-y-1"><Label>{w.startDate}</Label><Input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} /></div>
       <div className="space-y-1"><Label>{w.dueDate} *</Label><Input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} /></div>
     </div>
-    <div className="space-y-1"><Label>{w.progress}</Label><Input type="number" step="1" min="0" max="100" value={progress} onChange={e => setProgress(e.target.value)} /></div>
+    <div className="space-y-1"><Label>{w.progress}{idea.executionTrackingVersion === 1 ? ` — ${w.automaticProgress}` : ""}</Label><Input type="number" step="1" min="0" max="100" readOnly={idea.executionTrackingVersion === 1} value={idea.executionTrackingVersion === 1 ? idea.executionProgress?.percent ?? 0 : progress} onChange={e => setProgress(e.target.value)} /></div>
     <div className="space-y-1"><Label>{w.planNotes}</Label><Textarea value={notes} onChange={e => setNotes(e.target.value)} /></div>
-    <DialogFooter><Button variant="outline" onClick={onClose}>{t.common.cancel}</Button><Button disabled={!valid || save.isPending} onClick={() => save.mutate({ id: idea.id, implementationOwner: owner.trim(), implementationStartDate: startDate || undefined, implementationDueDate: dueDate, implementationProgress: progressNumber, implementationNotes: notes })}>{w.savePlan}</Button></DialogFooter>
+    <DialogFooter><Button variant="outline" onClick={onClose}>{t.common.cancel}</Button><Button disabled={!valid || save.isPending} onClick={() => save.mutate({ id: idea.id, implementationOwner: owner.trim(), implementationStartDate: startDate || undefined, implementationDueDate: dueDate, implementationProgress: idea.executionTrackingVersion === 1 ? 0 : progressNumber, implementationNotes: notes })}>{w.savePlan}</Button></DialogFooter>
   </DialogContent></Dialog>;
 }
 
 // ── تفاصيل نتائج الأفكار المنفذة / التقييم المالي ────────────────────
 function IdeaOutcomeDialog({ id, onClose }: { id: number; onClose: () => void }) {
   const w = useFlowLabels();
+  const { t } = useTranslation();
   const { user } = useAuth();
   const canSeeFinancials = !!user && ["maintenance_manager", "general_maintenance_manager", "construction_procurement_manager", "senior_management", "executive_director", "owner", "admin"].includes(user.role);
-  const { data: idea, isLoading } = trpc.improvementIdeas.getById.useQuery({ id });
+  const query = trpc.improvementIdeas.getById.useQuery({ id }, IMPROVEMENT_QUERY_OPTIONS);
+  const { data: idea, isLoading } = query;
   const percent = idea ? achievementPercent(idea) : null;
   return <Dialog open onOpenChange={o => !o && onClose()}><DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
     <DialogHeader><DialogTitle>{w.details}</DialogTitle></DialogHeader>
-    {isLoading ? <Skeleton className="h-32" /> : idea ? <div className="space-y-2 text-sm">
+    {isLoading ? <ImprovementLoadingNotice><Skeleton className="h-32" /></ImprovementLoadingNotice> : query.error ? <QueryFailure retry={() => query.refetch()} fetching={query.isFetching} /> : idea ? <div className="space-y-2 text-sm">
+      {query.isFetching && <ImprovementLoadingNotice />}
       <p className="font-semibold">{idea.requestNumber} — {idea.title}</p>
       {canSeeFinancials && idea.executionTrackingVersion === 1 && <ImprovementFinancialPanel ideaId={id} />}
       <p>{idea.siteName} — {idea.sectionName}{idea.assetName ? ` — ${idea.assetName}` : ""}</p>
@@ -767,6 +804,7 @@ function IdeaOutcomeDialog({ id, onClose }: { id: number; onClose: () => void })
       {idea.costStudyNotes && <p><b>{w.costStudyNotes}: </b>{idea.costStudyNotes}</p>}
       {idea.implementationOwner && <p><b>{w.planOwner}: </b>{idea.implementationOwner}</p>}
       {idea.implementationDueDate && <p><b>{w.dueDate}: </b>{idea.implementationDueDate}</p>}
+      {idea.executionTrackingVersion === 1 && <p><b>{w.progress} ({w.automaticProgress}): </b>{idea.executionProgress?.percent ?? 0}%</p>}
       {idea.status === 'completed' ? <>
         {idea.evaluatedAt ? <>
           <p><b>{w.actualCost}: </b>{idea.actualCost != null ? currencyNumber(Number(idea.actualCost)) : '—'}</p>
@@ -777,7 +815,7 @@ function IdeaOutcomeDialog({ id, onClose }: { id: number; onClose: () => void })
           {idea.resultNotes && <p><b>{w.resultNotes}: </b>{idea.resultNotes}</p>}
         </> : <p>{w.resultPending}</p>}
       </> : <p>{w.resultPending}</p>}
-    </div> : <p>—</p>}
+    </div> : query.isFetching ? <ImprovementLoadingNotice /> : <p>{t.improvementIdeas.noIdeas}</p>}
   </DialogContent></Dialog>;
 }
 
@@ -787,18 +825,22 @@ function IdeaOutcomeDialog({ id, onClose }: { id: number; onClose: () => void })
 function ClassifiedTab({ canDecide, canStudy }: { canDecide: boolean; canStudy: boolean }) {
   const { t } = useTranslation();
   const w = useFlowLabels();
+  const { getPriorityLabel } = useStaticLabels();
   const [openGroup, setOpenGroup] = useState<string | null>(null);
   const [decideTarget, setDecideTarget] = useState<any>(null);
   const [studyTarget, setStudyTarget] = useState<any>(null);
-  const { data: counts = [], isLoading } = trpc.improvementIdeas.getGroupedClassifiedCounts.useQuery();
-  const { data: groupIdeas = [], isLoading: loadingGroup } = trpc.improvementIdeas.getClassifiedByGroup.useQuery({ groupCategory: openGroup! }, { enabled: !!openGroup });
+  const countsQuery = trpc.improvementIdeas.getGroupedClassifiedCounts.useQuery(undefined, IMPROVEMENT_QUERY_OPTIONS);
+  const { data: counts = [], isLoading } = countsQuery;
+  const groupQuery = trpc.improvementIdeas.getClassifiedByGroup.useQuery({ groupCategory: openGroup! }, { enabled: !!openGroup, ...IMPROVEMENT_QUERY_OPTIONS });
+  const { data: groupIdeas = [], isLoading: loadingGroup } = groupQuery;
 
   if (openGroup) {
     return (
       <div className="space-y-2 pt-3">
         <Button variant="ghost" size="sm" onClick={() => setOpenGroup(null)}><ArrowRight className="w-4 h-4 ml-1" />{t.improvementIdeas.folders}</Button>
         <p className="font-medium flex items-center gap-2"><Folder className="w-4 h-4" />{(t.improvementIdeas.groups as any)[openGroup]}</p>
-        {loadingGroup ? <Skeleton className="h-20 w-full" /> : !groupIdeas.length ? <p className="text-center text-muted-foreground py-8">{t.improvementIdeas.noIdeas}</p> : (
+        {!loadingGroup && groupQuery.isFetching && <ImprovementLoadingNotice />}
+        {loadingGroup ? <ImprovementLoadingNotice><Skeleton className="h-20 w-full" /></ImprovementLoadingNotice> : groupQuery.error ? <QueryFailure retry={() => groupQuery.refetch()} fetching={groupQuery.isFetching} /> : !groupIdeas.length ? groupQuery.isFetching ? null : <p className="text-center text-muted-foreground py-8">{t.improvementIdeas.noIdeas}</p> : (
           groupIdeas.map((idea: any) => (
             <Card key={idea.id} className="hover:shadow-sm transition-shadow">
               <CardContent className="p-4 flex items-center justify-between gap-3 flex-wrap">
@@ -808,7 +850,7 @@ function ClassifiedTab({ canDecide, canStudy }: { canDecide: boolean; canStudy: 
                   <p className="text-xs text-muted-foreground">{idea.submitterName || "—"}</p>
                 </div>
                 <div className="flex flex-wrap gap-2 items-center">
-                  <Badge className={`border ${PRIORITY_COLORS[idea.priority] || ""}`}>{idea.priority}</Badge>
+                  <Badge className={`border ${PRIORITY_COLORS[idea.priority] || ""}`}>{getPriorityLabel(idea.priority)}</Badge>
                   {idea.costStudiedAt ? <Badge variant="secondary">{w.studyReady}</Badge> : !!idea.costStudyRequired && <Badge variant="outline">{w.studyRequired}</Badge>}
                   {canStudy && <Button size="sm" variant="outline" onClick={() => setStudyTarget(idea)}>{w.study}</Button>}
                   {canDecide && <Button size="sm" disabled={!!idea.costStudyRequired && !(idea.executionTrackingVersion === 1 ? hasCompleteCostStudy(idea) : idea.costStudiedAt)} onClick={() => setDecideTarget(idea)}>{t.improvementIdeas.decidedBy}</Button>}
@@ -823,11 +865,13 @@ function ClassifiedTab({ canDecide, canStudy }: { canDecide: boolean; canStudy: 
     );
   }
 
-  if (isLoading) return <div className="grid grid-cols-2 gap-3 pt-3">{Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-16 w-full" />)}</div>;
-  if (!counts.length) return <p className="text-center text-muted-foreground py-12">{t.improvementIdeas.noIdeas}</p>;
+  if (isLoading) return <ImprovementLoadingNotice><div className="grid grid-cols-2 gap-3 pt-3">{Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-16 w-full" />)}</div></ImprovementLoadingNotice>;
+  if (countsQuery.error) return <QueryFailure retry={() => countsQuery.refetch()} fetching={countsQuery.isFetching} />;
+  if (!counts.length) return countsQuery.isFetching ? <ImprovementLoadingNotice /> : <p className="text-center text-muted-foreground py-12">{t.improvementIdeas.noIdeas}</p>;
 
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-3">
+      {countsQuery.isFetching && <div className="col-span-full"><ImprovementLoadingNotice /></div>}
       {counts.map((c: any) => (
         <Card key={c.groupCategory} className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => setOpenGroup(c.groupCategory)}>
           <CardContent className="p-4 flex items-center gap-3">
@@ -848,8 +892,10 @@ function ApprovedTab() {
   const { t } = useTranslation();
   const w = useFlowLabels();
   const [, setLocation] = useLocation();
-  const utils = trpc.useUtils();
-  const { data: ideas = [], isLoading } = trpc.improvementIdeas.getApproved.useQuery();
+  const refresh = useRefreshImprovementViews();
+  const { language } = useTranslation();
+  const query = trpc.improvementIdeas.getApproved.useQuery(undefined, IMPROVEMENT_QUERY_OPTIONS);
+  const { data: ideas = [], isLoading } = query;
   const [completingId, setCompletingId] = useState<number | null>(null);
   const [completionNotes, setCompletionNotes] = useState("");
   const [planTarget, setPlanTarget] = useState<any>(null);
@@ -860,7 +906,7 @@ function ApprovedTab() {
   const [resultNotes, setResultNotes] = useState("");
 
   const completeMut = trpc.improvementIdeas.complete.useMutation({
-    onSuccess: () => { toast.success(t.improvementIdeas.complete); utils.improvementIdeas.getApproved.invalidate(); utils.improvementIdeas.listPaginated.invalidate(); setCompletingId(null); setCompletionNotes(""); setActualCost(""); setAchievedValue(""); setResultRating(""); setResultNotes(""); },
+    onSuccess: (_result, variables) => { toast.success(t.improvementIdeas.complete); refresh(variables.id); setCompletingId(null); setCompletionNotes(""); setActualCost(""); setAchievedValue(""); setResultRating(""); setResultNotes(""); },
     onError: (err) => toast.error(err.message),
   });
 
@@ -876,11 +922,13 @@ function ApprovedTab() {
     }
   };
 
-  if (isLoading) return <div className="space-y-2 pt-3">{Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-20 w-full" />)}</div>;
-  if (!ideas.length) return <p className="text-center text-muted-foreground py-12">{t.improvementIdeas.noIdeas}</p>;
+  if (isLoading) return <ImprovementLoadingNotice><div className="space-y-2 pt-3">{Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-20 w-full" />)}</div></ImprovementLoadingNotice>;
+  if (query.error) return <QueryFailure retry={() => query.refetch()} fetching={query.isFetching} />;
+  if (!ideas.length) return query.isFetching ? <ImprovementLoadingNotice /> : <p className="text-center text-muted-foreground py-12">{t.improvementIdeas.noIdeas}</p>;
 
   return (
     <div className="space-y-2 pt-3">
+      {query.isFetching && <ImprovementLoadingNotice />}
       {ideas.map((idea: any) => (
         <Card key={idea.id}>
           <CardContent className="p-4 space-y-2">
@@ -896,7 +944,7 @@ function ApprovedTab() {
               {idea.costStudiedAt && <span>{w.totalCost}: {currencyNumber(estimatedTotal(idea))}</span>}
               {idea.implementationOwner && <span>{w.planOwner}: {idea.implementationOwner}</span>}
               {idea.implementationDueDate && <span>{w.dueDate}: {idea.implementationDueDate}</span>}
-              {idea.status === "in_progress" && <span>{w.progress}: {idea.implementationProgress ?? 0}%</span>}
+              {idea.status === "in_progress" && <span>{w.progress}: {idea.executionTrackingVersion === 1 ? idea.executionProgress?.percent ?? 0 : idea.implementationProgress ?? 0}%{idea.executionTrackingVersion === 1 ? ` (${w.automaticProgress})` : ""}</span>}
             </div>
             <Button size="sm" variant="outline" onClick={() => setPlanTarget(idea)}>{w.plan}</Button>
             {idea.status === "approved" && (!idea.costStudyRequired || (idea.implementationOwner && idea.implementationDueDate)) ? (
@@ -913,13 +961,13 @@ function ApprovedTab() {
               <div className="space-y-2 text-sm">
                 {idea.linkedTicketNumber && (
                   <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-muted-foreground">{t.improvementIdeas.linkedTicket}: {idea.linkedTicketNumber} — {idea.linkedTicketStatus}</span>
+                    <span className="text-muted-foreground">{t.improvementIdeas.linkedTicket}: {idea.linkedTicketNumber} — {improvementDocumentStatus(t.ticketStatus, idea.linkedTicketStatus, IMPROVEMENT_UI_LABELS[language].unknownStatus)}</span>
                     <Button size="sm" variant="link" className="h-auto p-0" onClick={() => setLocation(`/tickets/${idea.linkedTicketId}`)}><ExternalLink className="w-3 h-3 ml-1" />{t.improvementIdeas.goToLinked}</Button>
                   </div>
                 )}
                 {idea.linkedPONumber && (
                   <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-muted-foreground">{t.improvementIdeas.linkedPurchaseOrder}: {idea.linkedPONumber} — {idea.linkedPOStatus}</span>
+                    <span className="text-muted-foreground">{t.improvementIdeas.linkedPurchaseOrder}: {idea.linkedPONumber} — {improvementDocumentStatus(t.poStatus, idea.linkedPOStatus, IMPROVEMENT_UI_LABELS[language].unknownStatus)}</span>
                     <Button size="sm" variant="link" className="h-auto p-0" onClick={() => setLocation(`/purchase-orders/${idea.linkedPurchaseOrderId}`)}><ExternalLink className="w-3 h-3 ml-1" />{t.improvementIdeas.goToLinked}</Button>
                   </div>
                 )}
@@ -978,10 +1026,11 @@ function AllIdeasTab() {
   const [page, setPage] = useState(1);
   useEffect(() => { setPage(1); }, [search, statusFilter]);
 
-  const { data, isLoading } = trpc.improvementIdeas.listPaginated.useQuery({
+  const query = trpc.improvementIdeas.listPaginated.useQuery({
     status: statusFilter !== "all" ? statusFilter : undefined,
     search: search || undefined, page, pageSize: PAGE_SIZE,
-  }, { placeholderData: keepPreviousData });
+  }, { placeholderData: keepPreviousData, ...IMPROVEMENT_QUERY_OPTIONS });
+  const { data, isLoading } = query;
   const ideas = data?.ideas ?? [];
 
   return (
@@ -999,7 +1048,8 @@ function AllIdeasTab() {
           </SelectContent>
         </Select>
       </div>
-      {isLoading ? <div className="space-y-2">{Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-16 w-full" />)}</div> : !ideas.length ? (
+      {!isLoading && query.isFetching && <ImprovementLoadingNotice />}
+      {isLoading ? <ImprovementLoadingNotice><div className="space-y-2">{Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-16 w-full" />)}</div></ImprovementLoadingNotice> : query.error ? <QueryFailure retry={() => query.refetch()} fetching={query.isFetching} /> : !ideas.length ? query.isFetching ? null : (
         <p className="text-center text-muted-foreground py-12">{t.improvementIdeas.noIdeas}</p>
       ) : (
         <div className="space-y-2">
@@ -1043,7 +1093,8 @@ function AllIdeasTab() {
 function MyIdeasView({ onCreateClick }: { onCreateClick: () => void }) {
   const { t } = useTranslation();
   const [page, setPage] = useState(1);
-  const { data, isLoading } = trpc.improvementIdeas.listPaginated.useQuery({ page, pageSize: PAGE_SIZE }, { placeholderData: keepPreviousData });
+  const query = trpc.improvementIdeas.listPaginated.useQuery({ page, pageSize: PAGE_SIZE }, { placeholderData: keepPreviousData, ...IMPROVEMENT_QUERY_OPTIONS });
+  const { data, isLoading } = query;
   const ideas = data?.ideas ?? [];
 
   return (
@@ -1052,7 +1103,8 @@ function MyIdeasView({ onCreateClick }: { onCreateClick: () => void }) {
         <div className="flex items-center gap-2"><Lightbulb className="w-6 h-6 text-amber-500" /><h1 className="text-xl font-bold">{t.improvementIdeas.myIdeas}</h1></div>
         <Button onClick={onCreateClick}><Plus className="w-4 h-4 ml-1" />{t.improvementIdeas.createNew}</Button>
       </div>
-      {isLoading ? <div className="space-y-2">{Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-20 w-full" />)}</div> : !ideas.length ? (
+      {!isLoading && query.isFetching && <ImprovementLoadingNotice />}
+      {isLoading ? <ImprovementLoadingNotice><div className="space-y-2">{Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-20 w-full" />)}</div></ImprovementLoadingNotice> : query.error ? <QueryFailure retry={() => query.refetch()} fetching={query.isFetching} /> : !ideas.length ? query.isFetching ? null : (
         <p className="text-center text-muted-foreground py-12">{t.improvementIdeas.noIdeas}</p>
       ) : (
         <div className="space-y-2">

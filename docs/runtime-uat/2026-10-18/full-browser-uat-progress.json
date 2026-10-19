@@ -1,6 +1,23 @@
 {
   "run": "UAT-20261018-RED9",
-  "status": "in_progress",
+  "status": "cancelled_before_deployment",
+  "results_valid_for_final_report": false,
+  "cancellation_reason": "ألغى المستخدم الاختبارات السابقة لأنها أُجريت قبل رفع الكود ونشره. تُعاد الاختبارات من البداية بعد تأكيده اكتمال النشر على Railway، ولا تُعتمد النتائج السابقة في التقرير النهائي.",
+  "next_run_status": "waiting_for_user_deployment_confirmation",
+  "final_report_requirements": [
+    {
+      "area": "الكتالوج",
+      "classification": "تعديل مطلوب من المستخدم، وليس نتيجة فحص",
+      "requirement": "جعل صورة الصنف إلزامية عند الإضافة والتعديل، ومنع الحفظ دون صورة. الصورة المحفوظة الحالية تكفي ولا يلزم رفعها مجدداً.",
+      "implementation_status": "لم ينفذ ضمن الفحص"
+    },
+    {
+      "area": "مركز التحسين والتطوير",
+      "classification": "ضمن نطاق الاختبارات الجديدة بعد النشر",
+      "requirement": "اختبار المركز وتوثيق الأخطاء وأي تعديلات أو تطوير يحتاجها، مع اقتراح حلول بسيطة تؤدي الغرض دون تعقيد.",
+      "implementation_status": "فحص وتوصيات فقط دون تعديل الكود"
+    }
+  ],
   "application": "https://cmms-production-2f64.up.railway.app/",
   "database_scope": "copycmms — per user's confirmation; no direct connection or SQL used during this browser run",
   "method": "Browser UI only, with actual role accounts. Local files are only for the test report.",

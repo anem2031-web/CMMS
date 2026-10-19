@@ -41,7 +41,8 @@ export default function Login() {
       //   لذلك window.location.pathname هو أصلاً الوجهة الصحيحة.
       // الحالة 2: المستخدم انتقل صراحة لصفحة /login (مثلاً بعد انتهاء الجلسة)،
       //   وفيها معامل ?returnUrl=... يحدد الوجهة الأصلية.
-      const destination = data.user.role === "technician" ? "/scheduled-maintenance/my-tasks" : getSafeReturnUrl(
+      const destination = data.user.role === "technician" ? "/scheduled-maintenance/my-tasks"
+        : data.user.role === "gate_security" ? "/gate-security" : getSafeReturnUrl(
         window.location.pathname !== "/login" ? window.location.pathname + window.location.search : "/"
       );
 

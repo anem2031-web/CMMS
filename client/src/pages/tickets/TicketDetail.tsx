@@ -137,11 +137,12 @@ const { getField } = useResolvedTranslation(
     ["notes"],
   );
   const restrictedTechnician = user?.role === APP_ROLE.TECHNICIAN;
-  const references = trpc.tickets.executionReferences.useQuery({ ticketId }, { enabled: restrictedTechnician && !!ticketId });
-  const { data: directoryUsers } = trpc.users.list.useQuery(undefined, { enabled: !!user && !restrictedTechnician });
-  const users = restrictedTechnician ? references.data?.users : directoryUsers;
+  const scopedUserReferences = restrictedTechnician || user?.role === APP_ROLE.DELEGATE;
+  const references = trpc.tickets.executionReferences.useQuery({ ticketId }, { enabled: scopedUserReferences && !!ticketId });
+  const { data: directoryUsers } = trpc.users.list.useQuery(undefined, { enabled: !!user && !scopedUserReferences });
+  const users = scopedUserReferences ? references.data?.users : directoryUsers;
   // Phase 2: listTechnicians gives users with specialty; legacy technicians.list kept for external-only assignments
-  const { data: userTechniciansList } = trpc.users.listTechnicians.useQuery(undefined, { enabled: !!user && !restrictedTechnician });
+  const { data: userTechniciansList } = trpc.users.listTechnicians.useQuery(undefined, { enabled: !!user && !scopedUserReferences });
   // Phase 5: externalTechs query kept for backend compatibility (historical data, fallback). Hidden from UI dropdowns.
   const { data: directoryExternalTechs } = trpc.technicians.list.useQuery({ activeOnly: true }, { enabled: !!user && !restrictedTechnician });
   const { data: directorySections } = trpc.sections.list.useQuery(undefined, { enabled: !!user && !restrictedTechnician });

@@ -8,6 +8,7 @@ import {
 import * as db from "../../_core/db";
 
 const ROLES_DENIED_FROM_TICKETS = [
+  APP_ROLE.GATE_SECURITY,
   APP_ROLE.ACCOUNTANT,
   APP_ROLE.PURCHASE_MANAGER,
   APP_ROLE.WAREHOUSE,

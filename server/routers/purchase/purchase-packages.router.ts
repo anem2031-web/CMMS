@@ -17,6 +17,7 @@ import { captureAccountingSignature } from "../../services/pdf/accountingSignatu
 import { storagePut } from "../../_core/storage";
 import { queuePurchaseTranslation } from "./translation-queue";
 import { withPurchaseSubmissionTime } from "../../../shared/purchaseSubmissionTime";
+import { localizeMasterDataReferences } from "../../services/translation/localizedMasterData";
 
 // ============================================================
 // [PB] راوتر حزمة الشراء — حاوية عليا فوق طلبات الشراء (2026-08-29)
@@ -254,7 +255,13 @@ export const purchasePackagesRouter = router({
         });
       }
 
-      return { ...pkg, orders: ordersWithItems.map(po => withPurchaseSubmissionTime({ ...po, items: ctx.user.role === "delegate" ? po.items.filter((item: any) => Number(item.delegateId) === ctx.user.id) : po.items })) };
+      const response = { ...pkg, orders: ordersWithItems.map(po => withPurchaseSubmissionTime({ ...po, items: ctx.user.role === "delegate" ? po.items.filter((item: any) => Number(item.delegateId) === ctx.user.id) : po.items })) };
+      if (ctx.user.role === "delegate") {
+        return localizeMasterDataReferences({ ...response, createdByName: null,
+          orders: response.orders.map((po: any) => ({ ...po, requestedByName: po.requestedByName ?? null,
+            items: po.items.map((item: any) => ({ ...item, delegateName: null })) })) }, (ctx.user.preferredLanguage || "ar") as any);
+      }
+      return response;
     }),
 
   /** قائمة الحزم (بلا طلباتها) — للاستخدام الإداري/التشخيصي. */

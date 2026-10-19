@@ -1,0 +1,576 @@
+{
+  "run": "UAT-20261018-POSTDEPLOY",
+  "status": "in_progress_blocked_for_account_switch",
+  "application": "https://cmms-production-2f64.up.railway.app/",
+  "deployment": "User confirmed deployment in current turn; clicked visible update-now prompt before testing.",
+  "database": "copycmms per user confirmation; browser UI only; no direct database/API/code tests",
+  "previous_run": "Cancelled by user; all previous results excluded; previous records left untouched.",
+  "excluded": [
+    "Legacy periodic/preventive maintenance module"
+  ],
+  "requirements": [
+    {
+      "area": "catalog",
+      "type": "requested_change_for_final_report",
+      "text": "Require an item image when adding or editing. Existing saved image suffices; no implementation during this audit."
+    },
+    {
+      "area": "improvement_center",
+      "type": "scope",
+      "text": "Test complete improvement lifecycle and recommend simple useful changes without unnecessary complexity."
+    }
+  ],
+  "checks": [
+    {
+      "id": "AUTH-01",
+      "account": "RED9",
+      "result": "pass",
+      "detail": "Successful fresh admin login after deployed update; admin profile confirmed."
+    },
+    {
+      "id": "ADM-01",
+      "account": "RED9",
+      "result": "pass",
+      "detail": "Users UI search verified RED..RED9 role assignments; RED4 accountant shows uploaded signature."
+    },
+    {
+      "id": "TEAM-01",
+      "account": "RED9",
+      "result": "pass",
+      "detail": "AC team active SUHAIL + sahid and AC warehouse; paint team active ROBIL + AZAD + FAROQ and paint warehouse."
+    },
+    {
+      "id": "AUTH-02",
+      "account": "RED7",
+      "result": "pass",
+      "detail": "Operator login succeeds; ticket creation form available with linked site/section selectors."
+    },
+    {
+      "id": "IDEA-01",
+      "account": "RED7",
+      "result": "pass",
+      "detail": "New idea form requires title/description/problem/target/success measure/expected benefit/site/section; baseline/target values and asset optional. Site selection restricts section list."
+    },
+    {
+      "id": "OPR-01",
+      "account": "RED2",
+      "result": "pass",
+      "detail": "Created multi-item operational issue OPR-2026-000004 with catalog battery and AC brush qty1 each, site+section+technician+reason."
+    },
+    {
+      "id": "RBAC-WH-01",
+      "account": "RED",
+      "result": "pass",
+      "detail": "Warehouse Add User role selector offers only technician after deployment; no account created."
+    },
+    {
+      "id": "OPR-02",
+      "account": "RED",
+      "result": "pass",
+      "detail": "New operational order appears in third warehouse tab; approval unlocks lot/warehouse selection."
+    },
+    {
+      "id": "OPR-03",
+      "account": "RED",
+      "result": "pass",
+      "detail": "Quantity3 above available/requested keeps issue button disabled. Issued requested1 battery from LOT-2026-00567 at14 SAR; DLV-2026-450007 created and source stock fell2->1."
+    },
+    {
+      "id": "OPR-04",
+      "account": "RED",
+      "result": "pass",
+      "detail": "Issued brush1 from LOT-2026-00777 at10 SAR; total issue24 SAR. Return brush1 credited10 SAR, net cost14 SAR; document DLV-2026-450008 return1."
+    },
+    {
+      "id": "OPR-05",
+      "account": "RED",
+      "result": "pass",
+      "detail": "Returned battery1 at original lot14 SAR; order total issued24, returned24, net0. Both test quantities restored through normal return UI."
+    },
+    {
+      "id": "DOC-01",
+      "account": "RED",
+      "result": "pass",
+      "detail": "Documents center displayed new DLV-2026-450008 and its PDF downloaded successfully via browser UI."
+    },
+    {
+      "id": "INV-01",
+      "account": "RED",
+      "result": "pass",
+      "detail": "Main warehouse battery stock restored to2 after new operational test returns; blank quantity rejected by general delivery dialog."
+    },
+    {
+      "id": "RBAC-WH-02",
+      "account": "RED",
+      "result": "pass_ui",
+      "detail": "Inventory operations Adjustments tab displays history/print only; no create-adjustment action shown. No direct API attempts made."
+    },
+    {
+      "id": "CAT-01",
+      "account": "RED",
+      "result": "pass",
+      "detail": "Catalog loads categories/items/units/suppliers; adding item to parent category is rejected with a clear instruction to select a leaf."
+    },
+    {
+      "id": "CAT-02",
+      "account": "RED",
+      "result": "pass",
+      "detail": "Catalog item731-026 created successfully without photo; Arabic/English names and piece unit persisted. Photo mandatory remains a requested future change."
+    },
+    {
+      "id": "CAT-03",
+      "account": "RED",
+      "result": "pass",
+      "detail": "Edited manufacturer of test item731-026; persisted in list after save."
+    },
+    {
+      "id": "PM-01",
+      "account": "RED9",
+      "result": "pass",
+      "detail": "Created new program60001, linked one section target60001, ran only that program, generated PMV2-20261018-P60001-T60001."
+    },
+    {
+      "id": "DASH-01",
+      "account": "RED9",
+      "result": "pass",
+      "detail": "Dashboard new-parent card opens closable modal with7 complete columns, document links and pagination; modal shows66 tickets. Purchase-value label is present; periodic maintenance card absent."
+    },
+    {
+      "id": "TECH-01",
+      "account": "SUHAIL",
+      "result": "pass",
+      "detail": "Technician lands on My Tasks, sidebar has only My Tasks and Notifications; direct /users redirects to My Tasks."
+    },
+    {
+      "id": "PM-02",
+      "account": "RED9",
+      "result": "pass",
+      "detail": "Admin My Tasks exposes new PMV2 task across teams without team membership; role-level general execution access works in listing."
+    },
+    {
+      "id": "COST-OPR-04",
+      "actor": "RED9",
+      "status": "passed",
+      "page": "/reports/cost",
+      "result": "تقرير التكلفة يعرض حركتي صرف OPR-2026-000004 بقيم 14 و10، ومرتجعين بنفس تكلفة اللوت؛ صافي أمر الاختبار صفر. فرق المتوسط ظاهر للصنف الثاني 5 ريال في كل اتجاه. لم نعتبر بقية البيانات القديمة اختبارًا جديدًا."
+    },
+    {
+      "id": "PM-EXEC-01",
+      "actor": "RED9",
+      "status": "passed",
+      "record": "PMV2-20261018-P60001-T60001",
+      "result": "بدأ التنفيذ، سجّل ملاحظة اختبار ونتيجة سليم، أصبح البند مكتملًا، ثم أنهى الزيارة واختفى زر إنهاء الزيارة. بدأ الزمن من 0 دقيقة، لا 3 ساعات. حفظ النتيجة تأخر ثم اكتمل دون إعادة المحاولة."
+    },
+    {
+      "id": "DELEGATE-UI-01",
+      "actor": "RED3",
+      "status": "partial",
+      "result": "ظهرت فقط أصنافي بانتظار المعالجة ومتابعة أصنافي، ورابط حزم التسعير. القوائم أظهرت لا توجد أصناف، لكن سجل المتصفح يحوي فشل جلب طلبات الشراء؛ لا نعتبر القوائم الفارغة دليل عدم وجود تكليفات. صفحة الحزم تعرض صفوفًا وتبويبي تجهيز وأرشيف."
+    },
+    {
+      "id": "ACCOUNT-01",
+      "actor": "RED4",
+      "status": "partial",
+      "result": "تسجيل الدخول نجح؛ قائمة بانتظار إجرائي تعرض6 دون صفوف بعد الانتظار، وسجل المتصفح يوضح فشل استعلام حزم الشراء. فتح /users أعاده لطلبات الشراء ولم يعرض المستخدمين. لم نعتمد مستندًا قديمًا، فاختبار توقيعه على مستند جديد محجوب بعطل إنشاء/تحميل الطلبات.",
+      "evidence": "evidence/accountant-count-without-orders.jpg"
+    },
+    {
+      "id": "SENIOR-01",
+      "actor": "RED8",
+      "status": "partial",
+      "result": "نجح الدخول وعرض المشروعين الموجودين وواجهات المتابعة. لم تُغيّر مشروعات أو اعتمادات قديمة؛ اعتماد شراء جديد محجوب بفشل إنشاء/تحميل الطلبات."
+    },
+    {
+      "id": "SENIOR-GUARD",
+      "actor": "RED8",
+      "status": "passed",
+      "result": "فتح /users أعاده إلى التقارير ولم يعرض إدارة المستخدمين."
+    },
+    {
+      "id": "CONSTRUCTION-01",
+      "actor": "RED1",
+      "status": "partial",
+      "result": "نجح إنشاء مشروع ومرحلة ونشاط ومهمة. اختيار مكتملة ثم حفظ التغييرات لم يثبت بعد إعادة التحميل؛ بقيت جديد (NEW-007). تقرير المشروع تعطل (NEW-006). لا ميزانية أو شراء أو صرف."
+    },
+    {
+      "id": "IT-OPR-01",
+      "actor": "RADD",
+      "status": "passed",
+      "result": "نجح إنشاء OPR-2026-000005 وإرساله للمستودع بصنف كتالوج جديد كمية1 ومستلم SUHAIL. قائمة البلاغات عند الدخول كانت3 بلاغات IT فقط؛ لم نعدّلها."
+    },
+    {
+      "id": "OPR-ZERO-01",
+      "actor": "RED",
+      "status": "partial",
+      "record": "OPR-2026-000005",
+      "result": "وصل طلب IT، أظهر الرصيد صفر، وبعد الموافقة ظهر زر إضافة لمسودة شراء. الضغط فشل باستعلام INSERT purchase_orders (مرتبط NEW-003)، دون حركة مخزون أو رقم شراء مؤكد."
+    },
+    {
+      "id": "GATE-01",
+      "actor": "RED5",
+      "status": "partial",
+      "result": "الدخول نجح. صفحة بوابة الأصول الخارجية تعرض2 خروج و2 دخول و11 في السجل. لم نوافق سجلات قديمة؛ إنشاء بلاغ خارجي جديد محجوب بفشل إنشاء البلاغ. بعد الدخول أولًا ظهر /tickets مع496 نتيجة، رغم أن القائمة الجانبية للحارس لا تضم إلا البوابة؛ اتساع قراءة يحتاج مراجعة نطاقه."
+    },
+    {
+      "id": "MAINT-MANAGER-01",
+      "actor": "RED6",
+      "status": "partial",
+      "result": "نجح الدخول وظهرت مهامي اليوم بتبويبي التذاكر وPMV2، و7 تذاكر فرق موجودة. ظهر الصرف التشغيلي والفرز وإدارة PMV2 في قائمته. لم نحرّك التذاكر القديمة؛ جديد الفريق محجوب بفشل إنشاء البلاغ."
+    },
+    {
+      "id": "TECH-ROBIL-01",
+      "actor": "ROBIL",
+      "status": "passed_ui",
+      "result": "القائمة تحوي مهامي اليوم فقط مع الإشعارات. ظهر بلاغ واحد مسند بالاسم MT-2026-00048، ولم تظهر تذاكر فريق التكييف. /users أعاده إلى مهامي اليوم. لا تعديل على البلاغ القديم، ولا اختبار API مباشر."
+    },
+    {
+      "id": "TECH-SAHID-01",
+      "actor": "sahid",
+      "status": "passed_ui",
+      "result": "دخل مهامي اليوم، ظهر تنفيذ فريق التكييف المشترك و5 بلاغات مسندة بالاسم. فتح /purchase-orders أعاده إلى مهامي اليوم. لا تعديل على السجلات السابقة."
+    },
+    {
+      "id": "TECH-AZAD-01",
+      "actor": "AZAD",
+      "status": "passed_ui",
+      "result": "القائمة مهامي اليوم فقط. لا تذاكر فريق تكييف، وبلاغه المسند MT-2026-00208 ظهر وحده بمهام التنفيذ. لم نغيّر شيئًا."
+    },
+    {
+      "id": "TECH-FAROQ-01",
+      "actor": "FAROQ",
+      "status": "passed_ui",
+      "result": "دخل مهامي اليوم بتبويبين. مهام التنفيذ0 ومنفذ1، لا تذاكر تكييف ولا بلاغات مسندة بالاسم. القائمة مهامي اليوم والإشعارات فقط."
+    },
+    {
+      "id": "OBSERVER-CATALOG-01",
+      "actor": "ADMY44",
+      "status": "partial",
+      "result": "الكتالوج فتح بالرابط المباشر. أزرار إضافة/تصدير/استيراد معطلة كما مطلوب، لكن تصنيفات البحث ومسح الفلاتر وبعض أزرار القراءة معطلة كذلك (مرتبطNEW-008). لم ننفذ أي تعديل أو طلب API."
+    },
+    {
+      "id": "OBSERVER-OPR-01",
+      "actor": "ADMY44",
+      "status": "passed_ui",
+      "result": "استعرض OPR-2026-000004 وتفاصيل صرف24/مرتجع24/صافي0. اختيار الصنف وحفظ أمر جديد معطلان. تعطل القائمة يمنع الوصول للخروج؛ فتح /login لا يبدل الحساب لأن حارس المراقب رفض محاولة الدخول الجديدة."
+    }
+  ],
+  "issues": [
+    {
+      "id": "NEW-001",
+      "severity": "high",
+      "account": "RED7",
+      "page": "/tickets/new",
+      "title": "إنشاء بلاغ الصيانة يفشل بعد النشر",
+      "steps": [
+        "إدخال عنوان ووصف وتصنيف المكيفات والموقع والقسم",
+        "رفع صورة وظهور 1/1 uploaded",
+        "حفظ البلاغ",
+        "التحقق من القائمة بالبحث عن عنوان الاختبار ثم إعادة المحاولة مرة واحدة"
+      ],
+      "expected": "حفظ البلاغ وفتح تفاصيله برقم جديد.",
+      "actual": "يبقى النموذج دون رقم؛ لا يوجد سجل بالعنوان في قائمة مقدم الطلب؛ تكرر خطأ المتصفح Cannot read properties of undefined (reading name).",
+      "evidence": "evidence/operator-ticket-create-failed.jpg",
+      "test_title": "UAT2-20261018-GENERAL اختبار شامل بعد النشر للصيانة",
+      "additional_reproduction": {
+        "account": "RED2",
+        "page": "/purchase-orders/new",
+        "scenario": "Save new draft with catalog item/site/section and empty need date/days",
+        "actual": "Save returns to enabled state; draft not opened; same Cannot read properties of undefined (reading name) browser mutation error.",
+        "evidence": "evidence/purchase-draft-create-failed.jpg"
+      }
+    },
+    {
+      "id": "NEW-002",
+      "severity": "high",
+      "account": "RED7",
+      "area": "improvement_center",
+      "title": "مركز التحسين لا يحمّل الأفكار ولا يحفظ فكرة جديدة",
+      "steps": [
+        "فتح My ideas من حساب موظف التشغيل",
+        "إنشاء فكرة وإكمال الحقول الإلزامية والموقع والقسم",
+        "الضغط Save"
+      ],
+      "expected": "عرض أفكار المستخدم وحفظ الفكرة الجديدة وظهور رقمها.",
+      "actual": "قائمة الأفكار لا تحمل بيانات؛ الحفظ يعيد تفعيل الزر ويبقي النموذج. سجل أخطاء المتصفح يعرض فشل استعلام قراءة improvement_ideas وفشل إدخال الفكرة.",
+      "limits": "سبب رفض القاعدة التفصيلي غير ظاهر في المتصفح؛ لم يتم فحص القاعدة مباشرة. الرقم IMP-2026-00012 ورد في المحاولة الفاشلة ولا يعد سجلاً محفوظاً.",
+      "evidence": "evidence/improvement-create-failed.jpg"
+    },
+    {
+      "id": "NEW-003",
+      "severity": "high",
+      "area": "purchasing",
+      "account": "RED2",
+      "page": "/purchase-orders",
+      "title": "فشل تحميل طلبات الشراء من القاعدة في النسخة المنشورة",
+      "actual": "Browser console reports failed select on purchase_orders including signature snapshot fields; normal purchase listing cannot be relied on.",
+      "limits": "السبب الأصلي لرفض الاستعلام غير ظاهر؛ لم يتم الاتصال بالقاعدة أو تنفيذ SQL.",
+      "expected": "تحميل قائمة الطلبات ودورتها دون أخطاء.",
+      "additional_reproduction": "ظهر أيضًا للمندوب والمحاسب فشل قراءة حزم الشراء، وفشل INSERT purchase_orders عند إضافة عجز OPR-2026-000005 لمسودة شراء."
+    },
+    {
+      "id": "NEW-004",
+      "severity": "high",
+      "account": "RED",
+      "area": "catalog",
+      "title": "الصنف يُحفظ دون الصورة رغم ظهور فشل الحفظ",
+      "steps": [
+        "إضافة صنف جديد باسم عربي وإنجليزي ووحدة قطعة",
+        "اختيار تصنيف نهائي 731 أجهزة/قطع غيار",
+        "اختيار صورة اختبار والضغط حفظ"
+      ],
+      "actual": "الصنف 731-025 أُنشئ بالفعل، ثم فشل حفظ الصورة برسالة Cannot read properties of undefined (reading name) وبقي النموذج مفتوحاً؛ البحث لاحقاً أثبت وجود السجل دون صورة.",
+      "expected": "إكمال حفظ الصنف والصورة بوضوح، أو بيان أن الصنف حُفظ وأن الصورة فقط فشلت، لمنع إعادة إنشاء سجل مكرر.",
+      "evidence": "evidence/catalog-photo-save-failed.jpg"
+    },
+    {
+      "id": "NEW-005",
+      "severity": "medium",
+      "title": "المندوب يستطيع استعراض جميع المستخدمين بالرابط المباشر",
+      "actor": "RED3",
+      "steps": [
+        "تسجيل الدخول كمندوب، قائمة الجانب لا تحتوي المستخدمين",
+        "فتح /users مباشرة"
+      ],
+      "actual": "ظهرت إدارة المستخدمين و146 مستخدمًا مع أسماء الحسابات والأدوار وبعض بيانات التواصل؛ لم تظهر أزرار إنشاء أو تعديل.",
+      "expected": "مراجعة مصفوفة القراءة للمندوب؛ إذا كانت صفحة المستخدمين خارج دوره فيجب منعها في الحارس والخادم، وإرجاع أقل بيانات لازمة فقط.",
+      "scope": "قراءة بيانات مثبتة فقط؛ لا تعديل ولا إثبات تجاوز API مباشر.",
+      "evidence": "evidence/delegate-users-direct-page.jpg",
+      "classification": "confirmed_read_scope_observation_policy_review_required"
+    },
+    {
+      "id": "NEW-006",
+      "severity": "high",
+      "title": "تبويب تقارير المشروع يعطل صفحة المشروع",
+      "actor": "RED1",
+      "record": "PRJ-2026-0003",
+      "steps": [
+        "إنشاء مشروع اختبار ومرحلة ونشاط ومهمة",
+        "فتح تبويب التقارير داخل المشروع"
+      ],
+      "actual": "An unexpected error occurred — ReferenceError: showProjectDetail is not defined. يظهر Reload Page بدل الصفحة.",
+      "expected": "تقرير المشروع يفتح دون انهيار واجهة البرنامج.",
+      "evidence": "evidence/construction-report-crash.jpg"
+    },
+    {
+      "id": "NEW-007",
+      "severity": "high",
+      "title": "حالة مهمة المشروع لا تثبت بعد الحفظ",
+      "actor": "RED1",
+      "record": "TSK-90001-0001 / PRJ-2026-0003",
+      "steps": [
+        "فتح المهمة الجديدة، اختيار مكتملة",
+        "النقر حفظ التغييرات والانتظار حتى يختفي الزر",
+        "إغلاق النافذة وإعادة تحميل المشروع وفتح المهمة"
+      ],
+      "actual": "اللوحة بقيت في جديدة وتفاصيل المهمة بعد إعادة التحميل تعرض جديد. تكرر بالنقر المباشر، دون رسالة خطأ واضحة.",
+      "expected": "تُحفظ مكتملة وتنعكس في اللوحة والعداد أو يظهر سبب رفض الحفظ.",
+      "evidence": "evidence/construction-task-status-not-persisted.jpg"
+    },
+    {
+      "id": "NEW-008",
+      "severity": "high",
+      "title": "حارس الاستعراض يعطل زر القائمة الجانبية للمراقب",
+      "actor": "ADMY44",
+      "steps": [
+        "تسجيل الدخول بالمراقب على الواجهة الحالية",
+        "فتح مهامي اليوم ثم البلاغات"
+      ],
+      "actual": "Toggle Sidebar يحمل disabled في الصفحتين. لا يمكن فتح القائمة والوصول إلى بقية الصفحات أو تسجيل الخروج. بعض أزرار فتح تفاصيل المهام معطلة أيضًا، رغم أنها إجراءات استعراض.",
+      "expected": "تبقى الملاحة وفتح التفاصيل وتسجيل الخروج متاحة؛ يمنع فقط الإضافة والتعديل والحذف والاستيراد والتصدير.",
+      "evidence": "evidence/observer-sidebar-disabled.jpg",
+      "recheck": "استمر Toggle Sidebar معطلاً بعد الضغط تحديث الآن، على ملف الواجهة index-jX-z6o-U.js.",
+      "additional_reproduction": "فتح /login العادي أظهر نموذج الدخول، لكن محاولة تسجيل الدخول بحساب الاختبار الإداري رُفضت بحارس المراقب: دور المراقب للاستعراض فقط؛ هذا الإجراء غير مسموح. لم تتبدل الجلسة ولم تُغير صلاحيات."
+    }
+  ],
+  "records": [
+    {
+      "type": "operational_issue",
+      "number": "OPR-2026-000004",
+      "test_marker": "UAT2-20261018-OPR",
+      "status": "fully_issued_then_fully_returned",
+      "items": [
+        {
+          "code": "74-061",
+          "qty": 1
+        },
+        {
+          "code": "731-017",
+          "qty": 1
+        }
+      ],
+      "recipient": "SUHAIL"
+    },
+    {
+      "type": "delivery",
+      "number": "DLV-2026-450007",
+      "context": "OPR-2026-000004",
+      "lot": "LOT-2026-00567",
+      "quantity": 1,
+      "value": 14
+    },
+    {
+      "type": "delivery",
+      "number": "DLV-2026-450008",
+      "context": "OPR-2026-000004",
+      "lot": "LOT-2026-00777",
+      "quantity": 1,
+      "value": 10
+    },
+    {
+      "type": "catalog_item",
+      "code": "731-025",
+      "test_marker": "UAT2-20261018",
+      "status": "created_photo_failed"
+    },
+    {
+      "type": "catalog_item",
+      "code": "731-026",
+      "test_marker": "UAT2-20261018-BASE",
+      "status": "created_without_photo"
+    },
+    {
+      "type": "pmv2_program",
+      "id": 60001,
+      "title": "UAT2-20261018 PMV2 اختبار برنامج بعد النشر",
+      "team": "HVAC-01",
+      "checklist": "فحص",
+      "estimated_minutes": 5,
+      "status": "disabled_after_test"
+    },
+    {
+      "type": "pmv2_task",
+      "number": "PMV2-20261018-P60001-T60001",
+      "program_id": 60001,
+      "target_id": 60001,
+      "status": "completed_visit_ended"
+    },
+    {
+      "type": "project",
+      "number": "PRJ-2026-0003",
+      "title": "UAT2-20261018 مشروع اختبار المتصفح",
+      "actor": "RED1",
+      "status": "planning_test_only_no_budget"
+    },
+    {
+      "type": "project_task",
+      "number": "TSK-90001-0001",
+      "project": "PRJ-2026-0003",
+      "title": "UAT2 مهمة مشروع تجريبية",
+      "status": "new_status_change_not_persisted"
+    },
+    {
+      "type": "operational_issue",
+      "number": "OPR-2026-000005",
+      "test_marker": "UAT2-20261018-IT-ZERO",
+      "status": "approved_zero_stock_purchase_draft_failed_no_issue",
+      "actor": "RADD",
+      "items": [
+        {
+          "code": "731-026",
+          "qty": 1
+        }
+      ],
+      "recipient": "SUHAIL"
+    },
+    {
+      "type": "return",
+      "number": "RTN-2026-210005",
+      "delivery": "DLV-2026-450008",
+      "quantity": 1,
+      "value": 10
+    },
+    {
+      "type": "return",
+      "number": "RTN-2026-210006",
+      "delivery": "DLV-2026-450007",
+      "quantity": 1,
+      "value": 14
+    }
+  ],
+  "coverage": {
+    "authentication": "17 supplied accounts signed in; observer navigation/logout defect prevents ordinary switch back",
+    "tickets_team": "new ticket creation failed; fresh read-only team isolation checked",
+    "tickets_named": "fresh per-account own lists checked; new execution chain blocked",
+    "IT": "operational_creation_passed_ticket_creation_blocked",
+    "external": "gate exit/entry read only; new cycle blocked by ticket creation",
+    "purchasing": "blocked_on_list_and_create",
+    "bundles": "empty_draft_archive_UI_only_new_bundle_blocked_on_purchase",
+    "warehouse": "issue_return_passed_receipt_blocked_on_purchase",
+    "operational_issues": "multi_item_issue_return_cost_passed_shortage_pending",
+    "costs": "test_operational_transactions_matched",
+    "improvement_center": "list_create_failed; dependent lifecycle blocked",
+    "catalog": "create_edit_passed_photo_partial_failure",
+    "construction": "project_stage_activity_task_create_passed_status_report_failed",
+    "admin_reports": "dashboard drilldown and lot costs checked; project report crashed",
+    "PMV2": "basic_creation_execution_visit_passed_material_branch_not_tested"
+  },
+  "limitations": [
+    "تعذر اختبار اعتماد فكرة التحسين وربط التنفيذ والتقييم بسبب فشل قراءة الأفكار وإنشائها في الواجهة؛ ستوثق توصيات بسيطة فقط.",
+    "تنزيل DLV-2026-450008.pdf نجح؛ سياسة المتصفح تمنع file://، لذلك لم يتم فحص محتوى الملف المحلي أو التوقيع داخله. لم يُستخدم أي التفاف على هذا المنع. معاينة عرض PDF لم تفتح نافذة مرئية في بيئة الاختبار.",
+    "حساب عضو HVAC-01 الفعلي في PMV2 (عبد الله سليمان) لم تُعط بيانات دخوله؛ فُحص الفصل من SUHAIL وسيُختبر التنفيذ بصلاحية الأدمن العامة. لم تُغيّر عضويات المستخدمين.",
+    "فحص حارس الصلاحيات هنا من الواجهة والروابط المباشرة فقط؛ لم نرسل طلبات API مصطنعة أو نفحص كود الحارس، لذلك لا نثبت تغطية جميع API أو الملفات.",
+    "استلام شراء جديد وتحويل وحدات الكرتون للحبة، إرسال حزمة جديدة وتنزيل PDF مؤرشف وتوقيع المحاسب/المستودع: لم تُستكمل عمليًا بسبب فشل إنشاء/تحميل المشتريات؛ لا تُعتبر ناجحة بمجرد وجود واجهتها.",
+    "لم تُختبر الطباعة الفعلية أو عدد صفحات ملصقات النسخة المنشورة أو قارئ باركود مادي؛ نتائج الاختبارات الملغاة قبل النشر مستبعدة.",
+    "لم تتوفر حسابات مالك أو مساعد مستودع/المستودع الغذائي بصلاحياتها الفعلية؛ لم ننشئ حسابات بصلاحيات جديدة.",
+    "بقيت فحوص إضافية للأدمن معلقة لأن حارس المراقب يعطل القائمة ويمنع محاولة الدخول الجديدة من جلسته."
+  ],
+  "observations": [
+    {
+      "id": "POLICY-01",
+      "area": "inventory_issue",
+      "type": "workflow_gap_to_review",
+      "detail": "General inventory delivery still offers independent issue with site/section cost context; no operational-order selection was shown. No independent issue submitted during this test.",
+      "evidence": "evidence/warehouse-general-issue-context.jpg"
+    },
+    {
+      "id": "CAT-REQ-01",
+      "area": "catalog",
+      "type": "user_requested_change_not_implemented",
+      "detail": "Add-item form still labels image optional. Make photo required on add/edit while accepting existing saved image, as requested for final report."
+    },
+    {
+      "id": "PM-MEMBER-01",
+      "status": "verified_configuration",
+      "detail": "HVAC-01 PMV2 has only active member عبد الله سليمان; SUHAIL belongs to maintenance-ticket AC team but is not a PMV2 HVAC-01 member. Empty PMV2 list for SUHAIL is expected; no permissions changed."
+    },
+    {
+      "id": "PO-EMPTY",
+      "severity": "medium",
+      "result": "للمندوب ظهر لا توجد أصناف بانتظار معالجتك رغم فشل استعلام طلبات الشراء؛ يجب فصل تعذر التحميل عن قائمة فارغة، مرتبط NEW-003."
+    },
+    {
+      "id": "DEPLOY-DRIFT",
+      "result": "ظهر إشعار تحديث عند الرئيسية. DOM قبل تحديث الآن أشار index-BvoGyfJw.js وبعد التحديث index-jX-z6o-U.js (نفس معرف الواجهة في أخطاء الاختبارات السابقة). لا نثبت سبب اختلاف الملفات؛ تعطيل قائمة المراقب تأكد بعد التحديث أيضًا."
+    }
+  ],
+  "cleanup": [
+    {
+      "record": "pmv2_program60001",
+      "action": "Disable test program before completing report to prevent future scheduled tasks",
+      "status": "done",
+      "verified": "ظهر زر إعادة تفعيله بدل تعطيل البرنامج؛ البرنامج60001 معطل."
+    }
+  ],
+  "next_checks": [
+    {
+      "area": "البلاغات",
+      "required": "بعد إصلاح NEW-001: إنشاء جديد، الفرز والمسارات A/B/C وIT، الإسناد بالاسم والفريق، المواد/الزيارة/المراجعة/الإغلاق وربط التكلفة."
+    },
+    {
+      "area": "المشتريات",
+      "required": "بعد إصلاح NEW-003: تاريخ/أيام الاحتياج ثنائي الاتجاه، حفظ مسودة فارغة، الإلزام عند الإرسال، حزمة تسعير وإرسال/أرشيف/PDF، الحسابات والإدارة، الشراء والاستلام وتحويل الوحدات ثم الصرف."
+    },
+    {
+      "area": "الحماية",
+      "required": "بعد إصلاح NEW-008: إعادة التنقل والخروج للمراقب؛ اختبار القراءة والتنفيذ لكل دور عبر الواجهة وروابط مستندات غيره، ضمن نطاق متفق عليه. الاختبارات الحالية لا تثبت أمان جميع API."
+    },
+    {
+      "area": "الملصقات",
+      "required": "معاينة الطباعة على النسخة المنشورة: واحد=صفحة، اثنان=صفحتين، وتجربة قارئ مادي باللغة العربية والإنجليزية."
+    },
+    {
+      "area": "التحسين والتطوير",
+      "required": "بعد إصلاح NEW-002: فكرة جديدة ثم تصنيف ودراسة تكلفة واعتماد وربط تنفيذ وتقييم وإغلاق."
+    }
+  ]
+}
