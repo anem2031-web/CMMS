@@ -38,6 +38,7 @@ import { generateTicketPDF, type TicketPdfDocumentType } from "../services/pdf/t
 import { assertTicketReadable } from "../routers/tickets/tickets.access";
 import { canDownloadTicketArchive, canPrintTicketTask } from "@shared/ticketUiRules";
 import { htmlToPdf } from "../services/pdf/htmlToPdfService";
+import { canonicalInventoryDocument, resolveDocumentPdfInput } from "../services/pdf/canonicalDocumentExport";
 import { isSessionAuthenticationError, sdk } from "./sdk";
 import {
   buildReportsCenterPreviewExcel,
@@ -1055,13 +1056,14 @@ async function startServer() {
   // العميل يبني نفس HTML المستخدم فعلاً لنوافذ الطباعة (بلا أي تكرار
   // لمنطق القوالب)، ويرسله هنا فقط ليُحوَّل لملف PDF حقيقي عبر نفس
   // خدمة htmlToPdfService (Puppeteer) المستخدمة لتصدير طلبات الشراء.
+  // الحسابات والإدارة العليا تستخدمان مرجع مستند مخزون محدد بدل HTML
+  // العميل؛ يُعاد بناؤه بعد حارس القراءة الأصلي لمنع تجاوز اعتماد PDF المالي.
   // ============================================================
   app.post("/api/export/html-to-pdf", requireAuthMiddleware, async (req: any, res: any) => {
     try {
-      const { html, filename } = req.body || {};
-      if (!html || typeof html !== "string") {
-        return res.status(400).json({ error: "الحقل html مطلوب" });
-      }
+      const { html, filename } = await resolveDocumentPdfInput(req.authenticatedUser, req.body, source =>
+        canonicalInventoryDocument(source, appRouter.createCaller({ req, res, user: req.authenticatedUser,
+          authenticatedUser: req.authenticatedUser }) as any, req.authenticatedUser));
       const buffer = await htmlToPdf(html);
       const safeName = (filename && typeof filename === "string" ? filename : `document-${Date.now()}`).replace(/[^\w\u0600-\u06FF.-]+/g, "-");
       const download = req.query.download === "1" || req.query.download === "true";
@@ -1070,7 +1072,7 @@ async function startServer() {
       res.send(buffer);
     } catch (e: any) {
       console.error("[HTML→PDF Export Error]", e.message);
-      res.status(500).json({ error: e.message });
+      res.status(e?.code === "FORBIDDEN" ? 403 : e?.code === "NOT_FOUND" ? 404 : e?.code === "BAD_REQUEST" ? 400 : 500).json({ error: e.message });
     }
   });
 

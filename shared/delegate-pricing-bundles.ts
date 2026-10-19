@@ -13,7 +13,7 @@ export type PricingBundleSnapshot = {
   signatures: Array<{ purchaseOrderId: number; poNumber: string; requesterName: string; requesterSignature: string; reviewerName: string; reviewerSignature: string; requesterSource?: string | null; reviewerSource?: string | null }>;
 };
 export function canReadPricingBundles(actor: PricingBundleActor) {
-  return actor.isActive === 1 && ["delegate", "owner", "admin", "accountant", "observer"].includes(actor.role);
+  return actor.isActive === 1 && ["delegate", "owner", "admin", "accountant", "senior_management", "observer"].includes(actor.role);
 }
 export function assertBundleItemEligible(item: any, actorId: number) {
   if (Number(item.delegateId) !== actorId || item.status !== "estimated" || item.batchId || item.delegateChangeRequestedAt || ["draft", "pending_review", "closed", "rejected", "revision_needed"].includes(item.purchaseOrderStatus)) throw new Error("الصنف غير جاهز للإضافة أو لم يعد مسندًا إليك");

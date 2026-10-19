@@ -45,6 +45,7 @@ import { resolveInventoryLotForIssue, isInventoryLotsEnabled } from "../../_core
 import { issueCostAllocationsSchema } from "../inventory/issue-cost-allocation.schema";
 import { APP_ROLE, MAINTENANCE_RESPONSIBLE_DEPARTMENT, canRoleViewAllPurchaseSupplyTracking } from "@shared/roles";
 import { createTranslatedProcurementComment, queuePurchaseTranslation } from "./translation-queue";
+import { isPurchasePdfApprover, purchaseDocumentPermission, withPurchaseDocumentPermissions } from "../../_core/authz/purchase-document";
 
 // ── دالة مشتركة: ترجمة أصناف طلب الشراء في الخلفية ──────────────────────────
 async function queuePOItemsTranslation(items: any[], userId: number): Promise<void> {
@@ -660,6 +661,9 @@ export async function submitPricedBatchForPO(
 }
 
 export const purchaseOrdersRouter = router({
+  documentPermission: protectedProcedure.input(z.object({
+    poId: z.number().int().positive(), batchId: z.number().int().positive().optional(), submissionId: z.number().int().positive().optional(),
+  })).query(({ ctx, input }) => purchaseDocumentPermission(ctx.user, input.poId, input.batchId, input.submissionId)),
   cancelItem: protectedProcedure.input(z.object({
     itemId: z.number(),
     reason: z.string().optional(),
@@ -2121,7 +2125,10 @@ export const purchaseOrdersRouter = router({
     await assertCanViewPurchaseOrder(ctx.user, po);
     await rejectEmptyPendingPricingBatches(input.purchaseOrderId);
     const batches = await db.getPOPricingBatches(input.purchaseOrderId);
-    return ctx.user.role === "delegate" ? batches.filter(batch => Number(batch.submittedById) === ctx.user.id) : batches;
+    const visible = ctx.user.role === "delegate" ? batches.filter(batch => Number(batch.submittedById) === ctx.user.id) : batches;
+    return Promise.all(visible.map(async batch => ({ ...batch,
+      ...(isPurchasePdfApprover(ctx.user) ? await purchaseDocumentPermission(ctx.user, input.purchaseOrderId, batch.purchasePackageSubmissionId == null ? batch.id : undefined, batch.purchasePackageSubmissionId ?? undefined) : { pdfAllowed: true, pdfBlockedReason: null }),
+    })));
   }),
 
   /**
@@ -2165,7 +2172,7 @@ export const purchaseOrdersRouter = router({
       return localizeMasterDataReferences({ ...localizedPo, requestedByName: localizedPo.requestedByName ?? null,
         items: items.map((item: any) => ({ ...item, delegateName: null })), comments }, (ctx.user.preferredLanguage || "ar") as SupportedLanguage);
     }
-    return { ...localizedPo, items, comments };
+    return { ...localizedPo, items, comments, ...(isPurchasePdfApprover(ctx.user) ? await purchaseDocumentPermission(ctx.user, input.id) : { pdfAllowed: true, pdfBlockedReason: null }) };
   }),
 
 list: protectedProcedure.input(z.object({
@@ -2215,7 +2222,7 @@ list: protectedProcedure.input(z.object({
     return localizePurchaseUserNames(rows as any[], (ctx.user.preferredLanguage || "ar") as SupportedLanguage);
   }
 
-  return localizePurchaseUserNames(visible as any[], (ctx.user.preferredLanguage || "ar") as SupportedLanguage);
+  return withPurchaseDocumentPermissions(ctx.user, await localizePurchaseUserNames(visible as any[], (ctx.user.preferredLanguage || "ar") as SupportedLanguage));
 }),
 
   myItems: protectedProcedure.query(async ({ ctx }) => {

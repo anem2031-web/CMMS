@@ -1,6 +1,7 @@
 import { TRPCError } from "@trpc/server";
 import { mediaReferenceUnavailable, resolveMediaReferenceSources } from "./media-reference-sources";
 import { assertGateSecurityMediaReference } from "./gate-security-guard";
+import { authorizePurchaseAttachment, isPurchaseDocumentAttachment, isPurchasePdfApprover } from "./purchase-document";
 
 export type MediaActor = { id: number; role: string; isActive?: number };
 export type MediaReference = { kind: string; id: number; parentId?: number | null; entityType?: string; ownerId?: number | null };
@@ -106,12 +107,14 @@ export const mediaAccessPort: MediaAccessPort = {
     }
     if (ref.kind === "attachment") {
       const type = ref.entityType || "";
-      if (["po_financial_batch", "purchase_package_submission_financial"].includes(type)) {
-        if (!["accountant", "senior_management"].includes(user.role)) throw denied();
-        return;
-      }
-      if (["delegate_pricing_batch", "delegate_package_submission_pricing"].includes(type)) {
-        if (user.role !== "delegate" || ref.ownerId !== user.id) throw denied();
+      if (isPurchaseDocumentAttachment(type)) {
+        // Preserve the delegate's existing frozen archive access, independent of
+        // a later PO reassignment. The new approval prerequisite is financial-role only.
+        if (user.role === "delegate" && ["delegate_pricing_batch", "delegate_package_submission_pricing"].includes(type)) {
+          if (ref.ownerId !== user.id) throw denied();
+          return;
+        }
+        await authorizePurchaseAttachment(user, type, ref.parentId!);
         return;
       }
       const { assertCanAccessAttachments } = await import("../../routers/uploads/attachments.access");
@@ -180,6 +183,14 @@ export async function assertMediaAccess(user: MediaActor | null | undefined, raw
   if (key.startsWith("cmms/backups/")) throw denied();
   if (user.role === "observer") return key;
   const references = await port.references(key);
+  // A restricted financial PDF cannot be made public by grafting the same key
+  // onto an otherwise readable image/catalog record. Its original document gate
+  // must pass before the ordinary any-readable-reference fallback below.
+  if (isPurchasePdfApprover(user)) {
+    for (const reference of references.filter(ref => ref.kind === "attachment" && isPurchaseDocumentAttachment(ref.entityType || ""))) {
+      await port.authorize(user, reference);
+    }
+  }
   // Preview an unlinked upload only. Once saved, its parent determines access
   // even if the uploader later loses access to that document.
   if (user.role !== "gate_security" && !references.length && key.startsWith(`cmms/uploads/u-${user.id}/`)) return key;

@@ -4,12 +4,14 @@
 // ثم يعرضه في تبويب جديد أو ينزّله — بلا أي تكرار لمنطق القوالب.
 // ============================================================
 
-async function fetchPdfBlob(html: string, filename: string, download: boolean): Promise<Blob> {
+export type InventoryPdfSource = { type: "receipt" | "delivery" | "warehouse_issue" | "return" | "disposal" | "count" | "settlement"; id: number };
+
+async function fetchPdfBlob(html: string, filename: string, download: boolean, source?: InventoryPdfSource): Promise<Blob> {
   const res = await fetch(`/api/export/html-to-pdf?download=${download ? "1" : "0"}`, {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ html, filename }),
+    body: JSON.stringify({ html, filename, source }),
   });
   if (!res.ok) {
     const body = await res.json().catch(() => null);
@@ -19,16 +21,16 @@ async function fetchPdfBlob(html: string, filename: string, download: boolean): 
 }
 
 // يفتح المستند كـPDF في تبويب جديد للعرض
-export async function viewDocumentAsPdf(html: string, filename: string) {
-  const blob = await fetchPdfBlob(html, filename, false);
+export async function viewDocumentAsPdf(html: string, filename: string, source?: InventoryPdfSource) {
+  const blob = await fetchPdfBlob(html, filename, false, source);
   const url = URL.createObjectURL(blob);
   window.open(url, "_blank");
   setTimeout(() => URL.revokeObjectURL(url), 60000);
 }
 
 // ينزّل المستند كملف PDF مباشرة على جهاز المستخدم
-export async function downloadDocumentAsPdf(html: string, filename: string) {
-  const blob = await fetchPdfBlob(html, filename, true);
+export async function downloadDocumentAsPdf(html: string, filename: string, source?: InventoryPdfSource) {
+  const blob = await fetchPdfBlob(html, filename, true, source);
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;

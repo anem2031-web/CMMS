@@ -29,6 +29,7 @@ import { localizeApiError } from "@/i18n/apiError";
 import { getLocalizedCatalogUnitName } from "@/i18n/catalogMasterData";
 import { formatAvailableDuration, formatDateOnly, getAvailableCalendarDays } from "@/lib/purchaseItemTiming";
 import { formatPurchaseSubmissionTime } from "@shared/purchaseSubmissionTime";
+import { canOpenApprovalPdf, approvalPdfNotice } from "@/lib/approvalPdfAccess";
 
 const PO_STATUS_COLORS: Record<string, string> = {
   draft: "bg-gray-100 text-gray-700",
@@ -114,6 +115,15 @@ export default function PurchaseOrderDetail() {
   const currency = t.common.currency;
   const poId = parseInt(params?.id || "0");
   const utils = trpc.useUtils();
+  const ensurePurchasePdfAccess = async (scope: { batchId?: number; submissionId?: number } = {}) => {
+    if (user?.role !== "accountant" && user?.role !== "senior_management") return user?.role !== "observer";
+    const permission = await utils.purchaseOrders.documentPermission.fetch({ poId, ...scope });
+    if (!canOpenApprovalPdf(user.role, permission)) {
+      toast.error(approvalPdfNotice(language));
+      return false;
+    }
+    return true;
+  };
   const { data: catalogUnits = [] } = trpc.catalog.units.list.useQuery();
   const displayUnit = (value: string | null | undefined) =>
     getLocalizedCatalogUnitName(value, catalogUnits as any[], language);
@@ -415,6 +425,7 @@ const submitDraftMut = trpc.purchaseOrders.submitDraft.useMutation({
     if (!po?.id) return;
     setExportingBatchId(batchId);
     try {
+      if (!await ensurePurchasePdfAccess({ batchId })) return;
       const res = await fetch(`/api/export/po/${po.id}/pdf?batchId=${batchId}`, {
         credentials: "include",
       });
@@ -440,6 +451,7 @@ const submitDraftMut = trpc.purchaseOrders.submitDraft.useMutation({
     if (!po?.id) return;
     setExportingSubmissionId(submissionId);
     try {
+      if (!await ensurePurchasePdfAccess({ submissionId })) return;
       const res = await fetch(`/api/export/po/${po.id}/pdf?submissionId=${submissionId}`, {
         credentials: "include",
       });
@@ -470,6 +482,7 @@ const submitDraftMut = trpc.purchaseOrders.submitDraft.useMutation({
     if (!po?.id) return;
     const win = printWindowRef.current;
     try {
+      if (!await ensurePurchasePdfAccess(batchId ? { batchId } : {})) { win?.close(); return; }
       const qs = batchId ? `?batchId=${batchId}` : "";
       const res = await fetch(`/api/export/po/${po.id}/pdf${qs}`, { credentials: "include" });
       if (!res.ok) throw new Error(t.purchaseOrders.fileLoadFailed);
@@ -1896,13 +1909,14 @@ const visibleItems = useMemo(() => {
                   </Badge>
                 </div>
 
-                {(isDelegate || isAccountant) && ["pending_accounting", "pending_management", "approved"].includes(batch.status) && (() => {
+                {(isDelegate || isAccountant || role === "senior_management") && ["pending_accounting", "pending_management", "approved"].includes(batch.status) && (() => {
+                  if (!canOpenApprovalPdf(role, batch)) return <p className="text-xs text-muted-foreground">{approvalPdfNotice(language)}</p>;
                   const isPackageSubmissionBatch = batch.purchasePackageSubmissionId != null;
                   // إذا كانت دفعة التسعير جزءًا من دفعة إرسال حزمة، فالمستند الرسمي
                   // للمندوب والحسابات هو مستند purchase_package_submission فقط.
                   // الطلب المنفرد لا يصدر مستند عهدة موازيًا لنفس الإرسال.
                   const mustUsePackageDocument =
-                    isPackageSubmissionBatch && (role === "delegate" || isAccountant);
+                    isPackageSubmissionBatch && (role === "delegate" || isAccountant || role === "senior_management");
 
                   if (mustUsePackageDocument) {
                     const submissionId = Number(batch.purchasePackageSubmissionId);

@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { executionRows as rows } from "../operational-issues/issue-reference";
 import { assertBundleItemEligible, canReadPricingBundles, PRICING_BUNDLE_LIMIT, type PricingBundleActor, type PricingBundleSnapshot, type PricingBundleRow } from "../../../shared/delegate-pricing-bundles";
+import { hasOwnPurchaseDocumentApproval, isPurchasePdfApprover, PURCHASE_PDF_APPROVAL_MESSAGE } from "../../_core/authz/purchase-document";
 export interface PricingBundlePorts {
   database(): Promise<any>;
   submitPO(poId: number, actor: PricingBundleActor, options: { selectedItemIds: number[]; tx: any; purchasePackageSubmissionId?: number; skipArchive: true; bundleId: number; delegateSignatureSnapshot?: string | null }): Promise<any>;
@@ -29,6 +30,38 @@ export class PricingBundleService {
     if (actor.role === "delegate" && Number(bundle.delegateId) !== actor.id) fail("الحزمة لا تخصك", "FORBIDDEN");
     return bundle;
   }
+  private async approvalRows(database: any, ids: number[]) {
+    if (!ids.length) return [];
+    return rows(database, sql`SELECT l.bundleId,l.purchaseOrderId,l.pricingBatchId,l.purchasePackageSubmissionId,
+      b.id AS actualBatchId,b.purchaseOrderId AS actualPurchaseOrderId,b.purchasePackageSubmissionId AS actualSubmissionId,
+      b.accountingApprovedById,b.accountingApprovedAt,b.managementApprovedById,b.managementApprovedAt,
+      s.id AS actualPackageSubmissionId,s.accountingApprovedById AS submissionAccountingApprovedById,s.accountingApprovedAt AS submissionAccountingApprovedAt,
+      s.managementApprovedById AS submissionManagementApprovedById,s.managementApprovedAt AS submissionManagementApprovedAt,
+      p.id AS actualOrderId
+      FROM delegate_pricing_bundle_batches l LEFT JOIN po_pricing_batches b ON b.id=l.pricingBatchId
+      LEFT JOIN purchase_orders p ON p.id=l.purchaseOrderId
+      LEFT JOIN purchase_package_submissions s ON s.id=l.purchasePackageSubmissionId
+      WHERE l.bundleId IN (${sql.join(ids.map(id => sql`${id}`), sql`,`)})`);
+  }
+  private permission(actor: PricingBundleActor, bundle: any, purchaseOrderIds: number[], approvals: any[] = []) {
+    const blocked = { pdfAllowed: false, pdfBlockedReason: bundle.status === "open" ? "تنزيل PDF متاح بعد إرسال الحزمة للحسابات فقط" : PURCHASE_PDF_APPROVAL_MESSAGE };
+    if (bundle.status === "open" || actor.role === "observer") return blocked;
+    if (!isPurchasePdfApprover(actor)) return { pdfAllowed: true, pdfBlockedReason: null as string | null };
+    const expected = new Set(purchaseOrderIds);
+    const linked = approvals.filter(row => Number(row.bundleId) === Number(bundle.id));
+    if (!expected.size || linked.length !== expected.size || new Set(linked.map(row => Number(row.purchaseOrderId))).size !== expected.size) return blocked;
+    for (const row of linked) {
+      if (!expected.has(Number(row.purchaseOrderId)) || Number(row.actualOrderId) !== Number(row.purchaseOrderId)
+        || Number(row.actualBatchId) !== Number(row.pricingBatchId) || Number(row.actualPurchaseOrderId) !== Number(row.purchaseOrderId)
+        || !hasOwnPurchaseDocumentApproval(actor, row)) return blocked;
+      if (row.purchasePackageSubmissionId != null) {
+        if (Number(row.actualSubmissionId) !== Number(row.purchasePackageSubmissionId) || Number(row.actualPackageSubmissionId) !== Number(row.purchasePackageSubmissionId)
+          || !hasOwnPurchaseDocumentApproval(actor, { accountingApprovedById: row.submissionAccountingApprovedById, accountingApprovedAt: row.submissionAccountingApprovedAt,
+            managementApprovedById: row.submissionManagementApprovedById, managementApprovedAt: row.submissionManagementApprovedAt })) return blocked;
+      } else if (row.actualSubmissionId != null) return blocked;
+    }
+    return { pdfAllowed: true, pdfBlockedReason: null as string | null };
+  }
   private async audit(tx: any, actorId: number, bundleId: number, action: string, detail: unknown = null) {
     await tx.execute(sql`INSERT INTO audit_logs (userId,action,entityType,entityId,newValues) VALUES (${actorId},${action},'delegate_pricing_bundle',${bundleId},${JSON.stringify(detail)})`);
   }
@@ -52,16 +85,23 @@ export class PricingBundleService {
     const bundles = await rows(await this.ports.database(), sql`SELECT b.id,b.bundleNumber,b.delegateId,b.status,b.revision,b.createdAt,b.sentAt,b.effectsDone,u.name AS delegateName,
       (SELECT COUNT(*) FROM delegate_pricing_bundle_items i WHERE i.bundleId=b.id AND i.removedAt IS NULL) AS itemCount,
       (SELECT SUM(p.estimatedTotalCost) FROM delegate_pricing_bundle_items i INNER JOIN purchase_order_items p ON p.id=i.purchaseOrderItemId WHERE i.bundleId=b.id AND i.removedAt IS NULL) AS openTotal,
-      JSON_EXTRACT(b.snapshotJson,'$.rows[*].estimatedTotalCost') AS sentTotals
-      FROM delegate_pricing_bundles b INNER JOIN users u ON u.id=b.delegateId WHERE ${actor.role === "delegate" ? sql`b.delegateId=${actor.id}` : sql`1=1`} ORDER BY b.id DESC LIMIT 200`);
-    return bundles.map(({ openTotal, sentTotals, ...bundle }: any) => {
+      JSON_EXTRACT(b.snapshotJson,'$.rows[*].estimatedTotalCost') AS sentTotals,
+      JSON_EXTRACT(b.snapshotJson,'$.rows[*].purchaseOrderId') AS sentOrderIds,JSON_EXTRACT(b.snapshotJson,'$.rows[*].poNumber') AS sentOrderNumbers
+      FROM delegate_pricing_bundles b INNER JOIN users u ON u.id=b.delegateId WHERE ${actor.role === "delegate" ? sql`b.delegateId=${actor.id}` : isPurchasePdfApprover(actor) ? sql`b.status IN ('sent','archived')` : sql`1=1`} ORDER BY b.id DESC LIMIT 200`);
+    const visible = isPurchasePdfApprover(actor) ? bundles.filter((bundle: any) => ["sent", "archived"].includes(bundle.status)) : bundles;
+    const approvals = isPurchasePdfApprover(actor) ? await this.approvalRows(await this.ports.database(), visible.map((bundle: any) => Number(bundle.id))) : [];
+    return visible.map(({ openTotal, sentTotals, sentOrderIds, sentOrderNumbers, ...bundle }: any) => {
       const totals = sentTotals == null ? null : json(sentTotals);
       const total = bundle.status === "open" ? Number(openTotal || 0) : Array.isArray(totals) && totals.length > 0 ? totals.reduce((sum: number, value: unknown) => sum + Math.round(Number(value) * 100), 0) / 100 : null;
-      return { ...bundle, total: total != null && Number.isFinite(total) ? total : null };
+      const ids = sentOrderIds == null ? [] : json(sentOrderIds), numbers = sentOrderNumbers == null ? [] : json(sentOrderNumbers);
+      const purchaseOrders = Array.isArray(ids) ? Array.from(new Map(ids.map((id: any, i: number) => [Number(id), { id: Number(id), poNumber: numbers?.[i] || `PR-${id}` }])).values()) : [];
+      return { ...bundle, total: total != null && Number.isFinite(total) ? total : null, purchaseOrders,
+        ...this.permission(actor, bundle, purchaseOrders.map((order: any) => order.id), approvals) };
     });
   }
   async detail(actor: PricingBundleActor, id: number) {
     const tx = await this.ports.database(), bundle = await this.header(tx, actor, id);
+    if (isPurchasePdfApprover(actor) && bundle.status === "open") fail("الحزمة لم تُرسل للحسابات", "FORBIDDEN");
     let items: PricingBundleRow[];
     if (bundle.status === "open") {
       const links = await rows(tx, sql`SELECT purchaseOrderItemId FROM delegate_pricing_bundle_items WHERE bundleId=${id} AND removedAt IS NULL ORDER BY id`);
@@ -73,7 +113,9 @@ export class PricingBundleService {
     }
     // Never disclose PDF bytes/keys or signature snapshots in read DTOs (observer included).
     const [person] = await rows(tx, sql`SELECT name FROM users WHERE id=${bundle.delegateId}`);
-    return { ...bundle, delegateName: person?.name || "—", items, total: items.reduce((sum, item) => sum + Math.round(Number(item.estimatedTotalCost) * 100), 0) / 100 };
+    const approvals = isPurchasePdfApprover(actor) ? await this.approvalRows(tx, [id]) : [];
+    return { ...bundle, delegateName: person?.name || "—", items, total: items.reduce((sum, item) => sum + Math.round(Number(item.estimatedTotalCost) * 100), 0) / 100,
+      ...this.permission(actor, bundle, items.map(item => Number(item.purchaseOrderId)), approvals) };
   }
   async add(actor: PricingBundleActor, itemId: number) {
     this.write(actor);
@@ -193,6 +235,13 @@ export class PricingBundleService {
     // Authorize every request before consulting the shared render promise, including cached files.
     const bundle = await this.header(database, actor, id);
     if (bundle.status === "open") fail("تنزيل PDF متاح بعد إرسال الحزمة للحسابات فقط", "CONFLICT");
+    if (isPurchasePdfApprover(actor)) {
+      const [stored] = await rows(database, sql`SELECT snapshotJson FROM delegate_pricing_bundles WHERE id=${id}`);
+      const frozen = json(stored?.snapshotJson);
+      const ids = Array.isArray(frozen?.rows) ? frozen.rows.map((item: any) => Number(item?.purchaseOrderId)) : [];
+      const permission = this.permission(actor, bundle, ids, await this.approvalRows(database, [id]));
+      if (!permission.pdfAllowed) fail(permission.pdfBlockedReason!, "FORBIDDEN");
+    }
     let pending = this.pendingPdfs.get(id);
     if (!pending) {
       pending = this.storedPdf(database, bundle).finally(() => this.pendingPdfs.delete(id));

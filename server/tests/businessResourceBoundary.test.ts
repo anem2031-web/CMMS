@@ -26,7 +26,7 @@ describe("Exact purchase PDF document scope", () => {
     return { order: vi.fn(async id => ({ id, status: "pending_management", ...approved })),
       batch: vi.fn(async id => ({ id, purchaseOrderId: 1, ...approved })),
       submission: vi.fn(async id => ({ id, ...approved })),
-      batches: vi.fn(async () => [{ purchaseOrderId: 1 }, { purchaseOrderId: 2 }]), authorize: vi.fn(async () => forbidden()) };
+      batches: vi.fn(async () => [{ purchaseOrderId: 1, ...approved }, { purchaseOrderId: 2, ...approved }]), authorize: vi.fn(async () => forbidden()) };
   }
   it.each(["order", "batch", "submission"])("retains the actual accountant's post-approval %s PDF", async scope => {
     const port = source();
@@ -37,12 +37,12 @@ describe("Exact purchase PDF document scope", () => {
     const port = source();
     await expect(authorizePurchaseDocument(user("accountant", 4), 1, scope === "batch" ? 10 : undefined, scope === "submission" ? 20 : undefined, port)).rejects.toMatchObject({ code: "FORBIDDEN" });
   });
-  it("retains ordinary pre-approval visibility and denies a foreign draft", async () => {
+  it("denies PDF before approval even when ordinary structured-data visibility allows reading the PO", async () => {
     const port = source();
     vi.mocked(port.order).mockResolvedValue({ id: 1, status: "draft" });
     await expect(authorizePurchaseDocument(user(), 1, undefined, undefined, port)).rejects.toMatchObject({ code: "FORBIDDEN" });
     vi.mocked(port.authorize).mockResolvedValue(undefined);
-    await expect(authorizePurchaseDocument(user(), 1, undefined, undefined, port)).resolves.toMatchObject({ id: 1 });
+    await expect(authorizePurchaseDocument(user(), 1, undefined, undefined, port)).rejects.toMatchObject({ code: "FORBIDDEN" });
   });
   it("does not substitute a header approval for an unapproved batch", async () => {
     const port = source(); vi.mocked(port.batch).mockResolvedValue({ id: 10, purchaseOrderId: 1 });

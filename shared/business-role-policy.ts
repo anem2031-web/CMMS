@@ -17,7 +17,7 @@ const sharedQueries = [
   "inventory.catalogStock", "tickets.getById", "tickets.items", "tickets.history", "tickets.getConfirmation", "tickets.executionReferences", "tickets.departmentPlan", "inspectionResults.listByTicket", "externalMaintenance.getByTicket",
   "catalog.nodes.list", "catalog.items.list", "catalog.units.list",
   "attachments.list", "translation.getEntityTranslations", "translation.getBatchTranslations",
-  ...paths("purchaseOrders", "list getById actionableForMe myRequestedItems itemHistory listPricingBatches"),
+  ...paths("purchaseOrders", "list getById actionableForMe myRequestedItems itemHistory listPricingBatches documentPermission"),
   ...paths("purchasePackages", "list getById cards actionableSubmissionsForMe submissions"),
   ...paths("improvementIdeas", "listPaginated getById getGroupedClassifiedCounts getClassifiedByGroup executionSummary executionReference"),
   ...paths("inventoryReports", "stockBalance valuation valueDistribution accountingReview analytics movementMeta movements"),
@@ -119,9 +119,9 @@ const constructionMutations = [
 /** Exposed for coverage tests; final ownership/stage checks remain mandatory. */
 export const BUSINESS_ROLE_CAPABILITIES: Record<BusinessRole, { query: readonly string[]; mutation: readonly string[] }> = {
   accountant: { query: [...sharedQueries, ...costQueries, "attachments.listByType", ...paths("delegatePricingBundles", "status list detail")],
-    mutation: [...sharedMutations, ...paths("purchaseOrders", "approveAccounting approveAccountingBatch rejectAccountingBatchItem reject"), "purchasePackages.approveAccountingSubmission"] },
-  senior_management: { query: [...sharedQueries, ...documentQueries, ...settlementReviewQueries, ...costQueries, ...managementQueries, ...constructionQueries, "attachments.listByType", "technicians.list"],
-    mutation: [...sharedMutations, ...documentMutations, ...settlementReviewMutations, ...managementMutations, ...constructionMutations, ...paths("purchaseOrders", "approveManagement approveManagementBatch reject"), "purchasePackages.approveManagementSubmission"] },
+    mutation: [...sharedMutations, ...paths("purchaseOrders", "approveAccounting approveAccountingBatch rejectAccountingBatchItem reject"), "purchasePackages.approveAccountingSubmission", "delegatePricingBundles.pdf"] },
+  senior_management: { query: [...sharedQueries, ...documentQueries, ...settlementReviewQueries, ...costQueries, ...managementQueries, ...constructionQueries, "attachments.listByType", "technicians.list", ...paths("delegatePricingBundles", "status list detail")],
+    mutation: [...sharedMutations, ...documentMutations, ...settlementReviewMutations, ...managementMutations, ...constructionMutations, ...paths("purchaseOrders", "approveManagement approveManagementBatch reject"), "purchasePackages.approveManagementSubmission", "delegatePricingBundles.pdf"] },
   executive_director: { query: [...sharedQueries, ...documentQueries, ...costQueries, ...managementQueries, "technicians.list"],
     mutation: [...sharedMutations, ...documentMutations, ...managementMutations] },
   warehouse: { query: [...sharedQueries, ...documentQueries, ...settlementReviewQueries, ...costQueries, ...warehouseQueries],
@@ -148,7 +148,10 @@ export function businessPageAllowed(role: BusinessRole, rawPath: string): boolea
   if (/^\/construction(?:\/(?:tickets|reports|projects(?:\/(?:new|[1-9]\d*(?:\/edit)?))?))?$/.test(path)) return true;
   if (commonPages.has(path) || /^\/purchase-orders\/(?:[1-9]\d*|edit-draft\/[1-9]\d*)$/.test(path) || /^\/purchase-packages\/[1-9]\d*$/.test(path) || /^\/tickets\/[1-9]\d*$/.test(path)) return true;
   if (path === "/reports/cost") return role !== "food_warehouse_assistant";
-  if (role === "accountant") return path === "/delegate-pricing-bundles";
+  if (role === "accountant" || role === "senior_management") {
+    if (path === "/delegate-pricing-bundles") return true;
+    if (role === "accountant") return false;
+  }
   if (role === "warehouse") return warehousePages.has(path);
   if (role === "senior_management" || role === "executive_director") {
     if (managementPages.has(path) || /^\/tickets\/[1-9]\d*$/.test(path)) return true;

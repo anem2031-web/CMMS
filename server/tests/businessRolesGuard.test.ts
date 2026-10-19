@@ -44,7 +44,10 @@ const api = router({
   }),
   purchaseOrders: router({
     list: protectedProcedure.query(() => [{ id: 1 }]),
-    listPricingBatches: evaluate(expression("server/routers/purchase/purchase-orders.router.ts", "listPricingBatches"), { ...common, db: { getPurchaseOrderById: spies.po, getPOPricingBatches: spies.batches }, rejectEmptyPendingPricingBatches: spies.repair, assertCanViewPurchaseOrder }),
+    listPricingBatches: evaluate(expression("server/routers/purchase/purchase-orders.router.ts", "listPricingBatches"), { ...common, db: { getPurchaseOrderById: spies.po, getPOPricingBatches: spies.batches }, rejectEmptyPendingPricingBatches: spies.repair, assertCanViewPurchaseOrder,
+      purchaseDocumentPermission: async (user: { role: string }) => ({ pdfAllowed: !["accountant", "senior_management"].includes(user.role), pdfBlockedReason: ["accountant", "senior_management"].includes(user.role) ? "Awaiting fixture approval" : null }),
+      isPurchasePdfApprover: (user: { role: string }) => ["accountant", "senior_management"].includes(user.role),
+    }),
   }),
   auth: router({ me: publicProcedure.query(({ ctx }) => ctx.user), logout: publicProcedure.mutation(() => true) }),
   unreviewed: router({ read: publicProcedure.query(() => spies.write()), write: protectedProcedure.mutation(() => spies.write()) }),
@@ -81,7 +84,7 @@ describe.each(BUSINESS_GUARDED_ROLES)("Central enforcement for %s", role => {
     await expect(caller(role).purchaseOrders.listPricingBatches({ purchaseOrderId: 1 })).rejects.toMatchObject({ code: "FORBIDDEN" });
     expect(spies.repair).not.toHaveBeenCalled(); expect(spies.batches).not.toHaveBeenCalled();
     spies.po.mockResolvedValue({ id: 1, status: "draft", requestedById: 3 });
-    await expect(caller(role).purchaseOrders.listPricingBatches({ purchaseOrderId: 1 })).resolves.toEqual([{ id: 10 }]);
+    await expect(caller(role).purchaseOrders.listPricingBatches({ purchaseOrderId: 1 })).resolves.toEqual([{ id: 10, pdfAllowed: !["accountant", "senior_management"].includes(role), pdfBlockedReason: ["accountant", "senior_management"].includes(role) ? "Awaiting fixture approval" : null }]);
     expect(spies.repair).toHaveBeenCalledOnce();
   });
   it("preserves current pages and prevents direct URLs to administration", () => {

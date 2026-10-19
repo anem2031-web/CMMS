@@ -5,6 +5,7 @@ export default {
     ...base.test,
     include: [
       "tools/inventory-settlement-review/ui.test.tsx",
+      "tools/inventory-settlement-review/stale-warning-ui.test.tsx",
       "tools/inventory-settlement-review/posting.test.ts",
       "tools/inventory-settlement-permissions/review-service.test.ts",
       "tools/inventory-settlement-permissions/ui.test.tsx",

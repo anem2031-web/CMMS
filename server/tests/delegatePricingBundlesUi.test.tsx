@@ -2,7 +2,7 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import { pricingBundleText } from "../../client/src/i18n/pricingBundles";
-const state = vi.hoisted(() => ({ language: "ar", role: "delegate", enabled: true, status: "open", member: false, pending: "" }));
+const state = vi.hoisted(() => ({ language: "ar", role: "delegate", enabled: true, status: "open", member: false, pending: "", approved: false }));
 vi.mock("../../client/src/_core/hooks/useAuth", () => ({ useAuth: () => ({ user: { id: 11, role: state.role, isActive: 1 } }) }));
 vi.mock("../../client/src/contexts/LanguageContext", () => ({ useTranslation: () => ({ language: state.language, dir: state.language === "en" ? "ltr" : "rtl" }) }));
 vi.mock("wouter", () => ({ Link: ({ href, children, ...props }: any) => <a href={href} {...props}>{children}</a> }));
@@ -12,7 +12,7 @@ vi.mock("../../client/src/lib/trpc", () => {
     if (key === "useMutation") return () => ({ isPending: path.endsWith(`.${state.pending}`), mutate: vi.fn() });
     if (key === "invalidate") return vi.fn();
     if (key === "useQuery") return () => ({ data: path.endsWith(".status") ? { enabled: state.enabled } : path.endsWith(".list") ? [{ id: 1, bundleNumber: "DPB-2026-000001", status: state.status, itemCount: 2, total:45, createdAt:"2026-10-18T08:00:00Z" }]
-      : path.endsWith(".detail") ? { id: 1, bundleNumber: "DPB-2026-000001", status: state.status, revision: 2, delegateName: "Delegate fixture", createdAt: "2026-10-17T12:00:00Z", effectsDone: 1, total: 45,
+      : path.endsWith(".detail") ? { id: 1, bundleNumber: "DPB-2026-000001", status: state.status, revision: 2, delegateName: "Delegate fixture", createdAt: "2026-10-17T12:00:00Z", effectsDone: 1, total: 45, pdfAllowed: !["accountant", "senior_management"].includes(state.role) || state.approved,
         items: [{ id: state.member ? 5 : 1, itemName: "مادة الاختبار", categoryName: "الكهرباء", purchaseOrderId: 101, poNumber: "PR-101", sectionName: "Section A", quantity: 3, unit: "قطعة", estimatedUnitCost: "10", estimatedTotalCost: "30", supplierName: "Supplier A" },
           { id: 2, itemName: "Test material", categoryName: "Plumbing", purchaseOrderId: 102, poNumber: "PR-102", sectionName: "Section B", quantity: 1, unit: "Piece", estimatedUnitCost: "15", estimatedTotalCost: "15", supplierName: "Supplier B" }] } : [], isLoading: false, error: null });
     return proxy(path ? `${path}.${String(key)}` : String(key));
@@ -22,6 +22,16 @@ vi.mock("../../client/src/lib/trpc", () => {
 import DelegatePricingBundles from "../../client/src/pages/purchase/DelegatePricingBundles";
 import { PricingBundleAddButton, PricingBundleLink } from "../../client/src/components/purchase/PricingBundleActions";
 describe("Real pricing bundle page and delegate controls", () => {
+  it.each(["accountant", "senior_management"])("keeps %s reviewing structured items until exact approval, then permits PDF", role => {
+    state.language = "ar"; state.role = role; state.status = "archived"; state.enabled = true; state.approved = false;
+    const pending = renderToStaticMarkup(<DelegatePricingBundles />);
+    expect(pending).toContain("PR-101"); expect(pending).toContain("Supplier A");
+    expect(pending).not.toContain(pricingBundleText.ar.pdf);
+    expect(pending).not.toContain(pricingBundleText.ar.send);
+    expect(pending).not.toContain(pricingBundleText.ar.back);
+    state.approved = true;
+    expect(renderToStaticMarkup(<DelegatePricingBundles />)).toContain(pricingBundleText.ar.pdf);
+  });
   it.each(["ar", "en", "ur"])("renders original PR/section/prices/supplier and open actions in %s", language => {
     state.language = language; state.role = "delegate"; state.status = "open"; state.enabled = true;
     const text = pricingBundleText[language as keyof typeof pricingBundleText], html = renderToStaticMarkup(<DelegatePricingBundles />);

@@ -18,6 +18,7 @@ import { storagePut } from "../../_core/storage";
 import { queuePurchaseTranslation } from "./translation-queue";
 import { withPurchaseSubmissionTime } from "../../../shared/purchaseSubmissionTime";
 import { localizeMasterDataReferences } from "../../services/translation/localizedMasterData";
+import { purchaseDocumentPermission } from "../../_core/authz/purchase-document";
 
 // ============================================================
 // [PB] راوتر حزمة الشراء — حاوية عليا فوق طلبات الشراء (2026-08-29)
@@ -1016,6 +1017,7 @@ export const purchasePackagesRouter = router({
 
           return {
             ...sub,
+            ...await purchaseDocumentPermission(ctx.user, Number(visibleBatches[0]?.purchaseOrderId), undefined, Number(sub.id)),
             batches: await Promise.all(
               visibleBatches.map(async (b: any) => {
                 const po = await db.getPurchaseOrderById(b.purchaseOrderId);

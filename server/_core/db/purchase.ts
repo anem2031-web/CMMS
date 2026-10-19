@@ -1311,6 +1311,31 @@ export async function getPOPricingBatches(purchaseOrderId: number) {
     .orderBy(poPricingBatches.batchNumber);
 }
 
+/** Approval metadata for list cards, without a query per purchase order. */
+export async function getPOPricingBatchesForPOs(purchaseOrderIds: number[]) {
+  if (!purchaseOrderIds.length) return [];
+  const db = await getDb();
+  if (!db) throw new Error("تعذر التحقق من اعتماد مستندات الشراء");
+  const result: Array<typeof poPricingBatches.$inferSelect> = [];
+  for (let offset = 0; offset < purchaseOrderIds.length; offset += 500) {
+    result.push(...await db.select().from(poPricingBatches).where(inArray(poPricingBatches.purchaseOrderId, purchaseOrderIds.slice(offset, offset + 500))));
+  }
+  return result;
+}
+
+export async function getPurchaseDocumentItemsForPOs(purchaseOrderIds: number[]) {
+  if (!purchaseOrderIds.length) return [];
+  const db = await getDb();
+  if (!db) throw new Error("تعذر التحقق من أصناف مستندات الشراء");
+  const result: any[] = [];
+  for (let offset = 0; offset < purchaseOrderIds.length; offset += 500) {
+    result.push(...await db.select({ purchaseOrderId: purchaseOrderItems.purchaseOrderId, batchId: purchaseOrderItems.batchId,
+      status: purchaseOrderItems.status, estimatedUnitCost: purchaseOrderItems.estimatedUnitCost, actualUnitCost: purchaseOrderItems.actualUnitCost })
+      .from(purchaseOrderItems).where(inArray(purchaseOrderItems.purchaseOrderId, purchaseOrderIds.slice(offset, offset + 500))));
+  }
+  return result;
+}
+
 export async function getPOPricingBatchById(id: number) {
   const db = await getDb();
   if (!db) return null;

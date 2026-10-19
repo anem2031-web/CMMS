@@ -28,7 +28,7 @@ export default defineConfig({
   },
   esbuild: { jsx: "automatic" },
   test: {
-    include: ["tools/inventory-settlement-review/ui.test.tsx"],
+    include: ["tools/inventory-settlement-review/ui.test.tsx", "tools/inventory-settlement-review/stale-warning-ui.test.tsx"],
     environment: "node",
     maxWorkers: 1,
     minWorkers: 1,

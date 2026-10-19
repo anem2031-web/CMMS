@@ -5,6 +5,30 @@ import * as db from "../../_core/db";
 import { assertCanAccessAttachments } from "./attachments.access";
 import { APP_ROLE } from "@shared/roles";
 import { catalogAuditRequestMeta } from "../../_core/catalog-audit";
+import { purchaseAttachmentPermission, purchaseDocumentPort } from "../../_core/authz/purchase-document";
+import { mediaKeyFromValue } from "../../_core/authz/media-access";
+
+async function documentRows(user: { id: number; role: string }, rows: any[]) {
+  // Cache per request: several historical PDFs may refer to the same batch.
+  const cache = new Map<string, Promise<any>>();
+  return Promise.all(rows.map(async row => {
+    const key = `${row.entityType}:${row.entityId}`;
+    if (!cache.has(key)) cache.set(key, (async () => {
+      const access = user.role === APP_ROLE.DELEGATE && Number(row.delegateId) === user.id
+        ? { pdfAllowed: true, pdfBlockedReason: null }
+        : await purchaseAttachmentPermission(user, row.entityType, Number(row.entityId));
+      const isBatch = ["po_financial_batch", "delegate_pricing_batch"].includes(row.entityType);
+      const scope = isBatch ? await purchaseDocumentPort.batch(Number(row.entityId)) : await purchaseDocumentPort.submission(Number(row.entityId));
+      const reviewUrl = scope ? isBatch ? `/purchase-orders/${scope.purchaseOrderId}` : `/purchase-packages/${scope.purchasePackageId}?submissionId=${scope.id}` : null;
+      return { ...access, reviewUrl };
+    })());
+    const access = await cache.get(key)!;
+    const mediaKey = mediaKeyFromValue(row.fileKey) || mediaKeyFromValue(row.fileUrl);
+    return { ...row, ...access,
+      fileUrl: access.pdfAllowed && mediaKey ? `/api/media?key=${encodeURIComponent(mediaKey)}` : null,
+      fileKey: access.pdfAllowed ? mediaKey : null };
+  }));
+}
 
 export const attachmentsRouter = router({
   /**
@@ -17,26 +41,26 @@ export const attachmentsRouter = router({
     entityType: z.enum(["po_financial_batch", "delegate_pricing_documents"]),
   })).query(async ({ input, ctx }) => {
     if (input.entityType === "delegate_pricing_documents") {
-      // وثائق التسعير الصادرة من المندوبين: المندوب يرى مستنداته فقط،
-      // والمالك/مدير النظام يريان جميع المستندات. لا تُمنح لبقية الأدوار.
-      const allowedRoles = [APP_ROLE.DELEGATE, APP_ROLE.OWNER, APP_ROLE.ADMIN];
+      // المندوب يرى مستنداته فقط؛ الحسابات والإدارة تراجعان البيانات هنا،
+      // ولا تعاد مفاتيح/PDF إلا بعد اعتماد المستخدم نفسه للنطاق المحدد.
+      const allowedRoles = [APP_ROLE.DELEGATE, APP_ROLE.OWNER, APP_ROLE.ADMIN, APP_ROLE.ACCOUNTANT, APP_ROLE.SENIOR_MANAGEMENT];
       if (!allowedRoles.includes(ctx.user.role as any)) {
         throw new TRPCError({ code: "FORBIDDEN", message: "ليس لديك صلاحية للاطلاع على وثائق تسعير المندوبين" });
       }
 
       const rows = await db.getDelegatePricingAttachmentsWithDelegate();
       if (ctx.user.role === APP_ROLE.DELEGATE) {
-        return rows.filter((row: any) => Number(row.delegateId) === Number(ctx.user.id));
+        return documentRows(ctx.user, rows.filter((row: any) => Number(row.delegateId) === Number(ctx.user.id)));
       }
-      return rows;
+      return documentRows(ctx.user, rows);
     }
 
-    // الوثائق المالية المعتمدة تبقى بصلاحياتها الحالية دون تغيير.
+    // نطاق الأدوار المالية باقٍ، وإتاحة الملف تخضع لاعتماد كل مستخدم لدوره.
     const financialRoles = [APP_ROLE.ACCOUNTANT, APP_ROLE.SENIOR_MANAGEMENT, APP_ROLE.OWNER, APP_ROLE.ADMIN];
     if (!financialRoles.includes(ctx.user.role as any)) {
       throw new TRPCError({ code: "FORBIDDEN", message: "ليس لديك صلاحية للاطلاع على الوثائق المالية" });
     }
-    return db.getFinancialBatchAttachmentsWithDelegate();
+    return documentRows(ctx.user, await db.getFinancialBatchAttachmentsWithDelegate());
   }),
 
   list: protectedProcedure.input(z.object({

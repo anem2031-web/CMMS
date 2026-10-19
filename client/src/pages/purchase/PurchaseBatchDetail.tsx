@@ -18,6 +18,7 @@ import { localizeApiError } from "@/i18n/apiError";
 import { getLocalizedCatalogUnitName } from "@/i18n/catalogMasterData";
 import { formatAvailableDuration, formatDateOnly, getAvailableCalendarDays } from "@/lib/purchaseItemTiming";
 import { formatPurchaseSubmissionTime } from "@shared/purchaseSubmissionTime";
+import { canOpenApprovalPdf, approvalPdfNotice } from "@/lib/approvalPdfAccess";
 
 // ============================================================
 // [PB-P2] صفحة تفاصيل حزمة الشراء — المندوب والحسابات (2026-08-30/31)
@@ -865,7 +866,7 @@ function DelegateSubmissionExports({ packageId, packageNumber }: { packageId: nu
  * رفض الإدارة يبقى زرًا على مستوى الصنف، لكنه يُطبّق ذريًا مع اعتماد
  * الإرسال حتى لا تنشأ حالة جزئية. مسارات الطلب المفرد القديمة لم تتغير.
  */
-function PackageSubmissions({
+export function PackageSubmissions({
   packageId,
   packageNumber,
   focusedSubmissionId,
@@ -1070,22 +1071,31 @@ function PackageSubmissions({
                 <div className="flex gap-2 flex-wrap">
                   {/* [PB] نفس شرط PurchaseOrderDetail.tsx حرفيًا — زر التصدير
                       يظهر للمندوب والحسابات فقط، لا لكل من يفتح الصفحة. */}
-                  {(isDelegate || isAccountant) && firstBatch && (
+                  {(isDelegate || isAccountant || user?.role === "senior_management") && firstBatch && canOpenApprovalPdf(user?.role, sub) && (
                     <Button
                       size="sm"
                       variant="outline"
                       className="gap-1.5"
-                      onClick={() =>
-                        window.open(
-                          `/api/export/po/${firstBatch.purchaseOrderId}/pdf?submissionId=${sub.id}`,
-                          "_blank"
-                        )
-                      }
+                      onClick={async () => {
+                        try {
+                          if (user?.role === "accountant" || user?.role === "senior_management") {
+                            const permission = await utils.purchaseOrders.documentPermission.fetch({ poId: firstBatch.purchaseOrderId, submissionId: sub.id });
+                            if (!canOpenApprovalPdf(user.role, permission)) { toast.error(approvalPdfNotice(language)); return; }
+                          }
+                          const response = await fetch(`/api/export/po/${firstBatch.purchaseOrderId}/pdf?submissionId=${sub.id}`, { credentials: "include" });
+                          if (!response.ok) throw new Error(t.purchaseOrders.exportPdfFailed);
+                          const url = URL.createObjectURL(await response.blob());
+                          const anchor = document.createElement("a");
+                          anchor.href = url; anchor.download = `${packageNumber}-${sub.subNumber}.pdf`; anchor.click();
+                          setTimeout(() => URL.revokeObjectURL(url), 60000);
+                        } catch (error: any) { toast.error(localizeApiError(error.message)); }
+                      }}
                     >
                       <FileDown className="w-3.5 h-3.5" />
                       {t.workflow.purchase.exportBatchPdf}
                     </Button>
                   )}
+                  {(user?.role === "accountant" || user?.role === "senior_management") && !canOpenApprovalPdf(user.role, sub) && <p className="text-xs text-muted-foreground self-center">{approvalPdfNotice(language)}</p>}
                   {isAccountant && canApproveSubmission && (
                     <Button
                       size="sm"

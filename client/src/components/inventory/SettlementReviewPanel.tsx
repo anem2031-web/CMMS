@@ -838,7 +838,7 @@ export default function SettlementReviewPanel({
                   {draft.returnedReason}
                 </p>
               )}
-              {draft.sourceChanged && (
+              {draft.sourceChanged && ["draft", "pending_review", "returned"].includes(draft.status) && (
                 <p
                   role="alert"
                   className="rounded border border-amber-300 p-3 text-amber-900"

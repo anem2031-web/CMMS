@@ -9,6 +9,7 @@ import { createPricingBundlesRouter } from "../routers/delegate-pricing-bundles/
 import { router } from "../routers/_shared/procedures";
 import { reservedPricingItemIds } from "../services/delegate-pricing-bundles/reservations";
 import { canRoleAccessPath } from "../../shared/roles";
+import { readAccountingSignature } from "../services/pdf/accountingSignature";
 import type { TrpcContext } from "../_core/context";
 const actor = { id: 11, role: "delegate", isActive: 1, name: "Delegate" };
 function extract(file: string, name: string) {
@@ -243,6 +244,7 @@ describe("Existing PDF template with exact immutable bundle snapshot",()=>{
     const render=vm.runInNewContext(extract("server/services/export/exportService.ts","generatePurchaseRequestPDF"),{
       db:new Proxy({}, {get:()=>()=>{throw Error("Live reads/writes forbidden in immutable bundle PDF");}}),
       getSignatureDataUrl:async()=>"", escapeHtml:(s: any)=>String(s).replaceAll("<","&lt;"), fmtSAR:(n:number)=>n.toFixed(2), amountToArabicCurrencyPhrase:(n:number)=>String(n),
+      readAccountingSignature,
       htmlToPdf:async(value:string)=>{html=value;return Buffer.from("%PDF-local");},
     });
     await render(0,actor.id,undefined,undefined,snapshot);
