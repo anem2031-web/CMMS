@@ -15,6 +15,7 @@ import { Textarea } from "@/components/ui/textarea";
 import BarcodeScanner from "@/components/common/BarcodeScanner";
 import LotLabelsPrintScreen, { type LotLabelItem } from "@/components/inventory/LotLabelsPrintScreen";
 import OpeningBalanceBulkExcel from "@/components/inventory/OpeningBalanceBulkExcel";
+import SettlementReviewPanel from "@/components/inventory/SettlementReviewPanel";
 import {
   Trash2, Plus, Search, QrCode, Package, AlertTriangle,
   Loader2, X, ChevronRight, ChevronDown, Check, ClipboardList, BookOpen, Printer
@@ -423,6 +424,9 @@ export default function InventoryOperations() {
   const { t, language } = useTranslation();
   const isWarehouse = ["warehouse", "admin", "owner"].includes(user?.role || "");
   const canApplySettlement = !isReadOnly && ["admin", "owner"].includes(user?.role || "");
+  const canPrepareSettlement = !isReadOnly && isWarehouse;
+  const [operationsTab, setOperationsTab] = useState("disposal");
+  const [reviewSourceCountId, setReviewSourceCountId] = useState<number | null>(null);
 
   // ── بيانات القائمة ──
   const { data: operations, isLoading, refetch } = trpc.disposal.list.useQuery();
@@ -1048,7 +1052,7 @@ export default function InventoryOperations() {
         </div>
       </div>
 
-      <Tabs defaultValue="disposal">
+      <Tabs value={operationsTab} onValueChange={setOperationsTab}>
         <TabsList className="grid grid-cols-3 w-full max-w-md">
           <TabsTrigger value="disposal" className="gap-1.5">
             <Trash2 className="w-3.5 h-3.5" />
@@ -1184,6 +1188,7 @@ export default function InventoryOperations() {
                     <Badge className="mr-2" variant={countDetail.operation.status === "completed" ? "default" : "secondary"}>
                       {countDetail.operation.status === "completed" ? "نهائي (مقفل)" : "مسودة (قابلة للتعديل)"}
                     </Badge>
+                    {Number((countDetail.operation as any).correctionVersion || 0) > 0 && <Badge variant="outline" className="mr-2 border-amber-300 text-amber-900">نسخة مصححة — التصحيح رقم {(countDetail.operation as any).correctionVersion}</Badge>}
                   </h3>
                   <p className="text-xs text-muted-foreground">
                     <span className="font-medium text-foreground/80">{warehouseName(countDetail.operation.warehouseId)}</span>
@@ -1243,16 +1248,24 @@ export default function InventoryOperations() {
                         <Button
                           size="sm"
                           onClick={() => {
-                            if (window.confirm("بعد الحفظ النهائي لا يمكن التعديل على هذا الجرد إطلاقاً. هل أنت متأكد؟")) {
+                            if (window.confirm("بعد الحفظ النهائي يُقفل الجرد. تصحيح خطأ الكتابة لاحقًا يحتاج طلبًا موثقًا من الإدارة قبل تطبيق التسوية. هل أنت متأكد؟")) {
                               completeCountMut.mutate({ operationId: activeCountId });
                             }
                           }}
                           disabled={completeCountMut.isPending}
                         >
-                          حفظ نهائي (لا يمكن التعديل لاحقاً)
+                          حفظ نهائي (قفل الجرد)
                         </Button>
                       )}
                     </>
+                  )}
+                  {canPrepareSettlement && countDetail.operation.status === "completed" && (
+                    <Button size="sm" variant="outline" onClick={() => {
+                      setReviewSourceCountId(activeCountId);
+                      setOperationsTab("settlements");
+                    }}>
+                      إعداد مسودة تسوية للمراجعة
+                    </Button>
                   )}
                   {canApplySettlement && countDetail.operation.status === "completed" && (
                     <Button
@@ -1655,6 +1668,12 @@ export default function InventoryOperations() {
 
         {/* ══ تبويب التسويات ══ */}
         <TabsContent value="settlements" className="mt-6 space-y-4">
+          <SettlementReviewPanel
+            createCountId={reviewSourceCountId}
+            onCreateHandled={() => setReviewSourceCountId(null)}
+            onUpdated={() => { refetchCounts(); refetchSettlements(); if (activeCountId) refetchCountDetail(); }}
+          />
+          <h3 className="border-t pt-6 font-semibold">التسويات المطبقة — الأرشيف</h3>
           <div className="flex justify-between items-center">
             <p className="text-sm text-muted-foreground">كل تسويات المخزون — من عمليات جرد أو مستقلة — برقمها المرجعي الفريد</p>
             {canApplySettlement && (

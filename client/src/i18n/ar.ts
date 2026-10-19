@@ -16,6 +16,7 @@ const ar = {
     myItems: "أصنافي",
     inventory: "المستودع",
     inventoryOperations: "عمليات المخزون",
+    inventorySettlementReview: "مراجعة تسويات المخزون",
     inventoryReconciliation: "مطابقة المخزون",
     inventoryReportsCenter: "مركز التقارير المخزنية",
     warehouseReceive: "استلام المستودع",

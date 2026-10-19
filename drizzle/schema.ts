@@ -1554,6 +1554,68 @@ export const inventorySettlements = mysqlTable("inventory_settlements", {
 	index("inventory_settlements_appliedby_idx").on(table.appliedById),
 ]);
 
+// Review preparation never posts stock. Installed manually before feature activation.
+export const inventorySettlementDrafts = mysqlTable("inventory_settlement_drafts", {
+	id: int().autoincrement().primaryKey(),
+	sourceCountOperationId: int().notNull(),
+	status: mysqlEnum(["draft", "pending_review", "returned", "applied", "no_adjustment"]).default("draft").notNull(),
+	version: int().default(1).notNull(),
+	reason: text().notNull(),
+	reference: varchar({ length: 255 }),
+	preparedById: int().notNull(),
+	lastSubmittedById: int(),
+	submittedVersion: int(),
+	sourceFingerprint: varchar({ length: 64 }),
+	submittedSnapshot: json(),
+	returnedReason: text(),
+	appliedSettlementId: int(),
+	correctsSettlementId: int(),
+	approvedById: int(),
+	submittedAt: timestamp({ mode: "string" }),
+	appliedAt: timestamp({ mode: "string" }),
+	createdAt: timestamp({ mode: "string" }).defaultNow().notNull(),
+	updatedAt: timestamp({ mode: "string" }).defaultNow().onUpdateNow().notNull(),
+}, table => [
+	uniqueIndex("uq_settlement_draft_count").on(table.sourceCountOperationId),
+	index("idx_settlement_draft_status").on(table.status, table.updatedAt),
+	index("idx_settlement_draft_preparer").on(table.preparedById),
+]);
+
+// Append-only versions/events preserve every review decision and submitted count snapshot.
+export const inventorySettlementDraftEvents = mysqlTable("inventory_settlement_draft_events", {
+	id: int().autoincrement().primaryKey(),
+	draftId: int().notNull(),
+	version: int().notNull(),
+	action: varchar({ length: 40 }).notNull(),
+	actorId: int().notNull(),
+	reason: text(),
+	payload: json().notNull(),
+	createdAt: timestamp({ mode: "string" }).defaultNow().notNull(),
+}, table => [
+	uniqueIndex("uq_settlement_event_version").on(table.draftId, table.version),
+]);
+
+// A reviewer authorizes named rows only. The original finalized values are never lost.
+export const inventoryCountCorrections = mysqlTable("inventory_count_corrections", {
+	id: int().autoincrement().primaryKey(),
+	draftId: int().notNull(),
+	operationId: int().notNull(),
+	status: mysqlEnum(["pending", "corrected"]).default("pending").notNull(),
+	requestedById: int().notNull(),
+	requestedReason: text().notNull(),
+	allowedCountItemIds: json().notNull(),
+	sourceFingerprint: varchar({ length: 64 }).notNull(),
+	beforeSnapshot: json().notNull(),
+	afterSnapshot: json(),
+	correctedById: int(),
+	correctionReason: text(),
+	correctedAt: timestamp({ mode: "string" }),
+	createdAt: timestamp({ mode: "string" }).defaultNow().notNull(),
+}, table => [
+	index("idx_count_correction_draft_status").on(table.draftId, table.status),
+	index("idx_count_correction_operation").on(table.operationId),
+]);
+
 // New operations only. Independent table keeps existing issue writes compatible before manual installation.
 export const materialExecutionCostContexts = mysqlTable("material_execution_cost_contexts", {
 	inventoryTransactionId: int().primaryKey().notNull(),

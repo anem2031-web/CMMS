@@ -14,8 +14,35 @@ export function fmtMoney(v: any) {
   return `${parseFloat(String(v)).toLocaleString()} ر.س`;
 }
 
-export function buildCountHtml(data: { operation: any; items: any[] }): string {
+type CountCorrectionDocument = {
+  id: number;
+  requestedByName?: string | null;
+  correctedByName?: string | null;
+  requestedReason?: string | null;
+  correctionReason?: string | null;
+  correctedAt?: Date | string | null;
+  changes: Array<{ countItemId: number; itemName?: string | null; previousQuantity: number; correctedQuantity: number }>;
+};
+type CountPrintData = { operation: any; items: any[]; countCorrections?: CountCorrectionDocument[] };
+const escapeCountCorrectionText = (value: unknown) => String(value ?? "—").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;");
+const correctionQuantity = (value: unknown) => value != null && Number.isFinite(Number(value)) ? Number(value).toLocaleString(undefined, { maximumFractionDigits: 3 }) : "—";
+
+export function buildCountHtml(data: CountPrintData): string {
     const op = data.operation;
+    const correctionVersion = Number.isSafeInteger(Number(op.correctionVersion)) && Number(op.correctionVersion) > 0 ? Number(op.correctionVersion) : 0;
+    const correctionHistory = correctionVersion > 0 ? `
+<div class="warning-box"><strong>نسخة مصححة — التصحيح رقم ${correctionVersion}</strong><br/>الكميات المعروضة تتضمن التصحيحات الموثقة التالية. رقم الجرد وتاريخ العدّ الأصلي محفوظان، وهذا التصحيح لا يعني إعادة عدّ في وقت لاحق.</div>
+<div class="section-title">سجل تصحيحات الجرد</div>
+${(data.countCorrections || []).map(correction => {
+      const correctedDate = correction.correctedAt ? new Date(correction.correctedAt) : null;
+      const dateText = correctedDate && Number.isFinite(correctedDate.getTime()) ? correctedDate.toLocaleString("ar-SA-u-ca-gregory", { timeZone: "Asia/Riyadh" }) : "—";
+      return `<div style="border:1px solid #e5e7eb;border-radius:6px;padding:10px;margin-bottom:12px;break-inside:avoid">
+<p><strong>طلب التصحيح #${escapeCountCorrectionText(correction.id)}</strong> — ${escapeCountCorrectionText(dateText)} (بتوقيت الرياض)</p>
+<p>طلب التصحيح: ${escapeCountCorrectionText(correction.requestedByName)} — المنفذ: ${escapeCountCorrectionText(correction.correctedByName)}</p>
+<p style="white-space:pre-wrap">سبب طلب التصحيح: ${escapeCountCorrectionText(correction.requestedReason)}</p>
+<p style="white-space:pre-wrap">سبب التصحيح: ${escapeCountCorrectionText(correction.correctionReason)}</p>
+<table><thead><tr><th>الصنف</th><th>الكمية السابقة</th><th>الكمية المصححة</th></tr></thead><tbody>${(correction.changes || []).map(change => `<tr><td>${escapeCountCorrectionText(change.itemName || `#${change.countItemId}`)}</td><td>${correctionQuantity(change.previousQuantity)}</td><td>${correctionQuantity(change.correctedQuantity)}</td></tr>`).join("")}</tbody></table></div>`;
+    }).join("")}` : "";
     const itemsRows = (data.items || []).map((it: any) => {
       const diff = it.diffQuantity !== null && it.diffQuantity !== undefined ? parseFloat(it.diffQuantity) : null;
       const diffCell = diff === null
@@ -103,7 +130,7 @@ tbody td{padding:8px 10px;border-bottom:1px solid #f3f4f6}
   <div class="header-meta">
     <div>التاريخ: <strong>${new Date(op.operationDate).toLocaleDateString("ar-SA",{year:"numeric",month:"long",day:"numeric"})}</strong> — اليوم: <strong>${op.riyadhDayName || "—"}</strong></div>
     <div>وقت البدء: <strong>${op.riyadhStartTime || "—"}</strong> (بتوقيت الرياض)</div>
-    <div><span class="badge">${op.operationNumber}</span></div>
+    <div><span class="badge">${op.operationNumber}</span></div>${correctionVersion > 0 ? `<div><strong>نسخة مصححة — التصحيح رقم ${correctionVersion}</strong></div>` : ""}
   </div>
 </div>
 <div class="info-grid">
@@ -142,7 +169,7 @@ ${valuatedDiscrepancies.length > 0 ? `
   <div class="financial-box"><div class="financial-label">إجمالي قيمة الزيادة</div><div class="financial-value" style="color:#059669">+${surplusValue.toLocaleString(undefined,{maximumFractionDigits:2})}</div></div>
   <div class="financial-box"><div class="financial-label">صافي الأثر المالي</div><div class="financial-value" style="color:${netValue < 0 ? "#dc2626" : "#2563eb"}">${netValue > 0 ? "+" : ""}${netValue.toLocaleString(undefined,{maximumFractionDigits:2})}</div></div>
 </div>` : ""}
-${unvaluatedCount > 0 ? `<div class="warning-box">${unvaluatedCount} بند/بنود لها فرق كمية بدون Snapshot تكلفة افتتاحية، لذلك لم تدخل في الإجمالي المالي.</div>` : ""}
+${unvaluatedCount > 0 ? `<div class="warning-box">${unvaluatedCount} بند/بنود لها فرق كمية بدون Snapshot تكلفة افتتاحية، لذلك لم تدخل في الإجمالي المالي.</div>` : ""}${correctionHistory}
 <div class="sig-section">
   <div class="sig-box"><div>توقيع المنفذ</div><div class="sig-name">${op.creatorName || "—"}</div></div>
   <div class="sig-box"><div>اعتماد المسؤول</div><div class="sig-name">&nbsp;</div></div>
@@ -158,7 +185,7 @@ ${unvaluatedCount > 0 ? `<div class="warning-box">${unvaluatedCount} بند/بن
   }
 
 // الطباعة المباشرة (نافذة منبثقة) — تستخدم نفس buildCountHtml أعلاه
-export function printCountDocument(data: { operation: any; items: any[] }) {
+export function printCountDocument(data: CountPrintData) {
   const html = buildCountHtml(data);
   const win = window.open("", "_blank", "width=900,height=800");
   if (win) { win.document.write(html); win.document.close(); }

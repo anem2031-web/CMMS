@@ -23,6 +23,7 @@ import PurchaseBatchDetail from "@/pages/purchase/PurchaseBatchDetail";
 import CreatePurchaseOrder from "@/pages/purchase/CreatePurchaseOrder";
 import Inventory from "@/pages/inventory/Inventory";
 import InventoryOperations from "@/pages/inventory/InventoryOperations";
+import InventorySettlementReview from "@/pages/inventory/InventorySettlementReview";
 import InventoryReconciliation from "@/pages/inventory/InventoryReconciliation";
 import InventoryReportsCenter from "@/pages/inventory/InventoryReportsCenter";
 import InventoryStockBalanceReport from "@/pages/inventory/InventoryStockBalanceReport";
@@ -119,6 +120,7 @@ function Router() {
             <Route path="/my-items" component={MyItems} />
             <Route path="/inventory" component={Inventory} />
             <Route path="/inventory-operations" component={InventoryOperations} />
+            <Route path="/inventory-settlement-review" component={InventorySettlementReview} />
             <Route path="/inventory/reconciliation" component={InventoryReconciliation} />
             <Route path="/inventory/reports/stock-balance" component={InventoryStockBalanceReport} />
             <Route path="/inventory/reports/movements" component={InventoryMovementReport} />

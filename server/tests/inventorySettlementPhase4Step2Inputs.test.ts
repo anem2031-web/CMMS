@@ -19,7 +19,9 @@ describe("Main Phase 4 / Step 2 / 4.2.1 — settlement schema and inputs", () =>
 
     expect(router).toContain("reference: z.string().trim().max(255");
     expect(router).toContain("reference: input.reference");
-    expect(ui).not.toContain("settlementReference");
+    // Step 3 subsequently exposed the bounded optional reference in the UI.
+    expect(ui).toContain("maxLength={255}");
+    expect(ui).toContain("settlementReference.trim() || undefined");
   });
 
   it("persists reference on new supported settlement headers while leaving absent values null", () => {

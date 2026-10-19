@@ -33,6 +33,8 @@ const documentQueries = [
   "deliveryDocuments.list", "deliveryDocuments.getForPrint", "warehouseIssueBatches.list", "warehouseIssueBatches.getById", "returnDocuments.list", "disposal.list", "disposal.getById",
   ...paths("inventoryCount", "listOperations operationDetails listSettlements settlementDetails lotTrackingStatus"),
 ];
+const settlementReviewQueries = paths("inventoryCount", "settlementDrafts settlementDraftDetails");
+const settlementReviewMutations = paths("inventoryCount", "returnSettlementDraft approveSettlementDraft requestCountCorrection");
 const documentMutations = ["deliveryDocuments.incrementPrint", "warehouseIssueBatches.incrementPrint", "returnDocuments.incrementPrint"];
 const costQueries = ["materialCosts.status", "materialCosts.report", "materialCosts.document", "reports.costReport"];
 const managementQueries = [
@@ -67,6 +69,7 @@ const warehouseQueries = [
   "catalog.suppliers.candidates.listPending", "catalog.itemSuppliers.listByItem",
 ];
 const warehouseMutations = [
+  ...paths("inventoryCount", "saveSettlementDraft submitSettlementDraft correctCount"),
   "users.create", "deliveryDocuments.generate",
   "externalMaintenance.prepareByWarehouse", "externalMaintenance.receiveByWarehouse", "externalMaintenance.handoverByWarehouse",
   ...paths("inventory", "create update delete addTransaction resolveLotSearch resolveDeliveryLot deliverToRequester"),
@@ -117,11 +120,11 @@ const constructionMutations = [
 export const BUSINESS_ROLE_CAPABILITIES: Record<BusinessRole, { query: readonly string[]; mutation: readonly string[] }> = {
   accountant: { query: [...sharedQueries, ...costQueries, "attachments.listByType", ...paths("delegatePricingBundles", "status list detail")],
     mutation: [...sharedMutations, ...paths("purchaseOrders", "approveAccounting approveAccountingBatch rejectAccountingBatchItem reject"), "purchasePackages.approveAccountingSubmission"] },
-  senior_management: { query: [...sharedQueries, ...documentQueries, ...costQueries, ...managementQueries, ...constructionQueries, "attachments.listByType", "technicians.list"],
-    mutation: [...sharedMutations, ...documentMutations, ...managementMutations, ...constructionMutations, ...paths("purchaseOrders", "approveManagement approveManagementBatch reject"), "purchasePackages.approveManagementSubmission"] },
+  senior_management: { query: [...sharedQueries, ...documentQueries, ...settlementReviewQueries, ...costQueries, ...managementQueries, ...constructionQueries, "attachments.listByType", "technicians.list"],
+    mutation: [...sharedMutations, ...documentMutations, ...settlementReviewMutations, ...managementMutations, ...constructionMutations, ...paths("purchaseOrders", "approveManagement approveManagementBatch reject"), "purchasePackages.approveManagementSubmission"] },
   executive_director: { query: [...sharedQueries, ...documentQueries, ...costQueries, ...managementQueries, "technicians.list"],
     mutation: [...sharedMutations, ...documentMutations, ...managementMutations] },
-  warehouse: { query: [...sharedQueries, ...documentQueries, ...costQueries, ...warehouseQueries],
+  warehouse: { query: [...sharedQueries, ...documentQueries, ...settlementReviewQueries, ...costQueries, ...warehouseQueries],
     mutation: [...sharedMutations, ...documentMutations, ...warehouseMutations] },
   food_warehouse_assistant: { query: [...sharedQueries, ...documentQueries], mutation: [...sharedMutations, ...documentMutations] },
 };
@@ -140,6 +143,7 @@ const warehousePages = new Set(["/inventory", "/inventory-operations", "/invento
 const managementPages = new Set(["/tickets", "/tickets/inbox", "/tickets/new", "/reports", "/reports/technicians", "/reports/purchase-cycle", "/reports/maintenance-cycle", "/reports/section-report", "/reports/preventive", "/inspection-dashboard", "/ai-assistant"]);
 export function businessPageAllowed(role: BusinessRole, rawPath: string): boolean {
   const path = rawPath.split(/[?#]/, 1)[0] || "/";
+  if (path === "/inventory-settlement-review") return role === "warehouse" || role === "senior_management";
   // The page shell is reachable; its data and actions require project membership.
   if (/^\/construction(?:\/(?:tickets|reports|projects(?:\/(?:new|[1-9]\d*(?:\/edit)?))?))?$/.test(path)) return true;
   if (commonPages.has(path) || /^\/purchase-orders\/(?:[1-9]\d*|edit-draft\/[1-9]\d*)$/.test(path) || /^\/purchase-packages\/[1-9]\d*$/.test(path) || /^\/tickets\/[1-9]\d*$/.test(path)) return true;

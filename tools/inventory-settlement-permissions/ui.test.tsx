@@ -100,6 +100,9 @@ vi.mock("../../client/src/components/ui/dialog", () => ({
 vi.mock("../../client/src/components/common/BarcodeScanner", () => ({ default: () => null }));
 vi.mock("../../client/src/components/inventory/LotLabelsPrintScreen", () => ({ default: () => null }));
 vi.mock("../../client/src/components/inventory/OpeningBalanceBulkExcel", () => ({ default: () => null }));
+// The new review panel has its own permission/interaction fixtures. This suite
+// verifies that the original direct-posting UI remains restricted to owner/admin.
+vi.mock("../../client/src/components/inventory/SettlementReviewPanel", () => ({ default: () => null }));
 
 import InventoryOperations from "../../client/src/pages/inventory/InventoryOperations";
 

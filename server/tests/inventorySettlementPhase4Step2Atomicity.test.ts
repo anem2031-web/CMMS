@@ -15,7 +15,8 @@ describe("Main Phase 4 / Step 2 / 4.2.3 — settlement atomicity and regression 
   it("runs every supported Settlement posting path through one DB transaction", () => {
     const block = settlementBlock();
 
-    expect(block).toContain("const result = await db.transaction(async (tx) => applyWith(tx));");
+    expect(block).toContain(": await db.transaction(async (tx: any) => applyWith(tx));");
+    expect(block).toContain("? await applyWith(options.writer)");
     expect(block).not.toContain("const result = await applyWith(db)");
   });
 

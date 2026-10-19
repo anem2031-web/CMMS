@@ -139,6 +139,8 @@ const NAV_SECTIONS: NavSection[] = [
         roles: ["warehouse","maintenance_manager","owner","admin"] },
       { icon: ClipboardList, labelKey: "nav.inventoryOperations", path: "/inventory-operations",
         roles: ["warehouse","owner","admin"] },
+      { icon: ClipboardList, labelKey: "nav.inventorySettlementReview", path: "/inventory-settlement-review",
+        roles: ["warehouse","senior_management","owner","admin"] },
       { icon: ShieldCheck, labelKey: "nav.inventoryReconciliation", path: "/inventory/reconciliation",
         roles: ["warehouse","maintenance_manager","owner","admin"] },
       { icon: BarChart3, labelKey: "nav.inventoryReportsCenter", path: "/inventory/reports",

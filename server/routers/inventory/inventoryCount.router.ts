@@ -1,9 +1,10 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import { warehouseProcedure, adminOwnerProcedure, inventoryReadProcedure, router } from "../_shared/procedures";
+import { warehouseProcedure, adminOwnerProcedure, inventoryReadProcedure, settlementReviewReadProcedure, settlementReviewProcedure, router } from "../_shared/procedures";
 import * as db from "../../_core/db";
 import { isInventoryLotsEnabled } from "../../_core/inventory-lots";
 import { findKnownInactiveCatalogUnitNames } from "../../_core/catalog-unit-governance";
+import { createInventorySettlementReviewService } from "../../services/inventory/settlement-review";
 import {
   createOpeningBalanceTemplate,
   previewOpeningBalanceImport,
@@ -11,7 +12,45 @@ import {
   exportOpeningBalanceOperation,
 } from "../../services/inventory/openingBalanceBulkExcel.service";
 
+const settlementReview = createInventorySettlementReviewService({
+  getDb: () => db.getDb(),
+  applySettlementWithWriter: (params, writer, reviewDraftId) => db.applySettlement(params, { writer, reviewDraftId }),
+});
+const reviewId = z.number().int().positive();
+const reviewVersion = z.object({ draftId: reviewId, expectedVersion: reviewId });
+const reviewReason = z.string().trim().min(10, "سبب الإجراء إلزامي (10 أحرف على الأقل)").max(5000);
+async function reviewCall<T>(work: () => Promise<T>): Promise<T> {
+  try { return await work(); }
+  catch (error) {
+    if (error instanceof TRPCError) throw error;
+    throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر إكمال إجراء مراجعة التسوية. حدّث البيانات ثم أعد المحاولة، أو تواصل مع مسؤول النظام إذا استمرت المشكلة.", cause: error });
+  }
+}
+
 export const inventoryCountRouter = router({
+
+  // All actions pass the central capability guard and their specific role guard.
+  // Stock is posted only by approveSettlementDraft via the original atomic writer.
+  settlementDrafts: settlementReviewReadProcedure.query(({ ctx }) => reviewCall(() => settlementReview.list(ctx.user))),
+  settlementDraftDetails: settlementReviewReadProcedure.input(z.object({ draftId: reviewId }))
+    .query(({ input, ctx }) => reviewCall(() => settlementReview.detail(ctx.user, input.draftId))),
+  saveSettlementDraft: warehouseProcedure.input(z.object({
+    draftId: reviewId.optional(), expectedVersion: reviewId.optional(), sourceCountOperationId: reviewId,
+    reason: reviewReason, reference: z.string().trim().max(255).optional(), correctsSettlementId: reviewId.optional(),
+  }).strict()).mutation(({ input, ctx }) => reviewCall(() => settlementReview.saveDraft(ctx.user, input))),
+  submitSettlementDraft: warehouseProcedure.input(reviewVersion.strict())
+    .mutation(({ input, ctx }) => reviewCall(() => settlementReview.submitDraft(ctx.user, input))),
+  returnSettlementDraft: settlementReviewProcedure.input(reviewVersion.extend({ reason: reviewReason }).strict())
+    .mutation(({ input, ctx }) => reviewCall(() => settlementReview.returnDraft(ctx.user, input))),
+  approveSettlementDraft: settlementReviewProcedure.input(reviewVersion.strict())
+    .mutation(({ input, ctx }) => reviewCall(() => settlementReview.approveDraft(ctx.user, input))),
+  requestCountCorrection: settlementReviewProcedure.input(reviewVersion.extend({
+    reason: reviewReason, countItemIds: z.array(reviewId).min(1).max(20000),
+  }).strict()).mutation(({ input, ctx }) => reviewCall(() => settlementReview.requestCountCorrection(ctx.user, input))),
+  correctCount: warehouseProcedure.input(z.object({
+    requestId: reviewId, reason: reviewReason,
+    items: z.array(z.object({ countItemId: reviewId, countedQuantity: z.number().finite().min(0).max(999999999.999) }).strict()).min(1).max(20000),
+  }).strict()).mutation(({ input, ctx }) => reviewCall(() => settlementReview.saveCountCorrection(ctx.user, input))),
 
   // 2B-8 rollout status — UI uses this to avoid exposing opening-balance/Lot workflows before full activation.
   lotTrackingStatus: inventoryReadProcedure.query(() => ({ enabled: isInventoryLotsEnabled() })),

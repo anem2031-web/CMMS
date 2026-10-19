@@ -149,6 +149,15 @@ export const warehouseProcedure = roleMiddleware([
  */
 export const adminOwnerProcedure = roleMiddleware([]);
 
+/** Preparing stock adjustments never grants posting; review is a separate capability. */
+export const settlementReviewReadProcedure = roleMiddleware([
+  APP_ROLE.WAREHOUSE,
+  APP_ROLE.SENIOR_MANAGEMENT,
+]);
+export const settlementReviewProcedure = roleMiddleware([
+  APP_ROLE.SENIOR_MANAGEMENT,
+]);
+
 export const delegateProcedure = roleMiddleware([
   APP_ROLE.DELEGATE,
   APP_ROLE.OWNER,

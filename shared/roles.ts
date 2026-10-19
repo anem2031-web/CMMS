@@ -263,6 +263,7 @@ export function canRoleAccessPath(role: string | null | undefined, path: string)
   if (role === APP_ROLE.GATE_SECURITY) return gateSecurityPageAllowed(normalizedPath);
   if (!delegateDirectoryPageAllowed(role, normalizedPath)) return false;
   if (isBusinessGuardedRole(role)) return businessPageAllowed(role, normalizedPath);
+  if (matchesPrefix(normalizedPath, "/inventory-settlement-review")) return role === APP_ROLE.OWNER || role === APP_ROLE.ADMIN;
   if (matchesPrefix(normalizedPath, "/delegate-pricing-bundles")) return ["owner", "admin", "delegate", "accountant"].includes(role);
   if (matchesPrefix(normalizedPath, "/operational-issues")) return ["owner", "admin", "warehouse", "maintenance_manager", "general_maintenance_manager", "construction_procurement_manager", "it_manager"].includes(role);
   if (role === APP_ROLE.TECHNICIAN) return technicianPageAllowed(normalizedPath);

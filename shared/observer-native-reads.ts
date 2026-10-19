@@ -127,6 +127,8 @@ export const OBSERVER_NATIVE_READ_PATHS = [
   "inventoryCount.operationDetails",
   "inventoryCount.searchCandidates",
   "inventoryCount.settlementDetails",
+  "inventoryCount.settlementDrafts",
+  "inventoryCount.settlementDraftDetails",
   "inventoryCount.uncountedItems",
   "inventoryReconciliation.run",
   "inventoryReports.accountingReview",

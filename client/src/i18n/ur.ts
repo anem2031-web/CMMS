@@ -16,6 +16,7 @@ const ur: TranslationKeys = {
     myItems: "میری اشیاء",
     inventory: "گودام",
     inventoryOperations: "گودام آپریشنز",
+    inventorySettlementReview: "اسٹاک ایڈجسٹمنٹ کا جائزہ",
     inventoryReconciliation: "انوینٹری مطابقت",
     inventoryReportsCenter: "انوینٹری رپورٹس مرکز",
     warehouseReceive: "گودام وصول",

@@ -16,6 +16,7 @@ const en: TranslationKeys = {
     myItems: "My Items",
     inventory: "Warehouse",
     inventoryOperations: "Inventory Operations",
+    inventorySettlementReview: "Inventory Settlement Review",
     inventoryReconciliation: "Inventory Reconciliation",
     inventoryReportsCenter: "Inventory Reports Center",
     warehouseReceive: "Warehouse Receive",

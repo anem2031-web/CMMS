@@ -44,6 +44,8 @@ import {
   inventorySettlementItems,
   inventoryCountNumberCounter,
   inventorySettlementNumberCounter,
+  inventorySettlementDrafts,
+  inventoryCountCorrections,
   catalogItems,
   catalogItemCandidates,
   catalogNodes,
@@ -847,14 +849,30 @@ async function getCountOpeningSnapshotForLot(db: any, operationId: number, lotId
   return rows[0] || null;
 }
 
+type CountWriter = NonNullable<Awaited<ReturnType<typeof getDb>>>;
+
+// All count writers serialize with finalization, review corrections and posting.
+// A request that started before finalization cannot change the reviewed count later.
+async function withLockedMutableCount<T>(operationId: number, work: (writer: CountWriter) => Promise<T>): Promise<T> {
+  const connection = await getDb();
+  if (!connection) throw new Error("تعذر الاتصال بقاعدة البيانات");
+  return connection.transaction(async tx => {
+    await tx.execute(sql`SELECT id FROM inventory_count_operations WHERE id = ${operationId} FOR UPDATE`);
+    const operations = await tx.select().from(inventoryCountOperations)
+      .where(eq(inventoryCountOperations.id, operationId)).limit(1).for("update");
+    if (!operations[0]) throw new Error("عملية الجرد غير موجودة");
+    if (operations[0].status !== "in_progress") throw new Error("هذا الجرد محفوظ نهائياً ولا يمكن التعديل عليه");
+    return work(tx as unknown as CountWriter);
+  });
+}
+
 export async function scanCountItem(params: {
   operationId: number;
   inventoryId: number;
   incrementBy?: number;   // افتراضي 1 (كل مسحة = وحدة واحدة)
   countedById: number;
 }) {
-  const db = await getDb();
-  if (!db) throw new Error("تعذر الاتصال بقاعدة البيانات");
+  return withLockedMutableCount(params.operationId, async db => {
 
   // حماية: لا إضافة/تعديل على جرد مقفل نهائياً
   const opRows = await db.select().from(inventoryCountOperations)
@@ -912,6 +930,7 @@ export async function scanCountItem(params: {
   });
   const countItemId = (result as any).insertId as number;
   return { countItemId, countedQuantity: increment, diffQuantity: diff, isNew: true };
+  });
 }
 
 
@@ -1128,8 +1147,7 @@ export async function scanCountLot(params: {
   operationId: number;
   trackingToken: string;
 }) {
-  const db = await getDb();
-  if (!db) throw new Error("تعذر الاتصال بقاعدة البيانات");
+  return withLockedMutableCount(params.operationId, async db => {
   if (!isInventoryLotsEnabled()) throw new Error("نظام الدفعات غير مفعّل");
 
   const opRows = await db.select().from(inventoryCountOperations)
@@ -1207,6 +1225,7 @@ export async function scanCountLot(params: {
     countedQuantity: row.countedQuantity !== null ? Number(row.countedQuantity) : null,
     notes: row.notes ?? null,
   };
+  });
 }
 
 // ── 1ج) إضافة صنف لعملية جرد جارية بدون تحديد كمية (يظهر بالجدول بانتظار العدّ) ──
@@ -1217,8 +1236,7 @@ export async function addItemToCount(params: {
   operationId: number;
   inventoryId: number;
 }) {
-  const db = await getDb();
-  if (!db) throw new Error("تعذر الاتصال بقاعدة البيانات");
+  return withLockedMutableCount(params.operationId, async db => {
 
   const opRows = await db.select().from(inventoryCountOperations)
     .where(eq(inventoryCountOperations.id, params.operationId)).limit(1);
@@ -1284,6 +1302,7 @@ export async function addItemToCount(params: {
     notes: null,
     isNew: true,
   };
+  });
 }
 
 // ── 1د) إضافة صنف جديد كليّاً (غير موجود بالمخزون أصلاً) أثناء عملية جرد جارية ──
@@ -1300,8 +1319,7 @@ export async function addNewItemDuringCount(params: {
   cost?: number;           // التكلفة اختيارية دائماً
   createdById: number;
 }) {
-  const db = await getDb();
-  if (!db) throw new Error("تعذر الاتصال بقاعدة البيانات");
+  return withLockedMutableCount(params.operationId, async db => {
 
   const opRows = await db.select().from(inventoryCountOperations)
     .where(eq(inventoryCountOperations.id, params.operationId)).limit(1);
@@ -1471,6 +1489,7 @@ export async function addNewItemDuringCount(params: {
     internalCode,
     manufacturerBarcode,
   };
+  });
 }
 
 // ── 2) تسجيل الكمية المعدودة فعلياً لصنف واحد ضمن عملية جرد ──
@@ -1490,6 +1509,12 @@ export async function recordCountItem(params: {
   const rows = await db.select().from(inventoryCountItems)
     .where(eq(inventoryCountItems.id, params.countItemId)).limit(1);
   const row = rows[0];
+  if (!row) throw new Error("سطر الجرد غير موجود");
+
+  return withLockedMutableCount(row.operationId, async db => {
+  const freshRows = await db.select().from(inventoryCountItems)
+    .where(eq(inventoryCountItems.id, params.countItemId)).limit(1).for("update");
+  const row = freshRows[0];
   if (!row) throw new Error("سطر الجرد غير موجود");
 
   // حماية: لا تعديل إطلاقاً على جرد تم حفظه نهائياً (مقفل)
@@ -1577,12 +1602,12 @@ export async function recordCountItem(params: {
   } as any).where(eq(inventoryCountItems.id, params.countItemId));
 
   return { diffQuantity: diff, lotCode };
+  });
 }
 
 // ── 3) إنهاء عملية الجرد (تسجيل فقط — لا يمس المخزون) ──
 export async function completeCountOperation(operationId: number) {
-  const db = await getDb();
-  if (!db) throw new Error("تعذر الاتصال بقاعدة البيانات");
+  return withLockedMutableCount(operationId, async db => {
 
   const opRows = await db.select().from(inventoryCountOperations)
     .where(eq(inventoryCountOperations.id, operationId)).limit(1);
@@ -1614,12 +1639,12 @@ export async function completeCountOperation(operationId: number) {
   }).where(eq(inventoryCountOperations.id, operationId));
 
   return { totalItemsCounted: counted.length, totalDiscrepancies: discrepancies.length };
+  });
 }
 
 // ── 3ب) حذف مسودة جرد بالكامل (مسموح فقط طالما لم تُحفظ نهائياً) ──
 export async function deleteCountOperation(operationId: number) {
-  const db = await getDb();
-  if (!db) throw new Error("تعذر الاتصال بقاعدة البيانات");
+  return withLockedMutableCount(operationId, async db => {
 
   const opRows = await db.select().from(inventoryCountOperations)
     .where(eq(inventoryCountOperations.id, operationId)).limit(1);
@@ -1633,6 +1658,7 @@ export async function deleteCountOperation(operationId: number) {
   await db.delete(inventoryCountOperations).where(eq(inventoryCountOperations.id, operationId));
 
   return { success: true };
+  });
 }
 
 // ── 4) الأصناف الغير مجرودة بعد ضمن عملية جارية ──
@@ -1703,8 +1729,12 @@ async function attachCountOpeningValuation(db: any, operationId: number, rows: a
 
 // ── 5) تفاصيل عملية جرد كاملة (لعرض الشاشة) ──
 export async function getCountOperationDetails(operationId: number) {
-  const db = await getDb();
-  if (!db) return null;
+  const connection = await getDb();
+  if (!connection) return null;
+  return connection.transaction(async tx => {
+  const db = tx as unknown as CountWriter;
+  // A regenerated document must pair the current count with its correction history.
+  await db.execute(sql`SELECT id FROM inventory_count_operations WHERE id = ${operationId} FOR UPDATE`);
 
   const op = await db.select().from(inventoryCountOperations)
     .where(eq(inventoryCountOperations.id, operationId)).limit(1);
@@ -1749,6 +1779,35 @@ export async function getCountOperationDetails(operationId: number) {
     .where(eq(inventoryCountItems.operationId, operationId));
 
   const items = await attachCountOpeningValuation(db, operationId, rawItems);
+  const requestedBy = alias(users, "countCorrectionRequestedBy");
+  const correctedBy = alias(users, "countCorrectionCorrectedBy");
+  const corrections = await db.select({
+    id: inventoryCountCorrections.id,
+    requestedByName: requestedBy.name,
+    correctedByName: correctedBy.name,
+    requestedReason: inventoryCountCorrections.requestedReason,
+    correctionReason: inventoryCountCorrections.correctionReason,
+    correctedAt: inventoryCountCorrections.correctedAt,
+    beforeSnapshot: inventoryCountCorrections.beforeSnapshot,
+    afterSnapshot: inventoryCountCorrections.afterSnapshot,
+  }).from(inventoryCountCorrections)
+    .leftJoin(requestedBy, eq(requestedBy.id, inventoryCountCorrections.requestedById))
+    .leftJoin(correctedBy, eq(correctedBy.id, inventoryCountCorrections.correctedById))
+    .where(and(eq(inventoryCountCorrections.operationId, operationId), eq(inventoryCountCorrections.status, "corrected")))
+    .orderBy(asc(inventoryCountCorrections.id));
+  const countCorrections = corrections.map(correction => {
+    const before: any = typeof correction.beforeSnapshot === "string" ? JSON.parse(correction.beforeSnapshot) : correction.beforeSnapshot;
+    const after: any = typeof correction.afterSnapshot === "string" ? JSON.parse(correction.afterSnapshot) : correction.afterSnapshot;
+    if (!Array.isArray(before?.items) || !Array.isArray(after?.items)) throw new Error("سجل تصحيح الجرد غير مكتمل؛ يلزم مراجعته قبل طباعة المستند");
+    const changes = after.items.flatMap((item: any) => {
+      const previous = before.items.find((entry: any) => entry.countItemId === item.countItemId);
+      return previous && Number(previous.countedQuantity) !== Number(item.countedQuantity)
+        ? [{ countItemId: item.countItemId, itemName: item.itemName, previousQuantity: previous.countedQuantity, correctedQuantity: item.countedQuantity }]
+        : [];
+    });
+    const { beforeSnapshot: _before, afterSnapshot: _after, ...summary } = correction;
+    return { ...summary, changes };
+  });
 
   return {
     operation: {
@@ -1757,9 +1816,12 @@ export async function getCountOperationDetails(operationId: number) {
       catalogNodeNameAr: catalogScopeNode?.nameAr ?? null,
       catalogNodeNameEn: catalogScopeNode?.nameEn ?? null,
       catalogNodeCode: catalogScopeNode?.code ?? null,
+      correctionVersion: countCorrections.length,
     },
     items,
+    countCorrections,
   };
+  });
 }
 
 // ── 6) قائمة عمليات الجرد (للأرشيف) ──
@@ -1820,8 +1882,10 @@ export async function applySettlement(params: {
     lotNumber?: string;
     expiryDate?: string;
   }>;
-}) {
-  const db = await getDb();
+}, options?: { writer?: any; reviewDraftId?: number }) {
+  // Review approval reuses the existing posting engine in its own transaction.
+  // This option is server-internal; no RPC accepts a writer or a review bypass.
+  const db = options?.writer ?? await getDb();
   if (!db) throw new Error("تعذر الاتصال بقاعدة البيانات");
 
   if (!params.reason || params.reason.trim().length < 10) {
@@ -1829,6 +1893,10 @@ export async function applySettlement(params: {
   }
   if (params.items.length === 0) {
     throw new Error("لا توجد أصناف للتسوية");
+  }
+  const itemKeys = params.items.map(item => `${item.inventoryId}:${item.lotId ?? 0}`);
+  if (new Set(itemKeys).size !== itemKeys.length) {
+    throw new Error("لا يمكن تكرار الصنف أو الدفعة داخل التسوية");
   }
 
   let sourceCountOperation: any = null;
@@ -1912,7 +1980,7 @@ export async function applySettlement(params: {
         countType: inventoryCountOperations.countType,
       }).from(inventoryCountOperations)
         .where(eq(inventoryCountOperations.id, params.sourceCountOperationId))
-        .limit(1);
+        .limit(1).for("update");
       const lockedCount = lockedCountRows[0];
       if (!lockedCount) throw new Error("عملية الجرد المصدر غير موجودة");
       if (lockedCount.status !== "completed") {
@@ -1922,13 +1990,34 @@ export async function applySettlement(params: {
         throw new Error("تغير نوع عملية الجرد أثناء تطبيق التسوية؛ أعد المحاولة بعد تحديث البيانات");
       }
 
+      // A prepared review cannot be bypassed through the legacy direct RPC.
+      // The count lock serializes review, correction and both posting paths.
+      const reviews = await writer.select().from(inventorySettlementDrafts)
+        .where(eq(inventorySettlementDrafts.sourceCountOperationId, params.sourceCountOperationId))
+        .limit(1).for("update");
+      const review = reviews[0];
+      if (review && review.status !== "applied" && Number(review.id) !== options?.reviewDraftId) {
+        throw new Error("لهذا الجرد مسودة تسوية للمراجعة؛ يجب اعتمادها من دورة المراجعة");
+      }
+      if (options?.reviewDraftId && (!review || Number(review.id) !== options.reviewDraftId || review.status !== "pending_review")) {
+        throw new Error("مسودة التسوية ليست بانتظار الاعتماد أو لا تخص هذا الجرد");
+      }
+      const pendingCorrections = await writer.select({ id: inventoryCountCorrections.id })
+        .from(inventoryCountCorrections).where(and(
+          eq(inventoryCountCorrections.operationId, params.sourceCountOperationId),
+          eq(inventoryCountCorrections.status, "pending"),
+        )).limit(1);
+      if (pendingCorrections.length > 0) {
+        throw new Error("يوجد طلب تصحيح للجرد لم يكتمل؛ لا يمكن تطبيق التسوية");
+      }
+
       const alreadyApplied = await writer.select({ id: inventorySettlements.id })
         .from(inventorySettlements)
         .where(and(
           eq(inventorySettlements.sourceCountOperationId, params.sourceCountOperationId),
           eq(inventorySettlements.status, "applied"),
         ))
-        .limit(1);
+        .limit(1).for("update");
       if (alreadyApplied[0]) {
         throw new Error("تم تطبيق تسوية لهذا الجرد مسبقاً؛ لا يمكن تطبيق فرق الجرد مرتين");
       }
@@ -1958,6 +2047,12 @@ export async function applySettlement(params: {
       }
     }
 
+    // Lock every affected aggregate in deterministic order before reading its
+    // current value. Concurrent receipts must not be lost by a stale value read.
+    for (const inventoryId of Array.from(new Set(params.items.map(item => item.inventoryId))).sort((a, b) => a - b)) {
+      await writer.execute(sql`SELECT id FROM inventory WHERE id = ${inventoryId} FOR UPDATE`);
+    }
+
     // Allocate/persist the settlement counter row through the same transaction
     // writer as the posting. MySQL AUTO_INCREMENT may still consume an id on
     // rollback; this change does not alter the DB numbering schema or guarantee gapless numbers.
@@ -1977,7 +2072,7 @@ export async function applySettlement(params: {
 
     for (const item of params.items) {
       const invRows = await writer.select().from(inventory)
-        .where(eq(inventory.id, item.inventoryId)).limit(1);
+        .where(eq(inventory.id, item.inventoryId)).limit(1).for("update");
       const inv = invRows[0];
       if (!inv) throw new Error(`الصنف رقم ${item.inventoryId} غير موجود بالمخزون`);
       const averageCost = parseFloat((inv as any).averageCost || "0");
@@ -2250,7 +2345,9 @@ export async function applySettlement(params: {
   // Main Phase 4 / 4.2.3: all supported Settlement posting paths are atomic,
   // including legacy non-Lot Count/Manual paths. Validation without DB effects
   // may happen before this point; all persistent posting effects use this tx.
-  const result = await db.transaction(async (tx) => applyWith(tx));
+  const result = options?.writer
+    ? await applyWith(options.writer)
+    : await db.transaction(async (tx: any) => applyWith(tx));
   if (isOpeningBalance || isPeriodicLotSettlement) {
     return { ...result, inventoryLotsEnabled: true, lotLabels };
   }
