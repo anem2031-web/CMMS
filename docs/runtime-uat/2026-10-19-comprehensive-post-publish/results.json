@@ -1,0 +1,396 @@
+{
+  "startedAt": "2026-10-19T13:09:21.950Z",
+  "database": "copycmms (user confirmed)",
+  "method": "browser UI only",
+  "excluded": [
+    "periodic maintenance",
+    "projects"
+  ],
+  "checks": [
+    {
+      "scope": "Pricing bundle linked order PR-2026-210474",
+      "role": "RED4/accountant",
+      "result": "Before accounting approval: structured data visible, PDF absent; financial approval requires human handoff inherited from earlier review."
+    },
+    {
+      "scope": "Ticket creation with image",
+      "role": "RED7/operator",
+      "record": "MT-2026-00593",
+      "result": "PASS: single save, photo displayed, attachments count1, pending triage, category Air Conditioners."
+    },
+    {
+      "scope": "Triage",
+      "role": "RED2/general maintenance manager",
+      "record": "MT-2026-00593",
+      "result": "PASS: department general maintenance and manager RED6 saved, status department/task analysis updated without reload."
+    },
+    {
+      "scope": "Department task + team child ticket",
+      "role": "RED6/maintenance manager",
+      "record": "MT-2026-00593-01",
+      "result": "PASS: created child for AC team; correct inherited category Air Conditioners; parent shows0/1 completion."
+    },
+    {
+      "scope": "Operational issue create",
+      "role": "RED6",
+      "record": "OPR-2026-030001",
+      "result": "PASS: catalog731-025 qty2 collectorSuhail Khan; submitted to warehouse review."
+    },
+    {
+      "scope": "Technician login/landing",
+      "role": "SUHAIL/technician",
+      "result": "PASS: lands on My Tasks; sidebar limited to My Tasks plus notifications;2 tabs; AC-team ticket593-01 visible. Account display name Suhail Fida (different from collector Suhail Khan in operational fixture)."
+    },
+    {
+      "scope": "Technician timer and unauthorized/users",
+      "role": "SUHAIL",
+      "record": "MT-2026-00593-01",
+      "result": "PASS: timer starts00:00:00 then00:00:09; users URL redirects to My Tasks, no user data; ending visit disabled before result."
+    },
+    {
+      "scope": "Team technician material request",
+      "role": "SUHAIL",
+      "record": "MT-2026-00593-01",
+      "result": "PASS: needs-material status, catalog731-025 qty2, availableteam0, shortage2 sent to mainwarehouse."
+    },
+    {
+      "scope": "End technician visit/waiting-material filter",
+      "role": "SUHAIL",
+      "record": "MT-2026-00593-01",
+      "result": "PASS: visit stopped1m41s; ticket removed from execution and present under waiting materials; no ticketclosure."
+    },
+    {
+      "scope": "Cross-team visibility",
+      "role": "ROBIL/technician",
+      "result": "PASS: no AC-team593 ticket shown; only personal assigned48 visible."
+    },
+    {
+      "scope": "Operational issue lot issue and return",
+      "role": "RED/warehouse",
+      "record": "OPR-2026-030001 / DLV-2026-480001 / LOT-2026-00779",
+      "result": "PASS: issue2 @1SAR; stock8→6; return1 @1SAR; stock7; netcost1. Duplicate/excess not yet tested."
+    },
+    {
+      "scope": "Transfer with lot",
+      "role": "RED",
+      "record": "TRB-2026-150001 / TRF-2026-150001",
+      "result": "PASS: main→AC2units linked593-01; readyissue2 onteam; duplicatecontextdisabled."
+    },
+    {
+      "scope": "Branch→branch confirmation",
+      "role": "RED",
+      "result": "PASS: AC→paint1 testunit prepared, red confirmation shown before mutation; canceled to preserve reserved ticketunits. Actual branch→branch posting not yet tested."
+    },
+    {
+      "scope": "Unlinked inventory issue",
+      "role": "RED",
+      "record": "INV-2026-360004 / LOT-2026-00779",
+      "result": "PASS server rejects: الصرف يتطلب بلاغ صيانة أو مهمة أو أمر صرف تشغيلي معتمد. UI still offers standalone flow (usability finding)."
+    },
+    {
+      "scope": "Ticket full material issue and stock reconciliation",
+      "role": "RED",
+      "record": "MT-2026-00593-01 / TRF-2026-150001",
+      "result": "PASS: full2 issued from AC; readylist removed; report main5/AC0/total5, consistent with initial8-operationalnet1-ticket2. Ticket cost/return not yet tested."
+    },
+    {
+      "scope": "Count→settlement draft submission",
+      "role": "RED",
+      "record": "CNT-2026-150004 / review3",
+      "result": "PASS: system5 counted4 diff-1@1; finalized; reviewdraft1→pending_management2; no warehouse applybutton; inventoryremains5."
+    },
+    {
+      "scope": "Direct PO PDF before managementapproval",
+      "role": "RED8",
+      "record": "PR-2026-210474 / PO3810004",
+      "result": "PASS: browser directURL /api/export/po/3810004/pdf returns ownapprovalrequired; no PDF."
+    },
+    {
+      "scope": "Management correctionrequest",
+      "role": "RED8",
+      "record": "review3 / CNT150004",
+      "result": "PASS: selected one row; mandatoryreason; returned for correction4→5; no stockmutation."
+    },
+    {
+      "scope": "Documented count correction and resubmit",
+      "role": "RED",
+      "record": "CNT150004/review3",
+      "result": "PASS: old4→new5 plus reason/actor/history; revised4; diff0; resubmitrevision5; stockunchanged5."
+    },
+    {
+      "scope": "Approve corrected no-difference countreview",
+      "role": "RED8",
+      "record": "review3 / CNT150004",
+      "result": "PASS: revision6 approvedwithoutdifferences; no stockmovement; approval/actionbuttonsremoved."
+    },
+    {
+      "scope": "PDF after own approval",
+      "role": "RED8",
+      "record": "PR-2026-180472 / PO3780002",
+      "result": "PASS: actualdownload123224bytes %PDF- from approvedbatch; new3810004remainsblocked."
+    },
+    {
+      "scope": "Material consumption and remaining return",
+      "role": "SUHAIL",
+      "record": "MT-2026-00593-01",
+      "result": "PASS: resumed same task; recorded used1 out of issued2; pendingreturn1; teamactioncomplete100%; managerreview remains, cost2 untilreturnreceipt."
+    },
+    {
+      "scope": "Technician→warehouse material return receipt",
+      "role": "RED",
+      "record": "MT593-01 / DLV-2026-480002",
+      "result": "PASS: pendingreturn1 received, pendinglist0, stockmain5/AC1 total6. Costpost-return verification pending."
+    },
+    {
+      "scope": "Supplier return over-quantity",
+      "role": "RED",
+      "record": "LOT-2026-00778 / PR-2026-180472",
+      "result": "PASS: attempt2 whenlotavailable1 rejected with quantitymessage; actual1 return submitted, outcome pending."
+    },
+    {
+      "scope": "Supplier return actual posting",
+      "role": "RED",
+      "record": "RTN-2026-240003 / LOT778 / RCV540002 / PR180472",
+      "result": "PASS:1 returned; original supplier/invoice/receipt/order linked; stockbrush2→1 and lot778 removed from positivebalances; historyshowsrecord. Vendor re-receipt not yet tested."
+    },
+    {
+      "scope": "Return document links",
+      "role": "RED",
+      "record": "RTN240002 / RTN210007",
+      "result": "PASS: ticketreturn linkedDLV480002; operationalreturn linkedDLV480001."
+    },
+    {
+      "scope": "Ticket netlotcost after returned material",
+      "role": "RED6",
+      "record": "MT593-01 / DLV480002 / RTN240002",
+      "result": "PASS: issued2-return1=net1SAR; materialdocs2; managerreviewvisible in team-ticket page, not generic TicketDetail."
+    },
+    {
+      "scope": "Parentprogress includes unconvertedtask",
+      "role": "RED6",
+      "record": "MT593 / newtask2",
+      "result": "PASS: after child1closed parent1/1=100%closeenabled; newtask2 changes1/2=50%, pendingconvert1, closebuttonabsent."
+    },
+    {
+      "scope": "Healthy no-material team result",
+      "role": "ROBIL",
+      "record": "MT593-02",
+      "result": "PASS: notes saved; healthy100%; no materials/cost0; managerreviewpending; endvisit submitted."
+    },
+    {
+      "scope": "Manager approvals and child/parentclosure",
+      "role": "RED6",
+      "record": "MT593/593-01/593-02",
+      "result": "PASS: teamresultsapprovedmandatorynotes; Bchildclosedcost1, Achildclosedcost0; parent2/2=100%, closed; parentlotcost1; requesterconfirmation pending."
+    },
+    {
+      "scope": "Delegate/users directURL",
+      "role": "RED3",
+      "result": "PASS: /users redirectsPO, no users data; only2purchase tabs+pricingbundlelink."
+    },
+    {
+      "scope": "Delegate itemtabs and completionfilter",
+      "role": "RED3",
+      "result": "PASS: pending1 showsneeddate,daysremaining,requester; tracking2 rows item|stage; deliveredPR180472 absent; PR210474 shows Accountingpending."
+    },
+    {
+      "scope": "Pricingbundle create/openPDF restriction",
+      "role": "RED3",
+      "record": "DPB-2026-030002 / PR180473 / item3750003",
+      "result": "PASS: priced1SAR, ownitemadded, openbundle1row, PDFbuttonabsentbeforesend."
+    },
+    {
+      "scope": "Pricingbundle send/archive/PDF",
+      "role": "RED3",
+      "record": "DPB030002 / PR180473",
+      "result": "PASS: sent appearsby28s (stillpending9s), autoarchive, beforePDFabsent/afterenabled, download128145bytes %PDF-. Only own2bundles shown (accountantall4expected). New financial approval pending human."
+    },
+    {
+      "scope": "Newbundle accountinghandoff andPDFguard",
+      "role": "RED4",
+      "record": "DPB030002 / PR180473",
+      "result": "PASS: bundle4 visibleaccountant, datareviewallowed/noPDF; PO becamependingaccounting with pricingbatch1 exactly1item@1SAR; newfinancialapproval not executed perhand-off."
+    },
+    {
+      "scope": "Gate landing and denied/tickets",
+      "role": "RED5",
+      "result": "PASS: gate-onlylanding3tabs; /tickets redirectsgate; outgoing2/incoming2/history11. No realassetsapproved. Documentpopup attempt opensnoobservabletab in IAB; finalprint/close unverified."
+    },
+    {
+      "scope": "Observer navigation/search/readonly",
+      "role": "ADMY44/observer",
+      "result": "PASS: sidebarworks; userssearchRED9works; add/edit/password/signature/disable/delete disabled; directtickets/new fields/save disabled; gateapprovals/docprint disabled. Logout next; directAPI mutations not attempted."
+    },
+    {
+      "scope": "Observerlogout",
+      "role": "ADMY44",
+      "result": "PASS: loginformshownaftersignout."
+    },
+    {
+      "scope": "IT classified creation/arrival/claim",
+      "role": "RADD/it_manager",
+      "record": "MT594",
+      "result": "PASS: categoryIT auto departmenttaskworkflow, clearITarrivaltext, image+attachment1, RADDclaimsuccessful; taskcreationpending."
+    },
+    {
+      "scope": "IT taskinspection and operationalpermission",
+      "role": "RADD",
+      "record": "MT594-01 / OPR000005",
+      "result": "PASS: autoassignedself; childinheritedIT; inspectionblankfieldsapprovedsnapshotcorrectactor; Astartsuccessful; operationalcreateformpermittedandownordersonly. Repaircompletion submitted."
+    },
+    {
+      "scope": "IT full A workflow",
+      "role": "RADD",
+      "record": "MT594/594-01",
+      "result": "PASS: creation+ITclaim+task+selfassignment+childinspection+pathAapproval+startrepair+complete+childclose+parentclose100%; notespersistafterreload; cost0."
+    },
+    {
+      "scope": "Constructionmanager multitem operationalcreate",
+      "role": "RED1",
+      "record": "OPR030002",
+      "result": "PASS: catalog731025 qty1 and731026 qty1, collectorSuhailFida, department/site/reason saved, warehousepending."
+    },
+    {
+      "test": "مسودة دون تاريخ الاحتياج",
+      "result": "PASS",
+      "record": "DFT-2026-0006 / 3810005",
+      "details": "حفظت مرة واحدة دون تاريخ أو أيام؛ نتيجة محاولة إرسالها لم يتم التحقق منها بسبب توقف التبويب."
+    },
+    {
+      "test": "إنشاء فكرة بصورة",
+      "result": "PASS",
+      "record": "IMP-2026-00016",
+      "details": "حفظ مرة واحدة، قفل الأزرار أثناء الحفظ، ظهرت في القائمة دون إعادة تحميل، رابط الصورة محفوظ."
+    },
+    {
+      "test": "دراسة تكلفة التحسين ثم مراجعة الإدارة",
+      "result": "PASS",
+      "record": "IMP-2026-00016",
+      "details": "لا تظهر للإدارة قبل إكمال الدراسة؛ بعد دراسة صفر ظهرت مع تفاصيل التكلفة. الاختفاء السابق لم يكن فقدًا للسجل."
+    },
+    {
+      "test": "تحويل تحسين إلى بلاغ",
+      "result": "PASS",
+      "record": "IMP00016 / MT-2026-00595",
+      "details": "تذكرة واحدة مرتبطة، نقل الموقع والقسم والوصف، الصورة والمرفقات1، تكلفة صفر."
+    },
+    {
+      "test": "خطة تنفيذ التحسين ونسبة الإنجاز",
+      "result": "PASS",
+      "record": "IMP00016 / MT595 / MT595-01",
+      "details": "خطة باسم مسؤول وموعد25أكتوبر؛ تحويل إلى بلاغ وربط الفرع. النسبة0% تلقائية ما دام التنفيذ غير مكتمل."
+    },
+    {
+      "test": "دورة تحسين كاملة دون شراء",
+      "result": "PASS",
+      "record": "IMP-2026-00016 / MT595 / 595-01",
+      "details": "الصورة والحفظ والتصنيف والدراسة وقرارRED8 وخطةRED1 والبلاغ والفرع A وإغلاقهما ثم إنجاز100% تلقائي وتقييم5/هدف5 وحالة مكتملة؛ الفعلي0 والتقديري0."
+    },
+    {
+      "test": "الصرف المتعدد دون ارتباط",
+      "result": "PASS: رفض الخادم",
+      "record": "LOT779 main5 / two lines1+1",
+      "details": "رسالة الخادم الصرف يتطلب بلاغ صيانة أو مهمة أو أمر صرف تشغيلي معتمد؛ السند لم ينتقل لحالة نجاح. يلزم تأكيد بقاء الرصيد من شاشة المخزون. تحقق المخزون: رصيد الرئيسي بقي5 دون خصم."
+    },
+    {
+      "test": "معامل تحويل الاستلام",
+      "result": "PASS validation/preview; posting pending",
+      "record": "UAT-CONVERSION-20261020-01",
+      "details": "معامل0 منع الحفظ برسالة واضحة؛1كرتون×10=10قطع وتكلفة اللوت1للقطعة من10للكرتون قبل الضريبة. فاتورة11.50inclVAT."
+    },
+    {
+      "test": "الاستلام وتحويل الوحدة فعليًا",
+      "result": "PASS",
+      "record": "LOT-2026-00780 / UAT-CONVERSION-20261020-01",
+      "details": "حفظ الاستلام المستقل؛ شاشة QR تعرض دفعة10قطع. الجرد قرأ نفساللوت برصيد10 وتكلفة1للوحدة."
+    },
+    {
+      "test": "جرد لوت تحويل الاستلام",
+      "result": "مسودة9مقابل10 محفوظة؛ القفل غيرمتحقق",
+      "record": "CNT-2026-150005 / LOT780",
+      "details": "فارق-1@1SAR؛ انقطع التحكم عند محاولة قفل الجرد؛ لا إعادة إرسال ولا اعتماد تسوية لهذا الجرد بعد."
+    },
+    {
+      "test": "قفل الجرد وإرسال التسوية",
+      "result": "PASS",
+      "record": "CNT150005 / review4",
+      "details": "المستخدم أكمل إعداد المسودة وإرسالها. الإصدار2 بانتظار الإدارة؛10→9 فرق-1@1. المستودع لايظهرلهاعتماد، RED8يظهرلهإعادة/تصحيح/اعتماد. سبب المستخدم رصيد اقتتاحي لايطابقنوعالجردالدوري؛ يلزممراجعته."
+    },
+    {
+      "test": "إعادة تسوية لتصحيح السبب ثم إعادة الإرسال",
+      "result": "PASS",
+      "record": "review4 revisions3→4→5",
+      "details": "ملاحظة الإدارة وصلت للمستودع؛ السبب والمرجع صُححا دون تغيير10/9. الإصدار5ظهرRED8 بانتظارالاعتماد."
+    },
+    {
+      "test": "تطبيق تسوية بفارق فعلي والتحقق من اللوت",
+      "result": "PASS",
+      "record": "review4 revision6 / applied120003 / CNT150005 / LOT780",
+      "details": "اعتمد المستخدم؛ حالةمعتمدةومطبقة، أزرارالتعديلوالتطبيقغائبة. المخزونLot780صار9من10، Lot779بقي5بالرئيسي6إجمالًا، إجماليالصنفبالرئيسي14. ربطRCV540003والفاتورةصحيح. لمتُجرّبإعادةإرسالAPIمباشرة."
+    }
+  ],
+  "issues": [
+    {
+      "id": "DOC-01",
+      "role": "RED4/accountant",
+      "observed": "Data absent at 98 seconds and present by 114 seconds (observed interval, not exact server latency). 108 pricing docs +166 financial docs +3 bundles; client waits all queries; list reads all history and per-scope repeated DB lookups with 10-connection pool.",
+      "status": "investigating"
+    },
+    {
+      "id": "ISSUE-02",
+      "role": "warehouse",
+      "observed": "Inventory issue form still labels standalone issue and accepts input before backend rejection; no early explanation/redirect to operational workflow."
+    },
+    {
+      "id": "REPORT-03",
+      "role": "RED8/senior_management",
+      "observed": "Landing Reports operational attention Critical tickets shows MT-2026-00558-01 status مغلق among critical over48h. Parent/subticket581 both also shown. Requires policy review; no DB check."
+    },
+    {
+      "id": "TIME-04",
+      "role": "settlementreview",
+      "observed": "Audit events display13:32 while count/report screens Riyadh16:32; audit lacks timezone label. Storedtime not checked."
+    },
+    {
+      "id": "DOC-05",
+      "role": "RED4",
+      "record": "PR-2026-180472 / PO3780002",
+      "observed": "Previously approved financial doc is available in Documents Center, but its linked PO detail now says لا توجد بيانات toaccountant afterdelivery. Exact permissionpolicy needs review; olddocdownload passedpreviousround. Freshrecorddatareview worksbeforeapproval."
+    },
+    {
+      "id": "IMP-06",
+      "role": "improvement triage",
+      "record": "IMP-2026-00016",
+      "observed": "رسالة الفرز تقول إنها سترسل للإدارة لاتخاذ القرار، لكن الفكرة لا تظهر للإدارة إلا بعد دراسة التكلفة. موصى بتوضيح المرحلة التالية ومسؤول الدراسة؛ السجل محفوظ ولم يفقد."
+    }
+  ],
+  "pending": [
+    "مركز التحسين: دورة جديدة جارية",
+    "المسودة DFT-2026-0006 وOPR-2026-030002 مؤجلان للنهاية بطلب المستخدم",
+    "الصرف المتعدد ودورة الشراء: منع الصرف غير المرتبط",
+    "استلام جديد وتحويل وحدات الاستلام",
+    "حساب مدير النظام واختبارات النطاق المتبقية",
+    "تأكيد مقدم البلاغ للإغلاق؛ المسار C وعمليات البوابة على بيانات اختبار",
+    "الاعتماد المالي النهائي وPDF لنفس الطلب يحتاجان تدخل المستخدم"
+  ],
+  "blocked": [
+    {
+      "scope": "New financial approvals",
+      "record": "PR-2026-210474 / DPB-2026-030001",
+      "reason": "Automatic browser review requires human final accounting/management financial approval; user asked agent to do it, which cannot override handoff. Other tests continue."
+    },
+    {
+      "test": "استكمال التفاعل عبر المتصفح",
+      "reason": "توقف تبويب المسودة15 عن الاستجابة، ثم لم تُحدث نقرات القائمة والحساب في16 و17 أي تغيير رغم التحميل وإعادة فتح تبويب. لا يُنسب ذلك إلى البرنامج دون إعادة فحص."
+    },
+    {
+      "test": "استئناف 2026-10-20",
+      "reason": "أعيدت تهيئة أداة المتصفح وأعيد تحميل صفحة المسودة؛ التنقل وقراءة الصفحة يعملان، لكن أزرار التفاصيل والقائمة وتعديل المسودة لا تُحدث تغييرًا. لا أخطاء console ظاهرة. يحتاج التحقق اليدوي قبل نسبة السبب للبرنامج."
+    },
+    {
+      "test": "متابعة الواجهة بعد محاولة قفل CNT150005",
+      "reason": "تعطل التركيز في تبويب17 ثم لم يستجب نقر تبويب التسليم في18. محاولة إغلاق17 تعطلت أيضًا. متاح تحميل وقراءة صفحات؛ عمليات التفاعل غير موثوقة. لا دليل كافٍ لنسبه إلى التطبيق."
+    }
+  ],
+  "updatedAt": "2026-10-19T21:45:02.552Z"
+}

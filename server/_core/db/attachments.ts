@@ -48,6 +48,7 @@ import { ENV } from '../env';
 
 
 import { getDb } from "./client";
+import { attachmentDocumentSource, documentQueryRows } from "./document-list";
 
 // ============================================================
 // ATTACHMENTS
@@ -89,153 +90,21 @@ export async function getAttachmentsByType(entityType: string) {
  * مع إبقاء واجهة مركز المستندات الحالية وقواعد صلاحياتها كما هي.
  */
 export async function getFinancialBatchAttachmentsWithDelegate() {
-  const db = await getDb();
-  if (!db) return [];
-
-  // المستندات القديمة: entityId = po_pricing_batches.id
-  const legacyRows = await db
-    .select({
-      id: attachments.id,
-      entityType: attachments.entityType,
-      entityId: attachments.entityId,
-      fileName: attachments.fileName,
-      fileUrl: attachments.fileUrl,
-      fileKey: attachments.fileKey,
-      mimeType: attachments.mimeType,
-      fileSize: attachments.fileSize,
-      uploadedById: attachments.uploadedById,
-      createdAt: attachments.createdAt,
-      delegateId: poPricingBatches.submittedById,
-      delegateName: users.name,
-      totalEstimatedCost: poPricingBatches.totalEstimatedCost,
-      custodyBalance: poPricingBatches.custodyAmount,
-      financialDocumentScope: sql<string>`'pricing_batch'`,
-    })
-    .from(attachments)
-    .leftJoin(poPricingBatches, eq(attachments.entityId, poPricingBatches.id))
-    .leftJoin(users, eq(poPricingBatches.submittedById, users.id))
-    .where(eq(attachments.entityType, "po_financial_batch"));
-
-  // مستندات دفعات الحزم الجديدة: entityId = purchase_package_submissions.id.
-  // نقرأ المندوب من أول Pricing Batch تابع للإرسال؛ كل إرسال يُنشئه مندوب
-  // واحد في المسار الحالي، ولا نخزن delegateId مكررًا على سجل المرفق نفسه.
-  const packageAttachments = await db
-    .select()
-    .from(attachments)
-    .where(eq(attachments.entityType, "purchase_package_submission_financial"));
-
-  const packageRows: any[] = [];
-  for (const attachment of packageAttachments as any[]) {
-    const submissionRows = await db
-      .select({
-        id: purchasePackageSubmissions.id,
-        totalEstimatedCost: purchasePackageSubmissions.totalEstimatedCost,
-        custodyBalance: purchasePackageSubmissions.custodyBalance,
-      })
-      .from(purchasePackageSubmissions)
-      .where(eq(purchasePackageSubmissions.id, attachment.entityId))
-      .limit(1);
-    const submission = submissionRows[0];
-
-    const batchRows = await db
-      .select({ submittedById: poPricingBatches.submittedById })
-      .from(poPricingBatches)
-      .where(eq(poPricingBatches.purchasePackageSubmissionId, attachment.entityId))
-      .limit(1);
-    const delegateId = batchRows[0]?.submittedById ?? null;
-
-    let delegateName: string | null = null;
-    if (delegateId != null) {
-      const userRows = await db
-        .select({ name: users.name })
-        .from(users)
-        .where(eq(users.id, delegateId))
-        .limit(1);
-      delegateName = userRows[0]?.name ?? null;
-    }
-
-    packageRows.push({
-      ...attachment,
-      delegateId,
-      delegateName,
-      totalEstimatedCost: submission?.totalEstimatedCost ?? null,
-      custodyBalance: submission?.custodyBalance ?? null,
-      financialDocumentScope: "package_submission",
-    });
-  }
-
-  return [...legacyRows, ...packageRows].sort((a: any, b: any) =>
-    new Date(b.createdAt as any).getTime() - new Date(a.createdAt as any).getTime()
-  );
+  return allDocumentAttachments("po_financial_batch");
 }
 
-/**
- * وثائق التسعير الصادرة من المندوبين — تجمع المستندات المؤرشفة عند لحظة
- * الإرسال للحسابات، سواء دفعة طلب مفرد أو دفعة إرسال حزمة.
- */
 export async function getDelegatePricingAttachmentsWithDelegate() {
+  return allDocumentAttachments("delegate_pricing_documents");
+}
+
+async function allDocumentAttachments(kind: "po_financial_batch" | "delegate_pricing_documents") {
   const db = await getDb();
   if (!db) return [];
-
-  const singleRows = await db
-    .select({
-      id: attachments.id,
-      entityType: attachments.entityType,
-      entityId: attachments.entityId,
-      fileName: attachments.fileName,
-      fileUrl: attachments.fileUrl,
-      fileKey: attachments.fileKey,
-      mimeType: attachments.mimeType,
-      fileSize: attachments.fileSize,
-      uploadedById: attachments.uploadedById,
-      createdAt: attachments.createdAt,
-      delegateId: poPricingBatches.submittedById,
-      delegateName: users.name,
-      totalEstimatedCost: poPricingBatches.totalEstimatedCost,
-      pricingDocumentScope: sql<string>`'pricing_batch'`,
-    })
-    .from(attachments)
-    .leftJoin(poPricingBatches, eq(attachments.entityId, poPricingBatches.id))
-    .leftJoin(users, eq(poPricingBatches.submittedById, users.id))
-    .where(eq(attachments.entityType, "delegate_pricing_batch"));
-
-  const packageAttachments = await db
-    .select()
-    .from(attachments)
-    .where(eq(attachments.entityType, "delegate_package_submission_pricing"));
-
-  const packageRows: any[] = [];
-  for (const attachment of packageAttachments as any[]) {
-    const batches = await db
-      .select({
-        submittedById: poPricingBatches.submittedById,
-        totalEstimatedCost: poPricingBatches.totalEstimatedCost,
-      })
-      .from(poPricingBatches)
-      .where(eq(poPricingBatches.purchasePackageSubmissionId, attachment.entityId));
-
-    const delegateId = batches[0]?.submittedById ?? attachment.uploadedById ?? null;
-    let delegateName: string | null = null;
-    if (delegateId != null) {
-      const userRows = await db.select({ name: users.name }).from(users).where(eq(users.id, delegateId)).limit(1);
-      delegateName = userRows[0]?.name ?? null;
-    }
-    const totalEstimatedCost = batches.reduce((sum: number, b: any) =>
-      sum + Number(b.totalEstimatedCost || 0), 0
-    );
-
-    packageRows.push({
-      ...attachment,
-      delegateId,
-      delegateName,
-      totalEstimatedCost: totalEstimatedCost.toFixed(2),
-      pricingDocumentScope: "package_submission",
-    });
-  }
-
-  return [...singleRows, ...packageRows].sort((a: any, b: any) =>
-    new Date(b.createdAt as any).getTime() - new Date(a.createdAt as any).getTime()
-  );
+  const rows = await documentQueryRows(db, sql`SELECT d.* FROM ${attachmentDocumentSource(kind)} ORDER BY d.createdAt DESC,d.id DESC`);
+  return rows.map(({ documentScope, ...row }) => ({ ...row,
+    totalEstimatedCost: kind === "delegate_pricing_documents" && documentScope === "package_submission"
+      ? Number(row.totalEstimatedCost || 0).toFixed(2) : row.totalEstimatedCost,
+    [kind === "po_financial_batch" ? "financialDocumentScope" : "pricingDocumentScope"]: documentScope }));
 }
 
 export async function getAttachmentById(id: number) {

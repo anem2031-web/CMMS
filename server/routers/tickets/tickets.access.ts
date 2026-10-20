@@ -25,6 +25,14 @@ export interface TicketAccessUser {
   role: string;
 }
 
+/** A read-list can supply a preloaded scope; writes keep the fresh DB default. */
+export interface TicketReadPort {
+  getTicketItems(ticketId: number): Promise<any[]>;
+  hasTicketDepartmentAssignment(ticketId: number, department: string, managerId?: number): Promise<boolean>;
+  hasPurchaseOrderForTicket(ticketId: number): Promise<boolean>;
+  isUserAssignedToTicketTasks(ticketId: number, sourceTaskId: number | null | undefined, userId: number): Promise<boolean>;
+}
+
 export interface TicketVisibilitySubject {
   id?: number;
   status?: string | null;
@@ -153,31 +161,32 @@ export async function assertTicketReadable(
   user: TicketAccessUser,
   ticket: TicketVisibilitySubject & { id: number },
   message = "ليس لديك صلاحية للاطلاع على هذا البلاغ",
+  source: TicketReadPort = db,
 ): Promise<void> {
   if (isTicketVisible(user, ticket)) return;
 
-  const items = await db.getTicketItems(ticket.id);
+  const items = await source.getTicketItems(ticket.id);
   if (isTicketVisible(user, ticket, items)) return;
 
   // النموذج الجديد: الجهة والفني قد يوجدان فقط في طبقة الخطة التنظيمية.
   if (user.role === APP_ROLE.CONSTRUCTION_PROCUREMENT_MANAGER) {
-    const routedThroughDepartmentPlan = await db.hasTicketDepartmentAssignment(
+    const routedThroughDepartmentPlan = await source.hasTicketDepartmentAssignment(
       ticket.id, MAINTENANCE_RESPONSIBLE_DEPARTMENT.CONSTRUCTION, user.id,
     );
     if (routedThroughDepartmentPlan) return;
-    const linked = await db.hasPurchaseOrderForTicket(ticket.id);
+    const linked = await source.hasPurchaseOrderForTicket(ticket.id);
     if (linked) return;
   }
   if (user.role === APP_ROLE.TECHNICIAN) {
-    const assignedThroughTask = await db.isUserAssignedToTicketTasks(ticket.id, ticket.sourceTaskId, user.id);
+    const assignedThroughTask = await source.isUserAssignedToTicketTasks(ticket.id, ticket.sourceTaskId, user.id);
     if (assignedThroughTask) return;
   }
   if (isItTeamRole(user.role)) {
-    const routedThroughDepartmentPlan = await db.hasTicketDepartmentAssignment(
+    const routedThroughDepartmentPlan = await source.hasTicketDepartmentAssignment(
       ticket.id, MAINTENANCE_RESPONSIBLE_DEPARTMENT.IT,
     );
     if (routedThroughDepartmentPlan) return;
-    const assignedThroughTask = await db.isUserAssignedToTicketTasks(ticket.id, ticket.sourceTaskId, user.id);
+    const assignedThroughTask = await source.isUserAssignedToTicketTasks(ticket.id, ticket.sourceTaskId, user.id);
     if (assignedThroughTask) return;
   }
 

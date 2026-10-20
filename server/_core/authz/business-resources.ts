@@ -18,9 +18,11 @@ type ScopeKind = "po" | "ticket" | "external" | "package" | "user";
 export interface BusinessTranslationPort {
   parents(type: keyof typeof parentTables, ids: number[]): Promise<Array<{ id: number; parentId: number }>>;
   authorize(user: BusinessIdentity, kind: ScopeKind, id: number): Promise<void>;
+  authorizeMany?(user: BusinessIdentity, kind: ScopeKind, ids: number[]): Promise<void>;
 }
 const denied = () => new TRPCError({ code: "FORBIDDEN", message: "ليس لديك صلاحية لبيانات الترجمة المطلوبة" });
 const port: BusinessTranslationPort = {
+  authorizeMany: authorizeBusinessTranslationParents,
   async parents(type, ids) {
     const db = await import("../db");
     const schema = await import("../../../drizzle/schema");
@@ -54,6 +56,44 @@ const port: BusinessTranslationPort = {
     if (!(await filterVisiblePurchaseOrders(user, orders)).length) throw denied();
   },
 };
+
+/** Batch only read authorization, reusing the same PO/ticket decisions. */
+export async function authorizeBusinessTranslationParents(user: BusinessIdentity, kind: ScopeKind, ids: number[]) {
+  if (!ids.length) return;
+  if (kind === "user") { if (ids.some(id => id !== user.id)) throw denied(); return; }
+  if (kind === "external" && user.role === "warehouse") return; // Existing warehouse exception.
+  if (kind === "ticket" || kind === "external") {
+    const { loadTicketReadScope } = await import("../db/ticket-read-scope");
+    const { assertTicketReadable } = await import("../../routers/tickets/tickets.access");
+    const scope = await loadTicketReadScope(user, ids);
+    for (const id of ids) {
+      const ticket = scope.tickets.get(id); if (!ticket) throw denied();
+      await assertTicketReadable(user, ticket, undefined, scope.source);
+    }
+    return;
+  }
+  const db = await import("../db");
+  const { createPurchaseOrderReadGuard, assertCanPerformPOAction } = await import("./guard");
+  const check = await createPurchaseOrderReadGuard(user);
+  if (kind === "po") {
+    const orders = new Map<number, any>((await db.getPurchaseOrdersByIds(ids)).map(row => [Number(row.id), row]));
+    for (const id of ids) { const order = orders.get(id); if (!order) throw denied(); check(order); }
+    return;
+  }
+  assertCanPerformPOAction("viewPurchasePackage", user);
+  const orders = await db.getPurchaseOrdersForPackages(ids);
+  const visiblePackages = new Set<number>();
+  for (const order of orders) {
+    try { check(order); visiblePackages.add(Number(order.packageId)); }
+    catch (error) { if (!(error instanceof TRPCError) || error.code !== "FORBIDDEN") throw error; }
+  }
+  if (ids.some(id => !visiblePackages.has(id))) throw denied();
+}
+
+async function authorizeParents(source: BusinessTranslationPort, user: BusinessIdentity, kind: ScopeKind, ids: number[]) {
+  if (source.authorizeMany && ids.length > 1) return source.authorizeMany(user, kind, ids);
+  for (const id of ids) await source.authorize(user, kind, id);
+}
 const referenceTypes = new Set(["USER", "SITE", "SECTION", "ASSET", "CENTER_CATEGORY", "ASSET_CATEGORY", "INVENTORY"]);
 const legacyReportTypes = new Set(["PM_PLAN", "PM_WORK_ORDER", "PM_RESULT", "PM_SESSION", "PM_CHECKLIST"]);
 
@@ -69,10 +109,10 @@ export async function assertBusinessTranslationAccess(user: BusinessIdentity, ra
   if (["DELIVERY_DOCUMENT", "RETURN_DOCUMENT"].includes(type) && user.role !== "accountant") return;
   if (legacyReportTypes.has(type) && ["senior_management", "executive_director"].includes(user.role)) return;
   const kind = type === "PO" ? "po" : type === "TICKET" ? "ticket" : type === "PO_PACKAGE" ? "package" : null;
-  if (kind) { for (const id of ids) await source.authorize(user, kind, id); return; }
+  if (kind) return authorizeParents(source, user, kind, ids);
   if (!Object.hasOwn(parentTables, type)) throw denied();
   const tableType = type as keyof typeof parentTables;
   const rows = ids.length ? await source.parents(tableType, ids) : [];
   if (rows.length !== ids.length || ids.some(id => !rows.some(row => row.id === id))) throw denied();
-  for (const parentId of Array.from(new Set(rows.map(row => row.parentId)))) await source.authorize(user, parentTables[tableType][2], parentId);
+  await authorizeParents(source, user, parentTables[tableType][2], Array.from(new Set(rows.map(row => row.parentId))));
 }

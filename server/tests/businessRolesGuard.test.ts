@@ -44,7 +44,7 @@ const api = router({
   }),
   purchaseOrders: router({
     list: protectedProcedure.query(() => [{ id: 1 }]),
-    listPricingBatches: evaluate(expression("server/routers/purchase/purchase-orders.router.ts", "listPricingBatches"), { ...common, db: { getPurchaseOrderById: spies.po, getPOPricingBatches: spies.batches }, rejectEmptyPendingPricingBatches: spies.repair, assertCanViewPurchaseOrder,
+    listPricingBatches: evaluate(expression("server/routers/purchase/purchase-orders.router.ts", "listPricingBatches"), { ...common, loadDocumentListPort: async () => ({}), db: { getPurchaseOrderById: spies.po, getPOPricingBatches: spies.batches }, rejectEmptyPendingPricingBatches: spies.repair, assertCanViewPurchaseOrder,
       purchaseDocumentPermission: async (user: { role: string }) => ({ pdfAllowed: !["accountant", "senior_management"].includes(user.role), pdfBlockedReason: ["accountant", "senior_management"].includes(user.role) ? "Awaiting fixture approval" : null }),
       isPurchasePdfApprover: (user: { role: string }) => ["accountant", "senior_management"].includes(user.role),
     }),

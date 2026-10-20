@@ -1,0 +1,21 @@
+{
+  "date": "2026-10-19",
+  "environment": "Published Railway / copycmms (previous owner confirmation retained)",
+  "method": "Browser UI only; no direct database or scripted API requests",
+  "status": "read_only_and_existing_approval_cases_passed_new_approval_transition_requires_user_handoff",
+  "accountant": {
+    "account": "RED4",
+    "threeDocumentsCenterTabs": "PASS (108 delegate pricing documents, 166 financial documents, 3 sent pricing bundles)",
+    "bundleStructuredReview": "PASS (DPB-2026-030001, delegate/date/status/linked PR-2026-210474, item بويه تجربة qty1 price1, data visible without PDF)",
+    "pendingApprovalPdfBlocked": "PASS (PR-2026-210474 / PO3810004 pending accounting; no PDF controls; direct browser GET /api/export/po/3810004/pdf denied with approval message)",
+    "ownApprovedPdfDownload": "PASS (existing PR-2026-180472 accounting archive downloaded via UI; %PDF- header; 123224 bytes)",
+    "sameRecordApprovalTransition": "BLOCKED_USER_HANDOFF_REQUIRED (automatic browser approval review denied custody amount/accounting approval as consequential financial action; no alternative submission attempted)",
+    "fixtureApprovalSubmitted": false
+  },
+  "management": {
+    "account": "RED8",
+    "pendingApprovalPdfBlocked": "PASS (RED8 direct browser GET /api/export/po/3810004/pdf denied with own-approval message)",
+    "ownApprovedPdfDownload": "PASS (existing PR-2026-180472 batch1 downloaded through actual UI export button; %PDF- header; 123224 bytes)",
+    "appliedSettlementStaleWarningHidden": "PASS (applied draft #1 / CNT-2026-150002 / revision6; obsolete resubmission warning absent; no apply/edit action)"
+  }
+}

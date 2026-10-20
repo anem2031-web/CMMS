@@ -3,7 +3,8 @@ import vm from "node:vm";
 import ts from "typescript";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { readScopeDatabase } from "./fixtures/readScopeDatabase";
 import type { TrpcContext } from "../_core/context";
 import { router, publicProcedure, protectedProcedure } from "../_core/trpc";
 import { inventoryReadProcedure } from "../routers/_shared/procedures";
@@ -16,7 +17,8 @@ import { createDemo } from "../maintenance-team-tickets/testing/fixture";
 import { observerHttpAllowed } from "../../shared/observer-policy";
 import { businessHttpAllowed } from "../../shared/business-role-policy";
 
-const calls = vi.hoisted(() => ({ inventory: vi.fn(async () => [{ id: 1, quantity: 7 }]), ticket: vi.fn(), sideEffect: vi.fn() }));
+const calls = vi.hoisted(() => ({ inventory: vi.fn(async () => [{ id: 1, quantity: 7 }]), ticket: vi.fn(), sideEffect: vi.fn(), database: null as any }));
+vi.mock("../_core/db/client", () => ({ getDb: async () => calls.database }));
 vi.mock("../_core/db", () => ({
   getTicketById: calls.ticket, getTicketItems: async () => [], isUserAssignedToTicketTasks: async () => false,
 }));
@@ -47,8 +49,11 @@ function caller(role = "technician", id = 3, isActive = 1, projected = false) {
 }
 beforeEach(() => {
   vi.clearAllMocks();
+  calls.database = readScopeDatabase();
+  for (const id of [11, 12]) calls.database.insert("tickets", { id, assignedToId: id === 11 ? 3 : 5, reportedById: 9 });
   calls.ticket.mockImplementation(async (id: number) => ({ id, assignedToId: id === 11 ? 3 : 5, reportedById: 9 }));
 });
+afterEach(() => { calls.database?.memory.close(); calls.database = null; });
 describe("Technician central API boundary", () => {
   it("closes the demonstrated inventory read through the actual handler and shared middleware", async () => {
     expect(canRoleAccessPath("technician", "/inventory")).toBe(false);

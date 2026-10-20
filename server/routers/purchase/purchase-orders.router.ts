@@ -46,6 +46,7 @@ import { issueCostAllocationsSchema } from "../inventory/issue-cost-allocation.s
 import { APP_ROLE, MAINTENANCE_RESPONSIBLE_DEPARTMENT, canRoleViewAllPurchaseSupplyTracking } from "@shared/roles";
 import { createTranslatedProcurementComment, queuePurchaseTranslation } from "./translation-queue";
 import { isPurchasePdfApprover, purchaseDocumentPermission, withPurchaseDocumentPermissions } from "../../_core/authz/purchase-document";
+import { loadDocumentListPort } from "../../_core/db/document-list";
 
 // ── دالة مشتركة: ترجمة أصناف طلب الشراء في الخلفية ──────────────────────────
 async function queuePOItemsTranslation(items: any[], userId: number): Promise<void> {
@@ -2126,8 +2127,12 @@ export const purchaseOrdersRouter = router({
     await rejectEmptyPendingPricingBatches(input.purchaseOrderId);
     const batches = await db.getPOPricingBatches(input.purchaseOrderId);
     const visible = ctx.user.role === "delegate" ? batches.filter(batch => Number(batch.submittedById) === ctx.user.id) : batches;
+    const scope = isPurchasePdfApprover(ctx.user) ? await loadDocumentListPort(visible.map(batch => ({
+      entityType: batch.purchasePackageSubmissionId == null ? "po_financial_batch" : "purchase_package_submission_financial",
+      entityId: batch.purchasePackageSubmissionId ?? batch.id,
+    })), undefined, { actor: ctx.user, orders: [po] }) : undefined;
     return Promise.all(visible.map(async batch => ({ ...batch,
-      ...(isPurchasePdfApprover(ctx.user) ? await purchaseDocumentPermission(ctx.user, input.purchaseOrderId, batch.purchasePackageSubmissionId == null ? batch.id : undefined, batch.purchasePackageSubmissionId ?? undefined) : { pdfAllowed: true, pdfBlockedReason: null }),
+      ...(isPurchasePdfApprover(ctx.user) ? await purchaseDocumentPermission(ctx.user, input.purchaseOrderId, batch.purchasePackageSubmissionId == null ? batch.id : undefined, batch.purchasePackageSubmissionId ?? undefined, scope) : { pdfAllowed: true, pdfBlockedReason: null }),
     })));
   }),
 

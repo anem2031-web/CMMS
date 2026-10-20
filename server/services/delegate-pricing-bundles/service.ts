@@ -3,6 +3,7 @@ import { TRPCError } from "@trpc/server";
 import { executionRows as rows } from "../operational-issues/issue-reference";
 import { assertBundleItemEligible, canReadPricingBundles, PRICING_BUNDLE_LIMIT, type PricingBundleActor, type PricingBundleSnapshot, type PricingBundleRow } from "../../../shared/delegate-pricing-bundles";
 import { hasOwnPurchaseDocumentApproval, isPurchasePdfApprover, PURCHASE_PDF_APPROVAL_MESSAGE } from "../../_core/authz/purchase-document";
+import { documentDayBoundary, documentSearchPattern, type DocumentListPageInput } from "../../../shared/document-list";
 export interface PricingBundlePorts {
   database(): Promise<any>;
   submitPO(poId: number, actor: PricingBundleActor, options: { selectedItemIds: number[]; tx: any; purchasePackageSubmissionId?: number; skipArchive: true; bundleId: number; delegateSignatureSnapshot?: string | null }): Promise<any>;
@@ -88,6 +89,39 @@ export class PricingBundleService {
       JSON_EXTRACT(b.snapshotJson,'$.rows[*].estimatedTotalCost') AS sentTotals,
       JSON_EXTRACT(b.snapshotJson,'$.rows[*].purchaseOrderId') AS sentOrderIds,JSON_EXTRACT(b.snapshotJson,'$.rows[*].poNumber') AS sentOrderNumbers
       FROM delegate_pricing_bundles b INNER JOIN users u ON u.id=b.delegateId WHERE ${actor.role === "delegate" ? sql`b.delegateId=${actor.id}` : isPurchasePdfApprover(actor) ? sql`b.status IN ('sent','archived')` : sql`1=1`} ORDER BY b.id DESC LIMIT 200`);
+    return this.presentList(actor, bundles);
+  }
+  /** Document center only: sent archive, filters and pagination before approval hydration. */
+  async listPage(actor: PricingBundleActor, input: DocumentListPageInput) {
+    this.read(actor);
+    const database = await this.ports.database();
+    const base = sql`b.status IN ('sent','archived') AND ${actor.role === "delegate" ? sql`b.delegateId=${actor.id}` : sql`1=1`}`;
+    const conditions = [base];
+    if (input.delegateId != null) conditions.push(sql`b.delegateId=${input.delegateId}`);
+    if (input.dateFrom) conditions.push(sql`COALESCE(b.sentAt,b.createdAt) >= ${documentDayBoundary(input.dateFrom)}`);
+    if (input.dateTo) conditions.push(sql`COALESCE(b.sentAt,b.createdAt) < ${documentDayBoundary(input.dateTo, true)}`);
+    if (input.search) {
+      const pattern = documentSearchPattern(input.search);
+      conditions.push(sql`(b.bundleNumber LIKE ${pattern} ESCAPE '=' OR u.name LIKE ${pattern} ESCAPE '=' OR JSON_EXTRACT(b.snapshotJson,'$.rows[*].poNumber') LIKE ${pattern} ESCAPE '=')`);
+    }
+    const where = sql.join(conditions, sql` AND `);
+    const [totals, delegates] = await Promise.all([
+      rows(database, sql`SELECT COUNT(*) AS total FROM delegate_pricing_bundles b INNER JOIN users u ON u.id=b.delegateId WHERE ${where}`),
+      rows(database, sql`SELECT b.delegateId,u.name AS delegateName,COUNT(*) AS count FROM delegate_pricing_bundles b INNER JOIN users u ON u.id=b.delegateId WHERE ${base} GROUP BY b.delegateId,u.name`),
+    ]);
+    const total = Number(totals[0]?.total || 0);
+    const page = Math.min(input.page, Math.max(1, Math.ceil(total / input.pageSize)));
+    const direction = input.sort === "oldest" ? sql`ASC` : sql`DESC`;
+    const bundles = await rows(database, sql`SELECT b.id,b.bundleNumber,b.delegateId,b.status,b.revision,b.createdAt,b.sentAt,b.effectsDone,u.name AS delegateName,
+      JSON_EXTRACT(b.snapshotJson,'$.rows[*].estimatedTotalCost') AS sentTotals,
+      JSON_EXTRACT(b.snapshotJson,'$.rows[*].purchaseOrderId') AS sentOrderIds,JSON_EXTRACT(b.snapshotJson,'$.rows[*].poNumber') AS sentOrderNumbers
+      FROM delegate_pricing_bundles b INNER JOIN users u ON u.id=b.delegateId WHERE ${where}
+      ORDER BY COALESCE(b.sentAt,b.createdAt) ${direction},b.id ${direction} LIMIT ${input.pageSize} OFFSET ${(page - 1) * input.pageSize}`);
+    return { rows: await this.presentList(actor, bundles), total, page, pageSize: input.pageSize,
+      count: delegates.reduce((n: number, row: any) => n + Number(row.count), 0),
+      delegates: delegates.map((row: any) => ({ id: Number(row.delegateId), name: row.delegateName })) };
+  }
+  private async presentList(actor: PricingBundleActor, bundles: any[]) {
     const visible = isPurchasePdfApprover(actor) ? bundles.filter((bundle: any) => ["sent", "archived"].includes(bundle.status)) : bundles;
     const approvals = isPurchasePdfApprover(actor) ? await this.approvalRows(await this.ports.database(), visible.map((bundle: any) => Number(bundle.id))) : [];
     return visible.map(({ openTotal, sentTotals, sentOrderIds, sentOrderNumbers, ...bundle }: any) => {

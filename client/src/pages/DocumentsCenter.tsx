@@ -79,6 +79,8 @@ function formatFinancialGrandTotal(value: string | number | null | undefined) {
   return `${amount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ر.س.`;
 }
 
+const listRows = (data: any): any[] => Array.isArray(data) ? data : data?.rows || [];
+
 export default function DocumentsCenter() {
   const { user } = useAuth();
   const role = (user?.role as string) || "";
@@ -90,7 +92,9 @@ export default function DocumentsCenter() {
   const canViewGeneralDocs = !isAccountantOnly && !isDelegateOnly;
 
   const [search, setSearch] = useState("");
-  const [typeFilter, setTypeFilter] = useState<DocType | "all">("all");
+  const [selectedType, setTypeFilter] = useState<DocType | "all">(() => isAccountantOnly ? "po_financial_batch" : isDelegateOnly ? "delegate_pricing_documents" : "purchase_order");
+  const typeFilter = isDelegateOnly ? "delegate_pricing_documents"
+    : isAccountantOnly && !["po_financial_batch", "delegate_pricing_documents", "delegate_pricing_bundle"].includes(selectedType) ? "po_financial_batch" : selectedType;
   const [dateFrom, setDateFrom] = useState("");
   // فلترة "الوثائق المالية المعتمدة" حسب المندوب — الجزء 2 (2026-08-10)
   const [delegateFilter, setDelegateFilter] = useState<string>("all");
@@ -98,6 +102,13 @@ export default function DocumentsCenter() {
   const [sort, setSort] = useState<"newest" | "oldest">("newest");
   const [page, setPage] = useState(1);
   const PAGE_SIZE = 20;
+  const [debouncedSearch, setDebouncedSearch] = useState(search);
+  useEffect(() => { const timer = setTimeout(() => setDebouncedSearch(search), 300); return () => clearTimeout(timer); }, [search]);
+  const paginated = ["po_financial_batch", "delegate_pricing_documents", "delegate_pricing_bundle"].includes(typeFilter);
+  const pagination = { page, pageSize: PAGE_SIZE, search: debouncedSearch,
+    dateFrom: dateFrom || undefined, dateTo: dateTo || undefined,
+    delegateId: delegateFilter === "all" ? undefined : Number(delegateFilter), sort };
+  const wants = (type: DocType) => !!user && (typeFilter === "all" || typeFilter === type);
   const [printingKey, setPrintingKey] = useState<string | null>(null);
   const [viewingKey, setViewingKey] = useState<string | null>(null);
   const [downloadingKey, setDownloadingKey] = useState<string | null>(null);
@@ -105,14 +116,14 @@ export default function DocumentsCenter() {
 
   // ── نفس الاستعلامات المستخدمة أصلاً في كل صفحة (نفس الصلاحيات والنطاق) ──
   // لا تُجلَب إطلاقًا لدور الحسابات (enabled) — راجع isAccountantOnly أعلاه.
-  const poQ       = trpc.purchaseOrders.list.useQuery({}, { enabled: canViewGeneralDocs });
-  const receiptsQ = trpc.warehouseReceipts.list.useQuery(undefined, { enabled: canViewGeneralDocs });
-  const deliveryQ = trpc.deliveryDocuments.list.useQuery(undefined, { enabled: canViewGeneralDocs });
-  const warehouseIssueQ = trpc.warehouseIssueBatches.list.useQuery(undefined, { enabled: canViewGeneralDocs });
-  const returnQ   = trpc.returnDocuments.list.useQuery(undefined, { enabled: canViewGeneralDocs });
-  const disposalQ = trpc.disposal.list.useQuery(undefined, { enabled: canViewGeneralDocs });
-  const countQ    = trpc.inventoryCount.listOperations.useQuery(undefined, { enabled: canViewGeneralDocs });
-  const settleQ   = trpc.inventoryCount.listSettlements.useQuery(undefined, { enabled: canViewGeneralDocs });
+  const poQ       = trpc.purchaseOrders.list.useQuery({}, { enabled: canViewGeneralDocs && wants("purchase_order") });
+  const receiptsQ = trpc.warehouseReceipts.list.useQuery(undefined, { enabled: canViewGeneralDocs && wants("receipt") });
+  const deliveryQ = trpc.deliveryDocuments.list.useQuery(undefined, { enabled: canViewGeneralDocs && wants("delivery") });
+  const warehouseIssueQ = trpc.warehouseIssueBatches.list.useQuery(undefined, { enabled: canViewGeneralDocs && wants("warehouse_issue") });
+  const returnQ   = trpc.returnDocuments.list.useQuery(undefined, { enabled: canViewGeneralDocs && wants("return") });
+  const disposalQ = trpc.disposal.list.useQuery(undefined, { enabled: canViewGeneralDocs && wants("disposal") });
+  const countQ    = trpc.inventoryCount.listOperations.useQuery(undefined, { enabled: canViewGeneralDocs && wants("count") });
+  const settleQ   = trpc.inventoryCount.listSettlements.useQuery(undefined, { enabled: canViewGeneralDocs && wants("settlement") });
 
   // ── الوثائق المالية المعتمدة (2026-08-10) ──────────────────────────────
   // نسخ PDF مؤرشفة فعليًا عند اعتماد الحسابات لدفعة تسعير. مندمجة بنفس جدول
@@ -125,17 +136,19 @@ export default function DocumentsCenter() {
   const delegatePricingRoles = ["delegate", "accountant", "senior_management", "owner", "admin"];
   const canViewDelegatePricingDocs = delegatePricingRoles.includes(role);
   const financialDocsQ = trpc.attachments.listByType.useQuery(
-    { entityType: "po_financial_batch" },
-    { enabled: canViewFinancialDocs, refetchOnMount: "always" },
+    { entityType: "po_financial_batch", pagination: paginated ? pagination : undefined },
+    { enabled: canViewFinancialDocs && wants("po_financial_batch") },
   );
   const delegatePricingDocsQ = trpc.attachments.listByType.useQuery(
-    { entityType: "delegate_pricing_documents" },
-    { enabled: canViewDelegatePricingDocs, refetchOnMount: "always" },
+    { entityType: "delegate_pricing_documents", pagination: paginated ? pagination : undefined },
+    { enabled: canViewDelegatePricingDocs && wants("delegate_pricing_documents") },
   );
   const canViewBundles = !!user && !isDelegateOnly && role !== "observer" && canReadPricingBundles(user);
-  const bundleStatusQ = trpc.delegatePricingBundles.status.useQuery(undefined, { enabled: canViewBundles, retry: false });
+  const bundleStatusQ = trpc.delegatePricingBundles.status.useQuery(undefined, { enabled: canViewBundles && wants("delegate_pricing_bundle"), retry: false });
   const bundlesEnabled = canViewBundles && bundleStatusQ.data?.enabled === true;
-  const bundlesQ = trpc.delegatePricingBundles.list.useQuery(undefined, { enabled: bundlesEnabled, retry: false, refetchOnMount: "always" });
+  const bundlesAllQ = trpc.delegatePricingBundles.list.useQuery(undefined, { enabled: bundlesEnabled && typeFilter === "all", retry: false });
+  const bundlesPageQ = trpc.delegatePricingBundles.listPage.useQuery(pagination, { enabled: bundlesEnabled && typeFilter === "delegate_pricing_bundle", retry: false });
+  const bundlesQ = typeFilter === "all" ? bundlesAllQ : bundlesPageQ;
   const bundleDetailQ = trpc.delegatePricingBundles.detail.useQuery({ id: selectedBundleId || 0 }, { enabled: !!selectedBundleId && bundlesEnabled, retry: false });
   const bundlePdf = trpc.delegatePricingBundles.pdf.useMutation({
     onSuccess: result => { try { downloadPricingBundlePdf(result); } catch { toast.error("تعذر تنزيل الملف"); } },
@@ -149,23 +162,27 @@ export default function DocumentsCenter() {
     else if (isDelegateOnly) setTypeFilter("delegate_pricing_documents");
   }, [isAccountantOnly, isDelegateOnly]);
 
-  const isLoading = isAccountantOnly
-    ? financialDocsQ.isLoading || delegatePricingDocsQ.isLoading || bundleStatusQ.isLoading || (bundlesEnabled && bundlesQ.isLoading)
-    : isDelegateOnly
-      ? delegatePricingDocsQ.isLoading
-      : (poQ.isLoading || receiptsQ.isLoading || deliveryQ.isLoading || warehouseIssueQ.isLoading ||
-         returnQ.isLoading || disposalQ.isLoading || countQ.isLoading || settleQ.isLoading ||
-         (canViewFinancialDocs && financialDocsQ.isLoading) ||
-         (canViewDelegatePricingDocs && delegatePricingDocsQ.isLoading) || (bundlesEnabled && bundlesQ.isLoading));
-
+  const queryEntries = [
+    ["purchase_order", poQ, canViewGeneralDocs], ["receipt", receiptsQ, canViewGeneralDocs],
+    ["delivery", deliveryQ, canViewGeneralDocs], ["warehouse_issue", warehouseIssueQ, canViewGeneralDocs],
+    ["return", returnQ, canViewGeneralDocs], ["disposal", disposalQ, canViewGeneralDocs],
+    ["count", countQ, canViewGeneralDocs], ["settlement", settleQ, canViewGeneralDocs],
+    ["po_financial_batch", financialDocsQ, canViewFinancialDocs],
+    ["delegate_pricing_documents", delegatePricingDocsQ, canViewDelegatePricingDocs],
+    ["delegate_pricing_bundle", bundlesQ, bundlesEnabled],
+  ] as const;
+  const activeQueries = queryEntries.filter(([type, , allowed]) => allowed && wants(type)).map(([, query]) => query);
+  const loadingBundles = wants("delegate_pricing_bundle") && canViewBundles && bundleStatusQ.isLoading;
+  // "All" renders completed lists immediately while the remaining lists load.
+  const pendingLists = loadingBundles || activeQueries.some(query => query.isLoading);
+  const isLoading = pendingLists && activeQueries.every(query => query.data === undefined);
+  const activeError = activeQueries.some(query => query.error) || (wants("delegate_pricing_bundle") && !!bundleStatusQ.error);
+  const pageResult = paginated ? typeFilter === "po_financial_batch" ? financialDocsQ.data
+    : typeFilter === "delegate_pricing_documents" ? delegatePricingDocsQ.data : bundlesQ.data : undefined;
+  const serverPage = pageResult && !Array.isArray(pageResult) ? pageResult : undefined;
   const refresh = () => {
-    if (canViewGeneralDocs) {
-      poQ.refetch(); receiptsQ.refetch(); deliveryQ.refetch(); warehouseIssueQ.refetch();
-      returnQ.refetch(); disposalQ.refetch(); countQ.refetch(); settleQ.refetch();
-    }
-    if (canViewFinancialDocs) financialDocsQ.refetch();
-    if (canViewDelegatePricingDocs) delegatePricingDocsQ.refetch();
-    if (bundlesEnabled) bundlesQ.refetch();
+    activeQueries.forEach(query => query.refetch());
+    if (canViewBundles && wants("delegate_pricing_bundle")) bundleStatusQ.refetch();
   };
 
   // ── تطبيع كل الأنواع لشكل صف موحّد للعرض فقط (لا تُستخدم للطباعة) ──
@@ -207,7 +224,7 @@ export default function DocumentsCenter() {
     }));
     }
     if (canViewDelegatePricingDocs) {
-      (delegatePricingDocsQ.data as any[] || []).forEach(doc => out.push({
+      listRows(delegatePricingDocsQ.data).forEach(doc => out.push({
         type: "delegate_pricing_documents", id: doc.id, documentNumber: doc.fileName,
         date: doc.createdAt, referenceLabel: doc.delegateName || "بلا مندوب", printCount: null,
         delegateId: doc.delegateId ?? null,
@@ -217,7 +234,7 @@ export default function DocumentsCenter() {
       }));
     }
     if (canViewFinancialDocs) {
-      (financialDocsQ.data as any[] || []).forEach(doc => out.push({
+      listRows(financialDocsQ.data).forEach(doc => out.push({
         type: "po_financial_batch", id: doc.id, documentNumber: doc.fileName,
         date: doc.createdAt, referenceLabel: doc.delegateName || "بلا مندوب", printCount: null,
         delegateId: doc.delegateId ?? null,
@@ -227,7 +244,7 @@ export default function DocumentsCenter() {
       }));
     }
     if (bundlesEnabled) {
-      (bundlesQ.data || []).filter(bundle => bundle.status !== "open").forEach((bundle: any) => out.push({
+      listRows(bundlesQ.data).filter(bundle => bundle.status !== "open").forEach((bundle: any) => out.push({
         type: "delegate_pricing_bundle", id: bundle.id, documentNumber: bundle.bundleNumber,
         date: bundle.sentAt || bundle.createdAt, referenceLabel: bundle.delegateName || "بلا مندوب", printCount: null,
         delegateId: bundle.delegateId, totalEstimatedCost: bundle.total, status: bundle.status,
@@ -239,6 +256,7 @@ export default function DocumentsCenter() {
 
   // ── الفلترة والبحث والترتيب — على القائمة المجمَّعة كاملة ──
   const filtered = useMemo(() => {
+    if (paginated) return rows.filter(row => row.type === typeFilter);
     const q = search.trim().toLowerCase();
     const from = dateFrom ? new Date(`${dateFrom}T00:00:00`) : null;
     const to   = dateTo   ? new Date(`${dateTo}T23:59:59.999`) : null;
@@ -263,25 +281,31 @@ export default function DocumentsCenter() {
       return sort === "newest" ? db - da : da - db;
     });
     return list;
-  }, [rows, search, typeFilter, delegateFilter, dateFrom, dateTo, sort]);
+  }, [rows, search, typeFilter, delegateFilter, dateFrom, dateTo, sort, paginated]);
 
   const counts = useMemo(() => {
-    const c: Record<string, number> = { all: rows.length };
-    (Object.keys(TYPE_META) as DocType[]).forEach(t => { c[t] = rows.filter(r => r.type === t).length; });
+    const c: Record<string, number | undefined> = {};
+    queryEntries.forEach(([type, query]) => {
+      if (query.data !== undefined) c[type] = Array.isArray(query.data) ? listRows(query.data).filter(row => type !== "delegate_pricing_bundle" || row.status !== "open").length : query.data.count;
+    });
+    if (typeFilter === "all" && !pendingLists && !activeError) c.all = rows.length;
     return c;
-  }, [rows]);
+  }, [rows, typeFilter, pendingLists, activeError, financialDocsQ.data, delegatePricingDocsQ.data, bundlesQ.data]);
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  const pageRows = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const resultCount = serverPage?.total ?? filtered.length;
+  const visiblePage = serverPage?.page ?? page;
+  const totalPages = Math.max(1, Math.ceil(resultCount / PAGE_SIZE));
+  const pageRows = paginated ? filtered : filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   // قائمة المندوبين الفريدة لهذا الفلتر — من بيانات "الوثائق المالية المعتمدة" فقط
   const financialDelegateOptions = useMemo(() => {
     const map = new Map<string, string>();
-    [...(financialDocsQ.data as any[] || []), ...(delegatePricingDocsQ.data as any[] || []), ...(bundlesQ.data as any[] || [])].forEach((doc: any) => {
+    if (serverPage) return serverPage.delegates.map(person => [String(person.id), person.name] as [string, string]);
+    [...listRows(financialDocsQ.data), ...listRows(delegatePricingDocsQ.data), ...listRows(bundlesQ.data)].forEach((doc: any) => {
       if (doc.delegateId != null) map.set(String(doc.delegateId), doc.delegateName || `مستخدم #${doc.delegateId}`);
     });
     return Array.from(map.entries());
-  }, [financialDocsQ.data, delegatePricingDocsQ.data, bundlesQ.data]);
+  }, [financialDocsQ.data, delegatePricingDocsQ.data, bundlesQ.data, serverPage]);
 
   const utils = trpc.useUtils();
   const incrementDeliveryPrintMut = trpc.deliveryDocuments.incrementPrint.useMutation();
@@ -353,7 +377,7 @@ export default function DocumentsCenter() {
   // يجلب رابط الملف المؤرشف فعليًا (لا توليد حي) لصف "الوثائق المالية المعتمدة"
   const getArchivedDoc = (row: DocRow): any => {
     const source = row.type === "delegate_pricing_documents" ? delegatePricingDocsQ.data : financialDocsQ.data;
-    const doc = (source as any[] || []).find(d => d.id === row.id);
+    const doc = listRows(source).find(d => d.id === row.id);
     if (!doc?.fileUrl) throw new Error("تعذر إيجاد رابط الملف المؤرشف");
     return doc;
   };
@@ -506,7 +530,7 @@ export default function DocumentsCenter() {
               variant="secondary"
               className={`text-[11px] px-1.5 min-w-5 justify-center ${typeFilter === f.key ? "bg-primary-foreground/20 text-primary-foreground" : ""}`}
             >
-              {counts[f.key] ?? 0}
+              {counts[f.key] ?? "—"}
             </Badge>
           </Button>
         ))}
@@ -537,7 +561,7 @@ export default function DocumentsCenter() {
         )}
         <div className="flex flex-col gap-1">
           <span className="text-xs text-muted-foreground">الترتيب</span>
-          <Select value={sort} onValueChange={v => setSort(v as any)}>
+          <Select value={sort} onValueChange={v => { setSort(v as any); setPage(1); }}>
             <SelectTrigger className="w-[150px]"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="newest">الأحدث أولًا</SelectItem>
@@ -546,14 +570,15 @@ export default function DocumentsCenter() {
           </Select>
         </div>
         {(search || typeFilter !== "all" || dateFrom || dateTo || delegateFilter !== "all") && (
-          <Button variant="ghost" size="sm" className="h-9" onClick={() => { setSearch(""); setTypeFilter("all"); setDateFrom(""); setDateTo(""); setDelegateFilter("all"); setPage(1); }}>
+          <Button variant="ghost" size="sm" className="h-9" onClick={() => { setSearch(""); setDateFrom(""); setDateTo(""); setDelegateFilter("all"); setPage(1); }}>
             مسح الفلاتر
           </Button>
         )}
       </div>
 
       {(role === "accountant" || role === "senior_management") && <p className="text-sm text-muted-foreground">{approvalPdfNotice()}</p>}
-      {typeFilter === "delegate_pricing_bundle" && (bundleStatusQ.error || bundlesQ.error) && <p role="alert">تعذر تحميل حزم التسعير. أعد المحاولة من تحديث البيانات.</p>}
+      {activeError && <p role="alert">تعذر تحميل بعض المستندات. أعد المحاولة من تحديث البيانات.</p>}
+      {pendingLists && !isLoading && <p role="status">جارٍ تحميل بقية المستندات…</p>}
       {typeFilter === "delegate_pricing_bundle" && canViewBundles && bundleStatusQ.data?.enabled === false && <p role="status">حزم التسعير غير مفعلة حاليًا.</p>}
 
       {isLoading ? (
@@ -562,7 +587,7 @@ export default function DocumentsCenter() {
             <Card key={i}><CardContent className="p-4"><Skeleton className="h-12 w-full" /></CardContent></Card>
           ))}
         </div>
-      ) : pageRows.length === 0 ? (
+      ) : pageRows.length === 0 && !activeError ? (
         <Card><CardContent className="p-12 text-center text-muted-foreground">لا توجد مستندات مطابقة</CardContent></Card>
       ) : (
         <Card>
@@ -662,13 +687,13 @@ export default function DocumentsCenter() {
         </DialogContent>
       </Dialog>
 
-      {!isLoading && filtered.length > 0 && totalPages > 1 && (
+      {!isLoading && resultCount > 0 && totalPages > 1 && (
         <div className="flex items-center justify-between gap-3">
-          <span className="text-xs text-muted-foreground">النتائج: {filtered.length}</span>
+          <span className="text-xs text-muted-foreground">النتائج: {resultCount}</span>
           <div className="flex gap-2">
-            <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(p => p - 1)}>السابق</Button>
-            <span className="text-xs text-muted-foreground self-center">{page} / {totalPages}</span>
-            <Button variant="outline" size="sm" disabled={page >= totalPages} onClick={() => setPage(p => p + 1)}>التالي</Button>
+            <Button variant="outline" size="sm" disabled={visiblePage <= 1} onClick={() => setPage(visiblePage - 1)}>السابق</Button>
+            <span className="text-xs text-muted-foreground self-center">{visiblePage} / {totalPages}</span>
+            <Button variant="outline" size="sm" disabled={visiblePage >= totalPages} onClick={() => setPage(visiblePage + 1)}>التالي</Button>
           </div>
         </div>
       )}

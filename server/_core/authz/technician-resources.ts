@@ -9,6 +9,7 @@ type Actor = { id: number; role: string; preferredLanguage?: string | null };
 export interface TechnicianTranslationPort {
   parents(type: string, ids: number[]): Promise<Array<{ id: number; ticketId: number }>>;
   assertTicket(user: Actor, ticketId: number): Promise<void>;
+  assertTickets?(user: Actor, ticketIds: number[]): Promise<void>;
 }
 async function assertTicket(user: Actor, ticketId: number) {
   const db = await import("../db");
@@ -19,6 +20,16 @@ async function assertTicket(user: Actor, ticketId: number) {
   return ticket;
 }
 const translationPort: TechnicianTranslationPort = {
+  async assertTickets(user, ids) {
+    const { loadTicketReadScope } = await import("../db/ticket-read-scope");
+    const { assertTicketReadable } = await import("../../routers/tickets/tickets.access");
+    const scope = await loadTicketReadScope(user, ids);
+    for (const id of ids) {
+      const ticket = scope.tickets.get(id);
+      if (!ticket) throw new TRPCError({ code: "NOT_FOUND", message: "البلاغ غير موجود" });
+      await assertTicketReadable(user, ticket, undefined, scope.source);
+    }
+  },
   async assertTicket(user, ticketId) { await assertTicket(user, ticketId); },
   async parents(type, ids) {
     if (type === "TICKET") return ids.map(id => ({ id, ticketId: id }));
@@ -48,7 +59,9 @@ export async function assertTechnicianTranslationAccess(user: Actor, raw: unknow
   if (rows.length !== ids.length || ids.some(id => !rows.some(row => row.id === id))) {
     throw new TRPCError({ code: "FORBIDDEN", message: "بيانات الترجمة غير متاحة" });
   }
-  for (const ticketId of Array.from(new Set(rows.map(row => row.ticketId)))) await port.assertTicket(user, ticketId);
+  const ticketIds = Array.from(new Set(rows.map(row => row.ticketId)));
+  if (port.assertTickets && ticketIds.length > 1) await port.assertTickets(user, ticketIds);
+  else for (const ticketId of ticketIds) await port.assertTicket(user, ticketId);
 }
 
 /** Small display references for one authorized ticket, rather than global directories. */

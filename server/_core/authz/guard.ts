@@ -70,6 +70,21 @@ export async function assertCanViewPurchaseOrder(user: MinimalCtxUser, po: POVis
   assertPOVisible(visCtx, po);
 }
 
+/** One read-list operation, one visibility context. Never retain across requests
+ * or use a previously constructed reader to authorize a write/download. */
+export async function createPurchaseOrderReadGuard(user: MinimalCtxUser) {
+  return (await createPurchaseOrderReadScope(user)).assert;
+}
+
+/** Share one context between list filtering and per-document checks in the RPC. */
+export async function createPurchaseOrderReadScope(user: MinimalCtxUser) {
+  const visCtx = await buildVisibilityContext(user);
+  return {
+    assert: (po: POVisibilitySubject): void => assertPOVisible(visCtx, po),
+    filter: <T extends POVisibilitySubject>(orders: T[]): T[] => filterVisiblePOs(visCtx, orders),
+  };
+}
+
 /**
  * يُستخدم من list(): يجلب ما يلزم من DB مرة واحدة، ثم يفلتر قائمة الطلبات
  * الكاملة لنفس النطاق **تمامًا** المستخدم بـgetById — هذا هو الضمان العملي

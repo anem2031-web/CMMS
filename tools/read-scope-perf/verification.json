@@ -1,0 +1,43 @@
+{
+  "date": "2026-10-20",
+  "status": "implemented locally; deployment and browser timing pending",
+  "tests": {
+    "command": "node tools/read-scope-perf/run.mjs",
+    "files": 13,
+    "passed": 365,
+    "failed": 0,
+    "newReadScopeCases": 44
+  },
+  "types": {
+    "command": "node tools/read-scope-perf/check-types.mjs",
+    "baseline": 660,
+    "current": 660,
+    "introduced": []
+  },
+  "build": {
+    "server": "PASS node tools/documents-center-perf/build-server.mjs",
+    "existingWarnings": "Five missing vendor DB exports, already present before this change; unchanged."
+  },
+  "database": {
+    "remoteConnections": 0,
+    "migrations": 0,
+    "manualSqlRequired": false,
+    "testFixtures": "Disposable in-memory SQLite with real parameterized Drizzle predicates; not TiDB runtime validation."
+  },
+  "scope": {
+    "completed": [
+      "Pricing batch permission scope preloading",
+      "Purchase package item/submission batch reads",
+      "Business and technician translation parent scopes",
+      "Request-local PO visibility reuse",
+      "AGENTS.md mandatory future permission/performance rules"
+    ],
+    "notChanged": [
+      "Permission policy and workflow decisions",
+      "Financial and inventory writers",
+      "Direct download authorization",
+      "General purchase list pagination",
+      "Media reference scan architecture"
+    ]
+  }
+}

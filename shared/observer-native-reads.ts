@@ -2,6 +2,7 @@
 export const OBSERVER_NATIVE_READ_PATHS = [
   "delegatePricingBundles.status",
   "delegatePricingBundles.list",
+  "delegatePricingBundles.listPage",
   "delegatePricingBundles.detail",
   "operationalIssues.status",
   "operationalIssues.list",

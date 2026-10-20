@@ -6,6 +6,7 @@ import {
   assertCanPerformPOAction,
   assertCanViewPurchaseOrder,
   filterVisiblePurchaseOrders,
+  createPurchaseOrderReadScope,
 } from "../../_core/authz/guard";
 import { PO_STATUS } from "../../_core/authz/policy";
 import { submitPricedBatchForPO } from "./purchase-orders.router";
@@ -19,6 +20,8 @@ import { queuePurchaseTranslation } from "./translation-queue";
 import { withPurchaseSubmissionTime } from "../../../shared/purchaseSubmissionTime";
 import { localizeMasterDataReferences } from "../../services/translation/localizedMasterData";
 import { purchaseDocumentPermission } from "../../_core/authz/purchase-document";
+import { loadDocumentListPort } from "../../_core/db/document-list";
+import { groupReadRows } from "../../_core/authz/read-batch";
 
 // ============================================================
 // [PB] راوتر حزمة الشراء — حاوية عليا فوق طلبات الشراء (2026-08-29)
@@ -144,13 +147,11 @@ async function assertCanManageOrderThroughPackage(user: any, po: any) {
 async function getVisiblePackageOrdersWithItems(user: any, packageId: number) {
   const packageOrders = await db.getPurchaseOrdersByPackage(packageId);
   const visibleOrders = await filterVisiblePurchaseOrders(user, packageOrders as any[]);
-
-  return Promise.all(
-    visibleOrders.map(async (po: any) => ({
-      ...po,
-      items: await db.getPOItems(po.id),
-    }))
-  );
+  const items = groupReadRows(await db.getFullPOItemsForPOs(visibleOrders.map(po => Number(po.id))), row => Number(row.purchaseOrderId));
+  return visibleOrders.map((po: any) => ({
+    ...po,
+    items: items.get(Number(po.id)) ?? [],
+  }));
 }
 
 /**
@@ -354,12 +355,16 @@ export const purchasePackagesRouter = router({
     }
 
     const items: any[] = [];
+    const submissionGroups = groupReadRows(
+      await db.getPackageSubmissionsWithBatchesForPackages(Array.from(visiblePoIdsByPackage.keys())),
+      row => Number(row.purchasePackageId),
+    );
 
     for (const pkg of packages as any[]) {
       const visiblePoIds = visiblePoIdsByPackage.get(Number(pkg.id));
       if (!visiblePoIds || visiblePoIds.size === 0) continue;
 
-      const submissions = await db.getPackageSubmissionsWithBatches(Number(pkg.id));
+      const submissions = submissionGroups.get(Number(pkg.id)) ?? [];
       for (const sub of submissions as any[]) {
         // الحسابات تقبل الإرسال الجديد ذي status=NULL أو pending_accounting.
         // الإدارة لا ترى إلا إرسالًا انتقل فعليًا إليها. هذه الشروط تطابق
@@ -994,7 +999,8 @@ export const purchasePackagesRouter = router({
       }
 
       const packageOrders = await db.getPurchaseOrdersByPackage(input.packageId);
-      const visibleOrders = await filterVisiblePurchaseOrders(ctx.user, packageOrders as any[]);
+      const readScope = await createPurchaseOrderReadScope(ctx.user);
+      const visibleOrders = readScope.filter(packageOrders as any[]);
       const visiblePoIds = new Set(visibleOrders.map((po: any) => po.id));
 
       if (visiblePoIds.size === 0) {
@@ -1005,6 +1011,11 @@ export const purchasePackagesRouter = router({
       }
 
       const subs = await db.getPackageSubmissionsWithBatches(input.packageId);
+      const scope = await loadDocumentListPort(subs.map((sub: any) => ({
+        entityType: "purchase_package_submission_financial", entityId: Number(sub.id),
+      })), undefined, { actor: ctx.user, orders: packageOrders, authorize: readScope.assert });
+      const orderById = new Map(packageOrders.map((po: any) => [Number(po.id), po]));
+      const itemsByBatch = groupReadRows(await db.getFullPOItemsForPOs(Array.from(visiblePoIds).map(Number)), row => Number(row.batchId));
 
       // إثراء كل دفعة تسعير برقم طلبها وأصنافها — لعرض "رقم الطلب أمام كل صنف"
       // لا نضيف قيدًا خاصًا بالمندوب على الإرسال نفسه؛ نطاق الرؤية هنا
@@ -1017,21 +1028,17 @@ export const purchasePackagesRouter = router({
 
           return {
             ...sub,
-            ...await purchaseDocumentPermission(ctx.user, Number(visibleBatches[0]?.purchaseOrderId), undefined, Number(sub.id)),
-            batches: await Promise.all(
-              visibleBatches.map(async (b: any) => {
-                const po = await db.getPurchaseOrderById(b.purchaseOrderId);
-                const items = (await db.getPOItems(b.purchaseOrderId)).filter(
-                  (i: any) => i.batchId === b.id
-                );
-                return {
-                  ...b,
-                  poNumber: po?.poNumber ?? "-",
-                  poStatus: po?.status ?? null,
-                  items,
-                };
-              })
-            ),
+            ...await purchaseDocumentPermission(ctx.user, Number(visibleBatches[0]?.purchaseOrderId), undefined, Number(sub.id), scope),
+            batches: visibleBatches.map((b: any) => {
+              const po = orderById.get(Number(b.purchaseOrderId));
+              const items = (itemsByBatch.get(Number(b.id)) ?? []).filter(i => Number(i.purchaseOrderId) === Number(b.purchaseOrderId));
+              return {
+                ...b,
+                poNumber: po?.poNumber ?? "-",
+                poStatus: po?.status ?? null,
+                items,
+              };
+            }),
           };
         })
       );

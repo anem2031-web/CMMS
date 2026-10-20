@@ -15,6 +15,8 @@ import { APP_ROLE } from "../../shared/roles";
 import { mediaKeyFromValue } from "../_core/authz/media-access";
 import { purchaseDocumentPort } from "../_core/authz/purchase-document";
 import { protectedProcedure } from "../routers/_shared/procedures";
+import { decorateDocumentRows } from "../_core/authz/document-list";
+import { documentListPageInput } from "../../shared/document-list";
 
 const live = vi.hoisted(() => ({ order: vi.fn(), batch: vi.fn(), submission: vi.fn(), batches: vi.fn(), orderBatches: vi.fn() }));
 vi.mock("../_core/db", () => ({ getPurchaseOrderById: live.order, getPOPricingBatchById: live.batch, getPurchasePackageSubmissionById: live.submission, getPricingBatchesBySubmission: live.batches, getPOPricingBatches: live.orderBatches }));
@@ -113,11 +115,11 @@ describe("Actual document-center list route, without exposing preapproval file k
   const sourceFile = ts.createSourceFile("attachments.router.ts", readFileSync("server/routers/uploads/attachments.router.ts", "utf8"), ts.ScriptTarget.Latest, true);
   const compile = (text: string, scope: any) => vm.runInNewContext(ts.transpileModule(`(${text.replace(/^export /, "")})`, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText, scope);
   const helper = sourceFile.statements.find(node => ts.isFunctionDeclaration(node) && node.name?.text === "documentRows")!;
-  const documentRows = compile(helper.getText(sourceFile), { purchaseAttachmentPermission, purchaseDocumentPort, APP_ROLE, mediaKeyFromValue, encodeURIComponent, Map, Promise });
+  const documentRows = compile(helper.getText(sourceFile), { decorateDocumentRows, loadDocumentListPort: async () => purchaseDocumentPort });
   let listCode = "";
   function visit(node: ts.Node) { if (ts.isPropertyAssignment(node) && node.name.getText(sourceFile) === "listByType") listCode = node.initializer.getText(sourceFile); ts.forEachChild(node, visit); } visit(sourceFile);
   function listCaller(role: string, rows: any[], id = 3) {
-    const procedure = compile(listCode, { z, protectedProcedure, TRPCError, APP_ROLE, documentRows,
+    const procedure = compile(listCode, { z, documentListPageInput, protectedProcedure, TRPCError, APP_ROLE, documentRows,
       db: { getDelegatePricingAttachmentsWithDelegate: async () => rows, getFinancialBatchAttachmentsWithDelegate: async () => rows } });
     return router({ attachments: router({ listByType: procedure }) }).createCaller({ user: actor(role, id) } as any).attachments.listByType;
   }

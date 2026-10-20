@@ -1,4 +1,5 @@
 import { pricingBundlesEnabled, assertItemOutsidePricingBundle } from "../../services/delegate-pricing-bundles/reservations";
+import { getPackageSubmissionsWithBatchesForPackages } from "./purchase-read-lists";
 // ============================================================
 // db/purchase.ts — المشتريات: أوامر الشراء وبنودها ودفعات التسعير وتعليقاتها
 // (مُقسَّم من db.ts الأصلي حسب المجال الوظيفي)
@@ -1803,18 +1804,7 @@ export async function getPricingBatchesBySubmission(submissionId: number) {
 export async function getPackageSubmissionsWithBatches(purchasePackageId: number) {
   const db = await getDb();
   if (!db) return [];
-  const subs = await db
-    .select()
-    .from(purchasePackageSubmissions)
-    .where(eq(purchasePackageSubmissions.purchasePackageId, purchasePackageId))
-    .orderBy(asc(purchasePackageSubmissions.subNumber));
-
-  const result = [];
-  for (const s of subs as any[]) {
-    const batches = await getPricingBatchesBySubmission(s.id);
-    result.push({ ...s, batches });
-  }
-  return result;
+  return getPackageSubmissionsWithBatchesForPackages([purchasePackageId], db);
 }
 
 export async function getPurchasePackageSubmissionById(id: number) {

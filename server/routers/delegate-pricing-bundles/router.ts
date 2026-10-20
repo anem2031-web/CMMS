@@ -3,6 +3,7 @@ import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure } from "../_shared/procedures";
 import { canReadPricingBundles } from "../../../shared/delegate-pricing-bundles";
 import { PricingBundleService, type PricingBundlePorts } from "../../services/delegate-pricing-bundles/service";
+import { documentListPageInput } from "@shared/document-list";
 const id = z.number().int().positive();
 export function createPricingBundlesRouter(ports: PricingBundlePorts, enabled: () => boolean) {
   const service = new PricingBundleService(ports);
@@ -10,6 +11,11 @@ export function createPricingBundlesRouter(ports: PricingBundlePorts, enabled: (
   return router({
     status: protectedProcedure.query(({ ctx }) => { if (!canReadPricingBundles(ctx.user)) throw new TRPCError({ code: "FORBIDDEN" }); return { enabled: enabled() }; }),
     list: protectedProcedure.query(({ ctx }) => { if (!canReadPricingBundles(ctx.user)) throw new TRPCError({ code: "FORBIDDEN" }); return enabled() ? service.list(ctx.user) : []; }),
+    listPage: protectedProcedure.input(documentListPageInput).query(({ ctx, input }) => {
+      if (!canReadPricingBundles(ctx.user)) throw new TRPCError({ code: "FORBIDDEN" });
+      if (!enabled()) return { rows: [], total: 0, count: 0, page: 1, pageSize: input.pageSize, delegates: [] };
+      return service.listPage(ctx.user, input);
+    }),
     detail: protectedProcedure.input(z.object({ id })).query(({ ctx, input }) => { available(); return service.detail(ctx.user, input.id); }),
     add: protectedProcedure.input(z.object({ itemId: id })).mutation(({ ctx, input }) => { available(); return service.add(ctx.user, input.itemId); }),
     remove: protectedProcedure.input(z.object({ id, itemId: id })).mutation(({ ctx, input }) => { available(); return service.remove(ctx.user, input.id, input.itemId); }),

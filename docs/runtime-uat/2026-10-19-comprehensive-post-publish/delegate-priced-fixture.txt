@@ -1,0 +1,77 @@
+- region "Notifications alt+T"
+- main:
+  - button "Toggle Sidebar":
+    - generic: Toggle Sidebar
+  - generic: طلبات الشراء
+  - generic: "6"
+  - main:
+    - button:
+    - generic: PR-2026-180473
+    - generic: بانتظار التسعير
+    - heading "إدارة طلبات الشراء" [level=1]
+    - link "حزم التسعير":
+      - /url: /delegate-pricing-bundles
+      - button "حزم التسعير"
+    - button "طلب مراجعة":
+      - text: طلب مراجعة
+    - generic: ✓
+    - generic: مسودة
+    - generic: ✓
+    - generic: بانتظار المراجعة
+    - generic: "3"
+    - generic: بانتظار التسعير
+    - generic: "4"
+    - generic: بانتظار اعتماد الحسابات
+    - generic: "5"
+    - generic: بانتظار اعتماد الإدارة
+    - generic: "6"
+    - generic: معتمد
+    - generic: "7"
+    - generic: تم الشراء بالكامل
+    - generic: "8"
+    - generic: تم الاستلام
+    - paragraph: مقدم الطلب
+    - paragraph: ردمان مدير الصيانة العامة والتشغيل
+    - paragraph: المخطط الزمني
+    - paragraph: ١٨‏/١٠‏/٢٠٢٦، ٠٤:٤٦:٠٣ م غرينتش+٣
+    - paragraph: الأصناف
+    - paragraph: "1"
+    - paragraph: تأكيد الشراء للطلب
+    - paragraph: 0 / 1
+    - paragraph: الموقع
+    - paragraph: حديقة الوطن-alwatan park
+    - paragraph: القسم
+    - paragraph: المكاتب الادارية-Administrative Offices
+    - paragraph: الأصل
+    - paragraph: بدون أصل محدد
+    - paragraph: التصنيف
+    - paragraph: بدون تصنيف
+    - text: الأصناف
+    - heading "فرشاة تنظيف المكيفات" [level=4]
+    - generic: تم التسعير
+    - paragraph: UAT-20261018-PO-01 اختبار مدة الاحتياج والحزمة والحسابات والتوريد وتحويل الوحدات
+    - text: "الكمية:"
+    - strong: 1 قطعة
+    - text: "المندوب:"
+    - strong: ردمان مندوب مشتريات
+    - text: "تاريخ الاحتياج:"
+    - strong: ٢١‏/١٠‏/٢٠٢٦
+    - text: "تاريخ الوصول للمندوب:"
+    - strong: ١٨‏/١٠‏/٢٠٢٦
+    - text: "المدة المتاحة:"
+    - strong: 3 أيام
+    - button "Click to preview"
+    - generic: "إجمالي التكلفة التقديرية:"
+    - text: ١ ر.س × 1 =
+    - strong: ١ ر.س
+    - button "إضافة إلى حزمة التسعير" [disabled]
+    - paragraph:
+      - text: تم التسعير — بانتظار الإرسال للحسابات
+    - generic: ١ ر.س
+    - heading "إجمالي التكلفة التقديرية" [level=3]
+    - generic: "إجمالي التكلفة التقديرية:"
+    - generic: ١ ر.س
+    - paragraph: (واحد ريال)
+    - paragraph: "المبررات:"
+    - paragraph: UAT-20261018 طلب تجريبي غير حقيقي على copycmms
+- button "🔔"
