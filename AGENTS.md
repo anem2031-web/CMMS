@@ -37,3 +37,8 @@ These requirements apply to every new role, permission, API and list endpoint:
    should grow by bounded chunks, not by displayed rows. Verify writes/downloads
    still perform fresh checks. Run `node tools/read-scope-perf/run.mjs` for the
    shared read-scope regression suite; it must never load a live DB/environment.
+7. When diagnosing slow interactive reads, distinguish server query work from
+   HTTP batch head-of-line blocking. Opt in only the affected queries with
+   `independentReadOptions`; keep the observer link first and preserve cookies,
+   serializers and server guards. Do not unbatch the whole application or use a
+   global permission cache. Test a fast query while an unrelated query is blocked.

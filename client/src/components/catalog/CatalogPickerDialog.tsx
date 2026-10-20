@@ -1,4 +1,5 @@
 import { trpc } from "@/lib/trpc";
+import { independentReadOptions } from "@/lib/read-transport";
 import { useTranslation } from "@/contexts/LanguageContext";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
@@ -55,10 +56,10 @@ onSelect: (item: {
 
   const { data: allNodes, error: nodesError, refetch: refetchNodes, isFetching: nodesFetching } = trpc.catalog.nodes.list.useQuery(
     { isActive: true },
-    { enabled: open, retry: false }
+    { enabled: open, retry: false, ...independentReadOptions }
   );
 
-  const { data: catalogUnits, error: unitsError, refetch: refetchUnits, isFetching: unitsFetching } = trpc.catalog.units.list.useQuery(undefined, { enabled: open, retry: false });
+  const { data: catalogUnits, error: unitsError, refetch: refetchUnits, isFetching: unitsFetching } = trpc.catalog.units.list.useQuery(undefined, { enabled: open, retry: false, ...independentReadOptions });
 
   // جمع ID التصنيف المختار + كل أحفاده بشكل تكراري
   const getDescendantIds = (nodeId: number, nodes: CatalogNode[]): number[] => {
@@ -79,7 +80,7 @@ onSelect: (item: {
       search: debouncedSearch || undefined,
       nodeIds: selectedNodeIds,
     },
-    { enabled: open, retry: false }
+    { enabled: open, retry: false, ...independentReadOptions }
   );
 
   const catalogError = itemsError || nodesError || unitsError;
@@ -220,7 +221,7 @@ onSelect: (item: {
                   </Button>
                 </div>
               )}
-              {isFetching ? (
+              {isFetching && !serverItems ? (
                 <div className="text-center py-10 text-sm text-muted-foreground">
                   <Loader2 className="w-5 h-5 animate-spin mx-auto mb-2" />
                   {t.common.loading}

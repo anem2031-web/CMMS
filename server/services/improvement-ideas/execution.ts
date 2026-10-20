@@ -72,12 +72,20 @@ export async function executionReference(tx: ExecutionSql, kind: "ticket" | "pur
 export async function improvementExecutionSummary(tx: ExecutionSql, idea: any) {
   const tickets: any[] = [], visited = new Set<number>();
   let frontier = idea.linkedTicketId ? [Number(idea.linkedTicketId)] : [];
+  const readTickets = async (values: number[], children = false) => {
+    const found: any[] = [];
+    for (let offset = 0; offset < values.length; offset += 500) {
+      const chunk = values.slice(offset, offset + 500);
+      found.push(...await rows(tx, sql`SELECT id,ticketNumber,title,status,actualCost,parentTicketId FROM tickets WHERE ${children ? sql`parentTicketId` : sql`id`} IN (${ids(chunk)})`));
+    }
+    return found;
+  };
+  let found = await readTickets(frontier);
   for (let depth = 0; frontier.length && depth < 50; depth++) {
     if (visited.size + frontier.length > 2000) throw new Error("عدد مستندات التنفيذ يتجاوز حد التحقق");
-    const found = await rows(tx, sql`SELECT id,ticketNumber,title,status,actualCost,parentTicketId FROM tickets WHERE id IN (${ids(frontier)})`);
     for (const ticket of found) { if (visited.has(Number(ticket.id))) throw new Error("دورة غير صالحة في سلسلة التنفيذ"); visited.add(Number(ticket.id)); tickets.push(ticket); }
-    const children = await rows(tx, sql`SELECT id FROM tickets WHERE parentTicketId IN (${ids(frontier)})`);
-    frontier = children.map(child => Number(child.id));
+    found = await readTickets(frontier, true);
+    frontier = found.map(child => Number(child.id));
   }
   if (frontier.length) throw new Error("عمق روابط التنفيذ يتجاوز حد التحقق");
   const ticketIds = tickets.map(ticket => Number(ticket.id));

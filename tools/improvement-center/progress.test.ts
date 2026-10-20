@@ -97,10 +97,10 @@ class FakeSql {
 }
 test("batch loader shares graph reads and isolates each idea's result", async () => {
   const second = { ...idea, id: 2, linkedTicketId: 12 };
-  const tx = new FakeSql([[root, { ...root, id: 12 }], [{ id: 11 }], [child], [], [order], [item], [task]]);
+  const tx = new FakeSql([[root, { ...root, id: 12 }], [child], [], [order], [item], [task]]);
   const result = await loadImprovementExecutionProgress(tx, [idea, second]);
   assert.equal(result.get(1)?.percent, 75); assert.equal(result.get(2)?.percent, 100);
-  assert.equal(tx.queries.length, 7); assert.deepEqual(tx.queries[0].params, [10, 12]);
+  assert.equal(tx.queries.length, 6); assert.deepEqual(tx.queries[0].params, [10, 12]);
   assert.ok(tx.queries.every(query => !/actualCost|actualTotalCost|inventory_transactions|UPDATE|INSERT/.test(query.sql)));
 });
 test("legacy and unlinked tracked ideas require no execution SQL", async () => {
@@ -118,7 +118,7 @@ test("the document safety limit applies per idea, not to the union of a large ap
     const statement = new MySqlDialect().sqlToQuery(query);
     reads++;
     assert.ok(statement.params.length <= 500);
-    return [statement.sql.startsWith("SELECT id,status,parentTicketId FROM tickets") ? statement.params.map(id => ({ id: Number(id), status: "closed", parentTicketId: null })) : [], []];
+    return [statement.sql.startsWith("SELECT id,status,parentTicketId FROM tickets WHERE id IN") ? statement.params.map(id => ({ id: Number(id), status: "closed", parentTicketId: null })) : [], []];
   } };
   const result = await loadImprovementExecutionProgress(tx, ideas);
   assert.equal(result.size, 2001); assert.ok(Array.from(result.values()).every(row => row.percent === 100));

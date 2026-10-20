@@ -46,7 +46,7 @@ export const improvementIdeasRouter = router({
     return { ...result, ideas: result.ideas.map(sanitizeForEmployee) };
   }),
 
-  getById: protectedProcedure.input(z.object({ id: z.number() })).query(async ({ input, ctx }) => {
+  getById: protectedProcedure.input(z.object({ id: z.number(), includeExecutionProgress: z.boolean().optional() })).query(async ({ input, ctx }) => {
     const idea = await ideasDb.getImprovementIdeaById(input.id);
     if (!idea) throw new TRPCError({ code: "NOT_FOUND", message: "الفكرة غير موجودة" });
 
@@ -55,7 +55,9 @@ export const improvementIdeasRouter = router({
       if (idea.submittedById !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN", message: "لا يمكنك الاطلاع على مقترحات الآخرين" });
       return sanitizeForEmployee(idea);
     }
-    if (Number(idea.executionTrackingVersion) !== 1) return idea;
+    // The outcome dialog reads progress from executionSummary, avoiding a second
+    // traversal before it can display the idea. Other consumers keep fresh progress.
+    if (Number(idea.executionTrackingVersion) !== 1 || input.includeExecutionProgress === false) return idea;
     const progress = await db.withTransaction(tx => loadImprovementExecutionProgress(tx, [idea]));
     return { ...idea, executionProgress: progress.get(Number(idea.id)) };
   }),

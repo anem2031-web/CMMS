@@ -1,6 +1,7 @@
 import { PricingBundleLink, PricingBundleAddButton } from "@/components/purchase/PricingBundleActions";
 import { DelegateSupplyRows } from "@/components/purchase/DelegateSupplyRows";
 import { trpc } from "@/lib/trpc";
+import { independentReadOptions } from "@/lib/read-transport";
 import { readHistoryEntryState, writeHistoryEntryState } from "@/lib/backStack";
 import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
@@ -150,7 +151,7 @@ export default function PurchaseOrders() {
   }, [view, user?.role, canAccessMyItemsTracking, canAccessSupplyTracking]);
 
   const { data: actionable, isLoading: actionableLoading } =
-    trpc.purchaseOrders.actionableForMe.useQuery(undefined, { enabled: !!user && user.role !== "delegate" });
+    trpc.purchaseOrders.actionableForMe.useQuery(undefined, { enabled: !!user && user.role !== "delegate", ...independentReadOptions });
   const actionableItems = actionable?.items ?? [];
 
   // [PB-ACTIONABLE 2026-08-31] الحسابات والإدارة العليا تعملان على مستوى
@@ -161,6 +162,7 @@ export default function PurchaseOrders() {
   const { data: actionableSubmissions, isLoading: actionableSubmissionsLoading } =
     trpc.purchasePackages.actionableSubmissionsForMe.useQuery(undefined, {
       enabled: isPackageSubmissionActionRole,
+      ...independentReadOptions,
     });
   const actionableSubmissionItems = actionableSubmissions?.items ?? [];
 
@@ -185,6 +187,7 @@ export default function PurchaseOrders() {
   const { data: delegateActionableItemsData, isLoading: delegateActionableItemsLoading } =
     trpc.purchaseOrders.actionableItemsForMe.useQuery(undefined, {
       enabled: isDelegatePricingActionRole,
+      ...independentReadOptions,
     });
   const delegateActionableItems = delegateActionableItemsData?.items ?? [];
   const delegateActionableItemsCount = delegateActionableItemsData?.total ?? 0;
@@ -297,6 +300,7 @@ export default function PurchaseOrders() {
   const { data: actionablePackageCards = [], isLoading: actionablePackageCardsLoading } =
     trpc.purchasePackages.cards.useQuery(undefined, {
       enabled: needsActionablePackageCards,
+      ...independentReadOptions,
     });
 
   const delegatePricingPackages = useMemo(() => {
@@ -426,7 +430,7 @@ export default function PurchaseOrders() {
 
   const { data: pos, isLoading } = trpc.purchaseOrders.list.useQuery(
     Object.keys(queryInput).length > 0 ? queryInput : undefined,
-    { enabled: !!user && user.role !== "delegate" },
+    { enabled: !!user && user.role !== "delegate", ...independentReadOptions },
   );
 
   const deleteMutation = trpc.purchaseOrders.delete.useMutation({

@@ -50,6 +50,21 @@ beforeEach(() => {
 });
 
 describe("Catalog picker loading failures", () => {
+  it("keeps same-query cached rows visible during refresh and isolates interactive reads", () => {
+    fixture.queries.items.data = [item];
+    fixture.queries.items.isFetching = true;
+    const html = render();
+    expect(html).toContain(item.nameAr);
+    expect(html).toContain(ar.common.loading);
+    for (const name of ["items", "nodes", "units"]) {
+      expect(fixture.options[name].trpc.context.independentRead).toBe(true);
+    }
+  });
+  it("does not display cached rows after a permission rejection", () => {
+    fixture.queries.items.data = [item];
+    fixture.queries.items.error = { data: { code: "FORBIDDEN" } };
+    expect(render()).not.toContain(item.nameAr);
+  });
   it.each(["ar", "en", "ur"] as const)("shows a clear permission failure in %s rather than an empty catalog", language => {
     fixture.language = language;
     fixture.queries.items.error = { data: { code: "FORBIDDEN" }, message: "internal error details" };

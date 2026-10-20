@@ -48,6 +48,16 @@ beforeEach(() => {
 });
 
 describe("derived progress is a scoped read, separate from saved plan and outcome", () => {
+  it("skips duplicate progress work for details without changing employee scope", async () => {
+    const execute = vi.fn(); mocks.tx.execute = execute;
+    expect((await caller().getById({ id: 9, includeExecutionProgress: false })).id).toBe(9);
+    expect(execute).not.toHaveBeenCalled();
+    await expect(caller("operator").getById({ id: 9, includeExecutionProgress: false })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    mocks.idea.submittedById = 8;
+    const safe = await caller("operator").getById({ id: 9, includeExecutionProgress: false });
+    expect(safe).not.toHaveProperty("costStudyNotes");
+    expect(safe).not.toHaveProperty("executionTrackingVersion");
+  });
   it("returns fresh derived details without changing the stored manual field or outcome", async () => {
     mocks.idea = { ...mocks.idea, linkedTicketId: 10, implementationProgress: 0, resultRating: null };
     const statements: string[] = [];
@@ -55,7 +65,7 @@ describe("derived progress is a scoped read, separate from saved plan and outcom
       const { MySqlDialect } = await import("drizzle-orm/mysql-core");
       const statement = new MySqlDialect().sqlToQuery(query).sql;
       statements.push(statement);
-      return [statement.startsWith("SELECT id,status,parentTicketId FROM tickets") ? [{ id: 10, status: "closed", parentTicketId: null }] : [], []];
+      return [statement.startsWith("SELECT id,status,parentTicketId FROM tickets WHERE id IN") ? [{ id: 10, status: "closed", parentTicketId: null }] : [], []];
     };
     const result = await caller().getById({ id: 9 });
     expect(result.executionProgress?.percent).toBe(100);
@@ -93,7 +103,7 @@ describe("derived progress is a scoped read, separate from saved plan and outcom
     const execute = vi.fn(async (query: any) => {
       const { MySqlDialect } = await import("drizzle-orm/mysql-core");
       const statement = new MySqlDialect().sqlToQuery(query).sql;
-      return [statement.startsWith("SELECT id,status,parentTicketId FROM tickets") ? [{ id: 10, status: "closed", parentTicketId: null }] : [], []];
+      return [statement.startsWith("SELECT id,status,parentTicketId FROM tickets WHERE id IN") ? [{ id: 10, status: "closed", parentTicketId: null }] : [], []];
     });
     mocks.tx.execute = execute;
     const result = await caller().getApproved();

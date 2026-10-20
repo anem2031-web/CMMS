@@ -1,4 +1,5 @@
 import { trpc } from "@/lib/trpc";
+import { independentReadOptions } from "@/lib/read-transport";
 import { useLocation } from "wouter";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -16,7 +17,7 @@ export function ImprovementFinancialPanel({ ideaId }: { ideaId: number }) {
   const w = labels[language as keyof typeof labels] || labels.ar;
   const [, navigate] = useLocation();
   const feedback = IMPROVEMENT_UI_LABELS[language];
-  const query = trpc.improvementIdeas.executionSummary.useQuery({ id: ideaId }, IMPROVEMENT_QUERY_OPTIONS);
+  const query = trpc.improvementIdeas.executionSummary.useQuery({ id: ideaId }, { ...IMPROVEMENT_QUERY_OPTIONS, ...independentReadOptions });
   const money = (value: number) => new Intl.NumberFormat(language, { style: "currency", currency: "SAR" }).format(value);
   if (query.isLoading) return <div role="status" className="space-y-2"><p className="text-sm text-muted-foreground">{feedback.loading}</p><Skeleton className="h-24" /></div>;
   if (query.error || !query.data) return <div role="alert" className="space-y-2 rounded-md border p-3"><p className="text-sm text-destructive">{feedback.loadError}</p><Button data-observer-navigation="true" size="sm" variant="outline" disabled={query.isFetching} onClick={() => query.refetch()}>{feedback.retry}</Button></div>;

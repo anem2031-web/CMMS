@@ -19,12 +19,15 @@ export async function loadImprovementExecutionProgress(tx: ExecutionSql, ideas: 
   const tickets = new Map<number, ImprovementProgressTicket>();
   const visited = new Set<number>();
   let frontier = positiveIds(tracked.map(idea => idea.linkedTicketId));
+  let found = await readChunks(tx, frontier, chunk => sql`SELECT id,status,parentTicketId FROM tickets WHERE id IN (${ids(chunk)})`);
   for (let depth = 0; frontier.length && depth < 50; depth++) {
     frontier.forEach(id => visited.add(id));
-    const found = await readChunks(tx, frontier, chunk => sql`SELECT id,status,parentTicketId FROM tickets WHERE id IN (${ids(chunk)})`);
     found.forEach(ticket => tickets.set(Number(ticket.id), ticket));
-    const children = await readChunks(tx, frontier, chunk => sql`SELECT id FROM tickets WHERE parentTicketId IN (${ids(chunk)})`);
-    frontier = positiveIds(children.map(child => child.id)).filter(id => !visited.has(id));
+    // Fetch the next level's values with its IDs instead of fetching those same
+    // tickets again on the next iteration. Keep the original visited/depth rules.
+    const children = await readChunks(tx, frontier, chunk => sql`SELECT id,status,parentTicketId FROM tickets WHERE parentTicketId IN (${ids(chunk)})`);
+    found = children.filter(child => !visited.has(Number(child.id)));
+    frontier = positiveIds(found.map(child => child.id));
   }
   if (frontier.length) throw new Error("عمق روابط التنفيذ يتجاوز حد التحقق");
   const ticketIds = Array.from(tickets.keys());

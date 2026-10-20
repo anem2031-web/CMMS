@@ -2,6 +2,7 @@ import { trpc } from "@/lib/trpc";
 import { keepPreviousData } from "@tanstack/react-query";
 import { useLocation, useSearch } from "wouter";
 import { ImprovementFinancialPanel } from "@/components/improvement/ImprovementFinancialPanel";
+import { independentReadOptions } from "@/lib/read-transport";
 import { ImprovementLoadingNotice } from "@/components/improvement/ImprovementLoadingNotice";
 import { IMPROVEMENT_QUERY_OPTIONS, IMPROVEMENT_UI_LABELS, improvementDocumentStatus, newImprovementSaveSession, refreshImprovementViews, saveIdeaWithAttachments } from "@/components/improvement/improvement-ui";
 import { getLocalizedName } from "@/hooks/useTranslatedField";
@@ -786,7 +787,7 @@ function IdeaOutcomeDialog({ id, onClose }: { id: number; onClose: () => void })
   const { t } = useTranslation();
   const { user } = useAuth();
   const canSeeFinancials = !!user && ["maintenance_manager", "general_maintenance_manager", "construction_procurement_manager", "senior_management", "executive_director", "owner", "admin"].includes(user.role);
-  const query = trpc.improvementIdeas.getById.useQuery({ id }, IMPROVEMENT_QUERY_OPTIONS);
+  const query = trpc.improvementIdeas.getById.useQuery({ id, includeExecutionProgress: false }, { ...IMPROVEMENT_QUERY_OPTIONS, ...independentReadOptions });
   const { data: idea, isLoading } = query;
   const percent = idea ? achievementPercent(idea) : null;
   return <Dialog open onOpenChange={o => !o && onClose()}><DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
@@ -804,7 +805,8 @@ function IdeaOutcomeDialog({ id, onClose }: { id: number; onClose: () => void })
       {idea.costStudyNotes && <p><b>{w.costStudyNotes}: </b>{idea.costStudyNotes}</p>}
       {idea.implementationOwner && <p><b>{w.planOwner}: </b>{idea.implementationOwner}</p>}
       {idea.implementationDueDate && <p><b>{w.dueDate}: </b>{idea.implementationDueDate}</p>}
-      {idea.executionTrackingVersion === 1 && <p><b>{w.progress} ({w.automaticProgress}): </b>{idea.executionProgress?.percent ?? 0}%</p>}
+      {/* Live progress is displayed by the execution panel once its scoped read
+          completes; do not show a fabricated 0% while it is still loading. */}
       {idea.status === 'completed' ? <>
         {idea.evaluatedAt ? <>
           <p><b>{w.actualCost}: </b>{idea.actualCost != null ? currencyNumber(Number(idea.actualCost)) : '—'}</p>
