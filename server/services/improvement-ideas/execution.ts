@@ -1,6 +1,6 @@
 import { sql, type SQL } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
-import { aggregateImprovementCosts, deriveImprovementExecutionProgress, hasCompleteCostStudy, moneyCents } from "../../../shared/improvement-execution";
+import { aggregateImprovementCosts, canAddImprovementExecutionTicket, deriveImprovementExecutionProgress, hasCompleteCostStudy, moneyCents } from "../../../shared/improvement-execution";
 
 export interface ExecutionSql { execute(query: SQL): Promise<any> }
 async function rows(tx: ExecutionSql, query: SQL): Promise<any[]> { const result = await tx.execute(query); return result[0]; }
@@ -17,11 +17,17 @@ export async function validateIdeaLocation(tx: ExecutionSql, input: { siteId?: n
       throw new TRPCError({ code: "BAD_REQUEST", message: "الأصل لا يتبع الموقع والقسم المختارين" });
   }
 }
-export async function prepareIdeaExecution(tx: ExecutionSql, id: number, actor: { id: number; role: string }, input: { siteId?: number | null; sectionId?: number | null; assetId?: number | null }) {
+export async function prepareIdeaExecution(tx: ExecutionSql, id: number, actor: { id: number; role: string }, input: { siteId?: number | null; sectionId?: number | null; assetId?: number | null }, kind?: "ticket") {
   if (!["owner", "admin", "maintenance_manager", "general_maintenance_manager", "construction_procurement_manager"].includes(actor.role)) throw new TRPCError({ code: "FORBIDDEN", message: "تحويل الفكرة للمسؤول المخول فقط" });
   const [idea] = await rows(tx, sql`SELECT * FROM improvement_ideas WHERE id=${id} FOR UPDATE`);
   if (!idea) throw new TRPCError({ code: "NOT_FOUND", message: "الفكرة غير موجودة" });
-  if (idea.status !== "approved" || idea.linkedTicketId || idea.linkedPurchaseOrderId) throw new TRPCError({ code: "CONFLICT", message: "الفكرة ليست جاهزة للتحويل أو رُبطت بمستند سابقًا؛ افتح تفاصيلها" });
+  const addingExecution = kind === "ticket" && canAddImprovementExecutionTicket(idea);
+  if (!addingExecution && (idea.status !== "approved" || idea.linkedTicketId || idea.linkedPurchaseOrderId)) throw new TRPCError({ code: "CONFLICT", message: "الفكرة ليست جاهزة للتحويل أو رُبطت بمستند سابقًا؛ افتح تفاصيلها" });
+  if (addingExecution) {
+    const [order] = await rows(tx, sql`SELECT id,siteId,sectionId,assetId,status FROM purchase_orders WHERE id=${idea.linkedPurchaseOrderId} FOR UPDATE`);
+    if (!order || ["draft", "rejected", "cancelled"].includes(order.status) || Number(order.siteId) !== Number(idea.siteId) || Number(order.sectionId) !== Number(idea.sectionId) || Number(order.assetId || 0) !== Number(idea.assetId || 0))
+      throw new TRPCError({ code: "CONFLICT", message: "طلب شراء الفكرة غير متاح للتنفيذ أو لا يطابق موقعها وقسمها وأصلها" });
+  }
   if (idea.costStudyRequired && (!(Number(idea.executionTrackingVersion) === 1 ? hasCompleteCostStudy(idea) : idea.costStudiedAt) || !idea.implementationOwner?.trim() || !idea.implementationDueDate)) throw new TRPCError({ code: "BAD_REQUEST", message: "استكمل دراسة التكلفة وخطة التنفيذ أولًا" });
   if (Number(idea.executionTrackingVersion) === 1) {
     if (Number(idea.siteId) !== input.siteId || Number(idea.sectionId) !== input.sectionId || Number(idea.assetId || 0) !== Number(input.assetId || 0))
@@ -33,7 +39,11 @@ export async function prepareIdeaExecution(tx: ExecutionSql, id: number, actor: 
 export async function linkCreatedExecution(tx: ExecutionSql, idea: any, kind: "ticket" | "purchase", documentId: number, actorId: number) {
   if (!documentId) throw new Error("تعذر إنشاء مستند التنفيذ");
   const field = kind === "ticket" ? sql`linkedTicketId` : sql`linkedPurchaseOrderId`;
-  const result = await tx.execute(sql`UPDATE improvement_ideas SET ${field}=${documentId},status='in_progress' WHERE id=${idea.id} AND status='approved'`);
+  const addingExecution = kind === "ticket" && canAddImprovementExecutionTicket(idea);
+  const stateGuard = addingExecution
+    ? sql`status='in_progress' AND executionTrackingVersion=1 AND linkedTicketId IS NULL AND linkedPurchaseOrderId=${idea.linkedPurchaseOrderId}`
+    : sql`status='approved' AND linkedTicketId IS NULL AND linkedPurchaseOrderId IS NULL`;
+  const result = await tx.execute(sql`UPDATE improvement_ideas SET ${field}=${documentId},status='in_progress' WHERE id=${idea.id} AND ${stateGuard}`);
   if (Number(result[0]?.affectedRows) !== 1) throw new TRPCError({ code: "CONFLICT", message: "تغيرت حالة الفكرة؛ أعد فتحها" });
   await tx.execute(sql`INSERT INTO audit_logs (userId,action,entityType,entityId,newValues) VALUES (${actorId},'link_created_improvement_execution','improvement_idea',${idea.id},${JSON.stringify({ kind, documentId, requestNumber: idea.requestNumber })})`);
 }

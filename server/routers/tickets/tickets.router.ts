@@ -422,7 +422,7 @@ export const ticketsRouter = router({
 
     if (fromIdeaId) {
       const created = await db.withTransaction(async tx => {
-        const idea = await prepareIdeaExecution(tx, fromIdeaId, ctx.user, ticketInput);
+        const idea = await prepareIdeaExecution(tx, fromIdeaId, ctx.user, ticketInput, "ticket");
         const atomicTicketNumber = await db.getNextTicketNumber(tx);
         let result: { id: number; ticketNumber: string };
         if (itManager) {

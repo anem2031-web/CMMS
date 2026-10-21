@@ -19,6 +19,15 @@ test("a closed ticket is complete without waiting for the separate impact evalua
   assert.equal(progress(idea, [root], [], [], []).percent, 100);
   assert.equal(progress(idea, [{ ...root, status: "requester_confirmed" }], [], [], []).percent, 100);
 });
+
+test("adding execution to a received direct purchase keeps progress incomplete until the ticket closes", () => {
+  const linked = { ...idea, linkedPurchaseOrderId: 20 };
+  const directPurchase = { ...order, ticketId: null };
+  const pending = progress(linked, [{ ...root, status: "pending_triage" }], [directPurchase], [item], []);
+  assert.equal(pending.ready, false);
+  assert.equal(pending.percent, 50);
+  assert.equal(progress(linked, [root], [directPurchase], [item], []).ready, true);
+});
 test("open execution never inherits a stored manual percentage", () => {
   assert.equal(progress({ ...idea, implementationProgress: 100 } as any, [{ ...root, status: "under_inspection" }], [], [], []).percent, 0);
 });

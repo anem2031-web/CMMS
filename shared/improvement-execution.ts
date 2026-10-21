@@ -1,4 +1,9 @@
 /** Pure improvement cost rules. No database, financial posting or application imports. */
+/** A purchased improvement may still need a maintenance execution document. */
+export function canAddImprovementExecutionTicket(idea: { status?: string; executionTrackingVersion?: number; linkedPurchaseOrderId?: number | null; linkedTicketId?: number | null }) {
+  return idea.status === "in_progress" && Number(idea.executionTrackingVersion) === 1 &&
+    Number(idea.linkedPurchaseOrderId) > 0 && !idea.linkedTicketId;
+}
 export type CostSource = { key: string; documentKind: "purchase" | "ticket" | "inventory"; documentId: number; number: string; description: string; amount: number; status: string };
 export type FinancialIssue = { code: "missing_value" | "invalid_value" | "unreconciled_total"; documentKind: CostSource["documentKind"]; documentId: number; number: string };
 export interface ExecutionTicket { id: number; ticketNumber: string; status: string; actualCost: string | number | null }

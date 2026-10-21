@@ -83,6 +83,57 @@ test("approved source is locked and validates new context", async () => {
 test("already linked, unapproved, incomplete study or missing plan rejected", async () => {
   for (const change of [{ linkedTicketId: 1 }, { status: "in_progress" }, { costStudyById: null }, { implementationOwner: " " }]) await assert.rejects(prepareIdeaExecution(new FakeSql([[{ ...idea, ...change }]]), 9, actor, location));
 });
+
+test("purchase improvement can add exactly one execution ticket without replacing purchase", async () => {
+  const purchasedIdea = { ...idea, status: "in_progress", linkedPurchaseOrderId: 20 };
+  const tx = new FakeSql([[purchasedIdea], [{ id: 20, ...location, assetId: null, status: "received" }], ...masters]);
+  const result = await prepareIdeaExecution(tx, 9, actor, location, "ticket");
+  assert.equal(result.linkedPurchaseOrderId, 20);
+  assert.match(tx.queries[1].sql, /FOR UPDATE/);
+  assert.deepEqual(tx.queries[1].params, [20]);
+  const write = new FakeSql([{ affectedRows: 1 }, { affectedRows: 1 }]);
+  await linkCreatedExecution(write, result, "ticket", 30, actor.id);
+  assert.match(write.queries[0].sql, /linkedTicketId IS NULL/);
+  assert.match(write.queries[0].sql, /linkedPurchaseOrderId=/);
+  assert.doesNotMatch(write.queries[0].sql.split("WHERE")[0], /SET linkedPurchaseOrderId/);
+  await assert.rejects(linkCreatedExecution(new FakeSql([{ affectedRows: 0 }]), result, "ticket", 31, actor.id));
+});
+
+test("adding execution never grants another purchase or a duplicate/closed/legacy execution", async () => {
+  const purchasedIdea = { ...idea, status: "in_progress", linkedPurchaseOrderId: 20 };
+  await assert.rejects(prepareIdeaExecution(new FakeSql([[purchasedIdea]]), 9, actor, location));
+  for (const change of [{ linkedTicketId: 30 }, { status: "completed" }, { status: "rejected" }, { executionTrackingVersion: 0 }]) {
+    await assert.rejects(prepareIdeaExecution(new FakeSql([[{ ...purchasedIdea, ...change }]]), 9, actor, location, "ticket"));
+  }
+});
+
+test("execution supplement denies missing/foreign purchase and infrastructure failure", async () => {
+  const purchasedIdea = { ...idea, status: "in_progress", linkedPurchaseOrderId: 20 };
+  for (const orderRows of [[], [{ ...location, status: "rejected" }], [{ ...location, status: "draft" }], [{ ...location, siteId: 8, status: "received" }], [{ ...location, assetId: 99, status: "received" }]]) {
+    await assert.rejects(prepareIdeaExecution(new FakeSql([[purchasedIdea], orderRows]), 9, actor, location, "ticket"));
+  }
+  await assert.rejects(prepareIdeaExecution(new FakeSql([[purchasedIdea], Error("database unavailable")]), 9, actor, location, "ticket"), /database unavailable/);
+});
+
+test("execution supplement preserves actor scope and independently reloads each request", async () => {
+  for (const role of ["warehouse", "delegate", "accountant", "senior_management", "observer", "technician"]) {
+    const denied = new FakeSql([]);
+    await assert.rejects(prepareIdeaExecution(denied, 9, { ...actor, role }, location, "ticket"));
+    assert.equal(denied.queries.length, 0);
+  }
+  for (const role of ["admin", "owner", "maintenance_manager", "general_maintenance_manager", "construction_procurement_manager"]) {
+    const tx = new FakeSql([[{ ...idea, status: "in_progress", linkedPurchaseOrderId: 20 }], [{ ...location, status: "received" }], ...masters]);
+    await prepareIdeaExecution(tx, 9, { ...actor, role }, location, "ticket");
+    assert.match(tx.queries[0].sql, /FOR UPDATE/);
+  }
+  await assert.rejects(prepareIdeaExecution(new FakeSql([[{ ...idea, status: "in_progress", linkedPurchaseOrderId: 20, linkedTicketId: 30 }]]), 9, actor, location, "ticket"));
+});
+
+test("direct purchase plus execution issue does not double count procurement cost", () => {
+  const result = costs([ticket], [{ ...order, ticketId: null }], [{ ...item, actualTotalCost: "1.15" }], [{ ...issue, purchaseOrderItemId: item.id, totalCost: "1.00" }]);
+  assert.equal(result.total, 1.15);
+  assert.equal(result.lines.length, 1);
+});
 test("tampered location rejected; legacy source has no new location constraint", async () => {
   await assert.rejects(prepareIdeaExecution(new FakeSql([[idea]]), 9, actor, { siteId: 8, sectionId: 2 }));
   await prepareIdeaExecution(new FakeSql([[{ ...idea, executionTrackingVersion: 0, costStudyRequired: 0 }]]), 9, actor, {});

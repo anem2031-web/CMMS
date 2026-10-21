@@ -6,7 +6,7 @@ import { independentReadOptions } from "@/lib/read-transport";
 import { ImprovementLoadingNotice } from "@/components/improvement/ImprovementLoadingNotice";
 import { IMPROVEMENT_QUERY_OPTIONS, IMPROVEMENT_UI_LABELS, improvementDocumentStatus, newImprovementSaveSession, refreshImprovementViews, saveIdeaWithAttachments } from "@/components/improvement/improvement-ui";
 import { getLocalizedName } from "@/hooks/useTranslatedField";
-import { hasCompleteCostStudy } from "@shared/improvement-execution";
+import { canAddImprovementExecutionTicket, hasCompleteCostStudy } from "@shared/improvement-execution";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -949,6 +949,9 @@ function ApprovedTab() {
               {idea.status === "in_progress" && <span>{w.progress}: {idea.executionTrackingVersion === 1 ? idea.executionProgress?.percent ?? 0 : idea.implementationProgress ?? 0}%{idea.executionTrackingVersion === 1 ? ` (${w.automaticProgress})` : ""}</span>}
             </div>
             <Button size="sm" variant="outline" onClick={() => setPlanTarget(idea)}>{w.plan}</Button>
+            {canAddImprovementExecutionTicket(idea) && <Button size="sm" variant="outline" onClick={() => convert(idea, "ticket")}>
+              {language === "ar" ? "إنشاء بلاغ تنفيذ للتحسين" : language === "ur" ? "بہتری کے لیے عمل درآمد ٹکٹ بنائیں" : "Create improvement execution ticket"}
+            </Button>}
             {idea.status === "approved" && (!idea.costStudyRequired || (idea.implementationOwner && idea.implementationDueDate)) ? (
               <Select onValueChange={(v) => convert(idea, v as "ticket" | "po")}>
                 <SelectTrigger className="w-full sm:w-64"><SelectValue placeholder={t.improvementIdeas.convertTo} /></SelectTrigger>
