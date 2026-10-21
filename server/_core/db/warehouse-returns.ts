@@ -100,12 +100,13 @@ export async function getReturnSources(inventoryId: number, tx?: any) {
       receiptDate:         warehouseReceipts.invoiceDate,
       receiptCreatedAt:    warehouseReceipts.createdAt,
       vendorName:          warehouseReceipts.vendorName,
-      purchaseOrderId:     warehouseReceipts.purchaseOrderId,
+      purchaseOrderId:     sql<number | null>`COALESCE(${purchaseOrderItems.purchaseOrderId}, ${warehouseReceipts.purchaseOrderId})`,
       poNumber:            purchaseOrders.poNumber,
     })
     .from(inventoryTransactions)
     .leftJoin(warehouseReceipts, eq(inventoryTransactions.receiptId, warehouseReceipts.id))
-    .leftJoin(purchaseOrders, eq(warehouseReceipts.purchaseOrderId, purchaseOrders.id))
+    .leftJoin(purchaseOrderItems, eq(inventoryTransactions.purchaseOrderItemId, purchaseOrderItems.id))
+    .leftJoin(purchaseOrders, eq(sql`COALESCE(${purchaseOrderItems.purchaseOrderId}, ${warehouseReceipts.purchaseOrderId})`, purchaseOrders.id))
     .where(and(
       eq(inventoryTransactions.inventoryId, inventoryId),
       eq(inventoryTransactions.type, "in"),
@@ -932,12 +933,13 @@ export async function getInventoryPurchaseHistory(inventoryId: number) {
       invoiceNumber:      warehouseReceipts.invoiceNumber,
       invoiceDate:        warehouseReceipts.invoiceDate,
       vendorName:         warehouseReceipts.vendorName,
-      purchaseOrderId:    warehouseReceipts.purchaseOrderId,
+      purchaseOrderId:    sql<number | null>`COALESCE(${purchaseOrderItems.purchaseOrderId}, ${warehouseReceipts.purchaseOrderId})`,
       poNumber:           purchaseOrders.poNumber,
     })
     .from(inventoryTransactions)
     .leftJoin(warehouseReceipts, eq(inventoryTransactions.receiptId, warehouseReceipts.id))
-    .leftJoin(purchaseOrders, eq(warehouseReceipts.purchaseOrderId, purchaseOrders.id))
+    .leftJoin(purchaseOrderItems, eq(inventoryTransactions.purchaseOrderItemId, purchaseOrderItems.id))
+    .leftJoin(purchaseOrders, eq(sql`COALESCE(${purchaseOrderItems.purchaseOrderId}, ${warehouseReceipts.purchaseOrderId})`, purchaseOrders.id))
     .where(and(
       eq(inventoryTransactions.inventoryId, inventoryId),
       eq(inventoryTransactions.type, "in"),
@@ -1876,7 +1878,13 @@ export async function listWarehouseReceiptsV2(input?: {
   if (!db) return [];
   let query = db.select().from(warehouseReceipts).orderBy(desc(warehouseReceipts.createdAt));
   if (input?.purchaseOrderId) {
-    query = query.where(eq(warehouseReceipts.purchaseOrderId, input.purchaseOrderId)) as any;
+    query = query.where(or(
+      eq(warehouseReceipts.purchaseOrderId, input.purchaseOrderId),
+      sql`EXISTS (SELECT 1 FROM ${warehouseReceiptItems}
+        INNER JOIN ${purchaseOrderItems} ON ${purchaseOrderItems.id} = ${warehouseReceiptItems.purchaseOrderItemId}
+        WHERE ${warehouseReceiptItems.receiptId} = ${warehouseReceipts.id}
+          AND ${purchaseOrderItems.purchaseOrderId} = ${input.purchaseOrderId})`,
+    )) as any;
   }
   return query.limit(input?.limit || 50).offset(input?.offset || 0);
 }

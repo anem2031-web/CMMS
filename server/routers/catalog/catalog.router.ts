@@ -1,4 +1,5 @@
 import { catalogImportExportRouter } from "./catalogImportExport.router";
+import { catalogItemImageSchema, assertCatalogImageUpload, saveRequiredCatalogImage } from "./item-image";
 import { attachments } from "../../../drizzle/schema";
 import { matchSuppliers, normalizeSupplierName } from "../../_core/catalog-supplier-matching";
 import { applyAiSemanticDiscovery, extractNormalizedMeasurements, normalizeCatalogItemText, normalizeSupplierItemCode, rankCatalogItemMatches, type CatalogAiUsageEvent } from "../../_core/catalog-item-matching";
@@ -977,12 +978,14 @@ create: catalogProcedure
       nodeId: z.number(),
       unit: z.string().optional(),
       manufacturer: z.string().optional(),
+      image: catalogItemImageSchema,
     })
   )
   .mutation(async ({ input, ctx }) => {
     const db = await getDb();
     if (!db) throw new Error("Database unavailable");
 
+    assertCatalogImageUpload(input.image, ctx.user.id);
     const activeUnitName = await assertActiveCatalogMasterUnit(db, input.unit);
     const requestedCode = input.code?.trim() || "";
 
@@ -1021,6 +1024,7 @@ create: catalogProcedure
       const result = await tx.insert(catalogItems).values(insertData);
       insertId = Number((result as any)[0]?.insertId || 0);
       if (!insertId) throw new Error("تعذر تحديد رقم صنف الكتالوج الجديد");
+      await saveRequiredCatalogImage(tx, insertId, ctx.user.id, input.image, true, catalogAuditRequestMeta(ctx));
 
       await tx.insert(catalogAuditLogs).values({
         userId: ctx.user.id,
@@ -1051,6 +1055,7 @@ create: catalogProcedure
           nodeId: z.number().optional(),
           unit: z.string().optional(),
           manufacturer: z.string().optional(),
+          image: catalogItemImageSchema.optional(),
           isActive: z.boolean().optional(),
         })
       )
@@ -1062,7 +1067,8 @@ create: catalogProcedure
           throw new TRPCError({ code: "FORBIDDEN", message: "مدير الإنشاءات لا يملك صلاحية تعطيل الأصناف" });
         }
 
-        const { id, ...updateData } = input;
+        const { id, image, ...updateData } = input;
+        if (image) assertCatalogImageUpload(image, ctx.user.id);
         const existingRows = await db.select().from(catalogItems).where(eq(catalogItems.id, id)).limit(1);
         const existing = existingRows[0] as any;
         if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "صنف الكتالوج غير موجود" });
@@ -1118,6 +1124,7 @@ create: catalogProcedure
         }
 
         await (db as any).transaction(async (tx: any) => {
+          await saveRequiredCatalogImage(tx, id, ctx.user.id, image, false, catalogAuditRequestMeta(ctx));
           await tx.update(catalogItems).set(updateData).where(eq(catalogItems.id, id));
           await tx.insert(catalogAuditLogs).values({
             userId: ctx.user.id,

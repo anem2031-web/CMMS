@@ -1,0 +1,56 @@
+[
+  {
+    "level": "error",
+    "message": "[API Mutation Error] TRPCClientError: الصرف يتطلب بلاغ صيانة أو مهمة أو أمر صرف تشغيلي معتمد\n    at Dw.from (https://cmms-production-2f64.up.railway.app/assets/index-DxcOntXj.js:2:59663)\n    at https://cmms-production-2f64.up.railway.app/assets/index-DxcOntXj.js:2:66215",
+    "timestamp": "2026-10-20T12:37:32.287Z",
+    "url": "https://cmms-production-2f64.up.railway.app/warehouse/transfer"
+  },
+  {
+    "level": "error",
+    "message": "[API Query Error] TRPCClientError: ليس لديك صلاحية لهذا الإجراء\n    at Dw.from (https://cmms-production-2f64.up.railway.app/assets/index-DxcOntXj.js:2:59663)\n    at https://cmms-production-2f64.up.railway.app/assets/index-DxcOntXj.js:2:66215",
+    "timestamp": "2026-10-20T12:39:14.393Z",
+    "url": "https://cmms-production-2f64.up.railway.app/inventory"
+  },
+  {
+    "level": "error",
+    "message": "[API Query Error] TRPCClientError: ليس لديك صلاحية لهذا الإجراء\n    at Dw.from (https://cmms-production-2f64.up.railway.app/assets/index-DxcOntXj.js:2:59663)\n    at https://cmms-production-2f64.up.railway.app/assets/index-DxcOntXj.js:2:66215",
+    "timestamp": "2026-10-20T12:39:33.486Z",
+    "url": "https://cmms-production-2f64.up.railway.app/inventory"
+  },
+  {
+    "level": "error",
+    "message": "[API Query Error] TRPCClientError: لا يمكنك الاطلاع على مرفقات هذا البلاغ\n    at Dw.from (https://cmms-production-2f64.up.railway.app/assets/index-DxcOntXj.js:2:59663)\n    at https://cmms-production-2f64.up.railway.app/assets/index-DxcOntXj.js:2:66215",
+    "timestamp": "2026-10-20T12:41:53.999Z",
+    "url": "https://cmms-production-2f64.up.railway.app/tickets/2070003"
+  },
+  {
+    "level": "error",
+    "message": "[API Query Error] TRPCClientError: ليس لديك صلاحية للاطلاع على هذا البلاغ\n    at Dw.from (https://cmms-production-2f64.up.railway.app/assets/index-DxcOntXj.js:2:59663)\n    at https://cmms-production-2f64.up.railway.app/assets/index-DxcOntXj.js:2:66215",
+    "timestamp": "2026-10-20T12:41:53.999Z",
+    "url": "https://cmms-production-2f64.up.railway.app/tickets/2070003"
+  },
+  {
+    "level": "error",
+    "message": "[API Query Error] TRPCClientError: ليس لديك صلاحية للاطلاع على هذا البلاغ\n    at Dw.from (https://cmms-production-2f64.up.railway.app/assets/index-DxcOntXj.js:2:59663)\n    at https://cmms-production-2f64.up.railway.app/assets/index-DxcOntXj.js:2:66215",
+    "timestamp": "2026-10-20T12:41:54.000Z",
+    "url": "https://cmms-production-2f64.up.railway.app/tickets/2070003"
+  },
+  {
+    "level": "error",
+    "message": "[API Query Error] TRPCClientError: ليس لديك صلاحية للاطلاع على هذا البلاغ\n    at Dw.from (https://cmms-production-2f64.up.railway.app/assets/index-DxcOntXj.js:2:59663)\n    at https://cmms-production-2f64.up.railway.app/assets/index-DxcOntXj.js:2:66215",
+    "timestamp": "2026-10-20T12:41:54.001Z",
+    "url": "https://cmms-production-2f64.up.railway.app/tickets/2070003"
+  },
+  {
+    "level": "error",
+    "message": "[API Query Error] TRPCClientError: ليس لديك صلاحية للاطلاع على هذا البلاغ\n    at Dw.from (https://cmms-production-2f64.up.railway.app/assets/index-DxcOntXj.js:2:59663)\n    at https://cmms-production-2f64.up.railway.app/assets/index-DxcOntXj.js:2:66215",
+    "timestamp": "2026-10-20T12:41:54.002Z",
+    "url": "https://cmms-production-2f64.up.railway.app/tickets/2070003"
+  },
+  {
+    "level": "error",
+    "message": "[API Query Error] TRPCClientError: ليس لديك صلاحية للاطلاع على هذا البلاغ\n    at Dw.from (https://cmms-production-2f64.up.railway.app/assets/index-DxcOntXj.js:2:59663)\n    at https://cmms-production-2f64.up.railway.app/assets/index-DxcOntXj.js:2:66215",
+    "timestamp": "2026-10-20T12:41:54.003Z",
+    "url": "https://cmms-production-2f64.up.railway.app/tickets/2070003"
+  }
+]

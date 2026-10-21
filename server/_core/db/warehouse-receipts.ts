@@ -520,7 +520,13 @@ export async function getWarehouseReceiptByPO(purchaseOrderId: number) {
   const db = await getDb();
   if (!db) return null;
   const rows = await db.select().from(warehouseReceipts)
-    .where(eq(warehouseReceipts.purchaseOrderId, purchaseOrderId))
+    .where(or(
+      eq(warehouseReceipts.purchaseOrderId, purchaseOrderId),
+      sql`EXISTS (SELECT 1 FROM ${warehouseReceiptItems}
+        INNER JOIN ${purchaseOrderItems} ON ${purchaseOrderItems.id} = ${warehouseReceiptItems.purchaseOrderItemId}
+        WHERE ${warehouseReceiptItems.receiptId} = ${warehouseReceipts.id}
+          AND ${purchaseOrderItems.purchaseOrderId} = ${purchaseOrderId})`,
+    ))
     .orderBy(desc(warehouseReceipts.createdAt));
   return rows;
 }

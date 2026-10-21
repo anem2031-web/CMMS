@@ -176,11 +176,13 @@ export default function WarehouseReceiveV2() {
   // رقم فاتورة المورد الممرّر من تبويب "إدخال المخزون" — يحدد أي مجموعة أصناف
   // من الطلب سيتم استلامها في هذه الجلسة (طلب واحد قد يحتوي عدة فواتير موردين)
   const invoiceNumberParam = params.get("invoiceNumber") || null;
+  const orderIdsParam = params.get("purchaseOrderIds");
+  const purchaseOrderIds = orderIdsParam ? orderIdsParam.split(",").map(Number) : undefined;
 
-  return <WarehouseReceiveForm key={`${poId}:${invoiceNumberParam}`} poId={poId} invoiceNumberParam={invoiceNumberParam} />;
+  return <WarehouseReceiveForm key={`${poId}:${invoiceNumberParam}:${orderIdsParam}`} poId={poId} invoiceNumberParam={invoiceNumberParam} purchaseOrderIds={purchaseOrderIds} />;
 }
 
-function WarehouseReceiveForm({ poId, invoiceNumberParam }: { poId: number | null; invoiceNumberParam: string | null }) {
+function WarehouseReceiveForm({ poId, invoiceNumberParam, purchaseOrderIds }: { poId: number | null; invoiceNumberParam: string | null; purchaseOrderIds?: number[] }) {
   const [, navigate] = useLocation();
   // ── State ──────────────────────────────────────────────────
   const [step, setStep] = useState<Step>("upload");
@@ -220,7 +222,7 @@ function WarehouseReceiveForm({ poId, invoiceNumberParam }: { poId: number | nul
   // ── Queries ────────────────────────────────────────────────
   const { data: po, isLoading: isPoLoading, isError: isPoError, error: poError, refetch: refetchPo } =
     trpc.warehouseReceiptsV2.purchaseReceiptContext.useQuery(
-      { purchaseOrderId: poId!, invoiceNumber: invoiceNumberParam || undefined },
+      { purchaseOrderId: poId!, invoiceNumber: invoiceNumberParam || undefined, purchaseOrderIds },
       { enabled: Number.isInteger(poId) && Number(poId) > 0, retry: false, refetchOnWindowFocus: false },
     );
 
@@ -782,6 +784,8 @@ function WarehouseReceiveForm({ poId, invoiceNumberParam }: { poId: number | nul
 
     receiveMut.mutate({
       purchaseOrderId:  poId!,
+      purchaseOrderIds,
+      sourceInvoiceNumber: invoiceNumberParam || undefined,
       vendorName:       invoiceData.vendorName,
       vendorNameEn:     invoiceData.vendorNameEn,
       vendorTaxNumber:  invoiceData.vendorTaxNumber,
@@ -888,7 +892,7 @@ function WarehouseReceiveForm({ poId, invoiceNumberParam }: { poId: number | nul
           <h1 className="text-lg font-bold">استلام من المشتريات</h1>
           {po && (
             <p className="text-sm text-muted-foreground">
-              {(po as any).poNumber} · {items.length} صنف
+              {((po as any).purchaseOrders || [po]).map((order: any) => order.poNumber).join("، ")} · {items.length} صنف
             </p>
           )}
         </div>
@@ -1488,7 +1492,7 @@ function ReceiveItemCard({ item, index, poCandidates, linkedElsewhereIds, onUpda
                 value={cand.id}
                 disabled={linkedElsewhereIds.has(cand.id)}
               >
-                {cand.itemName} {linkedElsewhereIds.has(cand.id) ? "(مربوط بصنف آخر)" : ""}
+                {cand.itemName} {poCandidates.some(other => other.purchaseOrderId !== cand.purchaseOrderId) ? `— طلب #${cand.purchaseOrderId}` : ""} {linkedElsewhereIds.has(cand.id) ? "(مربوط بصنف آخر)" : ""}
               </option>
             ))}
           </select>

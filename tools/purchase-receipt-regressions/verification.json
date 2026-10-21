@@ -1,0 +1,15 @@
+{
+  "date": "2026-10-21",
+  "status": "implemented locally; deployment and browser retest pending",
+  "tests": {
+    "receiptEligibilityNode": { "passed": 24, "failed": 0 },
+    "purchaseReceiptRegressions": { "passed": 28, "failed": 0 },
+    "sharedReadScopeSuite": { "passed": 365, "failed": 0 },
+    "totalDistinctCases": 417
+  },
+  "types": { "baseline": 660, "current": 660, "introduced": [] },
+  "build": { "client": "PASS (envDir false)", "server": "PASS", "warnings": "Existing duplicate JSX placeholder, large chunks and missing legacy vendor exports remain unchanged." },
+  "database": { "remoteConnections": 0, "schemaChanges": 0, "manualSqlRequired": false, "fixturesOnly": true },
+  "scope": ["purchase/warehouse confirmation display refresh", "multi-PO supplier-invoice receipt with original item/lot/movement links"],
+  "unchanged": ["accountant package read restriction after approval", "PDF approval rules", "role grants", "inventory costing and conversion rules", "invoice field label"]
+}

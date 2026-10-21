@@ -1,0 +1,9 @@
+الجهة / المرجع	الموقع	القسم	المصروف	المرتجع	الصافي	بالـمتوسط	الفرق
+MT-2026-00591-01	حديقة الوطن-alwatan park	المكاتب الادارية-Administrative Offices	28.00	0.00	28.00	28.00	0.00
+MT-2026-00590-01	Accommodations	سكن العمال-Workers Accommodation	20.00	0.00	20.00	25.00	-5.00
+MT-2026-00589-02	Accommodations	سكن العمال-Workers Accommodation	40.00	20.00	20.00	15.00	5.00
+MT-2026-00588-01	Accommodations	سكن العمال-Workers Accommodation	30.00	10.00	20.00	20.00	0.00
+MT-2026-00593-01	حديقة الوطن-alwatan park	المكاتب الادارية-Administrative Offices	2.00	1.00	1.00	1.00	0.00
+OPR-2026-030001	حديقة الوطن-alwatan park	المكاتب الادارية-Administrative Offices	2.00	1.00	1.00	1.00	0.00
+OPR-2026-000004	حديقة الوطن-alwatan park	المكاتب الادارية-Administrative Offices	24.00	24.00	0.00	0.00	0.00
+OPR-2026-000001	العاب تولان-TOLAN RIDES	تصادم السيارات (الكبيرة) — BUMPER CARS (ADULTS)	30.00	30.00	0.00	0.00	0.00

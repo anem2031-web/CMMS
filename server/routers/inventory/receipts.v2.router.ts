@@ -25,7 +25,7 @@ import { validateCatalogItemDecision } from "../../_core/catalog-item-decision";
 import { ensurePendingCatalogItemCandidate } from "../../_core/catalog-item-candidate";
 import { createReceiptInventoryLot, isInventoryLotsEnabled } from "../../_core/inventory-lots";
 
-import { lockAndValidatePurchaseReceiptItems } from "../../services/inventory/purchaseReceiptEligibility";
+import { getPurchaseReceiptContext, lockAndValidatePurchaseReceiptItems, receiptOrderScope } from "../../services/inventory/purchaseReceiptEligibility";
 
 import { createPurchaseReceiptContextProcedure } from "./purchaseReceiptContext.procedure";
 
@@ -422,7 +422,9 @@ export const receiptsV2Router = router({
 
   receiveFromPurchaseV2: warehouseProcedure
     .input(z.object({
-      purchaseOrderId:  z.number(),
+      purchaseOrderId:  z.number().int().positive(),
+      purchaseOrderIds: z.array(z.number().int().positive()).min(1).max(500).optional(),
+      sourceInvoiceNumber: z.string().max(100).optional(),
       vendorName:       z.string().optional(),
       vendorNameEn:     z.string().optional(),
       vendorTaxNumber:  z.string().optional(),
@@ -440,11 +442,29 @@ export const receiptsV2Router = router({
       hasDiscrepancy:   z.boolean().default(false),
       discrepancyNotes: z.string().optional(),
       notes:            z.string().optional(),
-      items:            z.array(receivedItemSchema).min(1, "أضف صنفاً واحداً على الأقل للاستلام"),
+      items:            z.array(receivedItemSchema).min(1, "أضف صنفاً واحداً على الأقل للاستلام").max(500),
     }))
     .mutation(async ({ input, ctx }) => {
       const po = await db.getPurchaseOrderById(input.purchaseOrderId);
       if (!po) throw new TRPCError({ code: "NOT_FOUND", message: "طلب الشراء غير موجود" });
+      if (input.invoiceNumber) {
+        const duplicate = await db.checkDuplicateInvoice({
+          invoiceNumber: input.invoiceNumber,
+          vendorTaxNumber: input.vendorTaxNumber,
+        });
+        if (duplicate) {
+          throw new TRPCError({ code: "CONFLICT", message: `فاتورة مكررة - تم استلام هذه الفاتورة مسبقاً برقم ${duplicate.receiptNumber}` });
+        }
+      }
+      const receiptOrderIds = receiptOrderScope(input.purchaseOrderId, input.purchaseOrderIds, input.sourceInvoiceNumber);
+      // Re-read the exact receipt scope at this write boundary. The URL/read
+      // snapshot never grants membership to a different PO or invoice.
+      const groupedContext = receiptOrderIds.length > 1
+        ? await getPurchaseReceiptContext(await db.getDb(), input.purchaseOrderId, input.sourceInvoiceNumber, receiptOrderIds)
+        : null;
+      const orderNumbers = new Map<number, string>(
+        ((groupedContext as any)?.purchaseOrders || [po]).map((order: any) => [Number(order.id), order.poNumber]),
+      );
 
       if (input.catalogSupplierId && input.isNewSupplier) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "اختر مورداً موجوداً أو حدد مورد جديد، وليس الاثنين معاً" });
@@ -473,7 +493,7 @@ export const receiptsV2Router = router({
       //   أو ليس بحالة "توريد للمستودع" — لكن فقط للأصناف التي اختار
       //   المستخدم ربطها ببند (purchaseOrderItemId موجود). الأصناف بلا ربط
       //   (صنف زائد بالفاتورة لا يقابله بند بالطلب) مسموحة عمداً.
-      const poItemsAll = await db.getPOItems(input.purchaseOrderId);
+      const poItemsAll = groupedContext ? groupedContext.items : await db.getPOItems(input.purchaseOrderId);
       const validItemIds = new Set(
         poItemsAll.filter((i: any) => i.status === "delivered_to_warehouse").map((i: any) => i.id)
       );
@@ -532,25 +552,12 @@ export const receiptsV2Router = router({
         }
       }
 
-      if (input.invoiceNumber) {
-        const duplicate = await db.checkDuplicateInvoice({
-          invoiceNumber: input.invoiceNumber,
-          vendorTaxNumber: input.vendorTaxNumber,
-        });
-        if (duplicate) {
-          throw new TRPCError({
-            code: "CONFLICT",
-            message: `فاتورة مكررة - تم استلام هذه الفاتورة مسبقاً برقم ${duplicate.receiptNumber}`,
-          });
-        }
-      }
-
       // ── الجزء الحرج محاسبياً (الإيصال + بنوده + تحديث المخزون + حالة
       //   بنود الطلب) يُنفَّذ كمعاملة واحدة: إما ينجح بالكامل أو يُلغى
       //   بالكامل (rollback) — لا حالة وسطى ممزقة عند أي فشل جزئي.
       const lotsEnabled = isInventoryLotsEnabled();
       const { receiptId, receiptNumber, processedItems } = await db.withTransaction(async (tx) => {
-        await lockAndValidatePurchaseReceiptItems(tx, input.purchaseOrderId, input.items);
+        await lockAndValidatePurchaseReceiptItems(tx, input.purchaseOrderId, input.items, input.purchaseOrderIds, input.sourceInvoiceNumber);
         const receiptNumber = await db.getNextReceiptNumber(tx);
 
         const receiptId = await db.createWarehouseReceiptV2({
@@ -648,11 +655,15 @@ export const receiptsV2Router = router({
         const processedItems: any[] = [];
 
         for (const item of input.items) {
+          const orderedItem = poItemsAll.find((candidate: any) => Number(candidate.id) === Number(item.purchaseOrderItemId));
+          // Receipt header retains the entry PO for compatibility; each receipt
+          // line, lot and movement keeps its actual source PO/item identity.
+          const sourcePurchaseOrderId = orderedItem?.purchaseOrderId ?? input.purchaseOrderId;
           const processed = await processReceiptItem({
             item,
             receiptId: receiptId!,
-            purchaseOrderId: input.purchaseOrderId,
-            poNumber: po.poNumber,
+            purchaseOrderId: sourcePurchaseOrderId,
+            poNumber: orderNumbers.get(sourcePurchaseOrderId),
             receiptNumber,
             performedById: ctx.user.id,
             tx,
@@ -660,7 +671,6 @@ export const receiptsV2Router = router({
           });
           processedItems.push(processed);
 
-          const orderedItem = poItemsAll.find((candidate: any) => Number(candidate.id) === Number(item.purchaseOrderItemId));
           const orderUnit = (await getActiveCatalogUnitCanonicalName(orderedItem?.unit, tx)) || orderedItem?.unit || "";
           const receivedUnit = (await getActiveCatalogUnitCanonicalName(item.purchaseUnit, tx)) || item.purchaseUnit;
           const inOrderUnits = receiptInOrderUnits({ orderUnit, receivedUnit, issueUnit: item.issueUnit,
@@ -700,7 +710,7 @@ export const receiptsV2Router = router({
               inventoryId: processed.inventoryId,
               receiptId: receiptId!,
               receiptItemId: Number(receiptItemId),
-              purchaseOrderId: input.purchaseOrderId,
+              purchaseOrderId: sourcePurchaseOrderId,
               purchaseOrderItemId: item.purchaseOrderItemId ?? null,
               catalogSupplierId: selectedCatalogSupplier?.id ?? null,
               supplierCandidateId: supplierCandidateId ?? null,
@@ -741,7 +751,7 @@ export const receiptsV2Router = router({
               inventoryId: processed.inventoryId,
               sourceReceiptId: receiptId!,
               sourceReceiptItemId: Number(receiptItemId),
-              purchaseOrderId: input.purchaseOrderId,
+              purchaseOrderId: sourcePurchaseOrderId,
               purchaseOrderItemId: item.purchaseOrderItemId,
               catalogSupplierId: selectedCatalogSupplier?.id,
               supplierCandidateId,
@@ -793,14 +803,16 @@ export const receiptsV2Router = router({
           }
         }
 
-        const allItems = await db.getPOItems(input.purchaseOrderId, tx);
-        const activeItems = allItems.filter((i: any) => !["rejected", "cancelled"].includes(i.status));
-        // ✅ إصلاح حرج #6: نفس تحقق length > 0 قبل every() لمنع الصدق الفارغ
-        const allInWarehouse = activeItems.length > 0 && activeItems.every((i: any) =>
-          ["delivered_to_warehouse", "delivered_to_requester"].includes(i.status)
-        );
-        if (allInWarehouse) {
-          await db.updatePurchaseOrder(input.purchaseOrderId, { status: "received" }, tx);
+        for (const receiptOrderId of receiptOrderIds) {
+          const allItems = await db.getPOItems(receiptOrderId, tx);
+          const activeItems = allItems.filter((i: any) => !["rejected", "cancelled"].includes(i.status));
+          // ✅ إصلاح حرج #6: نفس تحقق length > 0 قبل every() لمنع الصدق الفارغ
+          const allInWarehouse = activeItems.length > 0 && activeItems.every((i: any) =>
+            ["delivered_to_warehouse", "delivered_to_requester"].includes(i.status)
+          );
+          if (allInWarehouse) {
+            await db.updatePurchaseOrder(receiptOrderId, { status: "received" }, tx);
+          }
         }
 
         return { receiptId, receiptNumber, processedItems };

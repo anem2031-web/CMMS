@@ -31,8 +31,11 @@ function database(responses) {
     },
   };
 }
-function api(db) { return router({ context: createPurchaseReceiptContextProcedure(async () => db) }); }
-function caller(db, role) { return api(db).createCaller({ user: role ? { id: 9090247, role } : null }); }
+function api(db) { return router({ warehouseReceiptsV2: router({ purchaseReceiptContext: createPurchaseReceiptContextProcedure(async () => db) }) }); }
+function caller(db, role) {
+  const actual = api(db).createCaller({ user: role ? { id: 9090247, role, isActive: 1 } : null });
+  return { context: actual.warehouseReceiptsV2.purchaseReceiptContext };
+}
 
 test('448: warehouse opens receipt context while general PO visibility still denies approved', async () => {
   assert.equal(isPOVisible({ role: 'warehouse', userId: 9090247 }, { id: poId, status: 'approved', requestedById: 3390036 }), false);
@@ -108,7 +111,7 @@ test('save uses current row locks, rechecks eligibility and keeps invoice extras
 test('production save guard runs inside the transaction before receipt/inventory writes', () => {
   const source = readFileSync(new URL('../routers/inventory/receipts.v2.router.ts', import.meta.url), 'utf8').split('  receiveFromPurchaseV2:')[1];
   const transaction = source.indexOf('db.withTransaction(async (tx) => {');
-  const guard = source.indexOf('await lockAndValidatePurchaseReceiptItems(tx, input.purchaseOrderId, input.items)');
+  const guard = source.indexOf('await lockAndValidatePurchaseReceiptItems(tx, input.purchaseOrderId, input.items,');
   const write = source.indexOf('await db.createWarehouseReceiptV2(');
   assert.ok(transaction < guard && guard < write);
 });
@@ -118,5 +121,58 @@ test('screen calls scoped endpoint and renders error/retry before loading or emp
   assert.ok(source.includes('trpc.warehouseReceiptsV2.purchaseReceiptContext.useQuery'));
   assert.ok(source.indexOf('if (isPoError) return') < source.indexOf('if (isPoLoading || !initialized) return'));
   assert.ok(source.includes('refetchPo()'));
-  assert.ok(source.includes('key={`${poId}:${invoiceNumberParam}`}'));
+  assert.ok(source.includes('key={`${poId}:${invoiceNumberParam}:${orderIdsParam}`}'));
+});
+
+test('one invoice across two POs loads all parent/item scopes with three bounded reads', async () => {
+  const second = { ...wood, id: 99, purchaseOrderId: 42 };
+  const db = database([[{ id: poId, poNumber: 'PR-A' }, { id: 42, poNumber: 'PR-B' }], [wood, second], []]);
+  const result = await caller(db, 'warehouse').context({ purchaseOrderId: poId, purchaseOrderIds: [poId, 42, poId], invoiceNumber: '328652' });
+  assert.deepEqual(result.items, [wood, second]);
+  assert.equal(result.purchaseOrders.length, 2);
+  assert.equal(db.calls.length, 3);
+  assert.deepEqual(db.calls[1].where.params, [42, poId, 'delivered_to_warehouse']);
+});
+test('large scope uses three reads rather than one read per PO and rejects >500', async () => {
+  const orders = Array.from({ length: 500 }, (_, i) => ({ id: i + 1, poNumber: `PR-${i}` }));
+  const db = database([orders, [], []]);
+  await caller(db, 'warehouse').context({ purchaseOrderId: 1, purchaseOrderIds: orders.map(p => p.id), invoiceNumber: 'I' });
+  assert.equal(db.calls.length, 3);
+  const empty = database([]);
+  await assert.rejects(caller(empty, 'warehouse').context({ purchaseOrderId: 1, purchaseOrderIds: Array.from({length:501}, (_,i)=>i+1), invoiceNumber:'I' }), e=>e.code==='BAD_REQUEST');
+  assert.equal(empty.calls.length, 0);
+});
+test('a thousand displayed items with repeated parents still use only three reads',async()=>{
+  const items=Array.from({length:1000},(_,i)=>({...wood,id:i+1,purchaseOrderId:i%2?poId:42}));
+  const db=database([[{id:poId},{id:42}],items,[]]);
+  const result=await caller(db,'warehouse').context({purchaseOrderId:poId,purchaseOrderIds:[42,poId,42],invoiceNumber:'328652'});
+  assert.equal(result.items.length,1000);
+  assert.equal(db.calls.length,3);
+});
+test('mixed parent scope denies a missing parent and propagates infrastructure failure', async () => {
+  await assert.rejects(caller(database([[{id:poId}]]), 'warehouse').context({ purchaseOrderId: poId, purchaseOrderIds:[42], invoiceNumber:'I' }), e=>e.code==='NOT_FOUND');
+  await assert.rejects(getPurchaseReceiptContext(database([()=>{throw Error('offline');}]), poId), /offline/);
+});
+test('no shared invoice identity means no cross-PO receipt scope', async () => {
+  for (const invoice of [undefined, '', 'بدون رقم فاتورة']) {
+    const db = database([]);
+    await assert.rejects(caller(db,'warehouse').context({purchaseOrderId:poId,purchaseOrderIds:[42],invoiceNumber:invoice}), e=>e.code==='BAD_REQUEST');
+    assert.equal(db.calls.length,0);
+  }
+});
+test('multi-PO write rechecks exact membership/invoice and duplicate receipt under row locks', async () => {
+  const second = {...wood,id:99,purchaseOrderId:42};
+  const selected = [{purchaseOrderItemId:wood.id},{purchaseOrderItemId:99}];
+  const db=database([[second,wood],[]]);
+  await lockAndValidatePurchaseReceiptItems(db,poId,selected,[poId,42],'328652');
+  assert.deepEqual(db.calls.map(c=>c.locks),[['update'],['update']]);
+  for (const changed of [{...second,purchaseOrderId:77},{...second,supplierInvoiceNumber:'OTHER'},{...second,status:'approved'}]) {
+    await assert.rejects(lockAndValidatePurchaseReceiptItems(database([[wood,changed],[]]),poId,selected,[poId,42],'328652'),e=>e.code==='BAD_REQUEST');
+  }
+  await assert.rejects(lockAndValidatePurchaseReceiptItems(database([[wood,second],[{itemId:99}]]),poId,selected,[poId,42],'328652'),e=>e.code==='CONFLICT');
+});
+test('consecutive receipt context calls never reuse confirmed-item eligibility', async()=>{
+  const db=database([[{id:poId}], [wood], [], [{id:poId}], [wood], [{itemId:wood.id}]]);
+  assert.equal((await getPurchaseReceiptContext(db,poId)).items.length,1);
+  assert.equal((await getPurchaseReceiptContext(db,poId)).items.length,0);
 });

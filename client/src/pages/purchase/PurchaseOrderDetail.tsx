@@ -1,6 +1,9 @@
 import { PricingBundleLink, PricingBundleAddButton } from "@/components/purchase/PricingBundleActions";
+import { isDelegateOwnPurchaseDraft } from "@shared/purchaseDraftVisibility";
 import { ImprovementReference } from "@/components/improvement/ImprovementReference";
 import { trpc } from "@/lib/trpc";
+import { independentReadOptions } from "@/lib/read-transport";
+import { refreshPurchaseExecution, purchaseRefreshNotice } from "@/lib/purchaseExecutionRefresh";
 import { mediaUrl } from "@/lib/mediaUrl";
 import { goBackOrFallback } from "@/lib/backStack";
 import { useAuth } from "@/_core/hooks/useAuth";
@@ -128,7 +131,7 @@ export default function PurchaseOrderDetail() {
   const displayUnit = (value: string | null | undefined) =>
     getLocalizedCatalogUnitName(value, catalogUnits as any[], language);
 
-  const { data: po, isLoading, refetch } = trpc.purchaseOrders.getById.useQuery({ id: poId }, { enabled: !!poId });
+  const { data: po, isLoading, refetch } = trpc.purchaseOrders.getById.useQuery({ id: poId }, { enabled: !!poId, ...independentReadOptions });
   const { data: directoryUsers } = trpc.users.list.useQuery(undefined, { enabled: !!user && user.role !== "delegate" });
   const users = user?.role === "delegate" ? [
     { id: user.id, name: user.name, role: "delegate" },
@@ -267,12 +270,22 @@ export default function PurchaseOrderDetail() {
   });
   const approveMgmtMut = trpc.purchaseOrders.approveManagement.useMutation({ onSuccess: () => { toast.success(t.common.confirm); refetch(); }, onError: (e) => toast.error(localizeApiError(e.message)) });
   const rejectMut = trpc.purchaseOrders.reject.useMutation({ onSuccess: () => { toast.success(t.common.confirm); refetch(); }, onError: (e) => toast.error(localizeApiError(e.message)) });
-  const confirmPurchaseMut = trpc.purchaseOrders.confirmItemPurchase.useMutation({ onSuccess: () => { toast.success(t.common.confirm); refetch(); }, onError: (e) => toast.error(localizeApiError(e.message)) });
+  const confirmPurchaseMut = trpc.purchaseOrders.confirmItemPurchase.useMutation({
+    onSuccess: async (result, variables) => {
+      toast.success(t.common.confirm);
+      if (!await refreshPurchaseExecution(utils, result, variables)) toast.warning(purchaseRefreshNotice(language));
+    }, onError: (e) => toast.error(localizeApiError(e.message)),
+  });
   const cancelPurchaseMut = trpc.purchaseOrders.cancelItemPurchase.useMutation({
     onSuccess: () => { toast.success(t.purchaseOrders.cancelPurchaseSuccess); refetch(); setCancelPurchaseDialog(null); setCancelPurchaseNote(""); },
     onError: (e: any) => toast.error(localizeApiError(e.message)),
   });
-  const receiveItemMut = trpc.purchaseOrders.confirmDeliveryToWarehouse.useMutation({ onSuccess: () => { toast.success(t.common.confirm); refetch(); }, onError: (e: any) => toast.error(localizeApiError(e.message)) });
+  const receiveItemMut = trpc.purchaseOrders.confirmDeliveryToWarehouse.useMutation({
+    onSuccess: async (result, variables) => {
+      toast.success(t.common.confirm);
+      if (!await refreshPurchaseExecution(utils, result, variables)) toast.warning(purchaseRefreshNotice(language));
+    }, onError: (e: any) => toast.error(localizeApiError(e.message)),
+  });
   const editItemMut = trpc.purchaseOrders.editItem.useMutation({ onSuccess: () => { toast.success(t.common.savedSuccessfully); setEditingItem(null); refetch(); }, onError: (e: any) => toast.error(localizeApiError(e.message)) });
   const editAndResubmitReturnedItemMut = trpc.purchaseOrders.editAndResubmitReturnedItem.useMutation({
     onSuccess: () => {
@@ -584,6 +597,7 @@ const visibleItems = useMemo(() => {
   if (isAdminOrOwner || isMaintenanceManagerVariant) return po.items;
 
   if (role === "delegate") {
+    if (isDelegateOwnPurchaseDraft({ id: userId ?? 0, role }, po)) return po.items;
     return po.items.filter((item: any) => {
       if (item.delegateId !== userId) return false;
 
@@ -642,7 +656,7 @@ const visibleItems = useMemo(() => {
   }
 
   return po.items;
-}, [po?.items, po?.status, isAdminOrOwner, role, userId, pricingBatches, delegateActionView]);
+}, [po?.items, po?.status, po?.requestedById, isAdminOrOwner, isMaintenanceManagerVariant, role, userId, pricingBatches, delegateActionView]);
   const totalEstimated = useMemo(() => visibleItems.filter((item: any) => !["rejected", "cancelled", "purchase_cancelled"].includes(item.status)).reduce((sum: number, item: any) => sum + (parseFloat(item.estimatedTotalCost || "0")), 0), [visibleItems]);
   const totalActual = useMemo(() => visibleItems.filter((item: any) => !["rejected", "cancelled", "purchase_cancelled"].includes(item.status)).reduce((sum: number, item: any) => sum + (parseFloat(item.actualTotalCost || "0")), 0), [visibleItems]);
 

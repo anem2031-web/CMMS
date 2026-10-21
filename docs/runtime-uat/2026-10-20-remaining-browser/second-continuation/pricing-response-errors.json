@@ -1,0 +1,50 @@
+[
+  {
+    "level": "error",
+    "message": "[API Mutation Error] TRPCClientError: طلب الشراء PR-2026-240474 ليس بحالة \"بانتظار المراجعة\" — لا يمكن تجميعه\n    at Dw.from (https://cmms-production-2f64.up.railway.app/assets/index-DxcOntXj.js:2:59663)\n    at https://cmms-production-2f64.up.railway.app/assets/index-DxcOntXj.js:2:66215",
+    "timestamp": "2026-10-20T14:17:18.854Z",
+    "url": "https://cmms-production-2f64.up.railway.app/purchase-orders"
+  },
+  {
+    "level": "error",
+    "message": "[API Mutation Error] TRPCClientError: Unable to transform response from server\n    at Dw.from (https://cmms-production-2f64.up.railway.app/assets/index-DxcOntXj.js:2:59728)\n    at https://cmms-production-2f64.up.railway.app/assets/index-DxcOntXj.js:2:66333",
+    "timestamp": "2026-10-20T14:23:00.704Z",
+    "url": "https://cmms-production-2f64.up.railway.app/purchase-packages/150001"
+  },
+  {
+    "level": "error",
+    "message": "[API Query Error] TRPCClientError: Unable to transform response from server\n    at Dw.from (https://cmms-production-2f64.up.railway.app/assets/index-DxcOntXj.js:2:59728)\n    at https://cmms-production-2f64.up.railway.app/assets/index-DxcOntXj.js:2:66333",
+    "timestamp": "2026-10-20T14:23:03.706Z",
+    "url": "https://cmms-production-2f64.up.railway.app/purchase-packages/150001"
+  },
+  {
+    "level": "error",
+    "message": "[API Query Error] TRPCClientError: Unable to transform response from server\n    at Dw.from (https://cmms-production-2f64.up.railway.app/assets/index-DxcOntXj.js:2:59728)\n    at https://cmms-production-2f64.up.railway.app/assets/index-DxcOntXj.js:2:66333",
+    "timestamp": "2026-10-20T14:23:03.706Z",
+    "url": "https://cmms-production-2f64.up.railway.app/purchase-packages/150001"
+  },
+  {
+    "level": "error",
+    "message": "[API Query Error] TRPCClientError: Unable to transform response from server\n    at Dw.from (https://cmms-production-2f64.up.railway.app/assets/index-DxcOntXj.js:2:59728)\n    at https://cmms-production-2f64.up.railway.app/assets/index-DxcOntXj.js:2:66333",
+    "timestamp": "2026-10-20T14:23:16.696Z",
+    "url": "https://cmms-production-2f64.up.railway.app/purchase-packages/150001"
+  },
+  {
+    "level": "error",
+    "message": "[API Query Error] TRPCClientError: Unable to transform response from server\n    at Dw.from (https://cmms-production-2f64.up.railway.app/assets/index-DxcOntXj.js:2:59728)\n    at https://cmms-production-2f64.up.railway.app/assets/index-DxcOntXj.js:2:66333",
+    "timestamp": "2026-10-20T14:23:16.696Z",
+    "url": "https://cmms-production-2f64.up.railway.app/purchase-packages/150001"
+  },
+  {
+    "level": "error",
+    "message": "[API Query Error] TRPCClientError: Unable to transform response from server\n    at Dw.from (https://cmms-production-2f64.up.railway.app/assets/index-DxcOntXj.js:2:59728)\n    at https://cmms-production-2f64.up.railway.app/assets/index-DxcOntXj.js:2:66333",
+    "timestamp": "2026-10-20T14:23:29.675Z",
+    "url": "https://cmms-production-2f64.up.railway.app/purchase-packages/150001"
+  },
+  {
+    "level": "error",
+    "message": "[API Query Error] TRPCClientError: Unable to transform response from server\n    at Dw.from (https://cmms-production-2f64.up.railway.app/assets/index-DxcOntXj.js:2:59728)\n    at https://cmms-production-2f64.up.railway.app/assets/index-DxcOntXj.js:2:66333",
+    "timestamp": "2026-10-20T14:23:29.675Z",
+    "url": "https://cmms-production-2f64.up.railway.app/purchase-packages/150001"
+  }
+]

@@ -1,4 +1,6 @@
 import { trpc } from "@/lib/trpc";
+import { independentReadOptions } from "@/lib/read-transport";
+import { refreshPurchaseExecution, purchaseRefreshNotice } from "@/lib/purchaseExecutionRefresh";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -94,9 +96,11 @@ export default function MyItems() {
   const { t, language } = useTranslation();
   const locale = language === "ar" ? "ar-SA" : language === "ur" ? "ur-PK" : "en-US";
   const currency = t.common.currency;
+  const utils = trpc.useUtils();
 
   const { data: myItems, isLoading, refetch } = trpc.purchaseOrders.myItems.useQuery(undefined, {
     enabled: user?.role === "delegate" || user?.role === "admin" || user?.role === "owner",
+    ...independentReadOptions,
   });
 
   const [exportingPdf, setExportingPdf] = useState(false);
@@ -190,12 +194,12 @@ export default function MyItems() {
   });
 
   const confirmPurchaseMut = trpc.purchaseOrders.confirmItemPurchase.useMutation({
-    onSuccess: () => {
+    onSuccess: async (result, variables) => {
       toast.success(t.common.confirm);
       setPurchaseDialog(null);
       setInvoiceUrl("");
       setPurchasedUrl("");
-      refetch();
+      if (!await refreshPurchaseExecution(utils, result, variables)) toast.warning(purchaseRefreshNotice(language));
     },
     onError: (err) => toast.error(err.message),
   });

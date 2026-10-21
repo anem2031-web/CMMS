@@ -320,11 +320,7 @@ export default function ItemsManager() {
     setIsDialogOpen(true);
   };
 
-  const attachmentMut = trpc.attachments.add.useMutation();
-
-  // نجاح إنشاء/تعديل الصنف لا يُعلن للمستخدم قبل اكتمال ربط الصورة الاختيارية.
-  // كان onSuccess هنا يغلق النموذج ويعيد تحميل القائمة قبل attachments.add،
-  // فيظهر نجاح مضلل أو لا تظهر الصورة إلا بعد Refresh يدوي.
+  // The item and its required image are committed by the same mutation.
   const createMut = trpc.catalog.items.create.useMutation();
   const updateMut = trpc.catalog.items.update.useMutation();
 
@@ -431,26 +427,6 @@ export default function ItemsManager() {
     });
   };
 
-  const linkCatalogItemImage = async (itemId: number, image: File, uploaded: UploadedCatalogImage) => {
-    setImageSaveStage("linking");
-    setImageUploadProgress(95);
-    setImageSaveMessage("تم رفع الصورة — جارٍ حفظ الربط بالصنف...");
-
-    await attachmentMut.mutateAsync({
-      entityType: "catalog_item",
-      entityId: itemId,
-      fileName: image.name,
-      fileUrl: uploaded.url,
-      fileKey: uploaded.fileKey,
-      mimeType: image.type || undefined,
-      fileSize: image.size,
-    });
-
-    setImageSaveStage("success");
-    setImageUploadProgress(100);
-    setImageSaveMessage("تم رفع الصورة وحفظها بنجاح");
-  };
-
   const handleCreate = async () => {
     if (!selectedNode) {
       toast.error("يجب اختيار التصنيف");
@@ -459,6 +435,15 @@ export default function ItemsManager() {
 
     if (!formData.nameAr || !formData.nameEn) {
       toast.error(t.catalog.validation.requiredFields);
+      return;
+    }
+
+    if (!selectedImage && !editingItem?.primaryImageUrl) {
+      toast.error("صورة الصنف إلزامية؛ يرجى إضافة صورة قبل الحفظ");
+      return;
+    }
+    if (selectedImage && (!selectedImage.type.startsWith("image/") || selectedImage.size <= 0)) {
+      toast.error("يرجى اختيار ملف صورة صالح");
       return;
     }
 
@@ -484,14 +469,17 @@ export default function ItemsManager() {
       }
     }
 
-    let itemSaved = false;
-    const operationLabel = editingItem ? "تحديث" : "إضافة";
-
     setIsSavingItem(true);
     setImageSaveStage("idle");
     setImageUploadProgress(0);
-    setImageSaveMessage(selectedImage ? "سيتم حفظ بيانات الصنف ثم رفع الصورة وربطها قبل الإنهاء" : "");
+    setImageSaveMessage(selectedImage ? "سيتم رفع الصورة ثم حفظها مع بيانات الصنف" : "");
     try {
+      const uploaded = selectedImage ? await uploadCatalogItemImageFile(selectedImage) : null;
+      const image = selectedImage && uploaded ? {
+        fileName: selectedImage.name, fileKey: uploaded.fileKey,
+        mimeType: selectedImage.type, fileSize: selectedImage.size,
+      } : undefined;
+      if (image) setImageSaveStage("linking");
       if (editingItem) {
         await updateMut.mutateAsync({
           id: editingItem.id,
@@ -502,15 +490,11 @@ export default function ItemsManager() {
           code: trimmedCode || undefined,
           unit: formData.unit || undefined,
           manufacturer: formData.manufacturer || undefined,
+          image,
         });
-        itemSaved = true;
-
-        if (selectedImage) {
-          const uploadedImage = await uploadCatalogItemImageFile(selectedImage);
-          await linkCatalogItemImage(editingItem.id, selectedImage, uploadedImage);
-        }
       } else {
-        const createdItemId = await createMut.mutateAsync({
+        if (!image) throw new Error("صورة الصنف إلزامية");
+        await createMut.mutateAsync({
           nameAr: formData.nameAr,
           nameEn: formData.nameEn,
           nameUr: formData.nameUr || undefined,
@@ -518,16 +502,11 @@ export default function ItemsManager() {
           nodeId: selectedNode.id,
           unit: formData.unit || undefined,
           manufacturer: formData.manufacturer || undefined,
+          image,
         });
-        itemSaved = true;
-
-        if (selectedImage) {
-          const uploadedImage = await uploadCatalogItemImageFile(selectedImage);
-          await linkCatalogItemImage(Number(createdItemId), selectedImage, uploadedImage);
-        }
       }
 
-      // Refresh only after the optional attachment is committed so the returned
+      // Refresh only after the atomic item/image save so the returned
       // primaryImageUrl reflects the new image immediately.
       reloadFromStart();
       resetForm();
@@ -535,16 +514,6 @@ export default function ItemsManager() {
       toast.success(editingItem ? "تم تحديث الصنف" : "تم إضافة الصنف");
     } catch (error) {
       const message = error instanceof Error ? error.message : "حدث خطأ غير متوقع";
-      if (itemSaved && selectedImage) {
-        // The item mutation cannot be rolled back after the separate upload/attachment
-        // request fails. Report the partial success explicitly and refresh the list.
-        setImageSaveStage("error");
-        setImageUploadProgress(0);
-        setImageSaveMessage(`تعذر حفظ الصورة: ${message}`);
-        reloadFromStart();
-        toast.error(`تم ${operationLabel} الصنف، لكن تعذر حفظ الصورة: ${message}`);
-        return;
-      }
       setImageSaveStage("error");
       setImageSaveMessage(message);
       toast.error(message);
@@ -924,7 +893,7 @@ export default function ItemsManager() {
             <div className="space-y-1">
               <label className="text-sm font-medium">
                 صورة الصنف
-                <span className="text-muted-foreground text-xs mr-2">(اختياري)</span>
+                <span className="text-destructive text-xs mr-2">(إلزامي)</span>
               </label>
               <Input
                 type="file"
@@ -938,6 +907,9 @@ export default function ItemsManager() {
                 }}
                 disabled={isSavingItem}
               />
+              {editingItem?.primaryImageUrl && !selectedImage && (
+                <p className="text-xs text-muted-foreground">الصورة الحالية محفوظة؛ لا يلزم رفعها مجددًا لتعديل بيانات الصنف.</p>
+              )}
               {selectedImage && (
                 <div className="space-y-2 rounded-md border bg-muted/20 p-3">
                   <div className="flex items-center justify-between gap-3 text-xs">

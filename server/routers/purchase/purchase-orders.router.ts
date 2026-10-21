@@ -1,5 +1,6 @@
 import { pricingBundlesEnabled, reservedPricingItemIds, assertItemOutsidePricingBundle } from "../../services/delegate-pricing-bundles/reservations";
 import { isDelegateSupplyItemOpen } from "../../../shared/delegateSupplyStage";
+import { isDelegateOwnPurchaseDraft } from "../../../shared/purchaseDraftVisibility";
 import { isItTeamRole } from "@shared/roles";
 import { assertLegacyTeamExecutionAllowed } from "../maintenance-teams/execution.guard";
 import { createTicketMaterialPurchase } from "../maintenance-teams/purchase-form";
@@ -937,7 +938,8 @@ export const purchaseOrdersRouter = router({
       await db.createNotification({ userId: mgr.id, title: "📦 وصلت بضاعة للمستودع", message: `استلم المستودع الصنف "${item.itemName}" بكمية ${input.receivedQuantity} — فاتورة المورد رقم ${input.supplierInvoiceNumber}`, type: "info", relatedPoId: item.purchaseOrderId });
     }
     await db.createAuditLog({ userId: ctx.user.id, action: "deliver_to_warehouse", entityType: "po_item", entityId: input.itemId, newValues: { receivedQuantity: input.receivedQuantity, supplierInvoiceNumber: input.supplierInvoiceNumber } });
-    return { success: true };
+    return { success: true, itemId: item.id, purchaseOrderId: item.purchaseOrderId,
+      itemStatus: "delivered_to_warehouse" as const, purchaseOrderStatus: poForNotif?.status };
   }),
 
   cancelItemPurchase: delegateProcedure.input(z.object({
@@ -1066,14 +1068,17 @@ export const purchaseOrdersRouter = router({
     const purchasedOrLater = activeItemsPurch.filter(i =>
       ["purchased", "delivered_to_warehouse", "delivered_to_requester"].includes(i.status)
     );
+    let purchaseOrderStatus = purchaseContext.po?.status;
     if (activeItemsPurch.length > 0 && purchasedOrLater.length === activeItemsPurch.length) {
       // كل الأصناف الفعّالة اشتُريت — لكن في needs_item_revision؟ إذن هو شراء جزئي
       const hasRevisionItems = poItems.some(i => i.status === "needs_item_revision");
       const newStatus = hasRevisionItems ? "partial_purchase" : "purchased";
       await db.updatePurchaseOrder(item.purchaseOrderId, { status: newStatus });
+      purchaseOrderStatus = newStatus;
 
     } else if (purchasedOrLater.length > 0) {
       await db.updatePurchaseOrder(item.purchaseOrderId, { status: "partial_purchase" });
+      purchaseOrderStatus = "partial_purchase";
 
     }
     await syncPathBTicketFromPurchaseOrder(
@@ -1143,7 +1148,8 @@ export const purchaseOrdersRouter = router({
       });
     }
     await db.createAuditLog({ userId: ctx.user.id, action: "confirm_purchase", entityType: "po_item", entityId: input.itemId });
-    return { success: true };
+    return { success: true, itemId: item.id, purchaseOrderId: item.purchaseOrderId,
+      itemStatus: "purchased" as const, purchaseOrderStatus };
   }),
 
   saveDraft: protectedProcedure.input(z.object({
@@ -2167,7 +2173,8 @@ export const purchaseOrdersRouter = router({
     await assertCanViewPurchaseOrder(ctx.user, po);
 
     const allItems = await db.getPOItems(input.id);
-    const items = ctx.user.role === "delegate" ? allItems.filter((item: any) => Number(item.delegateId) === ctx.user.id) : allItems;
+    const items = ctx.user.role === "delegate" && !isDelegateOwnPurchaseDraft(ctx.user, po)
+      ? allItems.filter((item: any) => Number(item.delegateId) === ctx.user.id) : allItems;
     const allComments = await db.getProcurementComments(input.id);
     const ownItemIds = new Set(items.map((item: any) => item.id));
     const comments = ctx.user.role === "delegate" ? allComments.filter(comment => !comment.purchaseOrderItemId || ownItemIds.has(comment.purchaseOrderItemId)) : allComments;

@@ -1,0 +1,44 @@
+[
+  {
+    "level": "error",
+    "message": "[API Query Error] TRPCClientError: Unable to transform response from server\n    at Dw.from (https://cmms-production-2f64.up.railway.app/assets/index-DxcOntXj.js:2:59728)\n    at https://cmms-production-2f64.up.railway.app/assets/index-DxcOntXj.js:2:66333",
+    "timestamp": "2026-10-20T14:23:04.899Z",
+    "url": "https://cmms-production-2f64.up.railway.app/scheduled-maintenance/warehouse-requests"
+  },
+  {
+    "level": "error",
+    "message": "[API Query Error] TRPCClientError: Unable to transform response from server\n    at Dw.from (https://cmms-production-2f64.up.railway.app/assets/index-DxcOntXj.js:2:59728)\n    at https://cmms-production-2f64.up.railway.app/assets/index-DxcOntXj.js:2:66333",
+    "timestamp": "2026-10-20T14:23:04.899Z",
+    "url": "https://cmms-production-2f64.up.railway.app/scheduled-maintenance/warehouse-requests"
+  },
+  {
+    "level": "error",
+    "message": "[API Mutation Error] TRPCClientError: Unable to transform response from server\n    at Dw.from (https://cmms-production-2f64.up.railway.app/assets/index-DxcOntXj.js:2:59728)\n    at https://cmms-production-2f64.up.railway.app/assets/index-DxcOntXj.js:2:66333",
+    "timestamp": "2026-10-20T14:23:08.010Z",
+    "url": "https://cmms-production-2f64.up.railway.app/scheduled-maintenance/warehouse-requests"
+  },
+  {
+    "level": "error",
+    "message": "[API Query Error] TRPCClientError: Unable to transform response from server\n    at Dw.from (https://cmms-production-2f64.up.railway.app/assets/index-DxcOntXj.js:2:59728)\n    at https://cmms-production-2f64.up.railway.app/assets/index-DxcOntXj.js:2:66333",
+    "timestamp": "2026-10-20T14:23:17.974Z",
+    "url": "https://cmms-production-2f64.up.railway.app/scheduled-maintenance/warehouse-requests"
+  },
+  {
+    "level": "error",
+    "message": "[API Query Error] TRPCClientError: Unable to transform response from server\n    at Dw.from (https://cmms-production-2f64.up.railway.app/assets/index-DxcOntXj.js:2:59728)\n    at https://cmms-production-2f64.up.railway.app/assets/index-DxcOntXj.js:2:66333",
+    "timestamp": "2026-10-20T14:23:17.975Z",
+    "url": "https://cmms-production-2f64.up.railway.app/scheduled-maintenance/warehouse-requests"
+  },
+  {
+    "level": "error",
+    "message": "[API Query Error] TRPCClientError: Unable to transform response from server\n    at Dw.from (https://cmms-production-2f64.up.railway.app/assets/index-DxcOntXj.js:2:59728)\n    at https://cmms-production-2f64.up.railway.app/assets/index-DxcOntXj.js:2:66333",
+    "timestamp": "2026-10-20T14:23:31.214Z",
+    "url": "https://cmms-production-2f64.up.railway.app/scheduled-maintenance/warehouse-requests"
+  },
+  {
+    "level": "error",
+    "message": "[API Query Error] TRPCClientError: Unable to transform response from server\n    at Dw.from (https://cmms-production-2f64.up.railway.app/assets/index-DxcOntXj.js:2:59728)\n    at https://cmms-production-2f64.up.railway.app/assets/index-DxcOntXj.js:2:66333",
+    "timestamp": "2026-10-20T14:23:31.377Z",
+    "url": "https://cmms-production-2f64.up.railway.app/scheduled-maintenance/warehouse-requests"
+  }
+]

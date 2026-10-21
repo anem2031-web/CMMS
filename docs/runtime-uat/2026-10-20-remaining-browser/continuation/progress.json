@@ -1,0 +1,62 @@
+[
+  {
+    "test": "Physical printer and barcode reader",
+    "status": "SKIPPED_BY_USER",
+    "result": "User explicitly asked to skip physical hardware testing in this turn."
+  },
+  {
+    "test": "Disabled active sessions",
+    "status": "DEFERRED_BY_USER",
+    "result": "User explicitly deferred session deactivation testing."
+  },
+  {
+    "test": "OPR030002 lot UI retest",
+    "status": "CORRECTED_OBSERVATION",
+    "result": "Lotselect and matching LOT779options are enabled. Selecting main5piece exposes qty1 and confirmissue, value1. Global stock15 versus eligiblelots6 warning persists; operation submitted once for matchinglot."
+  },
+  {
+    "test": "OPR030002 matching lot issue",
+    "status": "PASS",
+    "result": "Issued1piece LOT779main, DLV-2026-510001. Itemissued1/remain0; mainlot5to4, total15to14, OPRcost1SAR. Earlier claim of all-lot blocking is disproven. Warning remains but does not prevent validlot."
+  },
+  {
+    "test": "OPR030002 test return",
+    "status": "PASS",
+    "result": "Returned all1piece against DLV510001; mainLOT779 back5, global15; issuedcost1-return1=net0. Orderstillhaszero-stockitempendingdraft3840001, so notexpectedfullycomplete."
+  },
+  {
+    "test": "Supplier return original order state",
+    "status": "REVIEW",
+    "result": "WarehousePO3780002 nowheadpartialpurchase0/1 but its only itemstilldeliveredtorequester2pieces. No replacementaction in detail. Will inspectdelegate actionbeforeconcluding."
+  },
+  {
+    "test": "New delivery document signature inspection",
+    "status": "AWAITING_USER_VISUAL_CHECK",
+    "result": "DLV510001 PDFdownload succeeded. AppViewPDF produced no visible preview; browser file:// opening explicitly blocked by browsersecuritypolicy. No workaround attempted; user asked to visually inspect downloadedPDF and RED signaturepresence."
+  },
+  {
+    "test": "Supplier replacement delegate path",
+    "status": "WORKFLOW_GAP_CONFIRMED_UI",
+    "result": "RED3 opensPO3780002: headpartialpurchase0/1, onlyitemdeliveredtorequester2, no repurchase/replacementaction. Previouslyreturn RTN240003 persisted but receive-v2 originalPO hasnoavailableitems and cyclewarehouse no pending. Replacementcannotbecompleted throughobservedUI; no fabricatedinvoice/extraPO used."
+  },
+  {
+    "test": "Warehouse uploaded signature rendering",
+    "status": "PASS_USER_CONFIRMED",
+    "result": "User answered نعم to seeing deliverer signature in DLV510001 and RED having an uploaded signature. This is user visual confirmation, not agentPDFinspection."
+  },
+  {
+    "test": "Accountant saved signature",
+    "status": "PASS_PROFILE_IMAGE",
+    "result": "AdminUI RED4 shows uploaded signature and previewloads AlMalqalogo. User asked to compare with approvedfinancialPDF; no profilechangesmade."
+  },
+  {
+    "test": "Accountant approved PDF signature visual comparison",
+    "status": "SKIPPED_BY_USER",
+    "result": "User asked to skip opening accountingapprovedPDF comparison. UploadedRED4signature preview was verified; PDFsignature rendering not asserted."
+  },
+  {
+    "test": "Converted receipt lot omitted from operational choices",
+    "status": "ISSUE_UI_CONFIRMED",
+    "result": "Inventorymain batchdialog shows LOT7809piece (original10, RCV540003 invoiceUAT-CONVERSION20261020-01) and LOT7795piece. Operationalchoices onlyLOT779main5+AC1 while global15. Missing9exactlyLOT780. Bothdisplaypiece, so UIdoesnotjustifyunitmismatch. Code/DBcause notinspected."
+  }
+]

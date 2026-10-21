@@ -1,0 +1,209 @@
+[
+  {
+    "test": "Draft missing need timing",
+    "record": "DFT-2026-0006",
+    "result": "PASS: send rejected, draft unchanged"
+  },
+  {
+    "test": "Days/date both ways",
+    "result": "PASS:3 days ->2026-10-23; native calendar2026-10-26 ->6 days; automated date fill did not fire native change and is excluded"
+  },
+  {
+    "test": "Draft save and submit",
+    "record": "3810005 / PR-2026-240471",
+    "result": "PASS: saved and submitted pending review; required date remained2026-10-26; save was slow; cross-calendar-day submission not exercised"
+  },
+  {
+    "test": "Operational order approval",
+    "record": "OPR-2026-030002",
+    "result": "PASS by RED/warehouse; available item blocked by stock unit/lot mismatch warning, all listed lots disabled; zero item exposes purchase draft action"
+  },
+  {
+    "test": "Zero-stock operational to draft",
+    "record": "OPR030002 / PO3840001 / DFT-2026-0006",
+    "result": "PASS: one click created linked draft qty1; link replaces action; old DFT0006 was converted to PR240471 so current draft reuses label on different ID"
+  },
+  {
+    "test": "Branch-to-branch transfer",
+    "record": "TRB-2026-180001 / LOT779",
+    "result": "PASS: RED moved1piece AC to paint after red confirmation; success with category mismatch warning"
+  },
+  {
+    "test": "Transfer destination freshness",
+    "result": "ISSUE: new destination stock absent from reverse search until full page reload; after reload paint stock1piece visible"
+  },
+  {
+    "test": "Reverse branch transfer",
+    "record": "TRB-2026-180002 / LOT779",
+    "result": "PASS:1piece paint to AC, successful after native red confirm; verify stock next"
+  },
+  {
+    "test": "Transfer stock verification",
+    "result": "PASS: inventory page AC branch INV360004 returned to1piece after reverse; image saved"
+  },
+  {
+    "test": "Purchase-cycle standalone issue",
+    "result": "No stock deducted after reload; AC LOT779 remains1. Modal closed without captured outcome message; UX result unclear",
+    "status": "PASS_STOCK_BOUNDARY_UX_REVIEW"
+  },
+  {
+    "test": "RED7 login from inventory URL",
+    "status": "REVIEW_SCOPE",
+    "result": "Operator sidebar limited but inventory page and stock rows visible after warehouse logout/operator login. Need verify reload scope before calling security defect."
+  },
+  {
+    "test": "RED7 direct /inventory reload",
+    "status": "POLICY_REVIEW",
+    "result": "Stock list, balances, unit prices and Export visible after full reload for operator despite no inventory sidebar entry; no issue/edit buttons. Scope intent needs review."
+  },
+  {
+    "test": "Requester RED7 confirmation MT-2026-00593",
+    "status": "PASS_WITH_UI_TEXT_ISSUE",
+    "result": "Confirmation saved by requester 20Oct with note; form disappeared. Afterwards closure area shows No tickets found and progress action labels reset to1..6, needing display review. Lot netcost1SAR remains."
+  },
+  {
+    "test": "Fresh C workflow setup",
+    "status": "IN_PROGRESS",
+    "result": "Created task2 under test MT591, assigned by name SUHAIL and converted to MT591-02 id2100001; parent count2 prevents premature100%."
+  },
+  {
+    "test": "Post-confirmation own ticket reload RED7",
+    "status": "PASS_RETEST",
+    "result": "Isolated RED7 newlogin openedMT593 successfully afterconfirmation. Timeline confirms requester20Oct12:40:11. Earlierread-deniallogs were account-switch noise, not requesteraccessdefect. No tickets found area remains displayissue."
+  },
+  {
+    "test": "PurchaseCycle standalone error evidence",
+    "status": "PASS",
+    "result": "Browser console captured mutation denial: الصرف يتطلب بلاغ صيانة أو مهمة أو أمر صرف تشغيلي معتمد. Stock1 retained."
+  },
+  {
+    "test": "C inspection and path approval",
+    "status": "PASS",
+    "result": "MT591-02 inspection approved revision1, assigned SUHAIL recorded separate from RED6; selectedC with required reason; status work approved."
+  },
+  {
+    "test": "C warehouse preparation",
+    "status": "PASS",
+    "result": "MT591-02 image uploaded, RED3 delegate assigned, permit saved and moved to awaiting gate exit. Exit document click produced no visible modal/new tab; download not yet verified."
+  },
+  {
+    "test": "Gate permit preview",
+    "status": "ISSUE_OR_BROWSER_LIMITATION",
+    "result": "EXT-OUT120001: الوثيقة click twice no modal/new tab/download observed; cannot validate close button. Same from warehouse exitdocument. No error message visible."
+  },
+  {
+    "test": "C gate exit RED5",
+    "status": "PASS",
+    "result": "EXT-OUT120001 confirmed on test MT591-02; moved from exit tohistory, status outside-company financialcycle, automatically created PR-2026-240472. No actual equipment moved."
+  },
+  {
+    "test": "C delegate assignment and pricing",
+    "status": "PASS",
+    "result": "RED3 sees own C service in pendingitems with correct creator REDwarehouse; PR240472/PO3840002/item3810002. Testprice1 saved, addedto DPB060001 open. No PDFbutton before send."
+  },
+  {
+    "test": "Fresh C bundle send/archive/PDF",
+    "status": "PASS",
+    "result": "DPB060001 sent, autoarchived and PDFbutton appeared; observed complete by31.3sec (coarse), download succeeded to DPB-2026-060001.pdf."
+  },
+  {
+    "test": "C item tracking after bundle",
+    "status": "PASS",
+    "result": "RED3 متابعةأصنافي row shows C service and الحسابات—بانتظارالاعتماد. Other2 own testitems also pendingaccounts. No other delegateitems shown in current3rows."
+  },
+  {
+    "test": "Fresh C bundle accountant documents before approval",
+    "status": "PASS",
+    "result": "RED4 /documents حزم التسعير lists DPB060001 with PR240472; details and prices viewable, noPDFbutton and explicit after-your-approval notice. Awaiting-accountant action exists in purchaseorders."
+  },
+  {
+    "test": "Fresh C bundle senior documents before approval",
+    "status": "PASS",
+    "result": "RED8 sees DPB060001 data and linkedPR; PDFnotshown with after-your-approval notice; closebutton works. No financial approval executed."
+  },
+  {
+    "test": "Live cost reconciliation RED8",
+    "status": "PASS_PARTIAL",
+    "result": "Report176issued-86returned=90net; site/section sums60+30+0=90; reference MT593-01=1 and OPR030001=1 agree with vouchers. MT589-02 lotnet20 vs avg15 diff5 visible. Assetgroup shows noasset for all fixturedata; no nonemptyasset case. PMV2filter0rows no eligible fixture, so not proof of PMcostworkflow. Operationalfilter net1."
+  },
+  {
+    "test": "Fresh C detail after accountant approval",
+    "status": "ISSUE",
+    "result": "RED4 own-approved PR240472 detail /purchase-orders/3840002 shows لا توجد بيانات after user said approvalsdone; same symptom as prioroldPO. Need bundlePDF check separately."
+  },
+  {
+    "test": "Same fresh bundle accountant after approval PDF",
+    "status": "PASS",
+    "result": "User performed financial approval. RED4 financialPDF PR240472 approvedaccounting and aggregate DPB060001 both downloaded successfully; previouslyhiddenPDF nowallowed for sameactor."
+  },
+  {
+    "test": "Same fresh bundle senior after approval PDF",
+    "status": "PASS",
+    "result": "RED8 ownapproved C PR240472 shows PDFallowed and DPB060001 download succeeded. Before/after permission verified on same fresh aggregate for RED4 and RED8."
+  },
+  {
+    "test": "C purchase required images",
+    "status": "PASS_WITH_LABEL_ISSUE",
+    "result": "Confirm without two images rejected with purchasedPhotoUrl and invoicePhotoUrl required. Uploaded clearly marked UAT-only images for both, no real invoice. UI firstupload caption is ملاحظاتالحسابات instead of explicit invoiceimage, making requirement unclear."
+  },
+  {
+    "test": "C delegate purchase completion",
+    "status": "PASS",
+    "result": "PR240472 became fullypurchased,1/1 after UATimages. No actual payment/purchaseperformed; syntheticrecordonly."
+  },
+  {
+    "test": "C gate entry RED5",
+    "status": "PASS",
+    "result": "MT591-02 entry confirmed with returnedby and note; history says enteredcompany-awaitingwarehouse receipt."
+  },
+  {
+    "test": "C warehouse returned asset receipt",
+    "status": "PASS",
+    "result": "RED received MT591-02 aftergateentry, condition+afterphoto required, optionalworkshopreport omitted. Movedto handover SUHAILselected bydefault; submittedhandover."
+  },
+  {
+    "test": "C warehouse handover",
+    "status": "PASS",
+    "result": "MT591-02 handover persisted; externalmonitor shows sixcompletedstages, waitinginstallation. Return+handoverdocbuttons present."
+  },
+  {
+    "test": "C technician task classification after handover",
+    "status": "ISSUE",
+    "result": "SUHAIL redirects mytasks2tabs. C591-02 byname absentfrom execution, appearsunder بانتظارالمواد afterwarehousehandover completed and monitor waitinginstallation. Click opennext."
+  },
+  {
+    "test": "C technician installation start",
+    "status": "PASS",
+    "result": "SUHAIL opened assigned-name C task, startinstallation changedstatus inprogress and exposed Cinstallationcompletionnoteform; submitted completion UATnote."
+  },
+  {
+    "test": "C technician installation complete",
+    "status": "PASS",
+    "result": "SUHAIL completionnote saved, state readyforclosure; nofinalcloseactionfor technician."
+  },
+  {
+    "test": "C technician completed category",
+    "status": "PASS",
+    "result": "C591-02 movedout waitingmaterials into تمتنفيذها10 afterinstallationcomplete; stillviewable as assignedname."
+  },
+  {
+    "test": "C final closure RED6",
+    "status": "PASS",
+    "result": "MT591-02 closed, steps✓ throughclosed after SUHAILinstallation completion. FullsyntheticC cyclecomplete through inspector-manager-warehouse-gate-delegate-accountant/senior userapproval-gate-warehouse-technician-manager."
+  },
+  {
+    "test": "Parent after C closure",
+    "status": "PASS",
+    "result": "MT591 parent 1/2=50%, waitingMT591-01; parentnotclosed. NewC closurecountedonce."
+  },
+  {
+    "test": "Supplier replacement receipt original PO",
+    "status": "BLOCKED_WORKFLOW_REVIEW",
+    "result": "Original test RTN240003 against PO3780002/RCV540002 exists. receive-v2?poId3780002 shows noavailableitems, instructconfirmwarehouse delivery first. Replacementlinkedreceipt not available via thispath; no extra invoice/stock fabricated."
+  },
+  {
+    "test": "C disappears from delegate after completion",
+    "status": "PASS",
+    "result": "RED3 pendingitems0, follow2 contains only earlieraccountingpending brush+paint; completed Cserviceabsent. BeforeCfollow3 now2."
+  }
+]

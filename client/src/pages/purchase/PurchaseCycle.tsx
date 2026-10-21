@@ -3,6 +3,8 @@ import { useState, useRef } from "react";
 import QRCode from "qrcode";
 import { mediaUrl } from "@/lib/mediaUrl";
 import { trpc } from "@/lib/trpc";
+import { independentReadOptions } from "@/lib/read-transport";
+import { refreshPurchaseExecution, purchaseRefreshNotice } from "@/lib/purchaseExecutionRefresh";
 import { useTranslation } from "@/contexts/LanguageContext";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -521,9 +523,9 @@ export default function PurchaseCycle() {
 
   // Data queries - admin/owner always enabled
   const { data: pendingEstimate = [], refetch: refetchEstimate } = trpc.purchaseOrders.pendingEstimateItems.useQuery(undefined, { enabled: isDelegate || isAdminOrOwner });
-  const { data: pendingPurchase = [], refetch: refetchPurchase } = trpc.purchaseOrders.pendingPurchaseItems.useQuery(undefined, { enabled: isDelegate || isAdminOrOwner });
-  const { data: pendingWarehouse = [], refetch: refetchWarehouse } = trpc.purchaseOrders.pendingWarehouseItems.useQuery(undefined, { enabled: isWarehouse || isAdminOrOwner });
-  const { data: pendingDelivery = [], refetch: refetchDelivery } = trpc.purchaseOrders.pendingDeliveryItems.useQuery(undefined, { enabled: isWarehouse || isAdminOrOwner });
+  const { data: pendingPurchase = [], refetch: refetchPurchase } = trpc.purchaseOrders.pendingPurchaseItems.useQuery(undefined, { enabled: isDelegate || isAdminOrOwner, ...independentReadOptions });
+  const { data: pendingWarehouse = [], refetch: refetchWarehouse } = trpc.purchaseOrders.pendingWarehouseItems.useQuery(undefined, { enabled: isWarehouse || isAdminOrOwner, ...independentReadOptions });
+  const { data: pendingDelivery = [], refetch: refetchDelivery } = trpc.purchaseOrders.pendingDeliveryItems.useQuery(undefined, { enabled: isWarehouse || isAdminOrOwner, ...independentReadOptions });
   // أصناف المخزون الجاهزة للتسليم (من OCR الفعلي)
   const { data: inventoryItems = [], refetch: refetchInventory } = trpc.purchaseOrders.inventoryReadyForDelivery.useQuery(undefined, { enabled: isWarehouse || isAdminOrOwner });
   const { data: lotTrackingStatus } = trpc.inventoryCount.lotTrackingStatus.useQuery(undefined, { enabled: isWarehouse || isAdminOrOwner });
@@ -535,7 +537,8 @@ export default function PurchaseCycle() {
   // تجميع حسب رقم فاتورة المورد بعد ترتيب الأصناف من الأحدث إلى الأقدم.
   // وبذلك يظهر أحدث رقم فاتورة أولاً، وتظهر أحدث أصناف الفاتورة في بدايتها.
   const groupedByInvoiceNumber = newestPendingDelivery.reduce((groups: any, item: any) => {
-    const key = item.supplierInvoiceNumber || t.workflow.purchase.withoutInvoiceNumber;
+    // An absent invoice number is not a shared invoice identity.
+    const key = item.supplierInvoiceNumber || `${t.workflow.purchase.withoutInvoiceNumber} #${item.purchaseOrderId}`;
     if (!groups[key]) groups[key] = [];
     groups[key].push(item);
     return groups;
@@ -574,9 +577,9 @@ export default function PurchaseCycle() {
     },
     onError: (e: any) => toast.error(localizeApiError(e.message)),
   });
-  const confirmPurchaseMut = trpc.purchaseOrders.confirmItemPurchase.useMutation({ onSuccess: () => { toast.success(t.purchaseOrders.purchased); refetchAll(); }, onError: (e: any) => toast.error(localizeApiError(e.message)) });
+  const confirmPurchaseMut = trpc.purchaseOrders.confirmItemPurchase.useMutation({ onSuccess: async (result, variables) => { toast.success(t.purchaseOrders.purchased); if (!await refreshPurchaseExecution(utils, result, variables)) toast.warning(purchaseRefreshNotice(language)); }, onError: (e: any) => toast.error(localizeApiError(e.message)) });
   const cancelPurchaseMut = trpc.purchaseOrders.cancelItemPurchase.useMutation({ onSuccess: () => { toast.success(t.purchaseOrders.cancelPurchaseSuccess); refetchAll(); setCancelDialog(null); setCancelNote(""); }, onError: (e: any) => toast.error(localizeApiError(e.message)) });
-  const confirmWarehouseMut = trpc.purchaseOrders.confirmDeliveryToWarehouse.useMutation({ onSuccess: () => { toast.success(t.purchaseOrders.deliveredToWarehouse); refetchAll(); }, onError: (e: any) => toast.error(localizeApiError(e.message)) });
+  const confirmWarehouseMut = trpc.purchaseOrders.confirmDeliveryToWarehouse.useMutation({ onSuccess: async (result, variables) => { toast.success(t.purchaseOrders.deliveredToWarehouse); if (!await refreshPurchaseExecution(utils, result, variables)) toast.warning(purchaseRefreshNotice(language)); }, onError: (e: any) => toast.error(localizeApiError(e.message)) });
   const resolveDeliveryLotMut = trpc.inventory.resolveDeliveryLot.useMutation({
     onSuccess: (data: any) => {
       setDeliveryLotInfo(data);
@@ -1091,7 +1094,7 @@ export default function PurchaseCycle() {
                       <div className="flex items-center gap-2">
                         <Package className="w-4 h-4 text-emerald-600" />
                         <div>
-                          <p className="font-semibold text-sm font-mono">{invoiceNumber}</p>
+                          <p className="font-semibold text-sm font-mono">{items[0]?.supplierInvoiceNumber || t.workflow.purchase.withoutInvoiceNumber}</p>
                           <p className="text-xs text-muted-foreground">{t.workflow.purchase.sameInvoiceItems.replace("{count}", String(items.length))}</p>
                         </div>
                       </div>
@@ -1100,7 +1103,9 @@ export default function PurchaseCycle() {
                         className="gap-1.5 bg-emerald-600 hover:bg-emerald-700"
                         onClick={() => {
                           const poId = items[0]?.purchaseOrderId;
-                          if (poId) window.location.href = `/warehouse/receive-v2?poId=${poId}&invoiceNumber=${encodeURIComponent(invoiceNumber)}`;
+                          const purchaseOrderIds = Array.from(new Set<number>(items.map((item: any) => Number(item.purchaseOrderId))));
+                          const sourceInvoice = items[0]?.supplierInvoiceNumber || "بدون رقم فاتورة";
+                          if (poId) window.location.href = `/warehouse/receive-v2?poId=${poId}&invoiceNumber=${encodeURIComponent(sourceInvoice)}&purchaseOrderIds=${purchaseOrderIds.join(",")}`;
                         }}
                       >
                         <Sparkles className="w-3.5 h-3.5" />
