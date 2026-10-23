@@ -463,8 +463,8 @@ export default function ItemsManager() {
     if (trimmedCode && codeChanged) {
       const prefix = `${nodeCode}-`;
       const suffix = trimmedCode.startsWith(prefix) ? trimmedCode.slice(prefix.length) : "";
-      if (!nodeCode || !/^\d+$/.test(nodeCode) || !/^\d+$/.test(suffix)) {
-        toast.error(`كود الصنف يجب أن يكون بصيغة ${nodeCode || "11"}-001`);
+      if (!nodeCode || !/^\d+(?:-\d+)*$/.test(nodeCode) || !/^\d+$/.test(suffix)) {
+        toast.error(`كود الصنف يجب أن يكون بصيغة ${nodeCode || "01-01"}-001`);
         return;
       }
     }

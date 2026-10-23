@@ -161,8 +161,12 @@ export default function TaxonomyManager() {
   };
 
   const validateCode = (val: string) => {
-    if (val && !/^\d+$/.test(val)) {
-      setCodeError("الكود يجب أن يحتوي على أرقام فقط");
+    if (val && !/^\d+(?:-\d+)*$/.test(val)) {
+      setCodeError("الكود يجب أن يتكون من مقاطع رقمية تفصلها شرطة");
+      return false;
+    }
+    if (val && val.split("-").some(segment => segment.length < 2 || Number(segment) < 1)) {
+      setCodeError("كل مقطع يبدأ من 01 ويتكون من خانتين على الأقل");
       return false;
     }
     setCodeError("");
@@ -475,8 +479,8 @@ export default function TaxonomyManager() {
                   }}
                   readOnly={dialogMode === "edit"}
                   placeholder={
-                    dialogMode === "addRoot" ? "مثال: 1" :
-                    dialogMode === "addChild" ? `مثال: ${selectedNode?.code || ""}1` :
+                    dialogMode === "addRoot" ? "مثال: 01 أو 100" :
+                    dialogMode === "addChild" ? `مثال: ${selectedNode?.code || "01"}-01` :
                     selectedNode?.code || ""
                   }
                   dir="ltr"
@@ -485,7 +489,7 @@ export default function TaxonomyManager() {
                 {codeError && <p className="text-xs text-red-500">{codeError}</p>}
                 {dialogMode !== "edit" ? (
                   <p className="text-xs text-muted-foreground">
-                    أرقام فقط — النظام سيولد الكود تلقائياً إذا تركته فارغاً
+                    مقاطع رقمية مثل 01-01؛ وبعد 99 يأتي 100. النظام يولده تلقائياً إذا تركته فارغاً
                   </p>
                 ) : (
                   <p className="text-xs text-muted-foreground">

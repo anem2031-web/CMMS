@@ -35,11 +35,13 @@ describe("Document list bounded reads and unchanged exact-scope PDF authorizatio
       expect(row.pdfAllowed).toBe(allowed);
       expect(row.fileKey !== null).toBe(allowed);
       expect(row.fileUrl !== null).toBe(allowed);
-      expect(row.reviewUrl).toBe(allowed ? "/purchase-orders/10" : "/purchase-packages/40?submissionId=30");
+      expect(row.reviewUrl).toBe(allowed ? null : "/purchase-packages/40?submissionId=30");
     }
     expect(calls).toHaveLength(3); // guard decisions perform no additional DB reads
     Object.assign(batches[2], approved(7));
-    expect((await decorateDocumentRows(actor(), attachments, await loadDocumentListPort(attachments, database)))[1].pdfAllowed).toBe(true);
+    const newlyApproved = (await decorateDocumentRows(actor(), attachments, await loadDocumentListPort(attachments, database)))[1];
+    expect(newlyApproved.pdfAllowed).toBe(true);
+    expect(newlyApproved.reviewUrl).toBeNull();
   });
 
   it.each(["accountant", "senior_management", "owner", "admin", "delegate"])("matches the original guard for %s, including missing and foreign scope records", async role => {

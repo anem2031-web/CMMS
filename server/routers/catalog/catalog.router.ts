@@ -5,6 +5,8 @@ import { matchSuppliers, normalizeSupplierName } from "../../_core/catalog-suppl
 import { applyAiSemanticDiscovery, extractNormalizedMeasurements, normalizeCatalogItemText, normalizeSupplierItemCode, rankCatalogItemMatches, type CatalogAiUsageEvent } from "../../_core/catalog-item-matching";
 import { candidateReviewDisplayName, decidedPeerIds, findExactCatalogDuplicate, findExactPendingCandidateDuplicate, normalizeCandidatePair, sameItemGroupIds, sameItemPrimaryForCandidate } from "../../_core/catalog-item-candidate-review";
 import { isCatalogItemCodeForNode, nextCatalogItemCode } from "../../_core/catalog-item-code";
+import { boundedDistinctCatalogCodeAliasEntityIds } from "../../_core/catalog-code-alias";
+import { isCatalogNodeCodeForParent, isHierarchicalCatalogNodeCode, nextCatalogChildCode, nextCatalogRootCode } from "../../_core/catalog-code-format";
 import { publishResolvedCatalogIdentity } from "../../_core/catalog-item-identity-publication";
 import { consolidateResolvedCatalogInventory } from "../../_core/catalog-item-inventory-consolidation";
 import { catalogAuditJson, catalogAuditRequestMeta, pickAuditValues } from "../../_core/catalog-audit";
@@ -154,42 +156,21 @@ async function nextAvailableCatalogNodeCode(db: any, parentId?: number | null): 
   ]);
 
   if (!parentId) {
-    let max = 0n;
-    for (const node of nodes as any[]) {
-      if (node.parentId != null) continue;
-      const code = String(node.code || "").trim();
-      if (!/^\d+$/.test(code)) continue;
-      const value = BigInt(code);
-      if (value > max) max = value;
-    }
-    let candidate = max + 1n;
-    while (used.has(candidate.toString())) candidate += 1n;
-    return candidate.toString();
+    return nextCatalogRootCode(
+      (nodes as any[]).filter(node => node.parentId == null).map(node => node.code),
+      used,
+    );
   }
 
   const parent = (nodes as any[]).find((n: any) => Number(n.id) === Number(parentId));
   const parentCode = String(parent?.code || "").trim();
-  if (!parent || !/^\d+$/.test(parentCode)) {
-    throw new TRPCError({ code: "BAD_REQUEST", message: "التصنيف الأب لا يحتوي على كود رقمي صالح" });
-  }
-
-  let maxSuffix = 0n;
-  for (const sibling of (nodes as any[]).filter((n: any) => Number(n.parentId) === Number(parentId))) {
-    const code = String(sibling.code || "").trim();
-    if (!code.startsWith(parentCode)) continue;
-    const suffix = code.slice(parentCode.length);
-    if (!/^\d+$/.test(suffix)) continue;
-    const value = BigInt(suffix);
-    if (value > maxSuffix) maxSuffix = value;
-  }
-
-  let suffix = maxSuffix + 1n;
-  let candidate = `${parentCode}${suffix.toString()}`;
-  while (used.has(candidate)) {
-    suffix += 1n;
-    candidate = `${parentCode}${suffix.toString()}`;
-  }
-  if (candidate.length > 20) {
+  if (!parent) throw new TRPCError({ code: "BAD_REQUEST", message: "التصنيف الأب غير موجود" });
+  const candidate = nextCatalogChildCode(
+    parentCode,
+    (nodes as any[]).filter((n: any) => Number(n.parentId) === Number(parentId)).map(n => n.code),
+    used,
+  );
+  if (candidate.length > 50) {
     throw new TRPCError({ code: "BAD_REQUEST", message: "تعذر توليد كود فرعي ضمن الحد الأقصى لطول الكود" });
   }
   return candidate;
@@ -521,7 +502,7 @@ export const catalogRouter = router({
           nameAr: z.string(),
           nameEn: z.string(),
           nameUr: z.string().optional(),
-          code: z.string().regex(/^\d+$/, "الكود يجب أن يحتوي على أرقام فقط").optional(),
+          code: z.string().regex(/^\d+(?:-\d+)*$/, "الكود يجب أن يتكون من مقاطع رقمية تفصلها شرطة").optional(),
           parentId: z.number().optional(),
           level: z.number(),
         })
@@ -545,13 +526,17 @@ export const catalogRouter = router({
         let code = input.code?.trim();
         if (code && parentNode) {
           const parentCode = String(parentNode.code || "").trim();
-          const suffix = code.startsWith(parentCode) ? code.slice(parentCode.length) : "";
-          if (!parentCode || !/^\d+$/.test(parentCode) || !suffix || !/^\d+$/.test(suffix)) {
+          if (!isCatalogNodeCodeForParent(code, parentCode)) {
             throw new TRPCError({
               code: "BAD_REQUEST",
-              message: `كود التصنيف الفرعي يجب أن يبدأ بكود الأب ${parentCode || "المحدد"} ثم رقم فرعي`,
+              message: `كود التصنيف الفرعي يجب أن يكون بصيغة ${parentCode || "كود الأب"}-01`,
             });
           }
+        } else if (code && !isHierarchicalCatalogNodeCode(code)) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "كود التصنيف الرئيسي يبدأ من 01، وكل مقطع يجب أن يكون خانتين على الأقل",
+          });
         }
         if (!code) {
           code = await nextAvailableCatalogNodeCode(db, input.parentId ?? null);
@@ -596,7 +581,7 @@ export const catalogRouter = router({
           nameAr: z.string().optional(),
           nameEn: z.string().optional(),
           nameUr: z.string().optional(),
-          code: z.string().regex(/^\d+$/, "الكود يجب أن يحتوي على أرقام فقط").optional(),
+          code: z.string().regex(/^\d+(?:-\d+)*$/, "الكود يجب أن يتكون من مقاطع رقمية تفصلها شرطة").optional(),
           isActive: z.boolean().optional(),
         })
       )
@@ -840,6 +825,19 @@ if (effectiveNodeIds && effectiveNodeIds.length > 0) {
 
 if (input?.search) {
   const term = `%${input.search}%`;
+  // Keep historical Catalog Item codes searchable after a taxonomy/code migration.
+  // This is one bounded, actor/RPC-scoped lookup; it does not add a per-row read or
+  // bypass the active/category scope applied to the final catalog_items query.
+  const aliasRows = await db
+    .select({ entityId: catalogCodeAliases.entityId })
+    .from(catalogCodeAliases)
+    .where(and(
+      eq(catalogCodeAliases.entityType, "item"),
+      like(catalogCodeAliases.oldCode, term),
+    ))
+    .limit(500);
+  const aliasItemIds = boundedDistinctCatalogCodeAliasEntityIds(aliasRows);
+
   conditions.push(
     or(
       like(catalogItems.nameAr, term),
@@ -847,6 +845,7 @@ if (input?.search) {
       like(catalogItems.code, term),
       like(catalogItems.manufacturer, term),
       like(catalogItems.unit, term),
+      ...(aliasItemIds.length > 0 ? [inArray(catalogItems.id, aliasItemIds)] : []),
     )
   );
 }

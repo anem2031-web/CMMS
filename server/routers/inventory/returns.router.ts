@@ -72,16 +72,16 @@ export const returnsRouter = router({
       }
 
       const managers = await db.getManagerUsers();
-      for (const mgr of managers) {
-        await db.createNotification({
+      await Promise.all(managers.map((mgr) =>
+        db.createNotification({
           userId: mgr.id,
           title: `↩️ مرتجع جهة ${result.returnNumber}`,
           message: `أُعيد ${result.returnedQuantity} ${result.unit || "وحدة"} من "${result.itemName}" إلى ${result.warehouseName || "المخزن"}` +
             ` — عكس سند ${result.sourceDeliveryNumber}` +
             (result.lotCode ? ` — الدفعة ${result.lotCode}` : ""),
           type: "info",
-        });
-      }
+        })
+      ));
 
       await db.createAuditLog({
         userId: ctx.user.id,
@@ -232,8 +232,8 @@ export const returnsRouter = router({
         }
 
         const managers = await db.getManagerUsers();
-        for (const mgr of managers) {
-          await db.createNotification({
+        await Promise.all(managers.map((mgr) =>
+          db.createNotification({
             userId: mgr.id,
             title: `↩️ مرتجع ${result.returnNumber}`,
             message: `تم إرجاع ${result.returnedQuantity} ${result.unit || "وحدة"} من "${result.itemName}"` +
@@ -241,8 +241,8 @@ export const returnsRouter = router({
               (result.invoiceNumber ? ` — فاتورة ${result.invoiceNumber}` : ""),
             type: "warning",
             relatedPoId: result.purchaseOrderId ?? undefined,
-          });
-        }
+          })
+        ));
 
         await db.createAuditLog({
           userId: ctx.user.id,
@@ -290,16 +290,16 @@ export const returnsRouter = router({
       // الإشعارات والـAudit تبقى آثارًا لاحقة بعد نجاح الترحيل الأساسي. لا
       // ندخل Workflow جديد ولا نربط نجاح حركة المخزون بنجاح إشعار خارجي.
       const managers = await db.getManagerUsers();
-      for (const mgr of managers) {
-        await db.createNotification({
+      await Promise.all(managers.map((mgr) =>
+        db.createNotification({
           userId: mgr.id,
           title: `↩️ مرتجع ${result.returnNumber}`,
           message: `تم إرجاع ${result.returnedQuantity} ${result.unit || "وحدة"} من "${result.itemName}"` +
             (result.poNumber ? ` - طلب الشراء ${result.poNumber}` : " - بلا طلب شراء مرتبط"),
           type: "warning",
           relatedPoId: result.purchaseOrderId ?? undefined,
-        });
-      }
+        })
+      ));
 
       await db.createAuditLog({
         userId: ctx.user.id,

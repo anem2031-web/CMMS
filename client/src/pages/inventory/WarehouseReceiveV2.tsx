@@ -1882,8 +1882,7 @@ function ReceiveItemCard({ item, index, poCandidates, linkedElsewhereIds, onUpda
               <Input
                 value={item.manufacturerBarcode || ""}
                 onChange={e => onUpdate({ manufacturerBarcode: e.target.value })}
-                placeholder="يُولَّد تلقائياً أو أدخل يدوياً"
-                placeholder="امسح أو أدخل الباركود"
+                placeholder="امسح الباركود أو أدخله يدويًا"
                 dir="ltr" className="font-mono"
               />
             </Field>

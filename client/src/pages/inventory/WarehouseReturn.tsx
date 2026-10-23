@@ -134,7 +134,7 @@ export default function WarehouseReturn() {
 
   const recipientReturnMut = trpc.warehouseReturns.createRecipientReturn.useMutation({
     onSuccess: (data: any) => {
-      toast.success(`${t.common.savedSuccessfully} — ${data.returnNumber}`);
+      toast.success(data?.returnNumber ? `${t.common.savedSuccessfully} — ${data.returnNumber}` : t.common.savedSuccessfully);
       navigate("/warehouse/returns");
     },
     onError: (err: any) => toast.error(err.message),
@@ -143,8 +143,8 @@ export default function WarehouseReturn() {
   // Create return
   const returnMut = trpc.warehouseReturns.create.useMutation({
     onSuccess: (data: any) => {
-      toast.success(`${t.common.savedSuccessfully} — ${data.returnNumber}`);
-      navigate("/inventory");
+      toast.success(data?.returnNumber ? `${t.common.savedSuccessfully} — ${data.returnNumber}` : t.common.savedSuccessfully);
+      navigate("/warehouse/returns");
     },
     onError: (err: any) => toast.error(err.message),
   });

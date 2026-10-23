@@ -131,7 +131,7 @@ describe("Actual document-center list route, without exposing preapproval file k
     expect(await query({ entityType: "delegate_pricing_documents" })).toEqual([expect.objectContaining({ fileName: "Test pricing.pdf", pdfAllowed: false, fileKey: null, fileUrl: null, reviewUrl: "/purchase-orders/1" })]);
     live.batch.mockResolvedValue({ id: 10, purchaseOrderId: 1, submittedById: 11, ...approval(role) });
     const allowed = await query({ entityType: "delegate_pricing_documents" });
-    expect(allowed[0]).toMatchObject({ pdfAllowed: true, fileUrl: `/api/media?key=${encodeURIComponent(key)}` });
+    expect(allowed[0]).toMatchObject({ pdfAllowed: true, fileUrl: `/api/media?key=${encodeURIComponent(key)}`, reviewUrl: null });
     expect(JSON.stringify(allowed)).not.toContain("old-public.invalid");
   });
   it("keeps financial approval documents blocked for management until management's own approval", async () => {

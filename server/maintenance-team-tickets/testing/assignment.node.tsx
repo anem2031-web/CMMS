@@ -6,9 +6,11 @@ import { MySqlDialect } from "drizzle-orm/mysql-core";
 import { TicketTeamAssignmentService } from "../assignment/service";
 import { SqlTicketTeamAssignmentRepository, type TicketPromotionPort } from "../../routers/maintenance-teams/assignment.repository";
 import { createTicketTeamAssignmentRouter } from "../../routers/maintenance-teams/assignment.router";
+import { router } from "../../routers/_shared/procedures";
 import { AssignedTicketsView } from "../../../client/src/features/maintenance-team-tickets/AssignedTicketsView";
 import type { AssignmentContext, AssignmentTeam, TeamAssignmentRepository, AssignedTeamTicket } from "../../../shared/maintenance-team-tickets/assignment";
 import type { TeamManagementActor } from "../../../shared/maintenance-team-tickets/team-management";
+import { supportsTeamTaskAssignmentDepartment } from "../../../client/src/pages/maintenance-teams/TeamTaskAssignment";
 
 const actor: TeamManagementActor = { id: 7, role: "general_maintenance_manager", active: true };
 const input = { ticketId: 1, taskId: 2, teamId: 3 };
@@ -30,9 +32,44 @@ test("assignment creates once and repeated request returns same ticket", async (
   await assert.rejects(f.service.assign(actor, { ...input, teamId: 9 }));
 });
 test("roles/inactive actor rejected before repository access", async () => {
-  for (const a of [{ ...actor, role: "technician" }, { ...actor, active: false }, { ...actor, role: "construction_procurement_manager" }]) {
+  for (const a of [{ ...actor, role: "technician" }, { ...actor, active: false }]) {
     const f = fixture(); await assert.rejects(f.service.assign(a, input)); assert.equal(f.calls(), 0);
   }
+});
+test("construction manager can assign a team only to their own construction department", async () => {
+  const construction = { ...actor, role: "construction_procurement_manager" };
+  const allowed = fixture();
+  allowed.context.department.department = "maintenance_report_department_construction";
+  const result = await allowed.service.assign(construction, input);
+  assert.equal(result.ticketNumber, "MT-2026-00566-01");
+
+  const foreign = fixture();
+  foreign.context.department.department = "maintenance_report_department_construction";
+  foreign.context.department.responsibleManagerId = 99;
+  await assert.rejects(foreign.service.assign(construction, input));
+  assert.equal(foreign.created(), 0);
+
+  const general = fixture();
+  await assert.rejects(general.service.assign(construction, input));
+  assert.equal(general.created(), 0);
+});
+test("construction team assignment does not expand to IT or unrelated maintenance roles", async () => {
+  for (const role of ["maintenance_manager", "general_maintenance_manager"]) {
+    const f = fixture();
+    f.context.department.department = "maintenance_report_department_construction";
+    await assert.rejects(f.service.assign({ ...actor, role }, input));
+    assert.equal(f.created(), 0);
+  }
+  const it = fixture();
+  it.context.department.department = "maintenance_report_department_it";
+  await assert.rejects(it.service.assign({ ...actor, role: "owner" }, input));
+  assert.equal(it.created(), 0);
+});
+test("team assignment selector is enabled only for general maintenance and construction", () => {
+  assert.equal(supportsTeamTaskAssignmentDepartment("maintenance_report_department_general"), true);
+  assert.equal(supportsTeamTaskAssignmentDepartment("maintenance_report_department_construction"), true);
+  assert.equal(supportsTeamTaskAssignmentDepartment("maintenance_report_department_it"), false);
+  assert.equal(supportsTeamTaskAssignmentDepartment(null), false);
 });
 test("ownership, cross-ticket task and foreign department rejected", async () => {
   for (const mutate of [(c: AssignmentContext) => c.department.responsibleManagerId = 99, (c: AssignmentContext) => c.task.ticketId = 99, (c: AssignmentContext) => c.department.department = "maintenance_report_department_it", (c: AssignmentContext) => c.task.ticketDepartmentId = 99]) {
@@ -134,12 +171,12 @@ test("queue SQL scopes technicians by membership and lets authorized managers vi
     await f.repo.queue({ ...actor, role }); assert.match(f.queries.at(-1)!.text, /WHERE TRUE/); assert.doesNotMatch(f.queries.at(-1)!.text, /a.responsibleManagerId=\?/);
   }
 });
-test("construction manager can read team queue without gaining assignment or team candidate authority", async () => {
+test("construction manager can read team queue and candidates without gaining general-maintenance assignment", async () => {
   const f = fixture(), construction = { ...actor, role: "construction_procurement_manager" };
   await f.service.queue(construction); assert.equal(f.calls(), 1);
-  await assert.rejects(f.service.candidates(construction));
+  await f.service.candidates(construction); assert.equal(f.calls(), 2);
   await assert.rejects(f.service.assign(construction, input));
-  assert.equal(f.calls(), 1);
+  assert.equal(f.calls(), 3);
 });
 test("warehouse material request queue rejects all other roles before repository access", async () => {
   for (const role of ["technician", "maintenance_manager", "general_maintenance_manager", "construction_procurement_manager", "accountant"]) {
@@ -152,8 +189,11 @@ test("warehouse material request queue rejects all other roles before repository
 });
 test("warehouse API requests a materials-only list and retains completed assignments for pending returns", async () => {
   const f = sqlFixture(), service = new TicketTeamAssignmentService(f.repo);
-  const caller = createTicketTeamAssignmentRouter(service).createCaller({ user: { id: 2, role: "warehouse", isActive: 1 } } as any);
-  await caller.warehouseRequests();
+  // Compose the router under its production namespace so the central capability
+  // guard receives the real RPC path (`ticketTeamAssignments.warehouseRequests`).
+  const caller = router({ ticketTeamAssignments: createTicketTeamAssignmentRouter(service) })
+    .createCaller({ user: { id: 2, role: "warehouse", isActive: 1 } } as any);
+  await caller.ticketTeamAssignments.warehouseRequests();
   const q = f.queries.at(-1)!;
   assert.match(q.text, /EXISTS \(SELECT 1 FROM ticket_team_material_needs n WHERE n.assignmentId=a.id\)/);
   assert.match(q.text, /i.ticketId=a.ticketId/);

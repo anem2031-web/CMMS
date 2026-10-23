@@ -24,6 +24,16 @@ describe("purchase order catalog identity link — 2B-1", () => {
     expect(router).toContain("await assertValidCatalogItemLinks(input.items)");
   });
 
+  it("keeps the catalog image through create, draft reload and final submission payloads", () => {
+    const page = read("client/src/pages/purchase/CreatePurchaseOrder.tsx");
+    const router = read("server/routers/purchase/purchase-orders.router.ts");
+    expect(page).toContain("photoUrls: catalogItem.primaryImageUrl ? [catalogItem.primaryImageUrl] : []");
+    expect(page).toContain("photoUrls: i.photoUrls || (i.photoUrl ? [i.photoUrl] : [])");
+    expect(page.match(/photoUrls:\s+i\.photoUrls\?\.length \? i\.photoUrls : undefined/g)?.length).toBeGreaterThanOrEqual(2);
+    expect(router.match(/photoUrls: z\.array\(z\.string\(\)\)\.optional\(\)/g)?.length).toBeGreaterThanOrEqual(3);
+    expect(router).toContain("photoUrls: item.photoUrls || null");
+  });
+
   it("does not add the catalog foreign key before the dedicated governance step", () => {
     const migration = read("drizzle/migrations/2026_08_15_po_items_catalog_link.sql");
     expect(migration).toContain("ADD COLUMN catalogItemId INT NULL");

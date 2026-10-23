@@ -17,7 +17,6 @@ import { purchaseOrdersRouter } from "./purchase/purchase-orders.router";
 import { deliveryDocumentsRouter } from "./purchase/delivery-documents.router";
 import { returnDocumentsRouter } from "./inventory/return-documents.router";
 import { approvalsRouter } from "./purchase/approvals.router";
-import { vendorsRouter } from "./purchase/vendors.router";
 import { purchasePackagesRouter } from "./purchase/purchase-packages.router";
 import { centerCategoriesRouter } from "./purchase/purchase-categories.router";
 
@@ -108,7 +107,6 @@ purchaseOrders: router({
 
   deliveryDocuments: deliveryDocumentsRouter,
   returnDocuments: returnDocumentsRouter,
-  vendors: vendorsRouter,
 
   inventory: inventoryRouter,
   warehouseReceipts: receiptsRouter,

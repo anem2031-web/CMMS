@@ -45,6 +45,7 @@ const IMPROVEMENT_FLOW_LABELS = {
     "totalCost": "إجمالي التكلفة التقديرية",
     "costStudyNotes": "مبررات التكلفة والجدوى",
     "studyRequired": "تجب دراسة التكلفة قبل الموافقة",
+    "waitingCostStudy": "بانتظار دراسة التكلفة",
     "studyReady": "دراسة التكلفة مكتملة",
     "legacy": "فكرة سابقة (إجراءاتها القديمة متاحة)",
     "studyMissing": "لم تسجل دراسة تكلفة بعد",
@@ -95,6 +96,7 @@ const IMPROVEMENT_FLOW_LABELS = {
     "totalCost": "Total estimated cost",
     "costStudyNotes": "Feasibility and cost justification",
     "studyRequired": "Cost study required before approval",
+    "waitingCostStudy": "Waiting for cost study",
     "studyReady": "Cost study completed",
     "legacy": "Existing idea (legacy workflow)",
     "studyMissing": "No cost study recorded",
@@ -145,6 +147,7 @@ const IMPROVEMENT_FLOW_LABELS = {
     "totalCost": "کل تخمینی لاگت",
     "costStudyNotes": "لاگت اور فائدے کا جواز",
     "studyRequired": "منظوری سے پہلے لاگت کا مطالعہ ضروری ہے",
+    "waitingCostStudy": "لاگت کے مطالعے کا انتظار",
     "studyReady": "لاگت کا مطالعہ مکمل",
     "legacy": "پرانا خیال (سابقہ طریقہ جاری)",
     "studyMissing": "لاگت کا مطالعہ موجود نہیں",
@@ -186,6 +189,13 @@ const IMPROVEMENT_FLOW_LABELS = {
 function useFlowLabels() {
   const { language } = useTranslation();
   return IMPROVEMENT_FLOW_LABELS[language];
+}
+
+function improvementStageLabel(idea: any, statuses: Record<string, string>, waitingCostStudy: string) {
+  const waitingForRequiredStudy = idea.status === "classified"
+    && !!idea.costStudyRequired
+    && !(idea.executionTrackingVersion === 1 ? hasCompleteCostStudy(idea) : idea.costStudiedAt);
+  return waitingForRequiredStudy ? waitingCostStudy : statuses[idea.status];
 }
 
 function QueryFailure({ retry, fetching = false }: { retry: () => unknown; fetching?: boolean }) {
@@ -939,7 +949,7 @@ function ApprovedTab() {
                 <span className="text-xs text-muted-foreground font-mono">{idea.requestNumber}</span>
                 <p className="font-medium truncate">{idea.title}</p>
               </div>
-              <Badge className={IDEA_STATUS_COLORS[idea.status]}>{(t.improvementIdeas.statuses as any)[idea.status]}</Badge>
+              <Badge className={IDEA_STATUS_COLORS[idea.status]}>{improvementStageLabel(idea, t.improvementIdeas.statuses as any, w.waitingCostStudy)}</Badge>
             </div>
 
             <div className="flex flex-wrap gap-2 items-center text-xs text-muted-foreground">
@@ -1069,7 +1079,7 @@ function AllIdeasTab() {
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                   <Badge className={`border ${PRIORITY_COLORS[idea.priority] || ""}`}>{getPriorityLabel(idea.priority)}</Badge>
-                  <Badge className={IDEA_STATUS_COLORS[idea.status]}>{(t.improvementIdeas.statuses as any)[idea.status]}</Badge>
+                  <Badge className={IDEA_STATUS_COLORS[idea.status]}>{improvementStageLabel(idea, t.improvementIdeas.statuses as any, w.waitingCostStudy)}</Badge>
                 </div>
               </CardContent>
             </Card>
@@ -1097,6 +1107,7 @@ function AllIdeasTab() {
 // ════════════════════════════════════════════════════════════════════════
 function MyIdeasView({ onCreateClick }: { onCreateClick: () => void }) {
   const { t } = useTranslation();
+  const w = useFlowLabels();
   const [page, setPage] = useState(1);
   const query = trpc.improvementIdeas.listPaginated.useQuery({ page, pageSize: PAGE_SIZE }, { placeholderData: keepPreviousData, ...IMPROVEMENT_QUERY_OPTIONS });
   const { data, isLoading } = query;
@@ -1121,7 +1132,7 @@ function MyIdeasView({ onCreateClick }: { onCreateClick: () => void }) {
                     <span className="text-xs text-muted-foreground font-mono">{idea.requestNumber}</span>
                     <p className="font-medium truncate">{idea.title}</p>
                   </div>
-                  <Badge className={IDEA_STATUS_COLORS[idea.status]}>{(t.improvementIdeas.statuses as any)[idea.status]}</Badge>
+                  <Badge className={IDEA_STATUS_COLORS[idea.status]}>{improvementStageLabel(idea, t.improvementIdeas.statuses as any, w.waitingCostStudy)}</Badge>
                 </div>
                 {idea.description && <p className="text-sm text-muted-foreground">{idea.description}</p>}
                 <IdeaImagesPreview ideaId={idea.id} />

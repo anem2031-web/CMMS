@@ -1,5 +1,5 @@
 import type { PurchaseDocumentActor, PurchaseDocumentPort } from "./purchase-document";
-import { purchaseAttachmentPermission } from "./purchase-document";
+import { isPurchasePdfApprover, purchaseAttachmentPermission } from "./purchase-document";
 import { mediaKeyFromValue } from "./media-access";
 
 /** Reuse the exact download guard; no approval decision is cached across requests. */
@@ -14,7 +14,13 @@ export async function decorateDocumentRows(user: PurchaseDocumentActor, rows: an
         : await purchaseAttachmentPermission(user, row.entityType, Number(row.entityId), source);
       const isBatch = ["po_financial_batch", "delegate_pricing_batch"].includes(row.entityType);
       const scope = isBatch ? await source.batch(Number(row.entityId)) : await source.submission(Number(row.entityId));
-      const reviewUrl = scope ? isBatch ? `/purchase-orders/${scope.purchaseOrderId}` : `/purchase-packages/${scope.purchasePackageId}?submissionId=${scope.id}` : null;
+      // «بيانات المعاملة» هي مساحة عمل المراجع قبل قراره. بعد أن يعتمد
+      // المحاسب/الإدارة هذا النطاق تنتهي مهمته ويُتاح له المستند الثابت بدل
+      // إبقاء رابط معاملة قديمة. بقية الأدوار تحتفظ بسلوكها السابق.
+      const activeReview = !isPurchasePdfApprover(user) || !access.pdfAllowed;
+      const reviewUrl = scope && activeReview
+        ? isBatch ? `/purchase-orders/${scope.purchaseOrderId}` : `/purchase-packages/${scope.purchasePackageId}?submissionId=${scope.id}`
+        : null;
       return { ...access, reviewUrl };
     })());
     const access = await cache.get(key)!;

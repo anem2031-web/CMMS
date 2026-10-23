@@ -99,6 +99,8 @@ export async function exportCatalogExcel(db: any): Promise<Buffer> {
     { header: "name_en", key: "nameEn", width: 40 },
     { header: "level", key: "level", width: 10 },
   ];
+  taxonomySheet.getColumn("code").numFmt = "@";
+  taxonomySheet.getColumn("parentCode").numFmt = "@";
 
   const sortedNodes = [...allNodes].sort((a, b) => {
     const la = (a.code || "").length;
@@ -137,6 +139,8 @@ export async function exportCatalogExcel(db: any): Promise<Buffer> {
     { header: "unit", key: "unit", width: 15 },
     { header: "manufacturer", key: "manufacturer", width: 30 },
   ];
+  itemsSheet.getColumn("code").numFmt = "@";
+  itemsSheet.getColumn("nodeCode").numFmt = "@";
 
   allItems.forEach((item: any) => {
     const nodeCode = item.nodeId ? (nodeIdToCodeForItems.get(item.nodeId) ?? "") : "";
@@ -227,6 +231,8 @@ export async function exportCatalogItemsExcel(
     { header: "المصنّع", key: "manufacturer", width: 26 },
     { header: "الحالة", key: "status", width: 12 },
   ];
+  sheet.getColumn("code").numFmt = "@";
+  sheet.getColumn("nodeCode").numFmt = "@";
   styleHeader(sheet.getRow(1));
 
   for (const item of items) {
@@ -286,6 +292,7 @@ export async function exportCatalogTaxonomyTreeExcel(
     { header: "المسار", key: "path", width: 55 },
     { header: "الحالة", key: "status", width: 12 },
   ];
+  sheet.getColumn("code").numFmt = "@";
   styleHeader(sheet.getRow(1));
 
   for (const entry of treeRows) {

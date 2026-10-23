@@ -42,7 +42,7 @@ export function isCatalogItemCodeForNode(
 ): boolean {
   const code = String(codeInput || "").trim();
   const nodeCode = String(nodeCodeInput || "").trim();
-  if (!code || !nodeCode || !/^\d+$/.test(nodeCode)) return false;
+  if (!code || !nodeCode || !/^\d+(?:-\d+)*$/.test(nodeCode)) return false;
   return code.startsWith(`${nodeCode}-`) && /^\d+$/.test(code.slice(nodeCode.length + 1));
 }
 
@@ -71,8 +71,8 @@ export function nextCatalogItemCode(
   if (!nodeCode) {
     throw new Error("لا يمكن توليد كود الصنف لأن التصنيف لا يحتوي على كود");
   }
-  if (!/^\d+$/.test(nodeCode)) {
-    throw new Error("كود التصنيف يجب أن يحتوي على أرقام فقط لتوليد كود الصنف");
+  if (!/^\d+(?:-\d+)*$/.test(nodeCode)) {
+    throw new Error("كود التصنيف يجب أن يحتوي على مقاطع رقمية صالحة لتوليد كود الصنف");
   }
 
   const valid = existingItems

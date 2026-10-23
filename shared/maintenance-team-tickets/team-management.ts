@@ -6,9 +6,18 @@ export const TICKET_TEAM_MANAGEMENT_ROLES = [
   "maintenance_manager",
   "general_maintenance_manager",
 ] as const;
+export const TICKET_TEAM_ASSIGNMENT_ROLES = [
+  ...TICKET_TEAM_MANAGEMENT_ROLES,
+  "construction_procurement_manager",
+] as const;
 export function canManageTicketTeams(role?: string | null): boolean {
   return (
     !!role && (TICKET_TEAM_MANAGEMENT_ROLES as readonly string[]).includes(role)
+  );
+}
+export function canAssignTicketTeams(role?: string | null): boolean {
+  return (
+    !!role && (TICKET_TEAM_ASSIGNMENT_ROLES as readonly string[]).includes(role)
   );
 }
 export interface TeamWarehouse extends WarehouseRef {

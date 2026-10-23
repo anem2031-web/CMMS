@@ -5,19 +5,21 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { useTranslation } from "@/contexts/LanguageContext";
 
 interface SLATimerProps {
-  createdAt: number | Date;
-  statusChangedAt?: number | Date | null;
+  createdAt: number | string | Date;
+  statusChangedAt?: number | string | Date | null;
   statusLabel?: string;
   compact?: boolean;
 }
 
-function getElapsed(from: number | Date): { hours: number; minutes: number; totalHours: number } {
-  const fromMs = from instanceof Date ? from.getTime() : from;
-  const diffMs = Date.now() - fromMs;
+export function getElapsed(from: number | string | Date): { hours: number; minutes: number; totalHours: number; valid: boolean } {
+  const fromMs = from instanceof Date ? from.getTime() : typeof from === "number" ? from : new Date(from).getTime();
+  if (!Number.isFinite(fromMs)) return { hours: 0, minutes: 0, totalHours: 0, valid: false };
+  // A small clock skew must not render a negative SLA.
+  const diffMs = Math.max(0, Date.now() - fromMs);
   const totalHours = diffMs / (1000 * 60 * 60);
   const hours = Math.floor(totalHours);
   const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
-  return { hours, minutes, totalHours };
+  return { hours, minutes, totalHours, valid: true };
 }
 
 function formatElapsed(hours: number, minutes: number, labels: { minute: string; hour: string; day: string; and: string }): string {
@@ -37,7 +39,7 @@ export function SLATimer({ createdAt, statusChangedAt, statusLabel, compact = fa
     return () => clearInterval(interval);
   }, [createdAt, statusChangedAt]);
 
-  const { hours, minutes, totalHours } = elapsed;
+  const { hours, minutes, totalHours, valid } = elapsed;
   const isRed = totalHours >= 48;
   const isOrange = totalHours >= 24 && !isRed;
   const colorClass = isRed
@@ -46,12 +48,12 @@ export function SLATimer({ createdAt, statusChangedAt, statusLabel, compact = fa
     ? "text-orange-600 bg-orange-50 border-orange-200"
     : "text-emerald-600 bg-emerald-50 border-emerald-200";
   const Icon = isRed ? AlertCircle : isOrange ? AlertTriangle : Clock;
-  const duration = formatElapsed(hours, minutes, {
+  const duration = valid ? formatElapsed(hours, minutes, {
     minute: t.workflow.ticket.slaMinute,
     hour: t.workflow.ticket.slaHour,
     day: t.workflow.ticket.slaDay,
     and: t.workflow.ticket.slaAnd,
-  });
+  }) : "غير محدد";
   const label = statusLabel ? `${statusLabel} ${t.workflow.ticket.slaSince} ${duration}` : `${t.workflow.ticket.slaSince} ${duration}`;
 
   if (compact) {
@@ -83,9 +85,10 @@ export function SLATimer({ createdAt, statusChangedAt, statusLabel, compact = fa
   );
 }
 
-export function SLABadge({ createdAt, statusChangedAt }: { createdAt: number | Date; statusChangedAt?: number | Date | null }) {
+export function SLABadge({ createdAt, statusChangedAt }: { createdAt: number | string | Date; statusChangedAt?: number | string | Date | null }) {
   const { t } = useTranslation();
-  const { totalHours } = getElapsed(statusChangedAt || createdAt);
+  const { totalHours, valid } = getElapsed(statusChangedAt || createdAt);
+  if (!valid) return null;
   if (totalHours >= 48) {
     return <span className="inline-flex items-center gap-1 text-xs text-red-600 font-semibold"><AlertCircle className="h-3 w-3" />{t.workflow.ticket.slaVeryLate}</span>;
   }

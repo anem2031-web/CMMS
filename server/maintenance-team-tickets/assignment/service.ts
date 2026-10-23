@@ -1,12 +1,12 @@
 import { TeamTicketError } from "../../../shared/maintenance-team-tickets/model";
-import { canManageTicketTeams, type TeamManagementActor } from "../../../shared/maintenance-team-tickets/team-management";
+import { canAssignTicketTeams, type TeamManagementActor } from "../../../shared/maintenance-team-tickets/team-management";
 import { canReadTicketTeamExecution } from "../../../shared/maintenance-team-tickets/execution-permissions";
 import type { TeamAssignmentRepository, TeamAssignmentInput, AssignmentContext } from "../../../shared/maintenance-team-tickets/assignment";
 
 export class TicketTeamAssignmentService {
   constructor(private readonly repository: TeamAssignmentRepository) {}
   private manager(actor: TeamManagementActor) {
-    if (!actor.active || !canManageTicketTeams(actor.role)) throw new TeamTicketError("FORBIDDEN", "إسناد الفريق للمسؤول المخوّل فقط");
+    if (!actor.active || !canAssignTicketTeams(actor.role)) throw new TeamTicketError("FORBIDDEN", "إسناد الفريق للمسؤول المخوّل فقط");
   }
   async candidates(actor: TeamManagementActor) {
     this.manager(actor);
@@ -26,7 +26,15 @@ export class TicketTeamAssignmentService {
       throw new TeamTicketError("INVALID", "المهمة أو الجهة لا تنتمي لهذا البلاغ");
     if (c.parent.workflowModel !== "department_tasks" || ["closed", "requester_confirmed"].includes(c.parent.status) || c.task.status === "cancelled")
       throw new TeamTicketError("CONFLICT", "لا يمكن إسناد مهمة ملغاة أو بلاغ مغلق أو خارج خطة الجهات");
-    if (c.department.department !== "maintenance_report_department_general") throw new TeamTicketError("INVALID", "فرق الصيانة متاحة لجهة الصيانة العامة فقط");
+    const general = c.department.department === "maintenance_report_department_general";
+    const construction = c.department.department === "maintenance_report_department_construction";
+    if (!general && !construction) throw new TeamTicketError("INVALID", "إسناد الفريق متاح لجهة الصيانة العامة أو الإنشاءات فقط");
+    if (actor.role === "construction_procurement_manager" && (!construction || c.department.responsibleManagerId !== actor.id))
+      throw new TeamTicketError("FORBIDDEN", "مهمة الإنشاءات خارج مسؤوليتك");
+    if (construction && !["owner", "admin", "construction_procurement_manager"].includes(actor.role))
+      throw new TeamTicketError("FORBIDDEN", "إسناد فريق الإنشاءات للمسؤول المخوّل فقط");
+    if (general && actor.role === "construction_procurement_manager")
+      throw new TeamTicketError("FORBIDDEN", "مدير الإنشاءات لا يدير مهام الصيانة العامة");
     if (actor.role === "general_maintenance_manager" && c.department.responsibleManagerId !== actor.id)
       throw new TeamTicketError("FORBIDDEN", "المهمة خارج مسؤوليتك");
     if (!Number.isInteger(c.department.responsibleManagerId) || c.department.responsibleManagerId <= 0) throw new TeamTicketError("INVALID", "يجب تحديد مسؤول الجهة أولًا");

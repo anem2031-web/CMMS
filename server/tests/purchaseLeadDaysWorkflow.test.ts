@@ -52,7 +52,11 @@ vi.mock("../_core/db", () => ({
   getExistingCatalogItemIds: vi.fn(async (ids: number[]) => ids),
   getActiveCatalogItemIds: vi.fn(async (ids: number[]) => ids),
   getSiteById: vi.fn(async () => ({ id: 1 })),
+  getAllSites: vi.fn(async () => [{ id: 1 }]),
   getSections: vi.fn(async () => [{ id: 2, siteId: 1 }]),
+  listAssets: vi.fn(async () => []),
+  listCenterCategories: vi.fn(async () => [{ id: 3, isActive: 1 }]),
+  getCenterCategoryById: vi.fn(async () => ({ id: 3, isActive: 1 })),
   getPurchaseManagerUsers: vi.fn(async () => []),
   createAuditLog: vi.fn(async () => undefined),
   createNotification: vi.fn(async () => undefined),
@@ -99,7 +103,7 @@ function caller(role = "purchase_requester", id = 10) {
   } as TrpcContext);
 }
 const item = (deliveryLeadDays = 3) => ({ itemName: "Test material", catalogItemId: 5, quantity: 4, unit: "حبة", deliveryLeadDays });
-const body = (items = [item()]) => ({ siteId: 1, sectionId: 2, items });
+const body = (items = [item()]) => ({ siteId: 1, sectionId: 2, categoryId: 3, items });
 beforeEach(() => {
   vi.clearAllMocks();
   Object.assign(state, { orders: [], items: [], writes: [], nextId: 1, failCreate: false, failItemId: 0, lockStatus: "", lastDelegate: 0 });
@@ -109,6 +113,16 @@ beforeEach(() => {
 afterEach(() => vi.useRealTimers());
 
 describe("Actual purchase create/draft/update/submit routes", () => {
+  it("allows an uncategorized draft but blocks submission until category is selected", async () => {
+    const saved = await caller().saveDraft({ siteId: 1, sectionId: 2, items: [item()] });
+    expect(state.orders[0]).toMatchObject({ status: "draft", categoryId: null });
+    await expect(caller().submitDraft({ id: saved.id! })).rejects.toThrow("يجب اختيار التصنيف");
+    expect(state.orders[0].status).toBe("draft");
+  });
+  it("stores an item override independently from the header context", async () => {
+    const saved = await caller().saveDraft(body([{ ...item(), siteId: 1, sectionId: 2, categoryId: 3, assetId: null }]));
+    expect(state.items[0]).toMatchObject({ purchaseOrderId: saved.id, siteId: 1, sectionId: 2, categoryId: 3, assetId: null });
+  });
   it("saves only durations in the draft and anchors each item to the later submission", async () => {
     const saved = await caller().saveDraft(body([item(2), item(3), item(5)]));
     expect(state.orders[0].status).toBe("draft");

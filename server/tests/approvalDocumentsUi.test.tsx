@@ -21,7 +21,7 @@ vi.mock("../../client/src/lib/trpc", () => {
     if (key === "useQuery") return (input: any, options: any = {}) => {
       state.calls.push({ path, enabled: options.enabled !== false, input });
       const permission = { pdfAllowed: state.approved, pdfBlockedReason: state.approved ? null : "approval required" };
-      const financial = { id: 10, fileName: "FINANCIAL.pdf", createdAt: "2026-10-19T07:00:00Z", delegateId: 9, delegateName: "Test delegate", totalEstimatedCost: "50", reviewUrl: "/purchase-orders/101", ...permission, ...(state.approved ? { fileUrl: "/api/media?key=financial" } : {}) };
+      const financial = { id: 10, fileName: "FINANCIAL.pdf", createdAt: "2026-10-19T07:00:00Z", delegateId: 9, delegateName: "Test delegate", totalEstimatedCost: "50", reviewUrl: state.approved ? null : "/purchase-orders/101", ...permission, ...(state.approved ? { fileUrl: "/api/media?key=financial" } : {}) };
       const pricing = { ...financial, id: 11, fileName: "PRICING.pdf" };
       let data: any = path === "delegatePricingBundles.status" ? { enabled: true }
         : path === "delegatePricingBundles.list" ? [{ id: 3, bundleNumber: "DPB-SENT-003", status: "archived", delegateId: 9, delegateName: "Test delegate", itemCount: 1, total: 50, createdAt: "2026-10-19T07:00:00Z", purchaseOrders: [{ id: 101, poNumber: "PR-101" }], ...permission }]
@@ -60,6 +60,7 @@ describe("Approval document UI boundaries", () => {
     expect(html).toContain('title="عرض PDF"');
     expect(html).toContain('title="تنزيل PDF"');
     expect(html).toContain(">طباعة<");
+    expect(html).not.toContain('href="/purchase-orders/101"');
   });
 
   it("keeps senior-management inventory documents usable while financial PDFs await its approval", () => {

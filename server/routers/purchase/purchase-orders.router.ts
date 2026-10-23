@@ -163,6 +163,59 @@ type PurchaseOrderContextInput = {
   categoryId?: number | null;
 };
 
+type PurchaseOrderItemContextInput = {
+  itemName?: string;
+  siteId?: number | null;
+  sectionId?: number | null;
+  assetId?: number | null;
+  categoryId?: number | null;
+};
+
+async function resolveAndValidatePurchaseOrderItemContexts(
+  items: PurchaseOrderItemContextInput[],
+  header: { siteId: number; sectionId: number; assetId: number | null; categoryId: number | null },
+  options: { requireCategory: boolean },
+) {
+  const resolved = items.map(item => ({
+    siteId: item.siteId ?? header.siteId,
+    sectionId: item.sectionId ?? header.sectionId,
+    assetId: item.assetId === undefined ? header.assetId : item.assetId,
+    categoryId: item.categoryId === undefined ? header.categoryId : item.categoryId,
+  }));
+
+  const [sites, sections, assets, categories] = await Promise.all([
+    db.getAllSites(), db.getSections(), db.listAssets({}), db.listCenterCategories(false),
+  ]);
+  const siteIds = new Set(sites.map((row: any) => Number(row.id)));
+  const sectionById = new Map(sections.map((row: any) => [Number(row.id), row]));
+  const assetById = new Map(assets.map((row: any) => [Number(row.id), row]));
+  const categoryById = new Map(categories.map((row: any) => [Number(row.id), row]));
+
+  resolved.forEach((context, index) => {
+    const label = items[index]?.itemName?.trim() || `#${index + 1}`;
+    if (!siteIds.has(Number(context.siteId))) throw new TRPCError({ code: "BAD_REQUEST", message: `الموقع مطلوب للصنف ${label}` });
+    const section = sectionById.get(Number(context.sectionId));
+    if (!section || Number((section as any).siteId) !== Number(context.siteId)) {
+      throw new TRPCError({ code: "BAD_REQUEST", message: `القسم غير مرتبط بالموقع للصنف ${label}` });
+    }
+    if (options.requireCategory && !context.categoryId) {
+      throw new TRPCError({ code: "BAD_REQUEST", message: `التصنيف مطلوب للصنف ${label}` });
+    }
+    if (context.categoryId) {
+      const category = categoryById.get(Number(context.categoryId));
+      if (!category) throw new TRPCError({ code: "BAD_REQUEST", message: `التصنيف غير موجود للصنف ${label}` });
+      if (!Number((category as any).isActive)) throw new TRPCError({ code: "BAD_REQUEST", message: `التصنيف معطّل للصنف ${label}` });
+    }
+    if (context.assetId) {
+      const asset = assetById.get(Number(context.assetId));
+      if (!asset || Number((asset as any).siteId) !== Number(context.siteId) || Number((asset as any).sectionId) !== Number(context.sectionId)) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: `الأصل غير مرتبط بالموقع والقسم للصنف ${label}` });
+      }
+    }
+  });
+  return resolved;
+}
+
 async function resolveAndValidatePurchaseOrderContext(
   input: PurchaseOrderContextInput,
   options: { allowInactiveCategoryId?: number | null } = {},
@@ -1170,6 +1223,10 @@ export const purchaseOrdersRouter = router({
       unit: z.string().optional(),
       photoUrl: z.string().optional(),
       photoUrls: z.array(z.string()).optional(),
+      siteId: z.number().int().positive().nullable().optional(),
+      sectionId: z.number().int().positive().nullable().optional(),
+      assetId: z.number().int().positive().nullable().optional(),
+      categoryId: z.number().int().positive().nullable().optional(),
       notes: z.string().optional(),
     })),
   })).mutation(async ({ input, ctx }) => {
@@ -1180,6 +1237,7 @@ export const purchaseOrdersRouter = router({
     await assertNoInactiveCatalogUnitUsage(input.items);
     await assertTicketAllowsNewPurchaseOrder(ctx.user, input.ticketId, { ticketItemId: input.ticketItemId });
     const purchaseContext = await resolveAndValidatePurchaseOrderContext(input);
+    const itemContexts = await resolveAndValidatePurchaseOrderItemContexts(input.items, purchaseContext, { requireCategory: false });
 
     // ⚠️ 2026-08-13: كان يستدعي getNextPONumber() هنا — أي أن مسودة واحدة تُنشأ
     // ثم تُترك أو تُحذف كانت تستهلك/تحجز رقمًا حقيقيًا من تسلسل PR-YYYY-NNNN
@@ -1198,7 +1256,7 @@ export const purchaseOrdersRouter = router({
         notes: input.notes,
         ...purchaseContext,
       }, tx);
-      const itemsData = input.items.map(item => ({ ...item, ...resolvePurchaseItemNeedTiming(item), purchaseOrderId: newPoId!, status: "pending" }));
+      const itemsData = input.items.map((item, index) => ({ ...item, ...itemContexts[index], ...resolvePurchaseItemNeedTiming(item), purchaseOrderId: newPoId!, status: "pending" }));
       await db.createPOItems(itemsData, tx);
       if (idea) await linkCreatedExecution(tx, idea, "purchase", Number(newPoId), ctx.user.id);
       return newPoId;
@@ -1231,6 +1289,10 @@ export const purchaseOrdersRouter = router({
       categoryId: po.categoryId,
     }, { allowInactiveCategoryId: po.categoryId });
 
+    if (!purchaseContext.categoryId) {
+      throw new TRPCError({ code: "BAD_REQUEST", message: "يجب اختيار التصنيف قبل إرسال طلب الشراء للمراجعة" });
+    }
+
     // ⚠️ 2026-08-13: هذه اللحظة — لا لحظة حفظ المسودة — هي التي يُخصَّص فيها
     // الرقم الرسمي فعليًا (بنفس نظام الترقيم الحالي getNextPONumber، بلا تعديل
     // عليه) ويُستبدَل رقم المسودة (DFT-) به نهائيًا. createdAt يُصبح أيضًا لحظة
@@ -1247,14 +1309,15 @@ export const purchaseOrdersRouter = router({
       if (current?.status !== "draft") throw new TRPCError({ code: "CONFLICT", message: "الطلب لم يعد مسودة؛ يرجى تحديث الصفحة" });
       const items = await db.getPOItems(input.id, tx);
       if (items.length === 0) throw new TRPCError({ code: "BAD_REQUEST", message: "لا يوجد أصناف في الطلب" });
+      const itemContexts = await resolveAndValidatePurchaseOrderItemContexts(items, purchaseContext, { requireCategory: true });
       const submittedAt = new Date();
-      const datedItems = items.map((item: any) => {
-        try { return { ...item, ...resolvePurchaseItemNeedTiming(item, submittedAt) }; }
+      const datedItems = items.map((item: any, index: number) => {
+        try { return { ...item, ...itemContexts[index], ...resolvePurchaseItemNeedTiming(item, submittedAt) }; }
         catch (error) { throw new TRPCError({ code: "BAD_REQUEST", message: `${error instanceof Error ? error.message : "تاريخ الاحتياج غير صالح"}: ${item.itemName || item.id}` }); }
       });
       const officialPoNumber = await db.getNextPONumber();
       for (const item of datedItems) {
-        await db.updatePOItem(item.id, { requiredDate: item.requiredDate, deliveryLeadDays: item.deliveryLeadDays }, tx, {
+        await db.updatePOItem(item.id, { siteId: item.siteId, sectionId: item.sectionId, assetId: item.assetId, categoryId: item.categoryId, requiredDate: item.requiredDate, deliveryLeadDays: item.deliveryLeadDays }, tx, {
           actorUserId: ctx.user.id, actorName: ctx.user.name, eventType: "item_updated",
           note: "تثبيت تاريخ الاحتياج وتحديث عدد الأيام عند إرسال طلب الشراء",
         });
@@ -1309,6 +1372,10 @@ export const purchaseOrdersRouter = router({
       unit: z.string().optional(),
       photoUrl: z.string().optional(),
       photoUrls: z.array(z.string()).optional(),
+      siteId: z.number().int().positive().nullable().optional(),
+      sectionId: z.number().int().positive().nullable().optional(),
+      assetId: z.number().int().positive().nullable().optional(),
+      categoryId: z.number().int().positive().nullable().optional(),
       notes: z.string().optional(),
     })),
   })).mutation(async ({ input, ctx }) => {
@@ -1332,6 +1399,7 @@ export const purchaseOrdersRouter = router({
       assetId: input.assetId !== undefined ? input.assetId : po.assetId,
       categoryId: input.categoryId !== undefined ? input.categoryId : po.categoryId,
     }, { allowInactiveCategoryId: po.categoryId });
+    const itemContexts = await resolveAndValidatePurchaseOrderItemContexts(input.items, purchaseContext, { requireCategory: false });
     // Use the same header lock as submission. A late editor cannot clear/restart
     // operational deadlines after the order has already been sent.
     await db.withTransaction(async (tx: any) => {
@@ -1352,14 +1420,14 @@ export const purchaseOrdersRouter = router({
           await tx.delete(purchaseOrderItems).where(and(eq(purchaseOrderItems.id, existing.id), eq(purchaseOrderItems.purchaseOrderId, input.id)));
         }
       }
-      for (const item of input.items) {
+      for (const [itemIndex, item] of input.items.entries()) {
         const existing = item.id ? currentItems.find((entry: any) => entry.id === item.id) : null;
         if (existing && ["cancelled", "rejected"].includes(existing.status)) continue;
         const values = {
           itemName: item.itemName, ...resolvePurchaseItemNeedTiming(item),
           description: item.description || null, quantity: item.quantity,
           unit: item.unit || null, photoUrl: item.photoUrl || null,
-          photoUrls: item.photoUrls || null, notes: item.notes || null,
+          photoUrls: item.photoUrls || null, notes: item.notes || null, ...itemContexts[itemIndex],
         };
         if (existing) {
           await db.updatePOItem(item.id!, {
@@ -1404,6 +1472,10 @@ export const purchaseOrdersRouter = router({
       unit: z.string().optional(),
       photoUrl: z.string().optional(),
       photoUrls: z.array(z.string()).optional(),
+      siteId: z.number().int().positive().nullable().optional(),
+      sectionId: z.number().int().positive().nullable().optional(),
+      assetId: z.number().int().positive().nullable().optional(),
+      categoryId: z.number().int().positive().nullable().optional(),
       notes: z.string().optional(),
       delegateId: z.number().optional(),
     }).superRefine(validatePurchaseItemNeedTiming)),
@@ -1423,6 +1495,10 @@ export const purchaseOrdersRouter = router({
     if (input.ticketTeam && (ctx.user.isActive !== 1 || !["warehouse", "owner", "admin"].includes(ctx.user.role))) throw new TRPCError({ code: "FORBIDDEN", message: "توفير مواد الفريق للمستودع فقط" });
     if (!input.ticketTeam) await assertTicketAllowsNewPurchaseOrder(ctx.user, input.ticketId, { ticketItemId: input.ticketItemId });
     const purchaseContext = await resolveAndValidatePurchaseOrderContext(input);
+    if (!purchaseContext.categoryId) {
+      throw new TRPCError({ code: "BAD_REQUEST", message: "يجب اختيار التصنيف قبل إرسال طلب الشراء للمراجعة" });
+    }
+    const itemContexts = await resolveAndValidatePurchaseOrderItemContexts(input.items, purchaseContext, { requireCategory: true });
     let poNumber = await db.getNextPONumber();
     // ✅ إصلاح حرج #5: إنشاء رأس الطلب وبنوده معاً ضمن معاملة ذرية واحدة —
     // إما ينجحان كلاهما أو يُلغى كل شيء تلقائياً (rollback) عند أي فشل جزئي.
@@ -1437,7 +1513,7 @@ export const purchaseOrdersRouter = router({
             const breakdown = ticketPurchaseBreakdown(handoff, handoff.unit);
             const submittedAt = new Date();
             const id = Number(await db.createPurchaseOrder({ poNumber, ticketId: input.ticketId, ticketItemId: input.ticketItemId, requestedById: ctx.user.id, status: "pending_review", submittedAt, notes: [input.notes?.trim(), breakdown].filter(Boolean).join("\n"), ...purchaseContext }, tx));
-            await db.createPOItems(input.items.map(item => ({ ...item, ...resolvePurchaseItemNeedTiming(item, submittedAt), quantity: handoff.purchaseTotalQuantity, notes: [item.notes?.trim(), breakdown].filter(Boolean).join("\n"), purchaseOrderId: id, status: "pending" })), tx);
+            await db.createPOItems(input.items.map((item, index) => ({ ...item, ...itemContexts[index], ...resolvePurchaseItemNeedTiming(item, submittedAt), quantity: handoff.purchaseTotalQuantity, notes: [item.notes?.trim(), breakdown].filter(Boolean).join("\n"), purchaseOrderId: id, status: "pending" })), tx);
             const items = await db.getPOItems(id, tx);
             if (items.length !== 1 || !items[0]?.id) throw new TeamTicketError("CONFLICT", "تعذر إنشاء بند شراء الفريق");
             return { id, poNumber, source: { sourceId: Number(items[0].id), sourceNumber: poNumber, quantity: Number(items[0].quantity), status: "pending" as const } };
@@ -1482,7 +1558,7 @@ export const purchaseOrdersRouter = router({
           ...purchaseContext,
         }, tx);
         // delegateId is optional at creation — assigned during reviewItems step
-        const itemsData = input.items.map(item => ({ ...item, ...resolvePurchaseItemNeedTiming(item, submittedAt), purchaseOrderId: newPoId!, status: "pending" }));
+        const itemsData = input.items.map((item, index) => ({ ...item, ...itemContexts[index], ...resolvePurchaseItemNeedTiming(item, submittedAt), purchaseOrderId: newPoId!, status: "pending" }));
         await db.createPOItems(itemsData, tx);
 
         if (input.itPurchaseNeedId) await tx.update(itPurchaseNeeds).set({ status: "ordered", purchaseOrderId: newPoId }).where(eq(itPurchaseNeeds.id, input.itPurchaseNeedId));

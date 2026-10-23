@@ -1,4 +1,5 @@
 import type { ParsedCatalog } from "./catalogImport.service";
+import { isCatalogNodeCodeForParent, isHierarchicalCatalogNodeCode } from "../../_core/catalog-code-format";
 
 export async function validateCatalogImport(
   db:     any,
@@ -17,6 +18,17 @@ export async function validateCatalogImport(
     if (!node.code) {
       errors.push({ type: "taxonomy", message: "كود التصنيف مطلوب" });
       continue;
+    }
+
+    const isHistoricalCompactCode = /^\d+$/.test(node.code);
+    if (!isHistoricalCompactCode && !isHierarchicalCatalogNodeCode(node.code)) {
+      errors.push({ type: "taxonomy", message: `كود التصنيف غير صالح: ${node.code}` });
+    }
+    if (node.parentCode && node.code.includes("-") && !isCatalogNodeCodeForParent(node.code, node.parentCode)) {
+      errors.push({
+        type: "taxonomy",
+        message: `كود التصنيف ${node.code} لا يتبع الأب ${node.parentCode} مباشرة`,
+      });
     }
 
     if (!node.nameAr) {

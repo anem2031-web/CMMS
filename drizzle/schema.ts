@@ -173,7 +173,7 @@ export const catalogCodeAliases = mysqlTable("catalog_code_aliases", {
 	createdAt: timestamp({ mode: 'string' }).default('CURRENT_TIMESTAMP').notNull(),
 },
 (table) => [
-	uniqueIndex("uq_catalog_code_alias_entity_old").on(table.entityType, table.oldCode),
+	uniqueIndex("uq_catalog_code_alias_entity_id_old").on(table.entityType, table.entityId, table.oldCode),
 	index("idx_catalog_code_alias_entity_id").on(table.entityType, table.entityId),
 ]);
 
@@ -335,7 +335,7 @@ export const catalogNodes = mysqlTable("catalog_nodes", {
 	isActive: tinyint().default(1).notNull(),
 	createdAt: timestamp({ mode: 'string' }).default('CURRENT_TIMESTAMP').notNull(),
 	updatedAt: timestamp({ mode: 'string' }).defaultNow().onUpdateNow().notNull(),
-	code: varchar({ length: 20 }),
+	code: varchar({ length: 50 }),
 },
 (table) => [
 	uniqueIndex("catalog_nodes_code_unique").on(table.code),
@@ -2177,6 +2177,12 @@ export const purchaseOrderItems = mysqlTable("purchase_order_items", {
 	returnReason: text(),
 	returnedAt: timestamp({ mode: 'string' }),
 	photoUrls: json(),
+	// سياق الاستفادة الخاص بالبند. يبقى nullable للتوافق مع الطلبات التاريخية؛
+	// عند القراءة يُستخدم سياق رأس الطلب كقيمة بديلة.
+	siteId: int(),
+	sectionId: int(),
+	assetId: int(),
+	categoryId: int(),
 	estimatedById: int(),
 	itemNameAr: text("itemName_ar"),
 	itemNameEn: text("itemName_en"),
@@ -2202,6 +2208,10 @@ export const purchaseOrderItems = mysqlTable("purchase_order_items", {
 	index("purchase_order_items_batch_idx").on(table.batchId),
 	index("idx_poi_purchaseOrderId").on(table.purchaseOrderId),
 	index("idx_poi_catalogItemId").on(table.catalogItemId),
+	index("idx_poi_siteId").on(table.siteId),
+	index("idx_poi_sectionId").on(table.sectionId),
+	index("idx_poi_assetId").on(table.assetId),
+	index("idx_poi_categoryId").on(table.categoryId),
 ]);
 
 export const purchaseOrders = mysqlTable("purchase_orders", {

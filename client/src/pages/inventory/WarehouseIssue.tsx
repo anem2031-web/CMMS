@@ -337,6 +337,9 @@ export default function WarehouseIssue() {
         <p className="text-sm text-muted-foreground mt-1">
           مخصص لصرف مادتين أو أكثر من مخزن واحد إلى فني واحد ضمن سند WIS واحد، مع بقاء حركات DLV واللوتات والارتباطات الحالية كما هي.
         </p>
+        <p className="mt-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          يقبل هذا المسار مواد مرتبطة ببلاغ صيانة أو مهمة PM V2 فقط. للصرف العام استخدم طلب صرف تشغيلي معتمد.
+        </p>
       </div>
 
       <Tabs defaultValue="create" className="space-y-5" dir="rtl">

@@ -29,3 +29,13 @@ test("Patch 128 keeps existing WIS issue engine and history behavior unchanged",
   assert.match(router, /await db\.issueDelivery\([\s\S]*?\}, tx\)/);
   assert.match(router, /transactionResult = await database\.transaction/);
 });
+
+test("WIS blocks unlinked stock before issue and directs it to approved operational issue", async () => {
+  const page = await read("client/src/pages/inventory/WarehouseIssue.tsx");
+  const router = await read("server/routers/inventory/warehouse-issue-batches.router.ts");
+  assert.match(page, /بلاغ صيانة أو مهمة PM V2 فقط/);
+  assert.match(page, /طلب صرف تشغيلي معتمد/);
+  assert.match(router, /if \(!linkToTicket && !pmv2Context\)/);
+  assert.match(router, /هذا اللوت غير مرتبط ببلاغ صيانة أو مهمة PM V2/);
+  assert.match(router, /لا يمكن صرف \$\{lot\.itemName\} من هذه الصفحة دون ارتباط/);
+});

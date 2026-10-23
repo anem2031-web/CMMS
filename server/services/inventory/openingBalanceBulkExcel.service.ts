@@ -274,11 +274,18 @@ async function validateParsedRows(writer: any, operationId: number, parsedRows: 
       }).from(catalogItems).where(and(inArray(catalogItems.id, chunk), eq(catalogItems.isActive, 1))))
     : [];
   const aliasItemById = new Map(aliasCatalogRows.map((row: any) => [Number(row.id), row]));
+  const aliasItemsByOldCode = new Map<string, Map<number, any>>();
   for (const alias of aliasRows) {
     const oldCode = String(alias.oldCode || "").trim();
     if (!oldCode || catalogByCode.has(oldCode)) continue;
     const item = aliasItemById.get(Number(alias.entityId));
-    if (item) catalogByCode.set(oldCode, [item]);
+    if (!item) continue;
+    const items = aliasItemsByOldCode.get(oldCode) || new Map<number, any>();
+    items.set(Number(item.id), item);
+    aliasItemsByOldCode.set(oldCode, items);
+  }
+  for (const [oldCode, items] of aliasItemsByOldCode) {
+    catalogByCode.set(oldCode, Array.from(items.values()));
   }
 
   const catalogIds = Array.from(new Set([

@@ -45,7 +45,7 @@ import { useState, useMemo, useCallback, useEffect } from "react";
 import { toast } from "sonner";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useTranslation } from "@/contexts/LanguageContext";
-import { TeamAssignmentSlot } from "@/pages/maintenance-teams/TeamTaskAssignment";
+import { TeamAssignmentSlot, supportsTeamTaskAssignmentDepartment } from "@/pages/maintenance-teams/TeamTaskAssignment";
 import { useStaticLabels, useBatchTranslation } from "@/hooks/useContentTranslation";
 import { useResolvedTranslation, getLocalizedName } from "@/hooks/useTranslatedField";
 import DropZone, { type UploadedFile } from "@/components/common/DropZone";
@@ -243,17 +243,22 @@ const { getField } = useResolvedTranslation(
   const [departmentTaskDrafts, setDepartmentTaskDrafts] = useState<Record<number, { title: string; description: string }>>({});
   const [taskAssigneeDrafts, setTaskAssigneeDrafts] = useState<Record<number, number[]>>({});
   const [taskAssigneeSearches, setTaskAssigneeSearches] = useState<Record<number, string>>({});
-  const refreshDepartmentPlan = () => { refetch(); refetchDepartmentPlan(); utils.tickets.departmentPlan.invalidate({ ticketId }); };
+  const refreshDepartmentPlan = async () => {
+    // Invalidate first so a late response from the pre-mutation request cannot
+    // overwrite the newly created/assigned task with stale plan data.
+    await utils.tickets.departmentPlan.invalidate({ ticketId });
+    await Promise.all([refetch(), refetchDepartmentPlan()]);
+  };
   const createDepartmentTaskMut = trpc.tickets.createDepartmentTask.useMutation({
-    onSuccess: (_res, vars) => { toast.success(t.workflow.ticket.taskCreated); setDepartmentTaskDrafts(prev => ({ ...prev, [vars.ticketDepartmentId]: { title: "", description: "" } })); refreshDepartmentPlan(); },
+    onSuccess: async (_res, vars) => { toast.success(t.workflow.ticket.taskCreated); setDepartmentTaskDrafts(prev => ({ ...prev, [vars.ticketDepartmentId]: { title: "", description: "" } })); await refreshDepartmentPlan(); },
     onError: (e: any) => toast.error(localizeApiError(e.message)),
   });
   const assignDepartmentTaskMut = trpc.tickets.assignDepartmentTask.useMutation({
-    onSuccess: () => { toast.success(t.workflow.ticket.taskAssigned); refreshDepartmentPlan(); },
+    onSuccess: async () => { toast.success(t.workflow.ticket.taskAssigned); await refreshDepartmentPlan(); },
     onError: (e: any) => toast.error(localizeApiError(e.message)),
   });
   const promoteDepartmentTaskMut = trpc.tickets.promoteDepartmentTask.useMutation({
-    onSuccess: (res: any) => { toast.success(`${t.workflow.ticket.promoteToSubTicket} ${res?.ticketNumber || ""}`); refreshDepartmentPlan(); },
+    onSuccess: async (res: any) => { toast.success(`${t.workflow.ticket.promoteToSubTicket} ${res?.ticketNumber || ""}`); await refreshDepartmentPlan(); },
     onError: (e: any) => toast.error(localizeApiError(e.message)),
   });
   const [showItTransferDialog, setShowItTransferDialog] = useState(false);
@@ -273,7 +278,7 @@ const { getField } = useResolvedTranslation(
     onError: (e: any) => toast.error(localizeApiError(e.message)),
   });
   const closeParentTicketMut = trpc.tickets.closeParentTicket.useMutation({
-    onSuccess: (res: any) => { toast.success(`${t.workflow.ticket.parentClosed} (${res?.subTicketCount ?? 0})`); refreshDepartmentPlan(); },
+    onSuccess: async (res: any) => { toast.success(`${t.workflow.ticket.parentClosed} (${res?.subTicketCount ?? 0})`); await refreshDepartmentPlan(); },
     onError: (e: any) => toast.error(localizeApiError(e.message)),
   });
   const startRepairForItemMut = trpc.tickets.startRepairForItem.useMutation({
@@ -955,7 +960,7 @@ const { getField } = useResolvedTranslation(
                               isItDepartmentPlan ? (
                                 <ItTaskActions ticketId={ticketId} taskId={task.id} assigneeIds={persistedAssigneeIds} canAssign={canManageDept} onChanged={() => { refetch(); refetchDepartmentPlan(); }} />
                               ) : (
-                                <TeamAssignmentSlot enabled={dept.department === MAINTENANCE_RESPONSIBLE_DEPARTMENT.GENERAL} ticketId={ticketId} taskId={task.id} hasNamedAssignment={persistedAssigneeIds.length > 0} onChanged={() => { refetch(); refetchDepartmentPlan(); }}>
+                                <TeamAssignmentSlot enabled={supportsTeamTaskAssignmentDepartment(dept.department)} ticketId={ticketId} taskId={task.id} hasNamedAssignment={persistedAssigneeIds.length > 0} onChanged={() => { refetch(); refetchDepartmentPlan(); }}>
                                 <div className="space-y-2">
                                   <div className="flex items-center justify-between gap-2">
                                     <Label className="text-xs">{t.workflow.ticket.assignedTechnicians}</Label>

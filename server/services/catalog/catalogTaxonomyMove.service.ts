@@ -141,11 +141,12 @@ async function persistAlias(tx: any, params: {
   userId: number;
 }): Promise<void> {
   const existing = await tx.select().from(catalogCodeAliases)
-    .where(and(eq(catalogCodeAliases.entityType, params.entityType), eq(catalogCodeAliases.oldCode, params.oldCode)))
+    .where(and(
+      eq(catalogCodeAliases.entityType, params.entityType),
+      eq(catalogCodeAliases.entityId, params.entityId),
+      eq(catalogCodeAliases.oldCode, params.oldCode),
+    ))
     .limit(1);
-  if (existing.length > 0 && Number(existing[0].entityId) !== params.entityId) {
-    throw new Error(`الكود التاريخي ${params.oldCode} محجوز لكيان آخر ولا يمكن إعادة استخدامه`);
-  }
 
   if (existing.length === 0) {
     await tx.insert(catalogCodeAliases).values({
@@ -159,7 +160,11 @@ async function persistAlias(tx: any, params: {
 
   await tx.update(catalogCodeAliases)
     .set({ newCode: params.newCode } as any)
-    .where(and(eq(catalogCodeAliases.entityType, params.entityType), eq(catalogCodeAliases.entityId, params.entityId)));
+    .where(and(
+      eq(catalogCodeAliases.entityType, params.entityType),
+      eq(catalogCodeAliases.entityId, params.entityId),
+      eq(catalogCodeAliases.oldCode, params.oldCode),
+    ));
 }
 
 export async function executeCatalogTaxonomyMove(db: any, params: {
@@ -189,16 +194,9 @@ export async function executeCatalogTaxonomyMove(db: any, params: {
 
     const batchId = `taxonomy-move-${Date.now()}-${params.userId}`;
 
-    // Temporary codes avoid transient collisions with the existing UNIQUE node
-    // constraint while a whole subtree is being renamed inside one transaction.
-    for (const change of preview.plan.nodeChanges) {
-      if (change.oldCode !== change.newCode) {
-        await tx.update(catalogNodes).set({ code: `_M${change.id}` } as any).where(eq(catalogNodes.id, change.id));
-      }
-    }
-    for (const change of preview.plan.itemChanges) {
-      await tx.update(catalogItems).set({ code: `_M${change.id}` } as any).where(eq(catalogItems.id, change.id));
-    }
+    // The plan already proves that every final node and item code is unique and
+    // unreserved. Write those final codes directly so an interrupted request can
+    // never leave a catalog record carrying an internal `_M...` placeholder.
 
     for (const change of preview.plan.nodeChanges) {
       const setValues: any = { level: change.newLevel, code: change.newCode };

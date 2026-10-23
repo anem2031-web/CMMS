@@ -286,8 +286,6 @@ export const OBSERVER_NATIVE_READ_PATHS = [
   "users.byRole",
   "users.list",
   "users.listTechnicians",
-  "vendors.getById",
-  "vendors.list",
   "warehouse.getAvailableCategories",
   "warehouse.list",
   "warehouseIssueBatches.getById",

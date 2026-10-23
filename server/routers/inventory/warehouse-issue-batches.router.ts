@@ -416,6 +416,9 @@ export const warehouseIssueBatchesRouter = router({
         const po = lot.purchaseOrderId ? await db.getPurchaseOrderById(lot.purchaseOrderId) : null;
         const poNumber = (po as any)?.poNumber ? String((po as any).poNumber) : null;
         const pmv2Context = await getPmv2WarehouseIssueContext(lot.purchaseOrderItemId);
+        if (!linkToTicket && !pmv2Context) {
+          throw new Error("هذا اللوت غير مرتبط ببلاغ صيانة أو مهمة PM V2؛ استخدم طلب صرف تشغيلي معتمد");
+        }
         const costTargetSuggestion = await resolveCostTargetSuggestion({ context, pmv2Context, poNumber });
 
         return {
@@ -513,6 +516,12 @@ export const warehouseIssueBatchesRouter = router({
         const sourcePo = lot.purchaseOrderId ? await db.getPurchaseOrderById(lot.purchaseOrderId) : null;
         const sourcePoNumber = (sourcePo as any)?.poNumber ? String((sourcePo as any).poNumber) : null;
         const pmv2Context = await getPmv2WarehouseIssueContext(lot.purchaseOrderItemId);
+        if (!linkToTicket && !pmv2Context) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `لا يمكن صرف ${lot.itemName} من هذه الصفحة دون ارتباط ببلاغ صيانة أو مهمة PM V2؛ استخدم طلب صرف تشغيلي معتمد`,
+          });
+        }
         const purchaseOrderItemId = linkToTicket ? toPositiveInt(context?.purchaseOrderItemId) : null;
         const markPurchaseOrderItemDelivered = !!purchaseOrderItemId && !purchaseItemsMarkedDelivered.has(purchaseOrderItemId);
         if (markPurchaseOrderItemDelivered && purchaseOrderItemId) {

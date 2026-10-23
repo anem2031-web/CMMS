@@ -4,6 +4,11 @@ import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 
+export function supportsTeamTaskAssignmentDepartment(department?: string | null): boolean {
+  return department === "maintenance_report_department_general"
+    || department === "maintenance_report_department_construction";
+}
+
 export function TeamAssignmentSlot(props: { enabled: boolean; ticketId: number; taskId: number; hasNamedAssignment: boolean; onChanged: () => void; children: ReactNode }) {
   return props.enabled ? <TeamTaskAssignment {...props} /> : props.children;
 }

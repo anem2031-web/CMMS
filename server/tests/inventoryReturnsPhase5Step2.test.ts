@@ -73,7 +73,8 @@ describe("Main Phase 5 / 5.2 — Supplier return hardening", () => {
     const end = source.indexOf("export async function getInventoryTransactions", start);
     const block = source.slice(start, end);
 
-    expect(block).toContain("return database.transaction(async (tx: any) => {");
+    expect(block).toContain("const executeReturn = async (tx: any) => {");
+    expect(block).toContain("return existingTx ? executeReturn(existingTx) : database.transaction(executeReturn);");
     expect(block).toContain("SELECT id FROM delivery_documents");
     expect(block).toContain("FOR UPDATE");
     expect(block).toContain("source.returnableQuantity");
@@ -104,6 +105,12 @@ describe("Main Phase 5 / 5.2 — Supplier return hardening", () => {
     expect(returnPage()).toContain("المتبقي القابل للإرجاع");
     expect(returnPrint()).toContain("سند الصرف الأصلي");
     expect(returnPrint()).toContain("توقيع مُعيد الصنف");
+  });
+
+  it("leaves a completed return form safely even when a legacy response has no document number", () => {
+    const page = returnPage();
+    expect(page).toContain("data?.returnNumber");
+    expect(page.match(/navigate\(\"\/warehouse\/returns\"\)/g)?.length).toBeGreaterThanOrEqual(2);
   });
 
 });

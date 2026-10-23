@@ -1,3 +1,11 @@
+import {
+  catalogChildSegment,
+  formatCatalogCodeSegment,
+  isReadableCatalogNodeCode,
+  nextCatalogChildCode,
+  nextCatalogRootCode,
+} from "./catalog-code-format";
+
 export interface CatalogNodeForMove {
   id: number;
   parentId?: number | null;
@@ -6,7 +14,6 @@ export interface CatalogNodeForMove {
   level: number;
   isActive?: number | boolean | null;
 }
-
 export interface CatalogItemForMove {
   id: number;
   nodeId: number;
@@ -53,27 +60,19 @@ export interface TaxonomyMovePlan {
   maxLevelAfterMove: number;
 }
 
-function normalizedNumericCode(value: string | null | undefined, label: string): string {
+function normalizedNodeCode(value: string | null | undefined, label: string): string {
   const code = String(value || "").trim();
-  if (!code || !/^\d+$/.test(code)) {
-    throw new Error(`${label} لا يحتوي على كود رقمي صالح`);
+  if (!isReadableCatalogNodeCode(code)) {
+    throw new Error(`${label} لا يحتوي على كود تصنيف صالح`);
   }
   return code;
 }
 
 function nextRootCode(nodesOutsideSubtree: CatalogNodeForMove[], reservedCodes: Set<string>): string {
-  let max = 0n;
-  for (const node of nodesOutsideSubtree) {
-    if (node.parentId != null) continue;
-    const code = String(node.code || "").trim();
-    if (!/^\d+$/.test(code)) continue;
-    const value = BigInt(code);
-    if (value > max) max = value;
-  }
-
-  let candidate = max + 1n;
-  while (reservedCodes.has(candidate.toString())) candidate += 1n;
-  return candidate.toString();
+  return nextCatalogRootCode(
+    nodesOutsideSubtree.filter(node => node.parentId == null).map(node => node.code),
+    reservedCodes,
+  );
 }
 
 function nextChildCode(
@@ -81,24 +80,8 @@ function nextChildCode(
   siblingNodesOutsideSubtree: CatalogNodeForMove[],
   reservedCodes: Set<string>,
 ): string {
-  const parentCode = normalizedNumericCode(targetParent.code, `التصنيف الأب «${targetParent.nameAr || targetParent.id}»`);
-  let maxSuffix = 0n;
-  for (const sibling of siblingNodesOutsideSubtree) {
-    const code = String(sibling.code || "").trim();
-    if (!code.startsWith(parentCode)) continue;
-    const suffix = code.slice(parentCode.length);
-    if (!/^\d+$/.test(suffix)) continue;
-    const value = BigInt(suffix);
-    if (value > maxSuffix) maxSuffix = value;
-  }
-
-  let suffix = maxSuffix + 1n;
-  let candidate = `${parentCode}${suffix.toString()}`;
-  while (reservedCodes.has(candidate)) {
-    suffix += 1n;
-    candidate = `${parentCode}${suffix.toString()}`;
-  }
-  return candidate;
+  const parentCode = normalizedNodeCode(targetParent.code, `التصنيف الأب «${targetParent.nameAr || targetParent.id}»`);
+  return nextCatalogChildCode(parentCode, siblingNodesOutsideSubtree.map(node => node.code), reservedCodes);
 }
 
 function remapItemCode(oldItemCode: string, oldNodeCode: string, newNodeCode: string): string {
@@ -168,7 +151,7 @@ export function buildTaxonomyMovePlan(params: {
     throw new Error("لا يمكن نقل التصنيف تحت نفسه أو تحت أحد تفرعاته");
   }
 
-  const oldRootCode = normalizedNumericCode(root.code, `التصنيف «${root.nameAr || root.id}»`);
+  const oldRootCode = normalizedNodeCode(root.code, `التصنيف «${root.nameAr || root.id}»`);
   const aliases = params.aliases || [];
   const reservedNodeCodes = new Set<string>();
   for (const node of params.nodes) {
@@ -192,7 +175,7 @@ export function buildTaxonomyMovePlan(params: {
   const newRootCode = targetParent
     ? nextChildCode(targetParent, siblingsOutsideSubtree, reservedNodeCodes)
     : nextRootCode(params.nodes.filter(node => !subtreeIds.has(Number(node.id))), reservedNodeCodes);
-  if (newRootCode.length > 20) {
+  if (newRootCode.length > 50) {
     throw new Error(`الكود الناتج ${newRootCode} يتجاوز الحد الأقصى المسموح للتصنيف`);
   }
 
@@ -204,21 +187,18 @@ export function buildTaxonomyMovePlan(params: {
   const visitQueue = [root];
   while (visitQueue.length) {
     const parent = visitQueue.shift()!;
-    const parentOldCode = normalizedNumericCode(parent.code, `التصنيف «${parent.nameAr || parent.id}»`);
+    const parentOldCode = normalizedNodeCode(parent.code, `التصنيف «${parent.nameAr || parent.id}»`);
     const parentNewCode = newCodeById.get(Number(parent.id))!;
     const parentNewLevel = newLevelById.get(Number(parent.id))!;
 
     for (const child of childrenByParent.get(Number(parent.id)) || []) {
-      const childOldCode = normalizedNumericCode(child.code, `التصنيف «${child.nameAr || child.id}»`);
-      if (!childOldCode.startsWith(parentOldCode)) {
-        throw new Error(`كود التصنيف ${childOldCode} لا يتبع كود أبيه ${parentOldCode}`);
-      }
-      const localSuffix = childOldCode.slice(parentOldCode.length);
-      if (!localSuffix || !/^\d+$/.test(localSuffix)) {
+      const childOldCode = normalizedNodeCode(child.code, `التصنيف «${child.nameAr || child.id}»`);
+      const localSuffix = catalogChildSegment(childOldCode, parentOldCode);
+      if (!localSuffix) {
         throw new Error(`تعذر تحديد الجزء الفرعي من كود التصنيف ${childOldCode}`);
       }
-      const childNewCode = `${parentNewCode}${localSuffix}`;
-      if (childNewCode.length > 20) throw new Error(`الكود الناتج ${childNewCode} يتجاوز الحد الأقصى المسموح`);
+      const childNewCode = `${parentNewCode}-${formatCatalogCodeSegment(BigInt(localSuffix))}`;
+      if (childNewCode.length > 50) throw new Error(`الكود الناتج ${childNewCode} يتجاوز الحد الأقصى المسموح`);
       newCodeById.set(Number(child.id), childNewCode);
       newLevelById.set(Number(child.id), parentNewLevel + 1);
       visitQueue.push(child);
@@ -233,7 +213,7 @@ export function buildTaxonomyMovePlan(params: {
   const plannedNodeCodes = new Map<string, number>();
   const nodeChanges: TaxonomyNodeChange[] = [];
   for (const node of subtree) {
-    const oldCode = normalizedNumericCode(node.code, `التصنيف «${node.nameAr || node.id}»`);
+    const oldCode = normalizedNodeCode(node.code, `التصنيف «${node.nameAr || node.id}»`);
     const newCode = newCodeById.get(Number(node.id))!;
     const duplicate = plannedNodeCodes.get(newCode);
     if (duplicate && duplicate !== Number(node.id)) throw new Error(`الكود الناتج ${newCode} مكرر داخل الفرع المنقول`);
@@ -278,7 +258,7 @@ export function buildTaxonomyMovePlan(params: {
       unchangedItemIds.push(Number(item.id));
       continue;
     }
-    const oldNodeCode = normalizedNumericCode(nodesById.get(Number(item.nodeId))?.code, `تصنيف الصنف «${item.nameAr || item.id}»`);
+    const oldNodeCode = normalizedNodeCode(nodesById.get(Number(item.nodeId))?.code, `تصنيف الصنف «${item.nameAr || item.id}»`);
     const newNodeCode = newCodeById.get(Number(item.nodeId));
     if (!newNodeCode) throw new Error("تعذر تحديد كود التصنيف الجديد للصنف");
     const newCode = remapItemCode(currentCode, oldNodeCode, newNodeCode);

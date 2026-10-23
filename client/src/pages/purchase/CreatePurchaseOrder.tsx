@@ -47,11 +47,16 @@ type ItemForm = {
 
   photoUrls: string[];
   notes: string;
+  siteId: string;
+  sectionId: string;
+  assetId: string;
+  categoryId: string;
+  _contextTouched?: Partial<Record<"siteId" | "sectionId" | "assetId" | "categoryId", boolean>>;
   _catalogNameAr?: string;
   _catalogNameEn?: string;
 };
 
-type ItemValidationField = "itemName" | "quantity" | "deliveryLeadDays" | "unit";
+type ItemValidationField = "itemName" | "quantity" | "deliveryLeadDays" | "unit" | "siteId" | "sectionId" | "categoryId";
 
 type PurchaseFormErrors = {
   siteId?: string;
@@ -62,7 +67,7 @@ type PurchaseFormErrors = {
 
 const emptyPurchaseFormErrors = (): PurchaseFormErrors => ({ items: {} });
 
-const emptyItem = (defaultUnit = ""): ItemForm => ({
+const emptyItem = (defaultUnit = "", context: Partial<Pick<ItemForm, "siteId" | "sectionId" | "assetId" | "categoryId">> = {}): ItemForm => ({
   sourceType: "catalog",
   catalogItemId: null,
 
@@ -74,11 +79,17 @@ const emptyItem = (defaultUnit = ""): ItemForm => ({
   ...purchaseNeedTimingFromDays(DEFAULT_PURCHASE_DELIVERY_DAYS),
 
   photoUrls: [],
-  notes: ""
+  notes: "",
+  siteId: context.siteId || "",
+  sectionId: context.sectionId || "",
+  assetId: context.assetId || "",
+  categoryId: context.categoryId || "",
+  _contextTouched: {},
 });
 
 // ── Main Component ─────────────────────────────────────────────────────────
 export default function CreatePurchaseOrder() {
+  const utils = trpc.useUtils();
   const [, setLocation] = useLocation();
   const { t, language, dir } = useTranslation();
   const { user } = useAuth();
@@ -188,6 +199,8 @@ export default function CreatePurchaseOrder() {
     sectionId ? { sectionId: Number(sectionId) } : undefined,
     { enabled: Boolean(sectionId) },
   );
+  const { data: allSections = [] } = trpc.sections.list.useQuery(undefined);
+  const { data: allAssets = [] } = trpc.assets.list.useQuery({});
   const { data: purchaseCategories = [] } = trpc.centerCategories.list.useQuery({ activeOnly: !draftId });
   const materialResolvedCatalogUnit = useMemo(() => {
     if (!hasMaterialPurchaseContext || !catalogUnits?.length || !materialUnitId) return null;
@@ -296,8 +309,9 @@ export default function CreatePurchaseOrder() {
   });
 
   const updateDraftMut = trpc.purchaseOrders.updateDraft.useMutation({
-    onSuccess: () => {
+    onSuccess: async () => {
       toast.success(t.purchaseOrders.saveChangesSuccess);
+      await utils.purchaseOrders.getById.invalidate({ id: draftId! });
       setLocation(`/purchase-orders/${draftId}`);
     },
     onError: (err) => handlePurchaseMutationError(err.message),
@@ -315,8 +329,13 @@ export default function CreatePurchaseOrder() {
         ...purchaseNeedTimingFromDays(DEFAULT_PURCHASE_DELIVERY_DAYS),
         photoUrls: [],
         notes: `${isTicketMaterial ? "تذكرة الصيانة" : "PM V2"} ${materialTaskNumber}${materialItemCode ? ` · ${t.workflow.purchase.pmv2CodeLabel} ${materialItemCode}` : ""} · ${t.workflow.purchase.pmv2ShortageLinkedQty} ${materialMinimumPurchaseUnits} ${materialUnit}`.trim(),
+        siteId: params.get("siteId") || "",
+        sectionId: params.get("sectionId") || "",
+        assetId: params.get("assetId") || "",
+        categoryId: "",
+        _contextTouched: {},
       }]
-    : [emptyItem()]);
+    : [emptyItem("", { siteId, sectionId, assetId, categoryId })]);
 
   const canReadCatalogStock = canRoleAccessPath(user?.role, "/inventory");
   const stockCatalogItemIds = useMemo(() => Array.from(new Set(items
@@ -398,6 +417,11 @@ export default function CreatePurchaseOrder() {
           ...(i.requiredDate ? purchaseNeedTimingFromDate(i.requiredDate) : purchaseNeedTimingFromDays(i.deliveryLeadDays ?? null)),
           photoUrls: i.photoUrls || (i.photoUrl ? [i.photoUrl] : []),
           notes: i.notes || "",
+          siteId: String(i.siteId ?? draftPO.siteId ?? ""),
+          sectionId: String(i.sectionId ?? draftPO.sectionId ?? ""),
+          assetId: String(i.assetId ?? draftPO.assetId ?? ""),
+          categoryId: String(i.categoryId ?? draftPO.categoryId ?? ""),
+          _contextTouched: {},
           _existingId: i.id, // نحفظ id الصنف الأصلي
         })));
       }
@@ -422,7 +446,13 @@ export default function CreatePurchaseOrder() {
   const [catalogTargetIndex, setCatalogTargetIndex] = useState<number | null>(null);
 
   const updateItem = (idx: number, field: keyof ItemForm, value: any) => {
-    setItems(prev => prev.map((item, i) => i === idx ? { ...item, [field]: value } : item));
+    setItems(prev => prev.map((item, i) => i === idx ? {
+      ...item,
+      [field]: value,
+      ...(["siteId", "sectionId", "assetId", "categoryId"].includes(field)
+        ? { _contextTouched: { ...item._contextTouched, [field]: true } }
+        : {}),
+    } : item));
     if (["itemName", "quantity", "deliveryLeadDays", "unit"].includes(field)) {
       setFormErrors(prev => {
         const current = prev.items[idx];
@@ -510,6 +540,10 @@ const handleCatalogSelect = (catalogItem: any) => {
       photoUrl:    i.photoUrls?.[0] || undefined,
       photoUrls:   i.photoUrls?.length ? i.photoUrls : undefined,
       notes:       i.notes || undefined,
+      siteId: i.siteId ? Number(i.siteId) : null,
+      sectionId: i.sectionId ? Number(i.sectionId) : null,
+      assetId: i.assetId ? Number(i.assetId) : null,
+      categoryId: i.categoryId ? Number(i.categoryId) : null,
     }));
 
   const validateMaterialLinkedPurchase = () => {
@@ -546,7 +580,7 @@ const handleCatalogSelect = (catalogItem: any) => {
     let firstMessage = "";
     let firstTargetId: string | undefined;
 
-    const addContextError = (field: "siteId" | "sectionId", message: string, targetId: string) => {
+    const addContextError = (field: "siteId" | "sectionId" | "categoryId", message: string, targetId: string) => {
       next[field] = message;
       if (!firstMessage) {
         firstMessage = message;
@@ -564,12 +598,16 @@ const handleCatalogSelect = (catalogItem: any) => {
 
     if (!siteId) addContextError("siteId", t.purchaseOrders.validationSiteRequired, "purchase-site");
     if (!sectionId) addContextError("sectionId", t.purchaseOrders.validationSectionRequired, "purchase-section");
+    if (sending && !categoryId) addContextError("categoryId", t.purchaseOrders.validationCategoryRequired, "purchase-category");
 
     if (items.length === 0) {
       firstMessage ||= t.purchaseOrders.validationNoItems;
     }
 
     items.forEach((item, itemIndex) => {
+      if (!item.siteId) addItemError(itemIndex, "siteId", itemMessage(t.purchaseOrders.validationSiteRequired, itemIndex));
+      if (!item.sectionId) addItemError(itemIndex, "sectionId", itemMessage(t.purchaseOrders.validationSectionRequired, itemIndex));
+      if (sending && !item.categoryId) addItemError(itemIndex, "categoryId", itemMessage(t.purchaseOrders.validationCategoryRequired, itemIndex));
       if (!item.itemName.trim()) {
         addItemError(itemIndex, "itemName", itemMessage(t.purchaseOrders.validationItemNameRequired, itemIndex));
       }
@@ -626,6 +664,10 @@ const handleCatalogSelect = (catalogItem: any) => {
         photoUrl: i.photoUrls?.[0] || undefined,
         photoUrls: i.photoUrls?.length ? i.photoUrls : undefined,
         notes: i.notes || undefined,
+        siteId: i.siteId ? Number(i.siteId) : null,
+        sectionId: i.sectionId ? Number(i.sectionId) : null,
+        assetId: i.assetId ? Number(i.assetId) : null,
+        categoryId: i.categoryId ? Number(i.categoryId) : null,
       })),
     });
   };
@@ -662,6 +704,19 @@ const handleCatalogSelect = (catalogItem: any) => {
     if (isTicketMaterial && ticketOperationKey.current?.fingerprint !== fingerprint) ticketOperationKey.current = { fingerprint, key: 'mtt:' + crypto.randomUUID() };
     if (isTicketMaterial && (params.has("pmv2RequestItemId") || !hasMaterialPurchaseContext || !Number.isSafeInteger(ticketTeamAssignmentId) || ticketTeamAssignmentId <= 0 || !Number.isSafeInteger(ticketTeamNeedId) || ticketTeamNeedId <= 0 || !Number.isSafeInteger(ticketTeamRevision) || ticketTeamRevision < 0)) { toast.error("سياق طلب مواد التذكرة غير صالح؛ افتح الطلب من قائمة المستودع"); return; }
     createMut.mutate({ ...body, ...(isTicketMaterial ? { ticketTeam: { assignmentId: ticketTeamAssignmentId, needId: ticketTeamNeedId, expectedRevision: ticketTeamRevision, operationKey: ticketOperationKey.current!.key, warehouseExtraQuantity: ticketWarehouseExtraQuantity } } : {}) });
+  };
+
+  const applyHeaderContextToItems = (updates: Partial<Pick<ItemForm, "siteId" | "sectionId" | "assetId" | "categoryId">>) => {
+    if (!items.length) return;
+    const fields = Object.keys(updates) as Array<keyof typeof updates>;
+    const hasExistingValue = items.some(item => fields.some(field => Boolean(item[field]) || item._contextTouched?.[field]));
+    const applyAll = !hasExistingValue || window.confirm(language === "ar"
+      ? "هل تريد تطبيق التغيير على جميع الأصناف؟ اختر إلغاء لتطبيقه على الأصناف التي لم تُعدّل فقط."
+      : "Apply this change to all items? Choose Cancel to apply it only to items that were not customized.");
+    setItems(prev => prev.map(item => {
+      const eligible = applyAll || fields.every(field => !item._contextTouched?.[field]);
+      return eligible ? { ...item, ...updates } : item;
+    }));
   };
 
   return (
@@ -758,6 +813,7 @@ const handleCatalogSelect = (catalogItem: any) => {
                 setSiteId(value);
                 setSectionId("");
                 setAssetId("");
+                applyHeaderContextToItems({ siteId: value, sectionId: "", assetId: "" });
                 setFormErrors(prev => ({ ...prev, siteId: undefined, sectionId: undefined }));
               }}
             >
@@ -785,6 +841,7 @@ const handleCatalogSelect = (catalogItem: any) => {
               onValueChange={(value) => {
                 setSectionId(value);
                 setAssetId("");
+                applyHeaderContextToItems({ sectionId: value, assetId: "" });
                 setFormErrors(prev => ({ ...prev, sectionId: undefined }));
               }}
             >
@@ -806,7 +863,11 @@ const handleCatalogSelect = (catalogItem: any) => {
 
           <div className="space-y-2">
             <Label>{t.tickets.asset}</Label>
-            <Select value={assetId || "__none__"} disabled={!sectionId} onValueChange={(value) => setAssetId(value === "__none__" ? "" : value)}>
+            <Select value={assetId || "__none__"} disabled={!sectionId} onValueChange={(value) => {
+              const next = value === "__none__" ? "" : value;
+              setAssetId(next);
+              applyHeaderContextToItems({ assetId: next });
+            }}>
               <SelectTrigger><SelectValue placeholder={t.purchaseOrders.selectAssetOptional} /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="__none__">{t.purchaseOrders.withoutAsset}</SelectItem>
@@ -822,7 +883,9 @@ const handleCatalogSelect = (catalogItem: any) => {
             <Select
               value={categoryId || "__none__"}
               onValueChange={(value) => {
-                setCategoryId(value === "__none__" ? "" : value);
+                const next = value === "__none__" ? "" : value;
+                setCategoryId(next);
+                applyHeaderContextToItems({ categoryId: next });
                 setFormErrors(prev => ({ ...prev, categoryId: undefined }));
               }}
             >
@@ -962,6 +1025,49 @@ const handleCatalogSelect = (catalogItem: any) => {
             units={catalogUnits || []}
           />
         )}
+      </div>
+
+      <div className="rounded-md border bg-muted/20 p-3 space-y-3">
+        <p className="text-xs font-semibold">{language === "ar" ? "بيانات الصنف" : "Item context"}</p>
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+          <div className="space-y-1">
+            <Label>{t.tickets.site} *</Label>
+            <Select value={item.siteId} onValueChange={value => setItems(prev => prev.map((current, i) => i === idx ? { ...current, siteId: value, sectionId: "", assetId: "", _contextTouched: { ...current._contextTouched, siteId: true, sectionId: true, assetId: true } } : current))}>
+              <SelectTrigger id={`purchase-item-${idx}-siteId`} aria-invalid={Boolean(itemErrors.siteId)}><SelectValue placeholder={t.workflow.ticket.chooseSite} /></SelectTrigger>
+              <SelectContent>{(sites as any[]).map((site: any) => <SelectItem key={site.id} value={String(site.id)}>{getLocalizedName(site, language)}</SelectItem>)}</SelectContent>
+            </Select>
+            {itemErrors.siteId && <p className="text-xs text-destructive">{itemErrors.siteId}</p>}
+          </div>
+          <div className="space-y-1">
+            <Label>{t.tickets.section} *</Label>
+            <Select value={item.sectionId} disabled={!item.siteId} onValueChange={value => setItems(prev => prev.map((current, i) => i === idx ? { ...current, sectionId: value, assetId: "", _contextTouched: { ...current._contextTouched, sectionId: true, assetId: true } } : current))}>
+              <SelectTrigger id={`purchase-item-${idx}-sectionId`} aria-invalid={Boolean(itemErrors.sectionId)}><SelectValue placeholder={item.siteId ? t.workflow.ticket.chooseSection : t.tickets.selectSiteFirst} /></SelectTrigger>
+              <SelectContent>{(allSections as any[]).filter((section: any) => String(section.siteId) === item.siteId).map((section: any) => <SelectItem key={section.id} value={String(section.id)}>{getLocalizedName(section, language)}</SelectItem>)}</SelectContent>
+            </Select>
+            {itemErrors.sectionId && <p className="text-xs text-destructive">{itemErrors.sectionId}</p>}
+          </div>
+          <div className="space-y-1">
+            <Label>{t.tickets.category} *</Label>
+            <Select value={item.categoryId || "__none__"} onValueChange={value => updateItem(idx, "categoryId", value === "__none__" ? "" : value)}>
+              <SelectTrigger id={`purchase-item-${idx}-categoryId`} aria-invalid={Boolean(itemErrors.categoryId)}><SelectValue placeholder={t.purchaseOrders.selectCategoryOptional} /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__none__">{t.purchaseOrders.withoutCategory}</SelectItem>
+                {(purchaseCategories as any[]).map((category: any) => <SelectItem key={category.id} value={String(category.id)} disabled={!category.isActive}>{category.name}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            {itemErrors.categoryId && <p className="text-xs text-destructive">{itemErrors.categoryId}</p>}
+          </div>
+          <div className="space-y-1">
+            <Label>{language === "ar" ? "الأصل (اختياري)" : "Asset (optional)"}</Label>
+            <Select value={item.assetId || "__none__"} disabled={!item.sectionId} onValueChange={value => updateItem(idx, "assetId", value === "__none__" ? "" : value)}>
+              <SelectTrigger><SelectValue placeholder={t.purchaseOrders.selectAssetOptional} /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__none__">{t.purchaseOrders.withoutAsset}</SelectItem>
+                {(allAssets as any[]).filter((asset: any) => String(asset.siteId) === item.siteId && String(asset.sectionId) === item.sectionId).map((asset: any) => <SelectItem key={asset.id} value={String(asset.id)}>{getLocalizedName(asset, language)}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
       </div>
 
       {/* الوصف */}
@@ -1186,7 +1292,7 @@ const handleCatalogSelect = (catalogItem: any) => {
 {!hasMaterialPurchaseContext && (
   <Button
     variant="outline"
-    onClick={() => setItems(prev => [...prev, emptyItem()])}
+    onClick={() => setItems(prev => [...prev, emptyItem("", { siteId, sectionId, assetId, categoryId })])}
     className="w-full gap-2 border-dashed h-12"
   >
     <Plus className="w-4 h-4" /> {t.common.add}

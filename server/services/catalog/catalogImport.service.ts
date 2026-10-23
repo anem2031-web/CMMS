@@ -1,5 +1,6 @@
 import ExcelJS from "exceljs";
 import * as schema from "../../../drizzle/schema";
+import { buildCatalogCodeAliasIndex, resolveUniqueCatalogCodeAlias } from "../../_core/catalog-code-alias";
 import { eq } from "drizzle-orm";
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -92,7 +93,7 @@ export async function parseCatalogImportFile(
         parentCode: row.getCell(2).value?.toString().trim() ?? "",
         nameAr:     row.getCell(3).value?.toString().trim() ?? "",
         nameEn:     row.getCell(4).value?.toString().trim() ?? "",
-        level:      Number(row.getCell(5).value) || code.length,
+        level:      Number(row.getCell(5).value) || (code.includes("-") ? code.split("-").length : code.length),
       });
     });
   }
@@ -134,10 +135,11 @@ export async function commitCatalogImport(
   audit?: CatalogImportAuditContext,
 ): Promise<{ success: boolean; taxonomyCount: number; itemsCount: number }> {
 
-  // ── 1. ترتيب النودز: الآباء أولاً (أقصر كود = أعلى مستوى) ───────────────
+  // ── 1. ترتيب النودز: الآباء أولاً. طول النص لم يعد ممثلاً للمستوى
+  // بعد اعتماد الأكواد ذات المقاطع (01-01 / 01-100). ────────────────────
 
   const sortedNodes = [...parsed.taxonomyNodes].sort(
-    (a, b) => a.code.length - b.code.length
+    (a, b) => Number(a.level || 0) - Number(b.level || 0)
   );
 
   // ── 2. upsert التصنيفات (بدون parent أولاً) ──────────────────────────────
@@ -159,22 +161,24 @@ export async function commitCatalogImport(
   });
 
   const codeAliases: any[] = await db.select().from(schema.catalogCodeAliases);
-  const nodeAliasByOldCode = new Map<string, number>();
-  const itemAliasByOldCode = new Map<string, number>();
+  const nodeAliasesByOldCode = buildCatalogCodeAliasIndex(codeAliases, "node");
+  const itemAliasesByOldCode = buildCatalogCodeAliasIndex(codeAliases, "item");
   const aliasedInputNodeCodes = new Set<string>();
   for (const alias of codeAliases) {
     const oldCode = String(alias.oldCode || "").trim();
     if (!oldCode) continue;
     if (alias.entityType === "node") {
       const entityId = Number(alias.entityId);
-      nodeAliasByOldCode.set(oldCode, entityId);
-      if (existingNodeById.has(entityId) && !codeToId.has(oldCode)) codeToId.set(oldCode, entityId);
+      const ids = nodeAliasesByOldCode.get(oldCode)!;
+      if (ids.size === 1 && existingNodeById.has(entityId) && !codeToId.has(oldCode)) codeToId.set(oldCode, entityId);
+      if (ids.size > 1) codeToId.delete(oldCode);
     }
-    if (alias.entityType === "item") itemAliasByOldCode.set(oldCode, Number(alias.entityId));
   }
 
   for (const node of sortedNodes) {
-    const aliasNodeId = nodeAliasByOldCode.get(node.code);
+    const aliasNodeId = nodeStateByCode.has(node.code)
+      ? undefined
+      : resolveUniqueCatalogCodeAlias(nodeAliasesByOldCode, node.code, "تصنيف");
     const existing = nodeStateByCode.get(node.code) || (aliasNodeId ? existingNodeById.get(aliasNodeId) : undefined);
     if (aliasNodeId && !existing) {
       throw new Error(`الكود التاريخي ${node.code} يشير إلى تصنيف غير موجود؛ أوقف الاستيراد وراجع سجل الأكواد التاريخية`);
@@ -297,7 +301,7 @@ export async function commitCatalogImport(
       .limit(1);
 
     if (existing.length === 0) {
-      const aliasItemId = itemAliasByOldCode.get(item.code);
+      const aliasItemId = resolveUniqueCatalogCodeAlias(itemAliasesByOldCode, item.code, "صنف");
       if (aliasItemId) {
         existing = await db.select().from(schema.catalogItems)
           .where(eq(schema.catalogItems.id, aliasItemId))

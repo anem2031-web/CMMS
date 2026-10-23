@@ -99,7 +99,12 @@ function buildTicketsWhere(filters?: TicketListFilters) {
   if (filters?.status) {
     conditions.push(filters.status === "open" ? ne(tickets.status, "closed" as any) : eq(tickets.status, filters.status as any));
   }
-  if (filters?.priority) conditions.push(eq(tickets.priority, filters.priority as any));
+  if (filters?.priority) {
+    conditions.push(eq(tickets.priority, filters.priority as any));
+    // صفحة البلاغات العامة تستخدم priority=critical مباشرةً (وليست quickFilter).
+    // تعامل البلاغ الحرج هنا كقائمة متابعة، لذلك لا تُعد الحالات النهائية إليها.
+    if (filters.priority === "critical") conditions.push(openCondition());
+  }
   if (filters?.siteId) conditions.push(eq(tickets.siteId, filters.siteId));
   if (filters?.sectionId) conditions.push(eq(tickets.sectionId, filters.sectionId));
   if (filters?.assetId) conditions.push(eq(tickets.assetId, filters.assetId));
@@ -251,18 +256,18 @@ export type TicketInboxQuickFilter = "all" | "critical" | "unassigned" | "stale"
 export type TicketInboxSort = "important" | "newest" | "oldest" | "updated";
 
 const STALE_HOURS = 48;
+const TERMINAL_TICKET_STATUSES = ["closed", "requester_confirmed", "cancelled", "rejected"] as const;
 
-// شرط "بلاغ مفتوح" = ليس مغلقًا (نفس تعريف فلتر status="open" المستخدم في buildTicketsWhere)
+// البلاغ المنتهي لا يعود إلى قوائم المتابعة حتى لو بقيت أولويته حرجة.
 function openCondition() {
-  return ne(tickets.status, "closed" as any);
+  return notInArray(tickets.status, [...TERMINAL_TICKET_STATUSES] as any);
 }
 
 // شروط الفلاتر السريعة — تُضاف فوق شرط buildTicketsWhere ولا تستبدله
 function quickFilterCondition(quickFilter?: TicketInboxQuickFilter) {
   switch (quickFilter) {
     case "critical":
-      // الأولوية الحرجة الحالية (من ticketPriorities)
-      return eq(tickets.priority, "critical" as any);
+      return and(openCondition(), eq(tickets.priority, "critical" as any));
     case "unassigned":
       // في البلاغ الرئيسي الجديد لا يُسند الفني على الرأس؛ يُسند على المهام. لذلك
       // لا نعتبره "غير مسند" إذا كان لأي مهمة تحته فني واحد على الأقل.
@@ -290,8 +295,8 @@ function quickFilterCondition(quickFilter?: TicketInboxQuickFilter) {
 // ترتيب "الأهم أولًا": الحرجة ← غير المسندة ← بدون تحديث 48س ← أقدم المفتوحة ← البقية
 function importantFirstRank() {
   return sql`CASE
-    WHEN ${tickets.status} <> 'closed' AND ${tickets.priority} = 'critical' THEN 0
-    WHEN ${tickets.status} <> 'closed'
+    WHEN ${openCondition()} AND ${tickets.priority} = 'critical' THEN 0
+    WHEN ${openCondition()}
       AND ${tickets.assignedToId} IS NULL
       AND ${tickets.assignedTechnicianId} IS NULL
       AND (${tickets.workflowModel} <> 'department_tasks' OR NOT EXISTS (
@@ -299,8 +304,8 @@ function importantFirstRank() {
         INNER JOIN \`ticket_tasks\` tt ON tt.\`id\` = tta.\`taskId\`
         WHERE tt.\`ticketId\` = ${tickets.id}
       )) THEN 1
-    WHEN ${tickets.status} <> 'closed' AND ${tickets.updatedAt} < (NOW() - INTERVAL ${sql.raw(String(STALE_HOURS))} HOUR) THEN 2
-    WHEN ${tickets.status} <> 'closed' THEN 3
+    WHEN ${openCondition()} AND ${tickets.updatedAt} < (NOW() - INTERVAL ${sql.raw(String(STALE_HOURS))} HOUR) THEN 2
+    WHEN ${openCondition()} THEN 3
     ELSE 4
   END`;
 }
