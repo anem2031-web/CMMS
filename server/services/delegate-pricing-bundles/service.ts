@@ -201,8 +201,8 @@ export class PricingBundleService {
       return images.get(source)!;
     };
     for (const poId of Array.from(new Set(items.map(item => item.purchaseOrderId))).sort((a,b) => a-b)) {
-      const [po] = await rows(tx, sql`SELECT p.poNumber,r.name AS requesterName,v.name AS reviewerName,COALESCE(NULLIF(p.requesterSignatureSnapshot,''),r.signatureUrl) AS requesterSignature,COALESCE(NULLIF(p.reviewerSignatureSnapshot,''),v.signatureUrl) AS reviewerSignature FROM purchase_orders p LEFT JOIN users r ON r.id=p.requestedById LEFT JOIN users v ON v.id=p.reviewedById WHERE p.id=${poId}`);
-      signatures.push({ purchaseOrderId: poId, poNumber: po.poNumber, requesterName: po.requesterName || "—", reviewerName: po.reviewerName || "—", requesterSignature: po.requesterSignature || "", reviewerSignature: po.reviewerSignature || "", requesterSource: po.requesterSignature || null, reviewerSource: po.reviewerSignature || null });
+      const [po] = await rows(tx, sql`SELECT p.poNumber,r.name AS requesterName,v.name AS reviewerName,p.requestedById AS requesterId,p.reviewedById AS reviewerId,COALESCE(NULLIF(p.requesterSignatureSnapshot,''),r.signatureUrl) AS requesterSignature,COALESCE(NULLIF(p.reviewerSignatureSnapshot,''),v.signatureUrl) AS reviewerSignature FROM purchase_orders p LEFT JOIN users r ON r.id=p.requestedById LEFT JOIN users v ON v.id=p.reviewedById WHERE p.id=${poId}`);
+      signatures.push({ purchaseOrderId: poId, poNumber: po.poNumber, requesterId: po.requesterId == null ? null : Number(po.requesterId), requesterName: po.requesterName || "—", reviewerId: po.reviewerId == null ? null : Number(po.reviewerId), reviewerName: po.reviewerName || "—", requesterSignature: po.requesterSignature || "", reviewerSignature: po.reviewerSignature || "", requesterSource: po.requesterSignature || null, reviewerSource: po.reviewerSignature || null });
     }
     const [delegateSignature, frozenSignatures] = await Promise.all([
       image(delegate.signatureUrl),

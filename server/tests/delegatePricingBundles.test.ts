@@ -41,7 +41,7 @@ function fixture() {
     if (q.startsWith("UPDATE delegate_pricing_bundle_items SET reservedItemId=NULL,removedAt=")) { Object.assign(state.members.find((m: any) => m.id === p[0]), { removedAt: "now", reservedItemId: null }); return [{ affectedRows: 1 }]; }
     if (q.startsWith("SELECT purchaseOrderItemId FROM delegate_pricing_bundle_items")) return rows(state.members.filter((m: any) => m.bundleId === p[0] && !m.removedAt).sort((a: any,b: any) => a.purchaseOrderItemId-b.purchaseOrderItemId));
     if (q.startsWith("SELECT id,name,signatureUrl FROM users")) return rows([{ id: 11, name: "Delegate", signatureUrl: "delegate-signature" }]);
-    if (q.startsWith("SELECT p.poNumber,r.name")) return rows([{ poNumber: `PR-${p[0]}`, requesterName: `Requester-${p[0]}`, reviewerName: `Reviewer-${p[0]}`, requesterSignature: "requester-signature", reviewerSignature: "reviewer-signature" }]);
+    if (q.startsWith("SELECT p.poNumber,r.name")) return rows([{ poNumber: `PR-${p[0]}`, requesterId: p[0], requesterName: `Requester-${p[0]}`, reviewerId: Number(p[0]) + 1000, reviewerName: `Reviewer-${p[0]}`, requesterSignature: "requester-signature", reviewerSignature: "reviewer-signature" }]);
     if (q.startsWith("SELECT id FROM purchase_packages")) return rows([{ id: p[0] }]);
     if (q.startsWith("UPDATE purchase_orders SET requesterSignatureSnapshot=")) return [{ affectedRows: 1 }];
     if (q.startsWith("INSERT INTO delegate_pricing_bundle_batches")) { state.links.push({ bundleId: p[0], purchaseOrderId: p[1], pricingBatchId: p[2], purchasePackageSubmissionId: p[3], effectsDone: 0 }); return [{ insertId: state.links.length }]; }
@@ -239,8 +239,17 @@ describe("Pricing bundle → existing accounting batches, isolated with no datab
 });
 
 describe("Existing PDF template with exact immutable bundle snapshot",()=>{
-  it("renders original PR/section and original signatures per row, without accessing live source data",async()=>{
+  it("renders original PR/section and groups each approval actor once without accessing live source data",async()=>{
     const f=fixture(); const id=await f.add(1,3); await f.service.send(actor,id,2); const snapshot=JSON.parse(f.state().bundles[0].snapshotJson); let html="";
+    snapshot.signatures[1].requesterId=snapshot.signatures[0].requesterId;
+    snapshot.signatures[1].requesterName=snapshot.signatures[0].requesterName;
+    snapshot.signatures[1].requesterSignature=snapshot.signatures[0].requesterSignature;
+    snapshot.signatures[1].reviewerId=snapshot.signatures[0].requesterId;
+    snapshot.signatures[1].reviewerName=snapshot.signatures[0].requesterName;
+    snapshot.signatures[1].reviewerSignature=snapshot.signatures[0].requesterSignature;
+    snapshot.signatures[0].reviewerId=snapshot.signatures[0].requesterId;
+    snapshot.signatures[0].reviewerName=snapshot.signatures[0].requesterName;
+    snapshot.signatures[0].reviewerSignature=snapshot.signatures[0].requesterSignature;
     const render=vm.runInNewContext(extract("server/services/export/exportService.ts","generatePurchaseRequestPDF"),{
       db:new Proxy({}, {get:()=>()=>{throw Error("Live reads/writes forbidden in immutable bundle PDF");}}),
       getSignatureDataUrl:async()=>"", escapeHtml:(s: any)=>String(s).replaceAll("<","&lt;"), fmtSAR:(n:number)=>n.toFixed(2), amountToArabicCurrencyPhrase:(n:number)=>String(n),
@@ -249,7 +258,27 @@ describe("Existing PDF template with exact immutable bundle snapshot",()=>{
     });
     await render(0,actor.id,undefined,undefined,snapshot);
     expect(html).toContain("items-table"); expect(html).toContain(snapshot.number); expect(html).toContain("PR-101"); expect(html).toContain("PR-103"); expect(html).toContain("Section 1"); expect(html).toContain("Section 3");
-    expect(html).toContain("Requester-101"); expect(html).toContain("Requester-103"); expect(html).toContain("Supplier 3"); expect(html).not.toContain("Material 2"); expect(html).toContain("520.00");
+    expect(html.match(/Requester-101/g)).toHaveLength(2); // Once as requester and once as reviewer.
+    expect(html.match(/مقدّم الطلب/g)).toHaveLength(1); expect(html.match(/مراجع الطلب/g)).toHaveLength(1);
+    expect(html).toContain("الطلبات: PR-101، PR-103"); expect(html).not.toContain("Requester-103");
+    expect(html).toContain("Supplier 3"); expect(html).not.toContain("Material 2"); expect(html).toContain("520.00");
+  });
+
+  it("keeps separate frozen signature rows and reports a request with no reviewer",async()=>{
+    const f=fixture(); const id=await f.add(1,3); await f.service.send(actor,id,2); const snapshot=JSON.parse(f.state().bundles[0].snapshotJson); let html="";
+    snapshot.signatures[1].requesterId=snapshot.signatures[0].requesterId;
+    snapshot.signatures[1].requesterName=snapshot.signatures[0].requesterName;
+    snapshot.signatures[1].requesterSignature="different-frozen-signature";
+    snapshot.signatures[1].reviewerId=null; snapshot.signatures[1].reviewerName="—"; snapshot.signatures[1].reviewerSignature="";
+    const render=vm.runInNewContext(extract("server/services/export/exportService.ts","generatePurchaseRequestPDF"),{
+      db:new Proxy({}, {get:()=>()=>{throw Error("Live reads/writes forbidden in immutable bundle PDF");}}),
+      getSignatureDataUrl:async()=>"", escapeHtml:(s: any)=>String(s).replaceAll("<","&lt;"), fmtSAR:(n:number)=>n.toFixed(2), amountToArabicCurrencyPhrase:(n:number)=>String(n),
+      readAccountingSignature,
+      htmlToPdf:async(value:string)=>{html=value;return Buffer.from("%PDF-local");},
+    });
+    await render(0,actor.id,undefined,undefined,snapshot);
+    expect(html.match(/مقدّم الطلب/g)).toHaveLength(2);
+    expect(html).toContain("طلبات بلا مراجع محدد: PR-103");
   });
 });
 

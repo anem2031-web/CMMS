@@ -10,7 +10,18 @@ export type PricingBundleRow = {
 export type PricingBundleSnapshot = {
   number: string; submittedAt: string; delegate: { id: number; name: string; signature: string; signatureSource?: string | null };
   rows: PricingBundleRow[];
-  signatures: Array<{ purchaseOrderId: number; poNumber: string; requesterName: string; requesterSignature: string; reviewerName: string; reviewerSignature: string; requesterSource?: string | null; reviewerSource?: string | null }>;
+  signatures: Array<{
+    purchaseOrderId: number;
+    poNumber: string;
+    requesterId?: number | null;
+    requesterName: string;
+    requesterSignature: string;
+    reviewerId?: number | null;
+    reviewerName: string;
+    reviewerSignature: string;
+    requesterSource?: string | null;
+    reviewerSource?: string | null;
+  }>;
 };
 export function canReadPricingBundles(actor: PricingBundleActor) {
   return actor.isActive === 1 && ["delegate", "owner", "admin", "accountant", "senior_management", "observer"].includes(actor.role);

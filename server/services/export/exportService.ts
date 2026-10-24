@@ -797,6 +797,63 @@ export async function generatePurchaseRequestPDF(
   const sigImg = (dataUrl: string) =>
     dataUrl ? `<img src="${dataUrl}" alt="التوقيع" class="sig-img" />` : "";
 
+  const groupedBundleSignatures = bundleSnapshot ? (() => {
+    type SignatureGroup = {
+      role: "requester" | "reviewer";
+      name: string;
+      signature: string;
+      requestNumbers: Set<string>;
+    };
+    const groups = new Map<string, SignatureGroup>();
+    const missingRequesters = new Set<string>();
+    const missingReviewers = new Set<string>();
+    const add = (
+      role: SignatureGroup["role"],
+      actorId: number | null | undefined,
+      actorName: string,
+      signature: string,
+      poNumber: string,
+    ) => {
+      const name = String(actorName || "").trim();
+      const id = actorId == null ? null : Number(actorId);
+      const hasActor = id !== null && Number.isFinite(id) && id > 0
+        ? true
+        : name !== "" && name !== "—";
+      if (!hasActor) {
+        (role === "requester" ? missingRequesters : missingReviewers).add(poNumber);
+        return;
+      }
+      // New snapshots group by the immutable actor ID. Older snapshots fall back
+      // to the frozen name. The signature remains part of the key so two approval
+      // moments with different captured signatures are never silently collapsed.
+      const identity = id !== null && Number.isFinite(id) && id > 0 ? `id:${id}` : `name:${name}`;
+      const key = `${role}|${identity}|signature:${signature || ""}`;
+      const existing = groups.get(key);
+      if (existing) {
+        existing.requestNumbers.add(poNumber);
+        return;
+      }
+      groups.set(key, { role, name: name || "—", signature: signature || "", requestNumbers: new Set([poNumber]) });
+    };
+
+    for (const entry of bundleSnapshot.signatures) {
+      add("requester", entry.requesterId, entry.requesterName, entry.requesterSignature, entry.poNumber);
+    }
+    for (const entry of bundleSnapshot.signatures) {
+      add("reviewer", entry.reviewerId, entry.reviewerName, entry.reviewerSignature, entry.poNumber);
+    }
+
+    const rowsHtml = Array.from(groups.values()).map(group => {
+      const label = group.role === "requester" ? "مقدّم الطلب" : "مراجع الطلب";
+      const requestNumbers = Array.from(group.requestNumbers);
+      return `<tr><td style="font-weight: bold; background-color: #f7fafc;">${label}</td><td>${escapeHtml(group.name)}<span class="signature-requests">الطلبات: ${requestNumbers.map(escapeHtml).join("، ")}</span></td><td>${sigImg(group.signature)}</td></tr>`;
+    }).join("");
+    const warnings: string[] = [];
+    if (missingRequesters.size) warnings.push(`طلبات بلا مقدّم محدد: ${Array.from(missingRequesters).map(escapeHtml).join("، ")}`);
+    if (missingReviewers.size) warnings.push(`طلبات بلا مراجع محدد: ${Array.from(missingReviewers).map(escapeHtml).join("، ")}`);
+    return { rowsHtml, warningsHtml: warnings.map(message => `<div class="signature-warning">${message}</div>`).join("") };
+  })() : null;
+
   // ── استبعاد الأصناف الملغاة/المرفوضة، وكذلك التي لم يُسعِّرها المندوب بعد ──
   // (1) صنف مُلغى: لن يُشترى أصلاً، فلا يجوز احتسابه ضمن مبلغ العهدة المطلوب صرفه.
   // (2) صنف بلا تسعير: لا معنى لإدراجه في مستند "طلب عهدة مالية" أصلاً — المبلغ
@@ -922,6 +979,8 @@ export async function generatePurchaseRequestPDF(
         table.signatures-table { width: 100%; border-collapse: collapse; margin-bottom: 8.55px; background: #ffffff; }
         table.signatures-table th { background-color: #4a5568; color: #ffffff; font-weight: bold; padding: ${rowPad}px; font-size: ${FS(8.1)}pt; border: 1px solid #4a5568; }
         table.signatures-table td { border: 1px solid #cbd5e0; padding: ${rowPad}px ${sigPadH}px; font-size: ${FS(8.55)}pt; height: ${sigRowHeight}px; }
+        .signature-requests { display: block; margin-top: 2px; color: #4a5568; font-size: ${FS(7.2)}pt; font-weight: normal; }
+        .signature-warning { margin: -4px 0 6px; color: #744210; background: #fffaf0; border: 1px solid #fbd38d; border-radius: 4px; padding: 4px 7px; font-size: ${FS(7.5)}pt; }
         /* التوقيع الإلكتروني: يُقصّ ارتفاعه ليناسب الصف بلا تمديده أو كسر التنسيق */
         /* حجم صورة التوقيع × 3 (كانت صغيرة جدًا) — الصف يتمدد تلقائيًا لاستيعابها */
         .sig-img { max-height: ${(sigRowHeight * 0.85 * 1.6).toFixed(1)}px; max-width: 100%; object-fit: contain; display: block; margin: 0 auto; }
@@ -1007,7 +1066,7 @@ export async function generatePurchaseRequestPDF(
             </tr>
         </thead>
         <tbody>
-            ${bundleSnapshot ? bundleSnapshot.signatures.map(entry => `<tr><td>مقدّم الطلب — ${escapeHtml(entry.poNumber)}</td><td>${escapeHtml(entry.requesterName)}</td><td>${sigImg(entry.requesterSignature)}</td></tr><tr><td>مراجع الطلب — ${escapeHtml(entry.poNumber)}</td><td>${escapeHtml(entry.reviewerName)}</td><td>${sigImg(entry.reviewerSignature)}</td></tr>`).join("") : `
+            ${bundleSnapshot ? groupedBundleSignatures?.rowsHtml : `
             <tr>
                 <td style="font-weight: bold; background-color: #f7fafc;">مقدّم الطلب</td>
                 <td>${escapeHtml(requesterName)}</td>
@@ -1032,6 +1091,7 @@ export async function generatePurchaseRequestPDF(
             </tr>`}
         </tbody>
     </table>
+    ${bundleSnapshot ? groupedBundleSignatures?.warningsHtml : ""}
 
     ${isDelegateViewer ? "" : `
     <div class="section-title">الشؤون المالية والإجراءات المحاسبية</div>
