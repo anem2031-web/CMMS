@@ -2,7 +2,7 @@
 export const TECHNICIAN_WORKSPACE_PATH = "/scheduled-maintenance/my-tasks";
 export const technicianPageAllowed = (path: string) => path.split(/[?#]/, 1)[0] === TECHNICIAN_WORKSPACE_PATH;
 export const TECHNICIAN_QUERY_PATHS = [
-  "auth.me", "notifications.list", "notifications.unreadCount", "push.getStatus", "push.getVapidPublicKey",
+  "auth.me", "notifications.summary", "notifications.list", "notifications.unreadCount", "push.getStatus", "push.getVapidPublicKey",
   "tickets.list", "tickets.listPaginated", "tickets.getById", "tickets.items", "tickets.departmentPlan",
   "tickets.history", "tickets.getConfirmation", "tickets.executionReferences", "inspectionResults.listByTicket",
   "materialCosts.document", "improvementIdeas.executionReference",

@@ -152,6 +152,7 @@ export const OBSERVER_NATIVE_READ_PATHS = [
   "maintenanceTeams.list",
   "nfc.lookupTag",
   "notifications.list",
+  "notifications.summary",
   "notifications.unreadCount",
   "pmPlans.getSubPlanDetail",
   "pmPlans.listMainPlans",

@@ -4,6 +4,10 @@ import en from "@/i18n/en";
 import ur from "@/i18n/ur";
 import { trpc } from "@/lib/trpc";
 import { useQueryClient } from "@tanstack/react-query";
+import {
+  authRetryDelay,
+  shouldRetryAuthQuery,
+} from "@/lib/auth-query-policy";
 
 export type SupportedLanguage = "ar" | "en" | "ur";
 
@@ -66,7 +70,8 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
   const utils = trpc.useUtils();
   const queryClient = useQueryClient();
   const meQuery = trpc.auth.me.useQuery(undefined, {
-    retry: false,
+    retry: shouldRetryAuthQuery,
+    retryDelay: authRetryDelay,
     refetchOnWindowFocus: false,
   });
   const setLanguageMutation = trpc.translation.setLanguage.useMutation();

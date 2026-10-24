@@ -4,7 +4,7 @@ export const GATE_SECURITY_WORKSPACE_PATH = "/gate-security";
 export type GateSecurityIdentity = { id: number; role: string; isActive?: number };
 
 export const GATE_SECURITY_QUERY_PATHS = [
-  "auth.me", "notifications.list", "notifications.unreadCount", "push.getStatus", "push.getVapidPublicKey",
+  "auth.me", "notifications.summary", "notifications.list", "notifications.unreadCount", "push.getStatus", "push.getVapidPublicKey",
   "externalMaintenance.listForGate", "translation.getEntityTranslations", "translation.getBatchTranslations",
 ] as const;
 export const GATE_SECURITY_MUTATION_PATHS = [

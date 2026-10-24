@@ -12,6 +12,7 @@ import helmet from "helmet";
 import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import { RedisStore } from "rate-limit-redis";
 import IORedis from "ioredis";
+import { createHash } from "crypto";
 import multer from "multer";
 import { storagePut, storageGetStream, storagePresignedPut, checkStorageHealth } from "./storage";
 import { nanoid } from "nanoid";
@@ -32,6 +33,11 @@ import { runPMWorkOrderReminderJob } from "../jobs/pm-reminder";
 import { runSlaOverduePushJob } from "../jobs/sla-overdue-push";
 import { runBackupCleanupJob } from "../jobs/backup-cleanup";
 import { runConstructionAutomation } from "../jobs/construction-automation";
+import {
+  API_RATE_LIMIT,
+  SESSION_CHECK_RATE_LIMIT,
+  isDedicatedSessionCheckRequest,
+} from "./rate-limit-policy";
 import { getDb, getTicketById } from "./db";
 import { generatePMWorkOrderPDF } from "../services/pdf/pmWorkOrderPdfService";
 import { generateTicketPDF, type TicketPdfDocumentType } from "../services/pdf/ticketPdfService";
@@ -222,6 +228,7 @@ async function startServer() {
   // ============================================================
   let redisStoreForApi: RedisStore | undefined;
   let redisStoreForAuth: RedisStore | undefined;
+  let redisStoreForSessionCheck: RedisStore | undefined;
   if (env.REDIS_URL) {
     try {
       const redisClient = new IORedis(env.REDIS_URL, {
@@ -241,6 +248,11 @@ async function startServer() {
           sendCommand: (...args: string[]) => redisClient.call(...args),
           prefix: "rl:auth:",
         });
+        redisStoreForSessionCheck = new RedisStore({
+          // @ts-expect-error - Known issue: the `call` function is not present in @types/ioredis
+          sendCommand: (...args: string[]) => redisClient.call(...args),
+          prefix: "rl:session-check:",
+        });
         console.log("[RateLimit] Redis store active");
       } else {
         console.warn("[RateLimit] Redis not ready, falling back to in-memory store");
@@ -252,14 +264,39 @@ async function startServer() {
     console.warn("[RateLimit] REDIS_URL not set, using in-memory store (not suitable for multi-instance)");
   }
 
+  const clientKeyHash = (req: express.Request) => createHash("sha256")
+    .update(req.ip ?? req.socket.remoteAddress ?? "unknown")
+    .digest("hex")
+    .slice(0, 12);
+  const rateLimitHandler = (scope: "api" | "session-check") =>
+    (req: express.Request, res: express.Response) => {
+      console.warn("[RateLimit] Request blocked", {
+        scope,
+        method: req.method,
+        path: req.originalUrl.split("?", 1)[0],
+        clientKey: clientKeyHash(req),
+      });
+      res.status(429).json({ error: "تم تجاوز الحد الأقصى للطلبات. يرجى المحاولة لاحقاً" });
+    };
+
   const apiLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000,
-    max: 500,
+    ...API_RATE_LIMIT,
     standardHeaders: true,
     legacyHeaders: false,
     keyGenerator: (req) => ipKeyGenerator(req.ip ?? req.socket.remoteAddress ?? ''),
-    message: { error: "تم تجاوز الحد الأقصى للطلبات. يرجى المحاولة لاحقاً" },
+    skip: (req) => isDedicatedSessionCheckRequest(req.method, req.originalUrl),
+    handler: rateLimitHandler("api"),
     ...(redisStoreForApi ? { store: redisStoreForApi } : {}),
+  });
+
+  const sessionCheckLimiter = rateLimit({
+    ...SESSION_CHECK_RATE_LIMIT,
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req) => ipKeyGenerator(req.ip ?? req.socket.remoteAddress ?? ''),
+    skip: (req) => !isDedicatedSessionCheckRequest(req.method, req.originalUrl),
+    handler: rateLimitHandler("session-check"),
+    ...(redisStoreForSessionCheck ? { store: redisStoreForSessionCheck } : {}),
   });
 
   // Rate limiter أكثر صرامة للـ auth endpoints
@@ -299,6 +336,7 @@ async function startServer() {
     }
   });
 
+  app.use(sessionCheckLimiter);
   app.use("/api/", apiLimiter);
   app.use("/api/oauth/", authLimiter);
 

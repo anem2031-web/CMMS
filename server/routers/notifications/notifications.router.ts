@@ -5,6 +5,15 @@ import { isItTeamRole } from "@shared/roles";
 import { IT_TICKET_ARRIVAL_EVENT } from "@shared/itTeamWorkflow";
 
 export const notificationsRouter = router({
+  summary: protectedProcedure.query(async ({ ctx }) => {
+    const eventKey = isItTeamRole(ctx.user.role) ? IT_TICKET_ARRIVAL_EVENT : undefined;
+    const [items, unreadCount] = await Promise.all([
+      db.getUserNotifications(ctx.user.id, eventKey),
+      db.getUnreadNotificationCount(ctx.user.id, eventKey),
+    ]);
+    return { items, unreadCount };
+  }),
+
   list: protectedProcedure.query(async ({ ctx }) => {
     return db.getUserNotifications(ctx.user.id, isItTeamRole(ctx.user.role) ? IT_TICKET_ARRIVAL_EVENT : undefined);
   }),

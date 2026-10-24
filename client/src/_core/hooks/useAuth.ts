@@ -4,6 +4,13 @@ import { TRPCClientError } from "@trpc/client";
 import { useCallback, useEffect, useMemo } from "react";
 import { isObserver } from "@shared/observer-policy";
 import { observerViewUser } from "@shared/observer-view";
+import {
+  AUTH_RECOVERY_INTERVAL_MS,
+  authRetryDelay,
+  getAuthFailureKind,
+  isRecoverableAuthFailure,
+  shouldRetryAuthQuery,
+} from "@/lib/auth-query-policy";
 
 type UseAuthOptions = {
   redirectOnUnauthenticated?: boolean;
@@ -16,8 +23,13 @@ export function useAuth(options?: UseAuthOptions) {
   const utils = trpc.useUtils();
 
   const meQuery = trpc.auth.me.useQuery(undefined, {
-    retry: false,
+    retry: shouldRetryAuthQuery,
+    retryDelay: authRetryDelay,
     refetchOnWindowFocus: false,
+    refetchInterval: query => isRecoverableAuthFailure(query.state.error)
+      ? AUTH_RECOVERY_INTERVAL_MS
+      : false,
+    refetchIntervalInBackground: false,
   });
 
   const logoutMutation = trpc.auth.logout.useMutation({
@@ -54,6 +66,7 @@ export function useAuth(options?: UseAuthOptions) {
       isReadOnly: isObserver(meQuery.data?.role),
       loading: meQuery.isLoading || logoutMutation.isPending,
       error: meQuery.error ?? logoutMutation.error ?? null,
+      authFailureKind: getAuthFailureKind(meQuery.error ?? logoutMutation.error),
       isAuthenticated: Boolean(meQuery.data),
     };
   }, [

@@ -280,7 +280,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     const saved = localStorage.getItem(SIDEBAR_WIDTH_KEY);
     return saved ? parseInt(saved, 10) : DEFAULT_WIDTH;
   });
-  const { loading, user, error, refresh } = useAuth();
+  const { loading, user, error, authFailureKind, refresh } = useAuth();
 
   useEffect(() => {
     localStorage.setItem(SIDEBAR_WIDTH_KEY, sidebarWidth.toString());
@@ -288,12 +288,18 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   if (loading) return <DashboardLayoutSkeleton />;
   if (error && !user) {
+    const rateLimited = authFailureKind === "rate_limit";
+    const networkUnavailable = authFailureKind === "network";
     return (
       <div className="min-h-screen flex items-center justify-center p-6" dir="rtl">
         <div className="w-full max-w-md rounded-lg border bg-background p-6 text-center shadow-sm">
-          <h1 className="text-lg font-semibold">تعذر التحقق من الجلسة مؤقتًا</h1>
+          <h1 className="text-lg font-semibold">
+            {rateLimited ? "طلبات كثيرة خلال وقت قصير" : networkUnavailable ? "تعذر الاتصال بالخادم" : "تعذر التحقق من الجلسة مؤقتًا"}
+          </h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            لم يتم تسجيل خروجك. حاول إعادة الاتصال بالخادم.
+            {rateLimited
+              ? "جلستك محفوظة، وسيحاول النظام الاتصال تلقائيًا خلال 30 ثانية."
+              : "لم يتم تسجيل خروجك. سيحاول النظام إعادة الاتصال تلقائيًا، أو يمكنك المحاولة الآن."}
           </p>
           <Button className="mt-4" onClick={() => void refresh()}>
             إعادة المحاولة
@@ -463,8 +469,12 @@ function DashboardLayoutContent({ children, setSidebarWidth }: { children: React
     } catch { setFavoritePaths([]); }
   }, [favoritesStorageKey]);
 
-  const { data: unreadCount } = trpc.notifications.unreadCount.useQuery(undefined, { refetchInterval: 5000 });
-  const { data: latestNotifications } = trpc.notifications.list.useQuery(undefined, { refetchInterval: 5000 });
+  const { data: notificationSummary } = trpc.notifications.summary.useQuery(undefined, {
+    refetchInterval: 30_000,
+    refetchIntervalInBackground: false,
+  });
+  const unreadCount = notificationSummary?.unreadCount ?? 0;
+  const latestNotifications = notificationSummary?.items;
 
   // ── Live notification popup ──
   const [popupNotifs, setPopupNotifs] = useState<Array<{ id: number; title: string; message: string; type: string; relatedTicketId?: number | null; eventKey?: string | null }>>([]);
