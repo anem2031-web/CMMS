@@ -848,36 +848,44 @@ export default function PurchaseCycle() {
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid w-full grid-cols-6">
-          <TabsTrigger value="estimate" className="gap-1.5">
-            <Clock className="w-4 h-4" />
-            <span className="hidden sm:inline">{t.workflow.purchase.pricing}</span>
-            {pendingEstimate.length > 0 && <Badge variant="destructive" className="text-[10px] px-1.5 py-0">{pendingEstimate.length}</Badge>}
-          </TabsTrigger>
-          <TabsTrigger value="purchase" className="gap-1.5">
-            <ShoppingCart className="w-4 h-4" />
-            <span className="hidden sm:inline">{t.purchaseOrders.step1Purchase}</span>
-            {pendingPurchase.length > 0 && <Badge variant="destructive" className="text-[10px] px-1.5 py-0">{pendingPurchase.length}</Badge>}
-          </TabsTrigger>
-          <TabsTrigger value="warehouse" className="gap-1.5">
-            <Package className="w-4 h-4" />
-            <span className="hidden sm:inline">{t.purchaseOrders.step2Warehouse}</span>
-            {pendingWarehouse.length > 0 && <Badge variant="destructive" className="text-[10px] px-1.5 py-0">{pendingWarehouse.length}</Badge>}
-          </TabsTrigger>
-          <TabsTrigger value="inventory-entry" className="gap-1.5">
-            <Archive className="w-4 h-4" />
-            <span className="hidden sm:inline">{t.workflow.purchase.inventoryEntry}</span>
-            {Object.keys(groupedByInvoiceNumber).length > 0 && <Badge variant="destructive" className="text-[10px] px-1.5 py-0">{pendingDelivery.length}</Badge>}
-          </TabsTrigger>
-          <TabsTrigger value="delivery" className="gap-1.5">
-            <Truck className="w-4 h-4" />
-            <span className="hidden sm:inline">{t.purchaseOrders.step3Delivery}</span>
-            {(inventoryItems as any[]).length > 0 && <Badge variant="destructive" className="text-[10px] px-1.5 py-0">{(inventoryItems as any[]).length}</Badge>}
-          </TabsTrigger>
-          <TabsTrigger value="documents" className="gap-1.5">
-            <FileText className="w-4 h-4" />
-            <span className="hidden sm:inline">{t.workflow.purchase.documents}</span>
-          </TabsTrigger>
+        <TabsList className={`grid w-full ${isAdminOrOwner ? "grid-cols-6" : isDelegate ? "grid-cols-2" : "grid-cols-4"}`}>
+          {isDelegate && (
+            <>
+              <TabsTrigger value="estimate" className="gap-1.5">
+                <Clock className="w-4 h-4" />
+                <span className="hidden sm:inline">{t.workflow.purchase.pricing}</span>
+                {pendingEstimate.length > 0 && <Badge variant="destructive" className="text-[10px] px-1.5 py-0">{pendingEstimate.length}</Badge>}
+              </TabsTrigger>
+              <TabsTrigger value="purchase" className="gap-1.5">
+                <ShoppingCart className="w-4 h-4" />
+                <span className="hidden sm:inline">{t.purchaseOrders.step1Purchase}</span>
+                {pendingPurchase.length > 0 && <Badge variant="destructive" className="text-[10px] px-1.5 py-0">{pendingPurchase.length}</Badge>}
+              </TabsTrigger>
+            </>
+          )}
+          {isWarehouse && (
+            <>
+              <TabsTrigger value="warehouse" className="gap-1.5">
+                <Package className="w-4 h-4" />
+                <span className="hidden sm:inline">{t.purchaseOrders.step2Warehouse}</span>
+                {pendingWarehouse.length > 0 && <Badge variant="destructive" className="text-[10px] px-1.5 py-0">{pendingWarehouse.length}</Badge>}
+              </TabsTrigger>
+              <TabsTrigger value="inventory-entry" className="gap-1.5">
+                <Archive className="w-4 h-4" />
+                <span className="hidden sm:inline">{t.workflow.purchase.inventoryEntry}</span>
+                {Object.keys(groupedByInvoiceNumber).length > 0 && <Badge variant="destructive" className="text-[10px] px-1.5 py-0">{pendingDelivery.length}</Badge>}
+              </TabsTrigger>
+              <TabsTrigger value="delivery" className="gap-1.5">
+                <Truck className="w-4 h-4" />
+                <span className="hidden sm:inline">{t.purchaseOrders.step3Delivery}</span>
+                {(inventoryItems as any[]).length > 0 && <Badge variant="destructive" className="text-[10px] px-1.5 py-0">{(inventoryItems as any[]).length}</Badge>}
+              </TabsTrigger>
+              <TabsTrigger value="documents" className="gap-1.5">
+                <FileText className="w-4 h-4" />
+                <span className="hidden sm:inline">{t.workflow.purchase.documents}</span>
+              </TabsTrigger>
+            </>
+          )}
         </TabsList>
 
         {/* ==================== TAB 0: Estimate (Delegate - Revision Items) ==================== */}
