@@ -163,6 +163,7 @@ const requireTicketExportRole = makeRequireExportRole(TICKET_EXPORT_ALLOWED_ROLE
 
 /** تصدير الجرد فقط — يشمل المستودع إضافةً للأدوار العامة */
 const requireInventoryExportRole = makeRequireExportRole(INVENTORY_EXPORT_ALLOWED_ROLES);
+const requireOwnerAdminExportRole = makeRequireExportRole(new Set(["owner", "admin"]));
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -962,7 +963,7 @@ async function startServer() {
   // بدون قيود طول Query String.
   app.post("/api/export/inventory", requireInventoryExportRole, handleInventoryExport);
 
-  app.get("/api/export/preventive-plans", requireExportRole, async (_req: any, res: any) => {
+  app.get("/api/export/preventive-plans", requireOwnerAdminExportRole, async (_req: any, res: any) => {
     try {
       const buffer = await exportPreventivePlansToExcel();
       res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
@@ -971,7 +972,7 @@ async function startServer() {
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
-  app.get("/api/export/pm-work-orders", requireExportRole, async (_req: any, res: any) => {
+  app.get("/api/export/pm-work-orders", requireOwnerAdminExportRole, async (_req: any, res: any) => {
     try {
       const buffer = await exportPMWorkOrdersToExcel();
       res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
@@ -990,7 +991,7 @@ async function startServer() {
   });
 
   // PDF لأمر العمل الوقائي
-  app.get("/api/export/pm-work-order/:id", requireAuthMiddleware, async (req: any, res: any) => {
+  app.get("/api/export/pm-work-order/:id", requireOwnerAdminExportRole, async (req: any, res: any) => {
     try {
       const id = parseInt(req.params.id);
       if (isNaN(id)) return res.status(400).json({ error: "رقم غير صحيح" });

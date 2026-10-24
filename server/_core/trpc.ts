@@ -15,6 +15,7 @@ import { isBusinessGuardedRole } from "../../shared/business-role-policy";
 import { redactUserSecrets } from "../../shared/user-response";
 import { assertDelegateDirectoryRpc } from "./authz/delegate-directory-guard";
 import { assertGateSecurityRpc, assertGateSecurityResourceAccess } from "./authz/gate-security-guard";
+import { isOwnerAdminOnlyRpc, isOwnerOrAdminRole } from "../../shared/restricted-module-policy";
 
 const t = initTRPC.context<TrpcContext>().create({
   transformer: superjson,
@@ -28,6 +29,16 @@ const roleScopeGuard = t.middleware(async opts => {
     assertGateSecurityRpc(user, opts.type, opts.path);
     await assertGateSecurityResourceAccess(user, opts.type, opts.path, await opts.getRawInput());
     return opts.next({ ctx: { ...opts.ctx, user } });
+  }
+  return opts.next();
+});
+const restrictedModuleGuard = t.middleware(async opts => {
+  const user = opts.ctx.authenticatedUser ?? opts.ctx.user;
+  if (isOwnerAdminOnlyRpc(opts.path) && !isOwnerOrAdminRole(user?.role)) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "هذه الوحدة متاحة للمالك ومدير النظام فقط",
+    });
   }
   return opts.next();
 });
@@ -88,7 +99,7 @@ const technicianGuard = t.middleware(async opts => {
   }
   return opts.next();
 });
-const baseProcedure = t.procedure.use(responseGuard).use(roleScopeGuard).use(businessGuard).use(technicianGuard).use(observerGuard).use(mediaInputGuard);
+const baseProcedure = t.procedure.use(responseGuard).use(restrictedModuleGuard).use(roleScopeGuard).use(businessGuard).use(technicianGuard).use(observerGuard).use(mediaInputGuard);
 export const publicProcedure = baseProcedure;
 
 const requireUser = t.middleware(async opts => {

@@ -13,6 +13,7 @@ import { technicianPageAllowed } from "./technician-policy";
 import { businessPageAllowed, isBusinessGuardedRole } from "./business-role-policy";
 import { gateSecurityPageAllowed } from "./gate-security-policy";
 import { delegateDirectoryPageAllowed } from "./delegate-directory-policy";
+import { isOwnerAdminOnlyPage, isOwnerOrAdminRole } from "./restricted-module-policy";
 
 export const APP_ROLE = {
   USER: "user",
@@ -258,8 +259,12 @@ function matchesPrefix(path: string, prefix: string): boolean {
 
 export function canRoleAccessPath(role: string | null | undefined, path: string): boolean {
   if (!role) return false;
-  if (isObserver(role)) return canRoleAccessPath(APP_ROLE.ADMIN, path);
   const normalizedPath = path.split(/[?#]/, 1)[0] || "/";
+  // Construction and legacy preventive maintenance are explicitly restricted
+  // to the authenticated owner/admin identity. Observer projection must not
+  // turn an observer into an admin for these modules.
+  if (isOwnerAdminOnlyPage(normalizedPath)) return isOwnerOrAdminRole(role);
+  if (isObserver(role)) return canRoleAccessPath(APP_ROLE.ADMIN, path);
   if (role === APP_ROLE.GATE_SECURITY) return gateSecurityPageAllowed(normalizedPath);
   if (!delegateDirectoryPageAllowed(role, normalizedPath)) return false;
   if (isBusinessGuardedRole(role)) return businessPageAllowed(role, normalizedPath);

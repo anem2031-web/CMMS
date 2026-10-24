@@ -57,9 +57,9 @@ describe("construction ticket workflow scope", () => {
     expect(isTicketReadOnlyForUser(constructionManager, generalTicket)).toBe(true);
   });
 
-  it("uses the shared ticket and inbox construction tabs while keeping the legacy redirect and denying triage", () => {
+  it("uses the shared ticket and inbox construction tabs while denying the standalone Construction namespace and triage", () => {
     expect(canRoleAccessPath(APP_ROLE.CONSTRUCTION_PROCUREMENT_MANAGER, "/tickets?tab=construction")).toBe(true);
-    expect(canRoleAccessPath(APP_ROLE.CONSTRUCTION_PROCUREMENT_MANAGER, "/construction/tickets")).toBe(true);
+    expect(canRoleAccessPath(APP_ROLE.CONSTRUCTION_PROCUREMENT_MANAGER, "/construction/tickets")).toBe(false);
     expect(canRoleAccessPath(APP_ROLE.CONSTRUCTION_PROCUREMENT_MANAGER, "/tickets/inbox")).toBe(true);
     expect(canRoleAccessPath(APP_ROLE.CONSTRUCTION_PROCUREMENT_MANAGER, "/tickets/new")).toBe(false);
     expect(canRoleAccessPath(APP_ROLE.CONSTRUCTION_PROCUREMENT_MANAGER, "/triage")).toBe(false);

@@ -60,10 +60,8 @@ describe("Exact purchase PDF document scope", () => {
 describe("Project membership retained behind the central resource gate", () => {
   const member = { projectId: 1, role: "viewer", canEdit: 0, canDelete: 0, canApprove: 0 };
   const port = (membership = member) => ({ memberships: vi.fn(async () => [membership]), record: vi.fn(async (resource: string, id: number) => resource === "projects" ? { id } : { id, projectId: id === 99 ? 2 : 1, taskId: 1, dependsOnTaskId: 2 }) });
-  it.each(BUSINESS_GUARDED_ROLES.filter(role => role !== "senior_management"))("retains %s's explicit member read, with no foreign-project access", async role => {
-    expect(businessRpcAllowed(user(role), "query", "construction.tasks.getById")).toBe(true);
-    await expect(assertBusinessProjectAccess(user(role), "query", "construction.tasks.getById", { id: 5 }, port())).resolves.toEqual([1]);
-    await expect(assertBusinessProjectAccess(user(role), "query", "construction.tasks.getById", { id: 99 }, port())).rejects.toMatchObject({ code: "FORBIDDEN" });
+  it.each(BUSINESS_GUARDED_ROLES)("blocks %s before legacy Construction resource lookup", async role => {
+    expect(businessRpcAllowed(user(role), "query", "construction.tasks.getById")).toBe(false);
   });
   it("resolves children independently of a forged allowed projectId", async () => {
     await expect(assertBusinessProjectAccess(user(), "mutation", "construction.tasks.create", { projectId: 1, phaseId: 99, activityId: 5 }, port({ ...member, canEdit: 1 }))).rejects.toMatchObject({ code: "FORBIDDEN" });
@@ -85,7 +83,7 @@ describe("Project membership retained behind the central resource gate", () => {
     for (const role of ["senior_management", "owner", "admin", "maintenance_manager"]) await expect(assertBusinessProjectAccess(user(role), "query", "construction.projects.list", {}, source)).resolves.toBeUndefined();
     expect(source.memberships).not.toHaveBeenCalled();
   });
-  it("enforces memberships in the actual tRPC middleware before the resolver, including guessed child IDs", async () => {
+  it("denies the actual Construction RPC before its resolver", async () => {
     const dialect = new MySqlDialect();
     spies.db.mockResolvedValue({ select: () => {
       let table: any, id: number;
@@ -96,9 +94,9 @@ describe("Project membership retained behind the central resource gate", () => {
     const resolver = vi.fn(({ ctx }: any) => ctx.businessProjectIds);
     const api = router({ construction: router({ tasks: router({ getById: protectedProcedure.input(z.object({ id: z.number() })).query(resolver) }) }) });
     const caller = api.createCaller({ user: user() } as any);
-    await expect(caller.construction.tasks.getById({ id: 5 })).resolves.toEqual([1]);
+    await expect(caller.construction.tasks.getById({ id: 5 })).rejects.toMatchObject({ code: "FORBIDDEN" });
     await expect(caller.construction.tasks.getById({ id: 99 })).rejects.toMatchObject({ code: "FORBIDDEN" });
-    expect(resolver).toHaveBeenCalledOnce();
+    expect(resolver).not.toHaveBeenCalled();
   });
 });
 

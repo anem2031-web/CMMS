@@ -226,10 +226,8 @@ export const catalogItemLifecycleProcedure = roleMiddleware([
 /** Owner/admin-only Catalog actions: delete/deactivate, settings, import/export. */
 export const catalogAdminProcedure = roleMiddleware([]);
 
-/** Construction keeps existing project-member behavior, but denies the general role. */
-export const constructionProcedure = denyRolesMiddleware([
-  APP_ROLE.GENERAL_MAINTENANCE_MANAGER,
-]);
+/** Standalone Construction module is restricted to owner/admin. */
+export const constructionProcedure = roleMiddleware([]);
 
 /** Both derived roles explicitly exclude warehouse/inventory modules. */
 export const inventoryReadProcedure = denyRolesMiddleware([

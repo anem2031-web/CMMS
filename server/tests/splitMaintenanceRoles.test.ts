@@ -122,12 +122,12 @@ describe("split maintenance roles — module exclusions", () => {
       expect(canRoleAccessPath(role, path)).toBe(false);
     }
     expect(canRoleAccessPath(role, "/purchase-orders")).toBe(true);
-    expect(canRoleAccessPath(role, "/construction/tickets")).toBe(true); // legacy redirect remains valid
+    expect(canRoleAccessPath(role, "/construction/tickets")).toBe(false); // standalone Construction namespace is owner/admin-only
     expect(canRoleAccessPath(role, "/tickets/123")).toBe(true); // detail route; server enforces routed/read-only scope
     expect(canRoleAccessPath(role, "/tickets/not-a-ticket-id")).toBe(false);
     expect(canRoleAccessPath(role, "/tickets/new")).toBe(false);
     expect(canRoleAccessPath(role, "/catalog")).toBe(true);
-    expect(canRoleAccessPath(role, "/construction/projects")).toBe(true);
+    expect(canRoleAccessPath(role, "/construction/projects")).toBe(false);
     expect(isRoleDeniedFromTickets(role)).toBe(false);
     expect(isTicketVisible({ id: 1, role }, {
       reportedById: 9,

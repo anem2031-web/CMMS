@@ -93,8 +93,9 @@ const warehouseMutations = [
   ...paths("catalog.itemSuppliers", "matchInvoiceItems assign remove setPreferred"),
 ];
 
-// Construction is additionally scoped to explicit memberships by the central
-// resource guard. Senior management retains its existing global project view.
+// Kept as a closed inventory of legacy Construction RPC names for compatibility
+// tests. No business role receives these capabilities; owner/admin bypass the
+// business-role policy and are checked by the owner/admin module guard.
 const constructionQueries = [
   ...paths("construction.projects", "list getById portfolioStats"), ...paths("construction.phases", "list getById"),
   ...paths("construction.activities", "list listByProject"), ...paths("construction.tasks", "list kanban gantt getById"),
@@ -120,8 +121,8 @@ const constructionMutations = [
 export const BUSINESS_ROLE_CAPABILITIES: Record<BusinessRole, { query: readonly string[]; mutation: readonly string[] }> = {
   accountant: { query: [...sharedQueries, ...costQueries, "attachments.listByType", ...paths("delegatePricingBundles", "status list listPage detail")],
     mutation: [...sharedMutations, ...paths("purchaseOrders", "approveAccounting approveAccountingBatch rejectAccountingBatchItem reject"), "purchasePackages.approveAccountingSubmission", "delegatePricingBundles.pdf"] },
-  senior_management: { query: [...sharedQueries, ...documentQueries, ...settlementReviewQueries, ...costQueries, ...managementQueries, ...constructionQueries, "attachments.listByType", "technicians.list", ...paths("delegatePricingBundles", "status list listPage detail")],
-    mutation: [...sharedMutations, ...documentMutations, ...settlementReviewMutations, ...managementMutations, ...constructionMutations, ...paths("purchaseOrders", "approveManagement approveManagementBatch reject"), "purchasePackages.approveManagementSubmission", "delegatePricingBundles.pdf"] },
+  senior_management: { query: [...sharedQueries, ...documentQueries, ...settlementReviewQueries, ...costQueries, ...managementQueries, "attachments.listByType", "technicians.list", ...paths("delegatePricingBundles", "status list listPage detail")],
+    mutation: [...sharedMutations, ...documentMutations, ...settlementReviewMutations, ...managementMutations, ...paths("purchaseOrders", "approveManagement approveManagementBatch reject"), "purchasePackages.approveManagementSubmission", "delegatePricingBundles.pdf"] },
   executive_director: { query: [...sharedQueries, ...documentQueries, ...costQueries, ...managementQueries, "technicians.list"],
     mutation: [...sharedMutations, ...documentMutations, ...managementMutations] },
   warehouse: { query: [...sharedQueries, ...documentQueries, ...settlementReviewQueries, ...costQueries, ...warehouseQueries],
@@ -131,10 +132,10 @@ export const BUSINESS_ROLE_CAPABILITIES: Record<BusinessRole, { query: readonly 
 
 export function businessRpcAllowed(user: BusinessIdentity | null | undefined, type: string, path: string): boolean {
   if (!isBusinessGuardedRole(user?.role)) return true;
+  if (path === "construction" || path.startsWith("construction.") || path === "preventive" || path.startsWith("preventive.")) return false;
   if (type === "mutation" && path === "auth.logout") return true;
   if (user?.isActive !== 1 || (type !== "query" && type !== "mutation")) return false;
-  return BUSINESS_ROLE_CAPABILITIES[user.role][type].includes(path)
-    || (type === "query" ? constructionQueries : constructionMutations).includes(path);
+  return BUSINESS_ROLE_CAPABILITIES[user.role][type].includes(path);
 }
 
 const commonPages = new Set(["/", "/notifications", "/improvement-ideas", "/purchase-orders", "/purchase-orders/new", "/documents", "/inventory/reports", "/inventory/reconciliation",
@@ -145,7 +146,7 @@ export function businessPageAllowed(role: BusinessRole, rawPath: string): boolea
   const path = rawPath.split(/[?#]/, 1)[0] || "/";
   if (path === "/inventory-settlement-review") return role === "warehouse" || role === "senior_management";
   // The page shell is reachable; its data and actions require project membership.
-  if (/^\/construction(?:\/(?:tickets|reports|projects(?:\/(?:new|[1-9]\d*(?:\/edit)?))?))?$/.test(path)) return true;
+  if (/^\/construction(?:\/(?:tickets|reports|projects(?:\/(?:new|[1-9]\d*(?:\/edit)?))?))?$/.test(path)) return false;
   if (commonPages.has(path) || /^\/purchase-orders\/(?:[1-9]\d*|edit-draft\/[1-9]\d*)$/.test(path) || /^\/purchase-packages\/[1-9]\d*$/.test(path) || /^\/tickets\/[1-9]\d*$/.test(path)) return true;
   if (path === "/reports/cost") return role !== "food_warehouse_assistant";
   if (role === "accountant" || role === "senior_management") {
@@ -176,5 +177,5 @@ export function businessHttpAllowed(user: BusinessIdentity | null | undefined, m
   if (/^\/api\/tickets\/[1-9]\d*\/pdf$/.test(path)) return user.role === "senior_management" || user.role === "executive_director";
   if (/^\/api\/reports\/inventory\/(?:foundation-preview|stock-balance|movements|valuation|valuation\/by-warehouse|valuation\/by-category|valuation\/accounting-review|analytics)(?:\.(?:xlsx|pdf)|\/print)$/.test(path))
     return ["accountant", "senior_management", "warehouse"].includes(user.role);
-  return ["accountant", "senior_management"].includes(user.role) && ["/api/export/tickets", "/api/export/purchase-orders", "/api/export/technician-performance", "/api/export/preventive-plans", "/api/export/pm-work-orders", "/api/export/workflow-guide"].includes(path);
+  return ["accountant", "senior_management"].includes(user.role) && ["/api/export/tickets", "/api/export/purchase-orders", "/api/export/technician-performance", "/api/export/workflow-guide"].includes(path);
 }

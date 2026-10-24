@@ -70,10 +70,23 @@ type NavSection = {
 
 // ─── Navigation Structure ─────────────────────────────────────────────────────
 const NAV_SECTIONS: NavSection[] = [
-  // 1. العمليات
+  // 1. الرئيسية والمهام
   {
-    id: "core",
-    labelKey: "nav.sections.coreOps",
+    id: "home-tasks",
+    labelKey: "nav.sections.homeTasks",
+    icon: LayoutDashboard,
+    items: [
+      { icon: LayoutDashboard, labelKey: "nav.dashboard", path: "/", roles: ["owner", "admin"] },
+      { icon: Bell, labelKey: "nav.notifications", path: "/notifications" },
+      { icon: ClipboardList, labelKey: "nav.pmv2MyTasks", path: "/scheduled-maintenance/my-tasks",
+        roles: ["technician","it_manager","it_member","owner","admin","maintenance_manager","general_maintenance_manager","construction_procurement_manager"] },
+      { icon: ShoppingBag, labelKey: "nav.myItems", path: "/my-items", roles: ["delegate","owner","admin"] },
+    ],
+  },
+  // 2. البلاغات والتشغيل
+  {
+    id: "tickets-operations",
+    labelKey: "nav.sections.ticketsOperations",
     icon: ClipboardList,
     items: [
       { icon: Nfc,           labelKey: "nav.scanAsset",    path: "/scan-asset",
@@ -94,47 +107,50 @@ const NAV_SECTIONS: NavSection[] = [
         roles: ["gate_security","owner","admin"] },
     ],
   },
-  // 2. الصيانة الوقائية
+  // 3. الصيانة
   {
-    id: "preventive",
-    labelKey: "nav.sections.preventiveMaint",
-    icon: CalendarClock,
-    roles: ["technician","supervisor","maintenance_manager","general_maintenance_manager","construction_procurement_manager","owner","admin"],
-    items: [
-      { icon: CalendarClock, labelKey: "nav.preventive",      path: "/preventive",
-        roles: ["technician","supervisor","maintenance_manager","general_maintenance_manager","construction_procurement_manager","owner","admin"] },
-      { icon: Brain,         labelKey: "nav.predictiveMaint", path: "/predictive",
-        roles: ["maintenance_manager","general_maintenance_manager","construction_procurement_manager","owner","admin"] },
-    ],
-  },
-  // 3. الصيانة المجدولة — PM V2 مستقلة عن Legacy PM
-  {
-    id: "scheduled-maintenance",
-    labelKey: "nav.sections.scheduledMaintenance",
+    id: "maintenance",
+    labelKey: "nav.sections.maintenance",
     icon: CalendarClock,
     roles: ["technician","it_manager","it_member","warehouse","maintenance_manager","general_maintenance_manager","construction_procurement_manager","owner","admin"],
     items: [
-      { icon: ClipboardList, labelKey: "nav.pmv2MyTasks", path: "/scheduled-maintenance/my-tasks",
-        roles: ["technician","it_manager","it_member","owner","admin","maintenance_manager","general_maintenance_manager","construction_procurement_manager"] },
+      { icon: CalendarClock, labelKey: "nav.scheduledMaintenance", path: "/scheduled-maintenance",
+        roles: ["maintenance_manager","general_maintenance_manager","owner","admin"] },
       { icon: Warehouse, labelKey: "nav.pmv2WarehouseRequests", path: "/scheduled-maintenance/warehouse-requests",
         roles: ["warehouse","owner","admin"] },
       { icon: FileText, labelKey: "nav.pmv2MaintenanceReports", path: "/scheduled-maintenance/reports",
         roles: ["maintenance_manager","general_maintenance_manager","owner","admin"] },
-      { icon: CalendarClock, labelKey: "nav.scheduledMaintenance", path: "/scheduled-maintenance",
-        roles: ["maintenance_manager","general_maintenance_manager","owner","admin"] },
+      { icon: Wrench, labelKey: "nav.externalMaintenance", path: "/external-maintenance",
+        roles: ["warehouse","owner","admin"] },
+      { icon: CalendarClock, labelKey: "nav.preventive",      path: "/preventive",
+        roles: ["owner","admin"] },
+      { icon: Brain,         labelKey: "nav.predictiveMaint", path: "/predictive",
+        roles: ["owner","admin"] },
     ],
   },
-  // 4. اللوجستيات والشراء
+  // 4. المشتريات
   {
-    id: "logistics",
-    labelKey: "nav.sections.logistics",
+    id: "purchasing",
+    labelKey: "nav.sections.purchasing",
     icon: ShoppingCart,
     roles: ["delegate","warehouse","accountant","senior_management","executive_director","maintenance_manager","general_maintenance_manager","construction_procurement_manager","it_manager","purchase_requester","food_warehouse_manager","food_warehouse_assistant","owner","admin"],
     items: [
       { icon: ShoppingCart, labelKey: "nav.purchaseOrders", path: "/purchase-orders",
         roles: ["delegate","warehouse","accountant","senior_management","executive_director","maintenance_manager","general_maintenance_manager","construction_procurement_manager","it_manager","purchase_requester","food_warehouse_manager","food_warehouse_assistant","owner","admin"] },
-      { icon: ShoppingBag,  labelKey: "nav.myItems",        path: "/my-items",
-        roles: ["delegate","owner","admin"] },
+      { icon: ShoppingBag, labelKey: "nav.delegatePricingBundles", path: "/delegate-pricing-bundles",
+        roles: ["delegate","accountant","senior_management","owner","admin"] },
+      { icon: Truck, labelKey: "nav.purchaseCycle", path: "/purchase-cycle", roles: ["delegate","warehouse","owner","admin"] },
+      { icon: FileStack, labelKey: "nav.documentsCenter", path: "/documents",
+        roles: ["delegate","warehouse","accountant","senior_management","executive_director","maintenance_manager","purchase_requester","food_warehouse_manager","food_warehouse_assistant","owner","admin"] },
+    ],
+  },
+  // 5. المستودع والمخزون
+  {
+    id: "warehouse-inventory",
+    labelKey: "nav.sections.warehouseInventory",
+    icon: Warehouse,
+    roles: ["warehouse","accountant","senior_management","executive_director","maintenance_manager","food_warehouse_manager","food_warehouse_assistant","owner","admin"],
+    items: [
       { icon: Package,      labelKey: "nav.inventory",      path: "/inventory",
         roles: ["warehouse","maintenance_manager","owner","admin"] },
       { icon: ClipboardList, labelKey: "nav.inventoryOperations", path: "/inventory-operations",
@@ -145,9 +161,6 @@ const NAV_SECTIONS: NavSection[] = [
         roles: ["warehouse","maintenance_manager","owner","admin"] },
       { icon: BarChart3, labelKey: "nav.inventoryReportsCenter", path: "/inventory/reports",
         roles: ["warehouse","accountant","senior_management","executive_director","maintenance_manager","food_warehouse_manager","food_warehouse_assistant","owner","admin"] },
-      // ⛔ مُعطّلة مؤقتاً (قيد الاختبار قبل الحذف النهائي) — استُبدلت بـ WarehouseReceiveV2
-      // { icon: Package,      labelKey: "nav.warehouseReceive", path: "/warehouse/receive",
-      //   roles: ["warehouse","owner","admin"] },
       { icon: RotateCcw,    labelKey: "nav.warehouseReturn",  path: "/warehouse/return",
         roles: ["warehouse","owner","admin"] },
       { icon: FileText,     labelKey: "nav.warehouseReturnsList", path: "/warehouse/returns",
@@ -158,23 +171,16 @@ const NAV_SECTIONS: NavSection[] = [
         roles: ["warehouse","owner","admin"] },
       { icon: Truck,        labelKey: "nav.warehouseIssue", path: "/warehouse/issue",
         roles: ["warehouse","owner","admin"] },
-      { icon: Truck,        labelKey: "nav.purchaseCycle",  path: "/purchase-cycle",
-        roles: ["delegate","warehouse","owner","admin"] },
-      { icon: Wrench,       labelKey: "nav.externalMaintenance", path: "/external-maintenance",
-        roles: ["warehouse","owner","admin"] },
-      // مركز المستندات — عرض وإعادة طباعة فقط لكل مستندات المشتريات/المخزون
-      { icon: FileStack,    labelKey: "nav.documentsCenter", path: "/documents",
-        roles: ["delegate","warehouse","accountant","senior_management","executive_director","maintenance_manager","purchase_requester","food_warehouse_manager","food_warehouse_assistant","owner","admin"] },
       { icon: Search,       labelKey: "nav.itemTracker",    path: "/item-tracker",
         roles: ["warehouse","owner","admin","maintenance_manager"] },
     ],
   },
-  // 4. الإدارة
+  // 6. الأصول والبيانات الأساسية
   {
-    id: "management",
-    labelKey: "nav.sections.management",
+    id: "master-data",
+    labelKey: "nav.sections.masterData",
     icon: Building2,
-    roles: ["supervisor","maintenance_manager","general_maintenance_manager","construction_procurement_manager","owner","admin"],
+    roles: ["supervisor","warehouse","maintenance_manager","general_maintenance_manager","construction_procurement_manager","owner","admin"],
     items: [
       { icon: MapPin,    labelKey: "nav.sites",        path: "/sites",
         roles: ["owner","admin","maintenance_manager","general_maintenance_manager","construction_procurement_manager"] },
@@ -190,12 +196,14 @@ const NAV_SECTIONS: NavSection[] = [
         roles: ["owner","admin","maintenance_manager","general_maintenance_manager","construction_procurement_manager"] },
       { icon: Tag,       labelKey: "nav.assetCategories", path: "/asset-categories",
         roles: ["owner","admin","maintenance_manager","general_maintenance_manager","construction_procurement_manager"] },
+      { icon: BookOpen, labelKey: "nav.catalog", path: "/catalog",
+        roles: ["owner", "admin", "maintenance_manager", "general_maintenance_manager", "construction_procurement_manager", "warehouse"] },
     ],
   },
-  // 5. التقارير
+  // 7. التقارير والتحليل
   {
-    id: "reports",
-    labelKey: "nav.sections.reports",
+    id: "reports-analysis",
+    labelKey: "nav.sections.reportsAnalysis",
     icon: BarChart3,
     roles: ["senior_management","executive_director","maintenance_manager","general_maintenance_manager","construction_procurement_manager","owner","admin"],
     items: [
@@ -208,41 +216,21 @@ const NAV_SECTIONS: NavSection[] = [
       { icon: Building2,     labelKey: "nav.sectionReport",          path: "/reports/section-report",
         roles: ["owner","admin","senior_management","executive_director","maintenance_manager","general_maintenance_manager","construction_procurement_manager"] },
       { icon: CalendarClock, labelKey: "nav.preventiveReport",       path: "/reports/preventive",
-        roles: ["owner","admin","senior_management","executive_director","maintenance_manager","general_maintenance_manager","construction_procurement_manager"] },
+        roles: ["owner","admin"] },
       { icon: UserCog,       labelKey: "nav.technicianReport",       path: "/reports/technicians",
         roles: ["owner","admin","senior_management","executive_director","maintenance_manager","general_maintenance_manager","construction_procurement_manager"] },
       { icon: DollarSign,    labelKey: "nav.costReport",              path: "/reports/cost",
         roles: ["owner","admin"] },
       { icon: BarChart3,     labelKey: "nav.inspectionDashboard",     path: "/inspection-dashboard",
         roles: ["owner","admin","senior_management","executive_director","maintenance_manager","general_maintenance_manager","construction_procurement_manager"] },
-    ],
-  },
-  // 6. وحدة الكتالوج
-  {
-    id: "catalog",
-    labelKey: "nav.sections.catalog",
-    icon: BookOpen,
-    roles: ["owner", "admin", "maintenance_manager", "general_maintenance_manager", "construction_procurement_manager", "warehouse"],
-    items: [
-      { icon: BookOpen, labelKey: "nav.catalog", path: "/catalog",
-        roles: ["owner", "admin", "maintenance_manager", "general_maintenance_manager", "construction_procurement_manager", "warehouse"] },
-    ],
-  },
-  // 7. وحدة التحليل AI
-  {
-    id: "ai",
-    labelKey: "nav.sections.aiUnit",
-    icon: Brain,
-    roles: ["owner","admin","senior_management","executive_director","maintenance_manager","general_maintenance_manager","construction_procurement_manager"],
-    items: [
       { icon: Brain, labelKey: "nav.aiAssistant", path: "/ai-assistant",
         roles: ["owner","admin","senior_management","executive_director","maintenance_manager","general_maintenance_manager","construction_procurement_manager"] },
     ],
   },
-  // 7. أدوات المسؤول
+  // 8. الإدارة والنظام
   {
-    id: "admin",
-    labelKey: "nav.sections.adminTools",
+    id: "admin-system",
+    labelKey: "nav.sections.adminSystem",
     icon: Shield,
     roles: ["owner","admin","warehouse"],
     items: [
@@ -250,17 +238,9 @@ const NAV_SECTIONS: NavSection[] = [
       { icon: Shield,    labelKey: "nav.auditLog",           path: "/audit-log", roles: ["owner","admin"] },
       { icon: Database,  labelKey: "backup.title",           path: "/backup", roles: ["owner","admin"] },
       { icon: Languages, labelKey: "nav.translationMonitor", path: "/translation-monitor", roles: ["owner","admin"] },
-    ],
-  },
-  {
-    id: "construction",
-    labelKey: "nav.sections.construction",
-    icon: HardHat,
-    roles: ["owner", "admin", "maintenance_manager", "construction_procurement_manager", "senior_management"],
-    items: [
-      { icon: Building2,    labelKey: "nav.construction.dashboard", path: "/construction", roles: ["owner", "admin", "maintenance_manager", "construction_procurement_manager", "senior_management"] },
-      { icon: FolderKanban, labelKey: "nav.construction.projects",  path: "/construction/projects", roles: ["owner", "admin", "maintenance_manager", "construction_procurement_manager", "senior_management"] },
-      { icon: BarChart3,    labelKey: "nav.construction.reports",   path: "/construction/reports", roles: ["owner", "admin", "maintenance_manager", "construction_procurement_manager", "senior_management"] },
+      { icon: Building2,    labelKey: "nav.construction.dashboard", path: "/construction", roles: ["owner", "admin"] },
+      { icon: FolderKanban, labelKey: "nav.construction.projects",  path: "/construction/projects", roles: ["owner", "admin"] },
+      { icon: BarChart3,    labelKey: "nav.construction.reports",   path: "/construction/reports", roles: ["owner", "admin"] },
     ],
   },
 ];
@@ -599,6 +579,30 @@ function DashboardLayoutContent({ children, setSidebarWidth }: { children: React
       .filter(s => s.items.length > 0);
   }, [t, role]);
 
+  // Keep the current page's section open and reduce sidebar noise by closing
+  // the other sections. The user's manual choice remains saved until navigation.
+  useEffect(() => {
+    if (searchQuery.trim()) return;
+    const activeSection = visibleSections.find(section =>
+      section.items.some(item =>
+        location === item.path || (item.path !== "/" && location.startsWith(item.path)),
+      ),
+    );
+    if (!activeSection) return;
+
+    setCollapsedSections(previous => {
+      const next = new Set(
+        visibleSections
+          .filter(section => section.id !== activeSection.id)
+          .map(section => section.id),
+      );
+      const unchanged = previous.size === next.size && [...next].every(id => previous.has(id));
+      if (unchanged) return previous;
+      localStorage.setItem(COLLAPSED_SECTIONS_KEY, JSON.stringify([...next]));
+      return next;
+    });
+  }, [location, searchQuery, visibleSections]);
+
   // ── Search filter ──
   const searchResults = useMemo(() => {
     if (!searchQuery.trim()) return null;
@@ -705,26 +709,6 @@ function DashboardLayoutContent({ children, setSidebarWidth }: { children: React
           {/* ── Content ── */}
           <SidebarContent className="gap-0 overflow-y-auto pt-1 pb-2">
 
-            {/* ── لوحة التحكم مستقلة في الأعلى ── */}
-            {!searchResults && (role === "admin" || role === "owner") && (
-              <div className="px-2 pb-1">
-                <SidebarMenu className="gap-0.5">
-                  <SidebarMenuItem>
-                    <SidebarMenuButton
-                      isActive={isItemActive("/")}
-                      onClick={() => setLocation("/")}
-                      tooltip={t.nav.dashboard}
-                      className="h-9 transition-all font-normal text-[13px] group/item"
-                    >
-                      <LayoutDashboard className={`h-3.5 w-3.5 shrink-0 transition-colors ${isItemActive("/") ? "text-sidebar-primary" : "text-sidebar-foreground/55 group-hover/item:text-sidebar-foreground/80"}`} />
-                      <span className={`truncate ${isItemActive("/") ? "font-medium" : ""}`}>{t.nav.dashboard}</span>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                </SidebarMenu>
-                {!isCollapsed && <div className="mx-1 mt-1 border-b border-sidebar-border/25" />}
-              </div>
-            )}
-
             {/* Search Results */}
             {searchResults !== null ? (
               <div className="px-2 py-1">
@@ -815,37 +799,6 @@ function DashboardLayoutContent({ children, setSidebarWidth }: { children: React
               })
             )}
 
-            {/* ── الإشعارات كقسم منظم ── */}
-            <div className={`px-2 mt-1 ${!isCollapsed ? "pt-1 border-t border-sidebar-border/25" : ""}`}>
-              {!isCollapsed && (
-                <div className="flex items-center gap-1.5 px-1 py-1.5">
-                  <Bell className="h-3 w-3 text-sidebar-foreground/35" />
-                  <span className="text-xs font-bold uppercase tracking-wider text-sidebar-foreground/70">
-                    {t.nav.sections.notificationsSection}
-                  </span>
-                </div>
-              )}
-              <SidebarMenu className="gap-0.5">
-                <SidebarMenuItem>
-                  <SidebarMenuButton
-                    isActive={location === "/notifications"}
-                    onClick={() => setLocation("/notifications")}
-                    tooltip={t.nav.notifications}
-                    className="h-9 transition-all font-normal text-[13px] group/item"
-                  >
-                    <div className="relative shrink-0">
-                      <Bell className={`h-3.5 w-3.5 ${location === "/notifications" ? "text-sidebar-primary" : "text-sidebar-foreground/55 group-hover/item:text-sidebar-foreground/80"}`} />
-                      {(unreadCount || 0) > 0 && (
-                        <span className="absolute -top-1.5 -right-1.5 min-w-[14px] h-3.5 px-0.5 bg-destructive text-destructive-foreground text-[9px] rounded-full flex items-center justify-center font-bold leading-none animate-pulse">
-                          {(unreadCount || 0) > 9 ? "9+" : unreadCount}
-                        </span>
-                      )}
-                    </div>
-                    <span>{t.nav.notifications}</span>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              </SidebarMenu>
-            </div>
           </SidebarContent>
 
           {/* ── Footer ── */}
