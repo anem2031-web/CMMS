@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
@@ -46,6 +46,8 @@ function ItExecutionPanel({ ticket, onChanged }: { ticket: any; onChanged: () =>
   const fail = (error: { message: string }) => toast.error(localizeApiError(error.message, language));
   const [note, setNote] = useState("");
   const [materialsUsed, setMaterialsUsed] = useState("");
+  const [pendingOutcome, setPendingOutcome] = useState<ItExecutionOutcome | null>(null);
+  const noteRef = useRef<HTMLTextAreaElement>(null);
   const assigned = canExecuteItSubTicket(user, ticket);
   const start = trpc.tickets.startItExecution.useMutation({
     onSuccess: () => { toast.success(l("بدأ التنفيذ", "Execution started", "کام شروع ہو گیا")); onChanged(); },
@@ -58,7 +60,7 @@ function ItExecutionPanel({ ticket, onChanged }: { ticket: any; onChanged: () =>
   const outcome = trpc.tickets.recordItExecutionOutcome.useMutation({
     onSuccess: (result) => {
       toast.success(result.status === "closed" ? l("تم إنهاء البلاغ وإغلاقه", "Ticket completed and closed", "ٹکٹ مکمل اور بند ہو گیا") : l("تم حفظ نتيجة التنفيذ", "Execution result saved", "کام کا نتیجہ محفوظ ہو گیا"));
-      setNote(""); setMaterialsUsed(""); onChanged();
+      setNote(""); setMaterialsUsed(""); setPendingOutcome(null); onChanged();
     },
     onError: fail,
   });
@@ -66,22 +68,45 @@ function ItExecutionPanel({ ticket, onChanged }: { ticket: any; onChanged: () =>
   const canStart = canStartItSubTicket(user, ticket);
   const canResume = ticket.status === "received_warehouse" && ["B", "C"].includes(ticket.maintenancePath);
   const active = ticket.status === "in_progress";
-  const submit = (value: ItExecutionOutcome) => outcome.mutate({ ticketId: ticket.id, outcome: value, note, materialsUsed: materialsUsed || undefined });
-  const disabled = (value: ItExecutionOutcome) => outcome.isPending || (itExecutionOutcomeRequiresNote(value) && !note.trim());
+  const outcomeLabel = (value: ItExecutionOutcome) => value === "ok"
+    ? l("سليم ولا يحتاج إصلاح", "No repair needed", "مرمت کی ضرورت نہیں")
+    : value === "fixed"
+      ? l("تم الإصلاح", "Repaired", "مرمت مکمل")
+      : value === "needs_material"
+        ? l("يحتاج مواد", "Materials needed", "مواد درکار")
+        : value === "blocked"
+          ? l("يوجد عائق", "Obstacle", "رکاوٹ")
+          : l("صيانة خارجية", "External maintenance", "بیرونی مرمت");
+  const saveOutcome = (value: ItExecutionOutcome) => outcome.mutate({ ticketId: ticket.id, outcome: value, note, materialsUsed: materialsUsed || undefined });
+  const chooseOutcome = (value: ItExecutionOutcome) => {
+    if (!itExecutionOutcomeRequiresNote(value)) {
+      saveOutcome(value);
+      return;
+    }
+    setPendingOutcome(value);
+    requestAnimationFrame(() => noteRef.current?.focus());
+  };
   return <section className="rounded-lg border border-blue-200 bg-blue-50/40 p-4 space-y-3 dark:border-blue-800 dark:bg-blue-950/20">
     <h3 className="font-semibold">{l("تنفيذ بلاغ تقنية المعلومات", "IT ticket execution", "آئی ٹی ٹکٹ پر کام")}</h3>
     {canStart && <Button className="w-full sm:w-auto" disabled={start.isPending} onClick={() => start.mutate({ ticketId: ticket.id })}>{l("بدء التنفيذ", "Start execution", "کام شروع کریں")}</Button>}
     {canResume && <Button className="w-full sm:w-auto" disabled={resume.isPending} onClick={() => resume.mutate({ id: ticket.id })}>{l("استئناف التنفيذ", "Resume execution", "کام دوبارہ شروع کریں")}</Button>}
     {active && <>
-      <Textarea rows={3} maxLength={4000} value={note} onChange={event => setNote(event.target.value)} placeholder={l("ملاحظات الفحص أو تفاصيل الإصلاح (إلزامية للإصلاح والعائق والصيانة الخارجية)", "Inspection notes or repair details (required for repair, obstacle and external maintenance)", "معائنہ یا مرمت کی تفصیل")}/>
       <Textarea rows={2} maxLength={4000} value={materialsUsed} onChange={event => setMaterialsUsed(event.target.value)} placeholder={l("مواد أخرى استُخدمت (إن وجدت)", "Other materials used (if any)", "استعمال شدہ دیگر مواد")}/>
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-5">
-        <Button disabled={disabled("ok")} onClick={() => submit("ok")}>{l("سليم ولا يحتاج إصلاح", "No repair needed", "مرمت کی ضرورت نہیں")}</Button>
-        <Button variant="outline" disabled={disabled("fixed")} onClick={() => submit("fixed")}>{l("تم الإصلاح", "Repaired", "مرمت مکمل")}</Button>
-        {!ticket.maintenancePath && <Button variant="outline" disabled={disabled("needs_material")} onClick={() => submit("needs_material")}>{l("يحتاج مواد", "Materials needed", "مواد درکار")}</Button>}
-        <Button variant="outline" disabled={disabled("blocked")} onClick={() => submit("blocked")}>{l("يوجد عائق", "Obstacle", "رکاوٹ")}</Button>
-        {!ticket.maintenancePath && <Button variant="outline" disabled={disabled("external")} onClick={() => submit("external")}>{l("صيانة خارجية", "External maintenance", "بیرونی مرمت")}</Button>}
+        <Button disabled={outcome.isPending} onClick={() => chooseOutcome("ok")}>{outcomeLabel("ok")}</Button>
+        <Button variant={pendingOutcome === "fixed" ? "default" : "outline"} disabled={outcome.isPending} onClick={() => chooseOutcome("fixed")}>{outcomeLabel("fixed")}</Button>
+        {!ticket.maintenancePath && <Button variant="outline" disabled={outcome.isPending} onClick={() => chooseOutcome("needs_material")}>{outcomeLabel("needs_material")}</Button>}
+        <Button variant={pendingOutcome === "blocked" ? "default" : "outline"} disabled={outcome.isPending} onClick={() => chooseOutcome("blocked")}>{outcomeLabel("blocked")}</Button>
+        {!ticket.maintenancePath && <Button variant={pendingOutcome === "external" ? "default" : "outline"} disabled={outcome.isPending} onClick={() => chooseOutcome("external")}>{outcomeLabel("external")}</Button>}
       </div>
+      {pendingOutcome && <div className="rounded-md border border-primary/30 bg-background p-3 space-y-2">
+        <p className="text-sm font-medium">{l(`اكتب تفاصيل «${outcomeLabel(pendingOutcome)}» ثم أكد الحفظ`, `Enter details for “${outcomeLabel(pendingOutcome)}”, then confirm`, `تفصیل لکھیں پھر تصدیق کریں`)}</p>
+        <Textarea ref={noteRef} rows={3} maxLength={4000} value={note} onChange={event => setNote(event.target.value)} placeholder={l("الملاحظة مطلوبة لهذا الخيار", "A note is required for this option", "اس اختیار کے لیے نوٹ ضروری ہے")}/>
+        <div className="flex flex-wrap gap-2">
+          <Button disabled={outcome.isPending || !note.trim()} onClick={() => saveOutcome(pendingOutcome)}>{l("تأكيد النتيجة", "Confirm outcome", "نتیجہ کی تصدیق")}</Button>
+          <Button variant="ghost" disabled={outcome.isPending} onClick={() => { setPendingOutcome(null); setNote(""); }}>{l("إلغاء", "Cancel", "منسوخ")}</Button>
+        </div>
+      </div>}
     </>}
   </section>;
 }
