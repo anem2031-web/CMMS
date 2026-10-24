@@ -25,6 +25,7 @@ const api = router({
   }),
   purchaseOrders: router({ getById: protectedProcedure.input(z.object({ id: z.number() })).query(doc) }),
   purchasePackages: router({ getById: protectedProcedure.input(z.object({ id: z.number() })).query(doc) }),
+  tickets: router({ inboxCounts: protectedProcedure.query(directory) }),
   auth: router({ logout: protectedProcedure.mutation(() => true) }),
   reports: router({ technicianMonthlyReport: protectedProcedure.input(z.any()).query(directory), technicianPerformance: protectedProcedure.input(z.any()).query(directory) }),
   maintenanceReports: router({ technicianMonthlyReport: protectedProcedure.input(z.any()).query(directory), technicianPerformance: protectedProcedure.input(z.any()).query(directory) }),
@@ -57,6 +58,16 @@ describe("Delegate directory denial at the central API boundary", () => {
     }
     expect(directory).not.toHaveBeenCalled();
   });
+  it("blocks the delegate from the general ticket inbox API", async () => {
+    directory.mockClear();
+    await expect(caller().tickets.inboxCounts()).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(directory).not.toHaveBeenCalled();
+  });
+  it.each(["owner", "admin", "operator", "maintenance_manager", "senior_management"])("preserves the ticket inbox for %s", async role => {
+    await expect(caller(role).tickets.inboxCounts()).resolves.toHaveLength(1);
+    expect(canRoleAccessPath(role, "/tickets/inbox")).toBe(true);
+    expect(delegateDirectoryRpcAllowed(role, "tickets.inboxCounts")).toBe(true);
+  });
   it.each(["USER", "user", " User "])("blocks user-name enumeration and queued user text through translation type %s", async entityType => {
     translation.mockClear();
     const input = { entityType, entityId: 30, entityIds: [30, 31], fieldName: "name", fieldNames: ["name"], languageCode: "en" };
@@ -76,7 +87,7 @@ describe("Delegate directory denial at the central API boundary", () => {
   it.each(["owner", "admin", "warehouse", "accountant", "senior_management", "executive_director"])("retains %s's existing directory query behavior", async role => {
     await expect(caller(role).users.list()).resolves.toHaveLength(1);
   });
-  it.each(["/users", "/users?search=name", "/users/30", "/audit-log", "/translation-monitor", "/reports/technicians", "/ai-assistant"])("rejects delegate direct page %s", page => {
+  it.each(["/users", "/users?search=name", "/users/30", "/audit-log", "/translation-monitor", "/reports/technicians", "/ai-assistant", "/tickets/inbox", "/tickets/inbox?tab=open"])("rejects delegate direct page %s", page => {
     expect(canRoleAccessPath("delegate", page)).toBe(false);
   });
   it("retains delegate purchase pages and the other roles' user-page decisions", () => {

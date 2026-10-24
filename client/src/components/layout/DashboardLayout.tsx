@@ -99,7 +99,7 @@ const NAV_SECTIONS: NavSection[] = [
         roles: ["technician","warehouse","maintenance_manager","general_maintenance_manager","construction_procurement_manager","owner","admin"] },
       // صندوق البلاغات — يبقى محجوبًا عن مدير الإنشاءات والمشتريات
       { icon: Inbox,         labelKey: "nav.ticketsInbox", path: "/tickets/inbox",
-        roles: ["operator","technician","it_manager","it_member","maintenance_manager","general_maintenance_manager","supervisor","gate_security","delegate","senior_management","executive_director","owner","admin"] },
+        roles: ["operator","technician","it_manager","it_member","maintenance_manager","general_maintenance_manager","supervisor","gate_security","senior_management","executive_director","owner","admin"] },
       { icon: Lightbulb,     labelKey: "nav.improvementIdeas", path: "/improvement-ideas" },
       { icon: ScanSearch,    labelKey: "nav.triage",       path: "/triage",
         roles: ["maintenance_manager","general_maintenance_manager","owner","admin"] },
