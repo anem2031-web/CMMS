@@ -30,7 +30,7 @@ import {
   Brain, ShoppingBag, Truck, Languages, Database,
   HardDrive, CalendarClock, ScanSearch, DoorOpen, Nfc, Tag,
   ChevronDown, Search, X, Building2, UserCog, Download, Smartphone, DollarSign,
-  RotateCcw, BookOpen, Lightbulb, FileText, Inbox, FileStack
+  RotateCcw, BookOpen, Lightbulb, FileText, Inbox, FileStack, Star
 ,
   HardHat, FolderKanban, Warehouse, ArrowLeftRight, ShieldCheck} from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState, useMemo, useCallback } from "react";
@@ -268,6 +268,8 @@ function canSeeSection(section: NavSection, role: string): boolean {
 // ─── Constants ────────────────────────────────────────────────────────────────
 const SIDEBAR_WIDTH_KEY = "sidebar-width";
 const COLLAPSED_SECTIONS_KEY = "sidebar-collapsed-sections";
+const FAVORITES_STORAGE_PREFIX = "sidebar-favorites";
+const MAX_FAVORITES = 5;
 const DEFAULT_WIDTH = 268;
 const MIN_WIDTH = 210;
 const MAX_WIDTH = 400;
@@ -442,6 +444,24 @@ function DashboardLayoutContent({ children, setSidebarWidth }: { children: React
   const searchRef = useRef<HTMLInputElement>(null);
   const isMobile = useIsMobile();
   const { t } = useTranslation();
+  const favoritesStorageKey = `${FAVORITES_STORAGE_PREFIX}:${authenticatedUser?.id ?? user?.id ?? "anonymous"}`;
+  const [favoritePaths, setFavoritePaths] = useState<string[]>(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(favoritesStorageKey) || "[]");
+      return Array.isArray(saved)
+        ? [...new Set(saved.filter((path): path is string => typeof path === "string"))].slice(0, MAX_FAVORITES)
+        : [];
+    } catch { return []; }
+  });
+
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(favoritesStorageKey) || "[]");
+      setFavoritePaths(Array.isArray(saved)
+        ? [...new Set(saved.filter((path): path is string => typeof path === "string"))].slice(0, MAX_FAVORITES)
+        : []);
+    } catch { setFavoritePaths([]); }
+  }, [favoritesStorageKey]);
 
   const { data: unreadCount } = trpc.notifications.unreadCount.useQuery(undefined, { refetchInterval: 5000 });
   const { data: latestNotifications } = trpc.notifications.list.useQuery(undefined, { refetchInterval: 5000 });
@@ -566,7 +586,7 @@ function DashboardLayoutContent({ children, setSidebarWidth }: { children: React
   }, [authLoading, canAccessCurrentPath, location, role, setLocation]);
 
   // ── Build visible sections with translated labels ──
-  const visibleSections = useMemo(() => {
+  const permittedSections = useMemo(() => {
     return NAV_SECTIONS
       .filter(s => canSeeSection(s, role))
       .map(s => ({
@@ -579,11 +599,52 @@ function DashboardLayoutContent({ children, setSidebarWidth }: { children: React
       .filter(s => s.items.length > 0);
   }, [t, role]);
 
+  const permittedItemsByPath = useMemo(() => new Map(
+    permittedSections.flatMap(section => section.items).map(item => [item.path, item]),
+  ), [permittedSections]);
+
+  useEffect(() => {
+    setFavoritePaths(previous => {
+      const next = previous.filter(path => permittedItemsByPath.has(path)).slice(0, MAX_FAVORITES);
+      if (next.length === previous.length && next.every((path, index) => path === previous[index])) return previous;
+      localStorage.setItem(favoritesStorageKey, JSON.stringify(next));
+      return next;
+    });
+  }, [favoritesStorageKey, permittedItemsByPath]);
+
+  const visibleSections = useMemo(() => {
+    const favorites = favoritePaths
+      .map(path => permittedItemsByPath.get(path))
+      .filter((item): item is NonNullable<typeof item> => Boolean(item));
+    const favoriteSection = {
+      id: "favorites",
+      labelKey: "nav.sections.favorites",
+      label: t.nav.sections.favorites,
+      icon: Star,
+      items: favorites,
+    };
+    return [favoriteSection, ...permittedSections];
+  }, [favoritePaths, permittedItemsByPath, permittedSections, t.nav.sections.favorites]);
+
+  const toggleFavorite = useCallback((path: string) => {
+    if (!permittedItemsByPath.has(path)) return;
+    setFavoritePaths(previous => {
+      const isFavorite = previous.includes(path);
+      if (!isFavorite && previous.length >= MAX_FAVORITES) {
+        toast.error(t.nav.favoriteLimitReached);
+        return previous;
+      }
+      const next = isFavorite ? previous.filter(savedPath => savedPath !== path) : [...previous, path];
+      localStorage.setItem(favoritesStorageKey, JSON.stringify(next));
+      return next;
+    });
+  }, [favoritesStorageKey, permittedItemsByPath, t.nav.favoriteLimitReached]);
+
   // Keep the current page's section open and reduce sidebar noise by closing
   // the other sections. The user's manual choice remains saved until navigation.
   useEffect(() => {
     if (searchQuery.trim()) return;
-    const activeSection = visibleSections.find(section =>
+    const activeSection = visibleSections.find(section => section.id !== "favorites" &&
       section.items.some(item =>
         location === item.path || (item.path !== "/" && location.startsWith(item.path)),
       ),
@@ -593,9 +654,10 @@ function DashboardLayoutContent({ children, setSidebarWidth }: { children: React
     setCollapsedSections(previous => {
       const next = new Set(
         visibleSections
-          .filter(section => section.id !== activeSection.id)
+          .filter(section => section.id !== activeSection.id && section.id !== "favorites")
           .map(section => section.id),
       );
+      if (previous.has("favorites")) next.add("favorites");
       const unchanged = previous.size === next.size && [...next].every(id => previous.has(id));
       if (unchanged) return previous;
       localStorage.setItem(COLLAPSED_SECTIONS_KEY, JSON.stringify([...next]));
@@ -608,7 +670,7 @@ function DashboardLayoutContent({ children, setSidebarWidth }: { children: React
     if (!searchQuery.trim()) return null;
     const q = searchQuery.toLowerCase();
     const results: { label: string; path: string; icon: any; section: string }[] = [];
-    visibleSections.forEach(s => {
+    permittedSections.forEach(s => {
       s.items.forEach(item => {
         if (item.label.toLowerCase().includes(q)) {
           results.push({ label: item.label, path: item.path, icon: item.icon, section: s.label });
@@ -616,7 +678,7 @@ function DashboardLayoutContent({ children, setSidebarWidth }: { children: React
       });
     });
     return results;
-  }, [searchQuery, visibleSections]);
+  }, [searchQuery, permittedSections]);
 
   const toggleSection = (id: string) => {
     setCollapsedSections(prev => {
@@ -739,16 +801,23 @@ function DashboardLayoutContent({ children, setSidebarWidth }: { children: React
               visibleSections.map((section, sIdx) => {
                 const isSectionCollapsed = collapsedSections.has(section.id);
                 return (
-                  <div key={section.id} className={sIdx > 0 ? "mt-1" : ""}>
+                  <div
+                    key={section.id}
+                    className={section.id === "favorites"
+                      ? "mx-2 mb-2 mt-1 rounded-xl border border-amber-400/70 bg-amber-400/10 shadow-sm"
+                      : sIdx > 0 ? "mt-1" : ""}
+                  >
                     {/* Section Header */}
                     {!isCollapsed && (
                       <button
                         onClick={() => toggleSection(section.id)}
-                        className="w-full flex items-center justify-between px-3 py-1.5 group"
+                        className={`w-full flex items-center justify-between group ${section.id === "favorites" ? "px-2.5 py-2" : "px-3 py-1.5"}`}
                       >
                         <div className="flex items-center gap-1.5">
-                          <section.icon className="h-3 w-3 text-sidebar-foreground/35" />
-                          <span className="text-xs font-bold uppercase tracking-wider text-sidebar-foreground/70 group-hover:text-sidebar-foreground/90 transition-colors">
+                          <section.icon className={`h-3.5 w-3.5 ${section.id === "favorites" ? "fill-current text-amber-500" : "text-sidebar-foreground/35"}`} />
+                          <span className={section.id === "favorites"
+                            ? "text-sm font-extrabold text-amber-600 dark:text-amber-400"
+                            : "text-xs font-bold uppercase tracking-wider text-sidebar-foreground/70 group-hover:text-sidebar-foreground/90 transition-colors"}>
                             {section.label}
                           </span>
                         </div>
@@ -761,11 +830,16 @@ function DashboardLayoutContent({ children, setSidebarWidth }: { children: React
                     {/* Section Items */}
                     {(!isSectionCollapsed || isCollapsed) && (
                       <SidebarMenu className={`px-2 gap-0.5 ${!isCollapsed ? "pb-1" : "py-1"}`}>
+                        {section.id === "favorites" && section.items.length === 0 && !isCollapsed && (
+                          <p className="px-2 pb-2 text-[11px] font-medium leading-5 text-amber-700/80 dark:text-amber-300/80">
+                            {t.nav.favoritesEmpty}
+                          </p>
+                        )}
                         {section.items.map(item => {
                           const isActive = isItemActive(item.path);
                           const isComingSoon = item.path === "/predictive";
                           return (
-                            <SidebarMenuItem key={item.path}>
+                            <SidebarMenuItem key={item.path} className="relative group/favorite">
                               <SidebarMenuButton
                                 isActive={isActive}
                                 onClick={() => {
@@ -776,7 +850,7 @@ function DashboardLayoutContent({ children, setSidebarWidth }: { children: React
                                   }
                                 }}
                                 tooltip={item.label}
-                                className={`h-9 transition-all font-normal text-[13px] group/item ${isComingSoon ? "opacity-60" : ""}`}
+                                className={`h-9 transition-all font-normal text-[13px] group/item ${!isCollapsed ? "pl-8" : ""} ${isComingSoon ? "opacity-60" : ""}`}
                               >
                                 <item.icon className={`h-3.5 w-3.5 shrink-0 transition-colors ${isActive ? "text-sidebar-primary" : "text-sidebar-foreground/55 group-hover/item:text-sidebar-foreground/80"}`} />
                                 <span className={`truncate ${isActive ? "font-medium" : ""}`}>{item.label}</span>
@@ -784,6 +858,21 @@ function DashboardLayoutContent({ children, setSidebarWidth }: { children: React
                                   <span className="mr-auto text-[9px] bg-amber-500/15 text-amber-600 dark:text-amber-400 px-1.5 py-0.5 rounded-full font-medium shrink-0">قريباً</span>
                                 )}
                               </SidebarMenuButton>
+                              {!isCollapsed && (
+                                <button
+                                  type="button"
+                                  aria-label={favoritePaths.includes(item.path) ? t.nav.removeFromFavorites : t.nav.addToFavorites}
+                                  title={favoritePaths.includes(item.path) ? t.nav.removeFromFavorites : t.nav.addToFavorites}
+                                  onClick={event => {
+                                    event.preventDefault();
+                                    event.stopPropagation();
+                                    toggleFavorite(item.path);
+                                  }}
+                                  className={`absolute left-2 top-1/2 z-10 -translate-y-1/2 rounded p-1 transition-all hover:bg-sidebar-accent focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-sidebar-primary ${favoritePaths.includes(item.path) ? "text-amber-500 opacity-100" : "text-sidebar-foreground/35 opacity-0 group-hover/favorite:opacity-100"}`}
+                                >
+                                  <Star className={`h-3.5 w-3.5 ${favoritePaths.includes(item.path) ? "fill-current" : ""}`} />
+                                </button>
+                              )}
                             </SidebarMenuItem>
                           );
                         })}
@@ -791,7 +880,7 @@ function DashboardLayoutContent({ children, setSidebarWidth }: { children: React
                     )}
 
                     {/* Section Divider */}
-                    {!isCollapsed && sIdx < visibleSections.length - 1 && (
+                    {!isCollapsed && section.id !== "favorites" && sIdx < visibleSections.length - 1 && (
                       <div className="mx-3 border-b border-sidebar-border/25" />
                     )}
                   </div>

@@ -59,6 +59,10 @@ const ur: TranslationKeys = {
     documentsCenter: "دستاویزات مرکز",
     itemTracker: "شے ٹریکر",
     menu: "مینو",
+    addToFavorites: "میری پسندیدہ میں شامل کریں",
+    removeFromFavorites: "میری پسندیدہ سے ہٹائیں",
+    favoriteLimitReached: "آپ میری پسندیدہ میں صرف 5 صفحات شامل کر سکتے ہیں۔ پہلے ایک صفحہ ہٹائیں۔",
+    favoritesEmpty: "کسی بھی صفحے کے ساتھ ستارہ دبا کر اسے یہاں شامل کریں۔",
     ticketsInbox: "شکایات ان باکس",
     triage: "ٹریاج اور تصنیف",
     gateSecurity: "گیٹ سیکیورٹی",
@@ -66,6 +70,7 @@ const ur: TranslationKeys = {
     catalog: "کیٹلاگ",
     sections: {
       homeTasks: "مرکزی صفحہ اور کام",
+      favorites: "میری پسندیدہ",
       ticketsOperations: "شکایات اور آپریشن",
       maintenance: "دیکھ بھال",
       purchasing: "خریداری",
