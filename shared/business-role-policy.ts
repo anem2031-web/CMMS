@@ -68,6 +68,20 @@ const warehouseQueries = [
   ...paths("catalog.suppliers", "match list getById stats"),
   "catalog.suppliers.candidates.listPending", "catalog.itemSuppliers.listByItem",
 ];
+
+/**
+ * Read-only warehouse oversight granted to senior management in its capacity
+ * as warehouse management. Keep this list query-only: stock movements and
+ * warehouse workflow mutations remain exclusive to the warehouse role.
+ */
+const warehouseOversightQueries = [
+  ...paths("inventory", "list taxonomy lotSummaries listLots getTransactions issueCostAllocations getItemSummary getPurchaseHistory getLedger"),
+  ...paths("inventoryCount", "searchCandidates uncountedItems countDiscrepancies listOperations operationDetails listSettlements settlementDetails lotTrackingStatus"),
+  ...paths("transfers", "listCards getBatchDetail"),
+  ...paths("warehouseIssueBatches", "list getById"),
+  ...paths("stock", "getTransactions getLowStockItems"),
+  ...paths("purchaseOrders", "searchItemNames trackItem"),
+];
 const warehouseMutations = [
   ...paths("inventoryCount", "saveSettlementDraft submitSettlementDraft correctCount"),
   "users.create", "deliveryDocuments.generate",
@@ -121,7 +135,7 @@ const constructionMutations = [
 export const BUSINESS_ROLE_CAPABILITIES: Record<BusinessRole, { query: readonly string[]; mutation: readonly string[] }> = {
   accountant: { query: [...sharedQueries, ...costQueries, "attachments.listByType", ...paths("delegatePricingBundles", "status list listPage detail")],
     mutation: [...sharedMutations, ...paths("purchaseOrders", "approveAccounting approveAccountingBatch rejectAccountingBatchItem reject"), "purchasePackages.approveAccountingSubmission", "delegatePricingBundles.pdf"] },
-  senior_management: { query: [...sharedQueries, ...documentQueries, ...settlementReviewQueries, ...costQueries, ...managementQueries, "attachments.listByType", "technicians.list", ...paths("delegatePricingBundles", "status list listPage detail")],
+  senior_management: { query: [...sharedQueries, ...documentQueries, ...settlementReviewQueries, ...warehouseOversightQueries, ...costQueries, ...managementQueries, "attachments.listByType", "technicians.list", ...paths("delegatePricingBundles", "status list listPage detail")],
     mutation: [...sharedMutations, ...documentMutations, ...settlementReviewMutations, ...managementMutations, ...paths("purchaseOrders", "approveManagement approveManagementBatch reject"), "purchasePackages.approveManagementSubmission", "delegatePricingBundles.pdf"] },
   executive_director: { query: [...sharedQueries, ...documentQueries, ...costQueries, ...managementQueries, "technicians.list"],
     mutation: [...sharedMutations, ...documentMutations, ...managementMutations] },
@@ -141,6 +155,7 @@ export function businessRpcAllowed(user: BusinessIdentity | null | undefined, ty
 const commonPages = new Set(["/", "/notifications", "/improvement-ideas", "/purchase-orders", "/purchase-orders/new", "/documents", "/inventory/reports", "/inventory/reconciliation",
   "/inventory/reports/stock-balance", "/inventory/reports/movements", "/inventory/reports/valuation", "/inventory/reports/analytics"]);
 const warehousePages = new Set(["/inventory", "/inventory-operations", "/inventory/receive", "/warehouse/receive-v2", "/warehouse/return", "/warehouse/returns", "/warehouse/transfer", "/warehouse/issue", "/warehouses", "/purchase-cycle", "/external-maintenance", "/item-tracker", "/users", "/catalog", "/operational-issues", "/maintenance-team-tickets", "/scheduled-maintenance/warehouse-requests"]);
+const warehouseOversightPages = new Set(["/inventory", "/inventory-operations", "/warehouse/returns", "/warehouse/transfer", "/warehouse/issue", "/warehouses", "/item-tracker"]);
 const managementPages = new Set(["/tickets", "/tickets/inbox", "/tickets/new", "/reports", "/reports/technicians", "/reports/purchase-cycle", "/reports/maintenance-cycle", "/reports/section-report", "/reports/preventive", "/inspection-dashboard", "/ai-assistant"]);
 export function businessPageAllowed(role: BusinessRole, rawPath: string): boolean {
   const path = rawPath.split(/[?#]/, 1)[0] || "/";
@@ -151,6 +166,7 @@ export function businessPageAllowed(role: BusinessRole, rawPath: string): boolea
   if (path === "/reports/cost") return role !== "food_warehouse_assistant";
   if (role === "accountant" || role === "senior_management") {
     if (path === "/delegate-pricing-bundles") return true;
+    if (role === "senior_management" && warehouseOversightPages.has(path)) return true;
     if (role === "accountant") return false;
   }
   if (role === "warehouse") return warehousePages.has(path);

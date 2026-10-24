@@ -4,10 +4,13 @@ import { useLocation } from "wouter";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ArrowRight, RotateCcw, FileText, Loader2, Plus } from "lucide-react";
+import { useAuth } from "@/_core/hooks/useAuth";
 
 
 export default function WarehouseReturnsList() {
   const [, navigate] = useLocation();
+  const { user } = useAuth();
+  const canCreateReturn = user?.role === "warehouse" || user?.role === "admin" || user?.role === "owner";
   const { data: docs, isLoading } = trpc.returnDocuments.list.useQuery();
   const incrementPrintMut = trpc.returnDocuments.incrementPrint.useMutation();
 
@@ -21,9 +24,9 @@ export default function WarehouseReturnsList() {
           <h1 className="text-xl font-bold">المرتجعات</h1>
           <p className="text-sm text-muted-foreground">كل عمليات الإرجاع المحفوظة</p>
         </div>
-        <Button size="sm" className="gap-1.5" onClick={() => navigate("/warehouse/return")}>
+        {canCreateReturn && <Button size="sm" className="gap-1.5" onClick={() => navigate("/warehouse/return")}>
           <Plus className="w-4 h-4" /> مرتجع جديد
-        </Button>
+        </Button>}
       </div>
 
       {isLoading && (

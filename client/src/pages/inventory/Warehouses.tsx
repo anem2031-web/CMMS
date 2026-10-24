@@ -24,10 +24,11 @@ export default function Warehouses() {
   const [, navigate] = useLocation();
   const { user } = useAuth();
   const canEditWarehouseName = user?.role === "admin" || user?.role === "owner";
+  const canOperateWarehouse = user?.role === "warehouse" || user?.role === "admin" || user?.role === "owner";
 
   const { data: warehousesList, isLoading, refetch } = trpc.warehouse.list.useQuery();
   const { data: availableCategories, isLoading: loadingCategories } =
-    trpc.warehouse.getAvailableCategories.useQuery();
+    trpc.warehouse.getAvailableCategories.useQuery(undefined, { enabled: canOperateWarehouse });
 
   const [showCreate, setShowCreate] = useState(false);
   const [nameAr, setNameAr] = useState("");
@@ -105,12 +106,14 @@ export default function Warehouses() {
             المخزن الرئيسي والمخازن الفرعية، كل مخزن فرعي مرتبط بتصنيف واحد من الكتالوج
           </p>
         </div>
-        <Button variant="outline" size="sm" className="gap-1.5" onClick={() => navigate("/warehouse/transfer")}>
-          <ArrowLeftRight className="w-4 h-4" /> تحويل بين المخازن
-        </Button>
-        <Button size="sm" className="gap-1.5" onClick={() => setShowCreate(true)}>
-          <Plus className="w-4 h-4" /> مخزن فرعي جديد
-        </Button>
+        {canOperateWarehouse && <>
+          <Button variant="outline" size="sm" className="gap-1.5" onClick={() => navigate("/warehouse/transfer")}>
+            <ArrowLeftRight className="w-4 h-4" /> تحويل بين المخازن
+          </Button>
+          <Button size="sm" className="gap-1.5" onClick={() => setShowCreate(true)}>
+            <Plus className="w-4 h-4" /> مخزن فرعي جديد
+          </Button>
+        </>}
       </div>
 
       {isLoading && (

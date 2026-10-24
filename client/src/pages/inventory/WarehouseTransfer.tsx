@@ -20,6 +20,7 @@ import BarcodeScanner from "@/components/common/BarcodeScanner";
 import { fmtDate } from "@/lib/printInventoryOperationDocuments";
 import { requiresBranchTransferConfirmation } from "@shared/branch-transfer-confirmation";
 import { BranchTransferConfirmation } from "@/components/inventory/BranchTransferConfirmation";
+import { useAuth } from "@/_core/hooks/useAuth";
 
 const MAX_ITEMS_PER_TRANSFER = 20;
 
@@ -106,6 +107,8 @@ function buildMaterialTransferNote(
 
 export default function WarehouseTransfer() {
   const [, navigate] = useLocation();
+  const { user } = useAuth();
+  const canOperateWarehouse = user?.role === "warehouse" || user?.role === "admin" || user?.role === "owner";
   const materialHandoff = useMemo(() => readMaterialTransferHandoff(), []);
   const utils = trpc.useUtils();
   const ticketOperation = useRef<{ fingerprint: string; key: string } | null>(null);
@@ -568,18 +571,18 @@ export default function WarehouseTransfer() {
         </Card>
       )}
 
-      <Tabs defaultValue="perform">
-        <TabsList className="grid grid-cols-2 w-full max-w-md">
-          <TabsTrigger value="perform" className="gap-1.5">
+      <Tabs defaultValue={canOperateWarehouse ? "perform" : "history"}>
+        <TabsList className={`grid w-full max-w-md ${canOperateWarehouse ? "grid-cols-2" : "grid-cols-1"}`}>
+          {canOperateWarehouse && <TabsTrigger value="perform" className="gap-1.5">
             <SendHorizontal className="w-3.5 h-3.5" /> تنفيذ تحويل
-          </TabsTrigger>
+          </TabsTrigger>}
           <TabsTrigger value="history" className="gap-1.5">
             <History className="w-3.5 h-3.5" /> سجل التحويلات
           </TabsTrigger>
         </TabsList>
 
         {/* ══════════════════════ تبويب 1: تنفيذ تحويل ══════════════════════ */}
-        <TabsContent value="perform" className="mt-4 space-y-4">
+        {canOperateWarehouse && <TabsContent value="perform" className="mt-4 space-y-4">
           <Card>
             <CardContent className="p-4 space-y-3">
               <div className="grid grid-cols-2 gap-3">
@@ -868,7 +871,7 @@ export default function WarehouseTransfer() {
               )}
             </CardContent>
           </Card>
-        </TabsContent>
+        </TabsContent>}
 
         {/* ══════════════════════ تبويب 2: سجل التحويلات (بطاقة واحدة لكل عملية) ══════════════════════ */}
         <TabsContent value="history" className="mt-4 space-y-4">

@@ -104,6 +104,38 @@ describe.each(BUSINESS_GUARDED_ROLES)("Central enforcement for %s", role => {
 });
 
 describe("Preserved action boundaries", () => {
+  it("grants senior management warehouse oversight without warehouse execution", () => {
+    const oversightPages = [
+      "/inventory", "/inventory-operations", "/inventory-settlement-review",
+      "/inventory/reconciliation", "/inventory/reports", "/warehouse/returns",
+      "/warehouse/transfer", "/warehouse/issue", "/warehouses", "/item-tracker",
+    ];
+    for (const path of oversightPages) expect(canRoleAccessPath("senior_management", path), path).toBe(true);
+    for (const path of ["/inventory/receive", "/warehouse/receive-v2", "/warehouse/return", "/purchase-cycle"])
+      expect(canRoleAccessPath("senior_management", path), path).toBe(false);
+
+    for (const path of [
+      "inventory.list", "inventory.listLots", "inventory.getLedger",
+      "inventoryCount.listOperations", "inventoryCount.operationDetails",
+      "inventoryCount.listSettlements", "transfers.listCards", "transfers.getBatchDetail",
+      "warehouseIssueBatches.list", "warehouseIssueBatches.getById",
+      "purchaseOrders.searchItemNames", "purchaseOrders.trackItem",
+    ]) expect(() => assertBusinessRpc(identity("senior_management"), "query", path), path).not.toThrow();
+
+    for (const path of [
+      "inventory.create", "inventory.update", "inventory.addTransaction",
+      "inventoryCount.createOperation", "inventoryCount.recordItem", "inventoryCount.completeOperation",
+      "transfers.createBatch", "warehouseIssueBatches.create", "warehouseReturns.create",
+      "warehouseReceiptsV2.receiveFromPurchaseV2", "warehouse.create",
+    ]) expect(() => assertBusinessRpc(identity("senior_management"), "mutation", path), path).toThrow();
+  });
+
+  it("does not broaden warehouse oversight pages to other reviewed roles", () => {
+    for (const role of ["accountant", "executive_director", "food_warehouse_assistant"])
+      for (const path of ["/inventory", "/inventory-operations", "/warehouse/transfer", "/warehouse/issue", "/warehouses", "/item-tracker"])
+        expect(canRoleAccessPath(role, path), `${role}:${path}`).toBe(false);
+  });
+
   it.each(BUSINESS_GUARDED_ROLES.filter(r => r !== "warehouse"))("%s cannot write stock through a generic read procedure", async role => {
     await expect(caller(role).inventory.addTransaction({ inventoryId: 1, type: "in", quantity: 3 })).rejects.toMatchObject({ code: "FORBIDDEN" });
     expect(spies.write).not.toHaveBeenCalled();

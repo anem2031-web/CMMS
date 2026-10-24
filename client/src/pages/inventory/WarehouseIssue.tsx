@@ -19,6 +19,7 @@ import {
 } from "@/components/inventory/IssueCostAllocationEditor";
 import { printWarehouseIssueDocument } from "@/lib/printWarehouseIssueDocument";
 import { toast } from "sonner";
+import { useAuth } from "@/_core/hooks/useAuth";
 import {
   Eye,
   FileText,
@@ -84,6 +85,8 @@ function createCostAllocationDraftsFromSuggestion(suggestion: any): IssueCostAll
 
 export default function WarehouseIssue() {
   const utils = trpc.useUtils();
+  const { user } = useAuth();
+  const canOperateWarehouse = user?.role === "warehouse" || user?.role === "admin" || user?.role === "owner";
   const { data: warehouses = [] } = trpc.warehouse.list.useQuery();
   const { data: allUsers = [] } = trpc.users.list.useQuery();
   const { data: sites = [] } = trpc.sites.list.useQuery();
@@ -342,13 +345,13 @@ export default function WarehouseIssue() {
         </p>
       </div>
 
-      <Tabs defaultValue="create" className="space-y-5" dir="rtl">
-        <TabsList className="grid w-full max-w-md grid-cols-2">
-          <TabsTrigger value="create" className="gap-2"><Truck className="h-4 w-4" /> إنشاء سند صرف</TabsTrigger>
+      <Tabs defaultValue={canOperateWarehouse ? "create" : "history"} className="space-y-5" dir="rtl">
+        <TabsList className={`grid w-full max-w-md ${canOperateWarehouse ? "grid-cols-2" : "grid-cols-1"}`}>
+          {canOperateWarehouse && <TabsTrigger value="create" className="gap-2"><Truck className="h-4 w-4" /> إنشاء سند صرف</TabsTrigger>}
           <TabsTrigger value="history" className="gap-2"><History className="h-4 w-4" /> سجل الصرف</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="create" className="space-y-6">
+        {canOperateWarehouse && <TabsContent value="create" className="space-y-6">
       {!lotsEnabled && lotTrackingStatus && (
         <Card className="border-amber-300 bg-amber-50/60">
           <CardContent className="p-4 text-sm text-amber-900">
@@ -601,7 +604,7 @@ export default function WarehouseIssue() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-        </TabsContent>
+        </TabsContent>}
 
         <TabsContent value="history" className="space-y-4">
           <Card>
