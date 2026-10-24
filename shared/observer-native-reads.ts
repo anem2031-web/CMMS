@@ -12,7 +12,6 @@ export const OBSERVER_NATIVE_READ_PATHS = [
   "operationalIssues.choices",
   "materialCosts.status",
   "materialCosts.report",
-  "materialCosts.document",
   "materialCosts.issueTargets",
   "analytics.costComparison",
   "analytics.monthlySummary",

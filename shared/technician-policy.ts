@@ -5,7 +5,7 @@ export const TECHNICIAN_QUERY_PATHS = [
   "auth.me", "notifications.summary", "notifications.list", "notifications.unreadCount", "push.getStatus", "push.getVapidPublicKey",
   "tickets.list", "tickets.listPaginated", "tickets.getById", "tickets.items", "tickets.departmentPlan",
   "tickets.history", "tickets.getConfirmation", "tickets.executionReferences", "inspectionResults.listByTicket",
-  "materialCosts.document", "improvementIdeas.executionReference",
+  "improvementIdeas.executionReference",
   "ticketTeamAssignments.queue", "ticketTeamExecution.details", "ticketTeamExecution.balances",
   "ticketTeamExecution.catalog", "ticketTeamExecution.preview",
   "pmv2.technician.workspace", "pmv2.technician.today", "pmv2.technician.materialAttention",

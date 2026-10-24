@@ -1,7 +1,9 @@
 import { trpc } from "@/lib/trpc";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { canViewMaterialCostDocument } from "@shared/material-execution-costs";
 
 export const materialSourceLabels = { ticket_named: "بلاغ بالاسم", ticket_team: "بلاغ فريق", pmv2: "PMV2", independent: "صرف مستقل", operational: "صرف تشغيلي" };
 export function MaterialCostRows({ rows }: { rows: any[] }) {
@@ -28,7 +30,10 @@ export function MaterialCostTotals({ summary }: { summary: any }) {
 }
 export function MaterialCostPanel({ source, id }: { source: "ticket" | "pmv2"; id: number }) {
   const { language } = useLanguage();
-  const query = trpc.materialCosts.document.useQuery({ source, id }, { enabled: id > 0, retry: false });
+  const { user } = useAuth();
+  const allowed = canViewMaterialCostDocument(user?.role);
+  const query = trpc.materialCosts.document.useQuery({ source, id }, { enabled: allowed && id > 0, retry: false });
+  if (!allowed) return null;
   if (!query.data?.enabled && !query.error) return null;
   return <Card dir={language === "ar" || language === "ur" ? "rtl" : "ltr"}><CardHeader><CardTitle className="text-base flex justify-between items-center">صافي تكلفة مواد التنفيذ حسب اللوت<Button size="sm" variant="outline" onClick={() => void query.refetch()} disabled={query.isFetching}>تحديث</Button></CardTitle></CardHeader><CardContent className="space-y-3">
     {query.error ? <p className="text-sm text-destructive">{query.error.message}</p> : query.data && <>

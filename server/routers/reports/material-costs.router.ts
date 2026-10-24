@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { sql, eq, and } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
-import { router, protectedProcedure, warehouseProcedure } from "../_shared/procedures";
+import { router, protectedProcedure, warehouseProcedure, adminOwnerProcedure } from "../_shared/procedures";
 import * as db from "../../_core/db";
 import { pmv2Tasks } from "../../../drizzle/schema";
 import { pmv2ExecutionActor, pmv2ExecutionActorCondition, pmv2ExecutionTeamCondition } from "../../pmv2/security/execution-access";
@@ -65,7 +65,7 @@ export const materialCostsRouter = router({
     return { enabled: true, summary: summarizeMaterialCosts(events), groups: groupMaterialCosts(events, input.groupBy),
       rows: events.slice((input.page - 1) * 50, input.page * 50), total: events.length, page: input.page };
   }),
-  document: protectedProcedure.input(z.object({ source: z.enum(["ticket", "pmv2"]), id: z.number().int().positive() })).query(async ({ input, ctx }) => {
+  document: adminOwnerProcedure.input(z.object({ source: z.enum(["ticket", "pmv2"]), id: z.number().int().positive() })).query(async ({ input, ctx }) => {
     if (!materialExecutionCostsEnabled()) return { enabled: false, summary: summarizeMaterialCosts([]), rows: [] };
     const connection = await database();
     let ids = [input.id];

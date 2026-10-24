@@ -1,6 +1,8 @@
 /** Operational material cost only. Never posts or revalues inventory. */
 export const MATERIAL_COST_SOURCES = ["ticket_named", "ticket_team", "pmv2", "independent", "operational"] as const;
 export type MaterialCostSource = typeof MATERIAL_COST_SOURCES[number];
+/** Monetary execution details are restricted to the two system-supervision roles. */
+export const canViewMaterialCostDocument = (role?: string | null): boolean => role === "owner" || role === "admin";
 export type MaterialCostReturn = {
   id: number; number: string; quantity: number | string; createdAt: string;
   financialValue: number | string | null;

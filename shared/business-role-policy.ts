@@ -36,7 +36,7 @@ const documentQueries = [
 const settlementReviewQueries = paths("inventoryCount", "settlementDrafts settlementDraftDetails");
 const settlementReviewMutations = paths("inventoryCount", "returnSettlementDraft approveSettlementDraft requestCountCorrection");
 const documentMutations = ["deliveryDocuments.incrementPrint", "warehouseIssueBatches.incrementPrint", "returnDocuments.incrementPrint"];
-const costQueries = ["materialCosts.status", "materialCosts.report", "materialCosts.document", "reports.costReport"];
+const costQueries = ["materialCosts.status", "materialCosts.report", "reports.costReport"];
 const managementQueries = [
   ...paths("tickets", "list listPaginated inboxCounts getById executionReferences items myItemsForTickets history getConfirmation departmentPlan"),
   "inspectionResults.listByTicket", "inspectionResults.dashboardStats",
