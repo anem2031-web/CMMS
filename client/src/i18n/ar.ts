@@ -53,6 +53,7 @@ const ar = {
     auditLog: "سجل التدقيق",
     notifications: "الإشعارات",
     translationMonitor: "مراقبة الترجمات",
+    delegatePricingBundles: "حزم التسعير",
     purchaseCycle: "دورة الشراء",
     externalMaintenance: "صيانة خارجية",
     documentsCenter: "مركز المستندات",

@@ -53,6 +53,7 @@ const ur: TranslationKeys = {
     inspectionDashboard: "معائنہ ڈیش بورڈ",
     notifications: "اطلاعات",
     translationMonitor: "ترجمہ مانیٹر",
+    delegatePricingBundles: "قیمتوں کے پیکجز",
     purchaseCycle: "خریداری سائیکل",
     externalMaintenance: "بیرونی مینٹیننس",
     documentsCenter: "دستاویزات مرکز",

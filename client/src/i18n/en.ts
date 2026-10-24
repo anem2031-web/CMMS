@@ -53,6 +53,7 @@ const en: TranslationKeys = {
     auditLog: "Audit Log",
     notifications: "Notifications",
     translationMonitor: "Translation Monitor",
+    delegatePricingBundles: "Pricing Bundles",
     purchaseCycle: "Purchase Cycle",
     externalMaintenance: "External Maintenance",
     documentsCenter: "Documents Center",
