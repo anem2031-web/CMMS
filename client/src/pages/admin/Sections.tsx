@@ -13,6 +13,7 @@ import { useState, useMemo } from "react";
 import { toast } from "sonner";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useTranslation } from "@/contexts/LanguageContext";
+import { normalizeBooleanFlag } from "@shared/boolean-flags";
 
 export default function Sections() {
   const { t, language } = useTranslation();
@@ -63,7 +64,11 @@ export default function Sections() {
 
   const openEdit = (section: any) => {
     setSelectedSection(section);
-    setEditForm({ name: section.sourceName || section.name, description: section.description || "", isActive: section.isActive });
+    setEditForm({
+      name: section.sourceName || section.name,
+      description: section.description || "",
+      isActive: normalizeBooleanFlag(section.isActive),
+    });
     setEditOpen(true);
   };
 
