@@ -4,12 +4,21 @@ import { and, eq, isNull, sql, desc } from "drizzle-orm";
 import { router, protectedProcedure } from "../_shared/procedures";
 import { APP_ROLE, isItTeamRole, MAINTENANCE_RESPONSIBLE_DEPARTMENT as DEPT } from "@shared/roles";
 import { canClaimItDepartment } from "@shared/itTeamWorkflow";
-import { ticketDepartments, itPurchaseNeeds, auditLogs } from "../../../drizzle/schema";
+import {
+  canRecordItExecutionOutcome,
+  canStartItSubTicket,
+  IT_EXECUTION_OUTCOMES,
+  itExecutionOutcomeRequiresNote,
+  itExecutionOutcomeTransition,
+} from "@shared/it-execution-workflow";
+import { ticketDepartments, itPurchaseNeeds, auditLogs, ticketStatusHistory } from "../../../drizzle/schema";
 import * as db from "../../_core/db";
 import { assertTicketReadable, assertTicketWorkflowManageable } from "./tickets.access";
 import { assertActiveItUser, getItManager, notifyItTeamArrival } from "./it-team.service";
+import { assertPathBMaterialsDeliveredToTechnician } from "../purchase/ticket-purchase-workflow";
 
 const needItems = z.array(z.object({ itemName: z.string().trim().min(1).max(300), quantity: z.number().min(1), unit: z.string().trim().max(50).optional() })).min(1).max(20);
+const executionOutcome = z.enum(IT_EXECUTION_OUTCOMES);
 function fail(message: string): never { throw new TRPCError({ code: "BAD_REQUEST", message }); }
 function assertTeam(user: { role: string; isActive?: number }) {
   if (!isItTeamRole(user.role) || user.isActive === 0) throw new TRPCError({ code: "FORBIDDEN", message: "هذا الإجراء لفريق تقنية المعلومات النشط" });
@@ -19,6 +28,91 @@ async function audit(tx: any, userId: number, ticketId: number, action: string, 
 }
 
 export const itTeamRouter = router({
+  startItExecution: protectedProcedure.input(z.object({ ticketId: z.number().int().positive() }).strict()).mutation(async ({ ctx, input }) => {
+    assertTeam(ctx.user);
+    await assertActiveItUser(ctx.user.id);
+    await db.withTransaction(async tx => {
+      await db.lockTicketForSubTicketSequence(input.ticketId, tx);
+      const ticket = await db.getTicketById(input.ticketId, tx);
+      if (!ticket) throw new TRPCError({ code: "NOT_FOUND", message: "البلاغ غير موجود" });
+      if (!canStartItSubTicket(ctx.user, ticket)) throw new TRPCError({ code: "FORBIDDEN", message: "بدء التنفيذ متاح فقط لمنفذ تقنية المعلومات المسند إليه البلاغ" });
+      const changed = { status: "in_progress", inspectionWorkflowStatus: null } as const;
+      await db.updateTicket(ticket.id, changed, tx);
+      if (!await db.syncSingleTicketItem(ticket.id, { status: "in_progress" }, tx)) fail("بلاغ التنفيذ يجب أن يحتوي بندًا واحدًا");
+      await tx.insert(ticketStatusHistory).values({ ticketId: ticket.id, fromStatus: ticket.status, toStatus: "in_progress", changedById: ctx.user.id, notes: "بدأ منفذ تقنية المعلومات العمل" });
+      await audit(tx, ctx.user.id, ticket.id, "start_it_ticket_execution", { fromStatus: ticket.status, toStatus: "in_progress" });
+    });
+    return { success: true };
+  }),
+
+  recordItExecutionOutcome: protectedProcedure.input(z.object({
+    ticketId: z.number().int().positive(),
+    outcome: executionOutcome,
+    note: z.string().trim().max(4000).default(""),
+    materialsUsed: z.string().trim().max(4000).optional(),
+    afterPhotoUrl: z.string().trim().max(2000).optional(),
+  }).strict()).mutation(async ({ ctx, input }) => {
+    assertTeam(ctx.user);
+    await assertActiveItUser(ctx.user.id);
+    if (itExecutionOutcomeRequiresNote(input.outcome) && !input.note) fail("اكتب تفاصيل النتيجة قبل الحفظ");
+
+    // Preserve the existing stock/external workflow checks when execution resumes
+    // after materials or an external repair. The new direct IT path cannot bypass them.
+    const before = await db.getTicketById(input.ticketId);
+    if (!before) throw new TRPCError({ code: "NOT_FOUND", message: "البلاغ غير موجود" });
+    if (!canRecordItExecutionOutcome(ctx.user, before)) throw new TRPCError({ code: "FORBIDDEN", message: "تسجيل النتيجة متاح فقط لمنفذ تقنية المعلومات أثناء التنفيذ" });
+    if (["ok", "fixed"].includes(input.outcome) && before.maintenancePath === "B") {
+      await assertPathBMaterialsDeliveredToTechnician(before.id);
+    }
+    if (["ok", "fixed"].includes(input.outcome) && before.maintenancePath === "C") {
+      const job = await db.getExternalMaintenanceJobByTicketId(before.id);
+      if (!job || job.status !== "reinstall_in_progress") fail("أكمل استلام الأصل وابدأ إعادة التركيب قبل إنهاء الصيانة الخارجية");
+    }
+
+    let result!: { status: string; maintenancePath: string | null; ticketNumber: string; reportedById: number | null };
+    await db.withTransaction(async tx => {
+      await db.lockTicketForSubTicketSequence(input.ticketId, tx);
+      const ticket = await db.getTicketById(input.ticketId, tx);
+      if (!ticket) throw new TRPCError({ code: "NOT_FOUND", message: "البلاغ غير موجود" });
+      if (!canRecordItExecutionOutcome(ctx.user, ticket)) throw new TRPCError({ code: "CONFLICT", message: "تغير إسناد البلاغ أو حالته؛ أعد تحميل الصفحة" });
+      const transition = itExecutionOutcomeTransition(input.outcome, ticket.maintenancePath);
+      const repairNotes = input.outcome === "ok" ? (input.note || "سليم ولا يحتاج إصلاح") : (input.note || ticket.repairNotes);
+      const closedAt = transition.status === "closed" ? new Date() : undefined;
+      const changes: Record<string, any> = {
+        status: transition.status,
+        maintenancePath: transition.maintenancePath,
+        ...(repairNotes ? { repairNotes } : {}),
+        ...(input.materialsUsed ? { materialsUsed: input.materialsUsed } : {}),
+        ...(input.afterPhotoUrl ? { afterPhotoUrl: input.afterPhotoUrl } : {}),
+        ...(input.outcome === "blocked" || input.outcome === "external" ? { justification: input.note } : {}),
+        ...(closedAt ? { closedAt } : {}),
+      };
+      await db.updateTicket(ticket.id, changes, tx);
+      if (!await db.syncSingleTicketItem(ticket.id, changes, tx)) fail("بلاغ التنفيذ يجب أن يحتوي بندًا واحدًا");
+      if (transition.status === "closed" && ticket.maintenancePath === "C") {
+        await db.updateExternalMaintenanceJobByTicketId(ticket.id, { status: "closed" }, tx);
+      }
+      const historyNote = input.outcome === "needs_material" ? "يحتاج مواد"
+        : input.outcome === "external" ? `يحتاج صيانة خارجية: ${input.note}`
+          : input.outcome === "blocked" ? `يوجد عائق: ${input.note}`
+            : input.outcome === "ok" ? repairNotes : `تم الإصلاح: ${input.note}`;
+      await tx.insert(ticketStatusHistory).values({ ticketId: ticket.id, fromStatus: ticket.status, toStatus: transition.status, changedById: ctx.user.id, notes: historyNote });
+      await audit(tx, ctx.user.id, ticket.id, "record_it_ticket_execution_outcome", { outcome: input.outcome, fromStatus: ticket.status, toStatus: transition.status, maintenancePath: transition.maintenancePath });
+      result = { status: transition.status, maintenancePath: transition.maintenancePath, ticketNumber: ticket.ticketNumber, reportedById: ticket.reportedById ?? null };
+    });
+
+    if (result.status === "closed" && result.reportedById) {
+      await db.createNotification({ userId: result.reportedById, title: "🔒 تم إغلاق بلاغك", message: `أنهى فريق تقنية المعلومات البلاغ ${result.ticketNumber}. يرجى تأكيد إتمام العمل.`, type: "success", relatedTicketId: input.ticketId });
+    }
+    if (input.outcome === "external") {
+      const warehouseUsers = await db.getUsersByRole(APP_ROLE.WAREHOUSE);
+      for (const warehouseUser of warehouseUsers.filter((user: any) => user.isActive !== 0)) {
+        await db.createNotification({ userId: warehouseUser.id, title: "🔧 أصل بانتظار التجهيز للصيانة الخارجية", message: `اختار فريق تقنية المعلومات الصيانة الخارجية للبلاغ ${result.ticketNumber}.`, type: "warning", relatedTicketId: input.ticketId });
+      }
+    }
+    return { success: true, status: result.status, maintenancePath: result.maintenancePath };
+  }),
+
   claimItTicket: protectedProcedure.input(z.object({ ticketId: z.number(), departmentId: z.number() })).mutation(async ({ ctx, input }) => {
     assertTeam(ctx.user);
     await assertActiveItUser(ctx.user.id);

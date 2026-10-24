@@ -679,7 +679,11 @@ export const ticketsWorkflowRouter = router({
     const department = await db.getTicketDepartmentById(task.ticketDepartmentId);
     if (!department || department.ticketId !== input.ticketId) throw new TRPCError({ code: "BAD_REQUEST", message: "جهة المهمة غير صالحة" });
     const taskAssignees = await db.getTaskAssignees(task.id);
-    if (!(department.department === MAINTENANCE_RESPONSIBLE_DEPARTMENT.IT && isItTeamRole(ctx.user.role) && taskAssignees.some((a: any) => a.userId === ctx.user.id))) assertCanManageDepartmentPlan(ctx.user, department);
+    if (department.department === MAINTENANCE_RESPONSIBLE_DEPARTMENT.IT) {
+      if (!isItTeamRole(ctx.user.role) || !taskAssignees.some((a: any) => a.userId === ctx.user.id)) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "بدء التنفيذ متاح فقط لمنفذ تقنية المعلومات المسند إليه" });
+      }
+    } else assertCanManageDepartmentPlan(ctx.user, department);
     const result = await db.withTransaction(async (tx: any) => {
       await db.lockTicketForSubTicketSequence(parent.id, tx);
       await db.lockTicketDepartmentForTaskSequence(department.id, tx);
@@ -692,32 +696,38 @@ export const ticketsWorkflowRouter = router({
       if (freshTask.convertedTicketId) return { childId: freshTask.convertedTicketId, ticketNumber: undefined as string | undefined, alreadyExisting: true, assigneeIds: [] as number[] };
       if (freshTask.status === "cancelled") throw new TRPCError({ code: "BAD_REQUEST", message: "المهمة ملغاة" });
       const freshAssignees = await db.getTaskAssignees(task.id, tx);
-      if (!(freshDepartment.department === MAINTENANCE_RESPONSIBLE_DEPARTMENT.IT && isItTeamRole(ctx.user.role) && freshAssignees.some((a: any) => a.userId === ctx.user.id))) assertCanManageDepartmentPlan(ctx.user, freshDepartment);
+      if (freshDepartment.department === MAINTENANCE_RESPONSIBLE_DEPARTMENT.IT) {
+        if (!isItTeamRole(ctx.user.role) || !freshAssignees.some((a: any) => a.userId === ctx.user.id)) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "تغير منفذ تقنية المعلومات المسند إليه؛ أعد تحميل الصفحة" });
+        }
+      } else assertCanManageDepartmentPlan(ctx.user, freshDepartment);
       if (freshDepartment.department === MAINTENANCE_RESPONSIBLE_DEPARTMENT.IT) for (const a of freshAssignees) await assertActiveItUser(a.userId);
       if (!freshAssignees.length) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "يجب توزيع المهمة على فني واحد على الأقل قبل تحويلها" });
       const seq = await db.allocateNextSubTicketSequence(parent.id, tx);
       const ticketNumber = `${parent.ticketNumber}-${String(seq).padStart(2, "0")}`;
       const primaryTechnicianId = freshAssignees[0].userId;
+      const executionStartsNow = freshDepartment.department === MAINTENANCE_RESPONSIBLE_DEPARTMENT.IT;
+      const initialStatus = executionStartsNow ? "in_progress" : "under_inspection";
       const childId = await db.createTicket({
         ticketNumber, title: freshTask.title?.trim() || `${parent.title} — مهمة ${freshTask.taskNumber}`, description: freshTask.description,
-        status: "under_inspection", priority: parent.priority, category: parent.category, categoryId: parent.categoryId ?? null, siteId: parent.siteId, sectionId: parent.sectionId,
+        status: initialStatus, priority: parent.priority, category: parent.category, categoryId: parent.categoryId ?? null, siteId: parent.siteId, sectionId: parent.sectionId,
         assetId: parent.assetId, locationDetail: parent.locationDetail, reportedById: parent.reportedById, beforePhotoUrl: parent.beforePhotoUrl,
         originalLanguage: parent.originalLanguage, ticketType: parent.ticketType || "internal", supervisorId: parent.supervisorId ?? ctx.user.id,
         maintenanceResponsibleDepartment: department.department, maintenanceResponsibleManagerId: department.responsibleManagerId,
         maintenanceRoutedById: ctx.user.id, maintenanceRoutedAt: new Date(), maintenanceRoutingNote: `بلاغ فرعي من ${parent.ticketNumber} / مهمة ${freshTask.taskNumber}`,
-        assignedToId: primaryTechnicianId, assignedAt: new Date(), inspectionWorkflowStatus: MAINTENANCE_INSPECTION_WORKFLOW_STATUS.PENDING_SUBMISSION,
+        assignedToId: primaryTechnicianId, assignedAt: new Date(), inspectionWorkflowStatus: executionStartsNow ? null : MAINTENANCE_INSPECTION_WORKFLOW_STATUS.PENDING_SUBMISSION,
         workflowModel: "sub_ticket", parentTicketId: parent.id, sourceTaskId: freshTask.id, subTicketSequence: seq,
       }, tx);
       if (!childId) throw new Error("Failed to create sub-ticket");
       await db.createTicketItem({ ticketId: childId, itemNumber: 1, title: freshTask.title?.trim() || `${parent.title} — مهمة ${freshTask.taskNumber}`, description: freshTask.description, descriptionAr: freshTask.description,
         assetId: parent.assetId ?? null, responsibleDepartment: department.department, responsibleManagerId: department.responsibleManagerId,
-        routedById: ctx.user.id, routedAt: new Date(), routingNote: `محول من مهمة في ${parent.ticketNumber}`, status: "under_inspection",
+        routedById: ctx.user.id, routedAt: new Date(), routingNote: `محول من مهمة في ${parent.ticketNumber}`, status: initialStatus,
         assignedToId: primaryTechnicianId, assignedAt: new Date(), isLegacySingleItem: 0, createdById: ctx.user.id }, tx);
       await db.updateTicketTask(freshTask.id, { status: "promoted", convertedTicketId: childId }, tx);
-      return { childId, ticketNumber, alreadyExisting: false, assigneeIds: freshAssignees.map((a: any) => a.userId) };
+      return { childId, ticketNumber, initialStatus, alreadyExisting: false, assigneeIds: freshAssignees.map((a: any) => a.userId) };
     });
     if (result.alreadyExisting) { const existing = await db.getTicketById(result.childId); return { success: true, ticketId: result.childId, ticketNumber: existing?.ticketNumber }; }
-    await db.addTicketStatusHistory({ ticketId: result.childId, fromStatus: undefined, toStatus: "under_inspection", changedById: ctx.user.id, notes: `تم إنشاء البلاغ الفرعي من المهمة ${task.taskNumber} التابعة للبلاغ ${parent.ticketNumber}` });
+    await db.addTicketStatusHistory({ ticketId: result.childId, fromStatus: undefined, toStatus: result.initialStatus || "under_inspection", changedById: ctx.user.id, notes: department.department === MAINTENANCE_RESPONSIBLE_DEPARTMENT.IT ? `بدأ تنفيذ مهمة تقنية المعلومات ${task.taskNumber} التابعة للبلاغ ${parent.ticketNumber}` : `تم إنشاء البلاغ الفرعي من المهمة ${task.taskNumber} التابعة للبلاغ ${parent.ticketNumber}` });
     await db.createAuditLog({ userId: ctx.user.id, action: "promote_ticket_task_to_subticket", entityType: "ticket", entityId: parent.id, newValues: { taskId: task.id, subTicketId: result.childId, subTicketNumber: result.ticketNumber } });
     for (const id of result.assigneeIds) await db.createNotification({ userId: id, title: "تم تحويل مهمتك إلى بلاغ فرعي", message: `المهمة أصبحت البلاغ ${result.ticketNumber} وتبدأ الآن دورة العمل المستقلة.`, type: "info", relatedTicketId: result.childId });
     return { success: true, ticketId: result.childId, ticketNumber: result.ticketNumber };

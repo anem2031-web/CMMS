@@ -517,6 +517,10 @@ const { getField } = useResolvedTranslation(
   const isSupervisorForTicket = role === APP_ROLE.SUPERVISOR && !isItDepartmentTicket;
   const isItWorkflowManager = isItTeamRole(role) && isItDepartmentTicket &&
     ticket?.assignedToId === user?.id;
+  // IT sub-tickets use the compact five-outcome execution panel. Keep the
+  // legacy A/B/C controls hidden for the named IT executor to avoid duplicate,
+  // contradictory actions on the same ticket.
+  const usesDirectItExecution = isItWorkflowManager && ticket?.workflowModel === "sub_ticket";
   const isManager = [APP_ROLE.PURCHASE_MANAGER, APP_ROLE.OWNER, APP_ROLE.ADMIN].includes(role as any) ||
     isLegacyMaintenanceManagerForTicket || isGeneralMaintenanceScope || isManagedConstructionTicket || isItWorkflowManager;
   const isTicketWorkflowManager = [APP_ROLE.OWNER, APP_ROLE.ADMIN].includes(role as any) ||
@@ -566,17 +570,17 @@ const { getField } = useResolvedTranslation(
     postTriageStatuses.includes(ticket?.status || "");
   const canDownloadArchive = canDownloadTicketArchive(role, ticket?.status);
   const canPrintTaskDocument = canPrintTicketTask(role, ticket?.status);
-  const canStartRepair = canStartTicketRepair(
+  const canStartRepair = !usesDirectItExecution && canStartTicketRepair(
     isTechnician || isTicketWorkflowManager,
     ticket?.status,
     ticket?.maintenancePath,
   );
-  const canCompleteRepair = canSubmitStandardRepair(
+  const canCompleteRepair = !usesDirectItExecution && canSubmitStandardRepair(
     isTechnician || isTicketWorkflowManager,
     ticket?.status,
     ticket?.maintenancePath,
   );
-  const canClose = isTicketWorkflowManager && ticket?.status === "repaired" && !ticket?.maintenancePath;
+  const canClose = !usesDirectItExecution && isTicketWorkflowManager && ticket?.status === "repaired" && !ticket?.maintenancePath;
   const hasActiveLinkedPurchaseOrder = linkedPOs.some((po: any) =>
     ACTIVE_PATH_B_PURCHASE_ORDER_STATUSES.has(po.status)
   );
@@ -600,7 +604,7 @@ const { getField } = useResolvedTranslation(
     MAINTENANCE_INSPECTION_WORKFLOW_STATUS.PENDING_SUBMISSION,
     MAINTENANCE_INSPECTION_WORKFLOW_STATUS.RETURNED_FOR_CORRECTION,
   ].includes(inspectionWorkflowStatus as any);
-  const canInspect = !isTicketReadOnly && ticket?.status === "under_inspection" && inspectionIsEditable && !hasForeignInspectionDraft &&
+  const canInspect = !usesDirectItExecution && !isTicketReadOnly && ticket?.status === "under_inspection" && inspectionIsEditable && !hasForeignInspectionDraft &&
     (isAssignedInspectionTechnician || isInspectionManager || role === APP_ROLE.SUPERVISOR);
   const canReviewInspection = !isTicketReadOnly && ticket?.status === "under_inspection" && isInspectionManager &&
     inspectionWorkflowStatus === MAINTENANCE_INSPECTION_WORKFLOW_STATUS.SUBMITTED_FOR_REVIEW;
@@ -611,7 +615,7 @@ const { getField } = useResolvedTranslation(
   const canClosePathBC = isTicketWorkflowManager && ticket?.status === "ready_for_closure" && ["B", "C"].includes(ticket?.maintenancePath as any);
 
   // Technician (Path A)
-  const canMarkReadyForClosure = canSubmitPathARepair(
+  const canMarkReadyForClosure = !usesDirectItExecution && canSubmitPathARepair(
     isTechnician || isTicketWorkflowManager,
     ticket?.status,
     ticket?.maintenancePath,
@@ -625,13 +629,13 @@ const { getField } = useResolvedTranslation(
 
   // Path B completion appears only after the technician explicitly starts repair.
   // Path C retains its existing completion entry after the asset returns.
-  const canCompletePathBWithParts = canSubmitPathBRepair(
+  const canCompletePathBWithParts = !usesDirectItExecution && canSubmitPathBRepair(
     isTechnician || isTicketWorkflowManager,
     ticket?.status,
     ticket?.maintenancePath,
   );
   const canCompletePathCWithParts =
-    (isTechnician || isTicketWorkflowManager) &&
+    !usesDirectItExecution && (isTechnician || isTicketWorkflowManager) &&
     ticket?.status === "in_progress" &&
     ticket?.maintenancePath === "C";
   const canCompleteWithParts = canCompletePathBWithParts || canCompletePathCWithParts;
@@ -1160,7 +1164,7 @@ const { getField } = useResolvedTranslation(
                         onClick={() => completeRepairForItemMut.mutate({
                           ticketItemId: item.id,
                           afterPhotoUrl: form.afterPhotoUrl,
-                          repairNotes: form.repairNotes || undefined,
+                          repairNotes: form.repairNotes.trim(),
                           materialsUsed: form.materialsUsed || undefined,
                         })}
                         disabled={completeRepairForItemMut.isPending || !form.repairNotes.trim()}
@@ -2183,7 +2187,7 @@ const { getField } = useResolvedTranslation(
                 </div>
               )}
 
-              {!canApprove && !canAssign && !canStartRepair && !canCompleteRepair && !canClose && !canCreatePO && !canTriage && !canInspect && !canClosePathA && !canApproveWork && !canClosePathBC && !canMarkReadyForClosure && !canApproveExit && !canApproveEntry && !canCompleteWithParts && !canConfirmCompletion && (
+              {!usesDirectItExecution && !canApprove && !canAssign && !canStartRepair && !canCompleteRepair && !canClose && !canCreatePO && !canTriage && !canInspect && !canClosePathA && !canApproveWork && !canClosePathBC && !canMarkReadyForClosure && !canApproveExit && !canApproveEntry && !canCompleteWithParts && !canConfirmCompletion && (
                 <div className="text-center py-4 text-sm text-muted-foreground flex items-center justify-center gap-2">
                   <AlertCircle className="w-4 h-4" />
                   {t.tickets.noTickets}

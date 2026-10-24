@@ -10,6 +10,7 @@ import { APP_ROLE, isItTeamRole, MAINTENANCE_RESPONSIBLE_DEPARTMENT as DEPT } fr
 import { getDefaultRequiredDate } from "@/lib/purchaseItemTiming";
 import { useTranslation } from "@/contexts/LanguageContext";
 import { localizeApiError } from "@/i18n/apiError";
+import { canExecuteItSubTicket, canStartItSubTicket, itExecutionOutcomeRequiresNote, type ItExecutionOutcome } from "@shared/it-execution-workflow";
 
 const selectClass = "border rounded-md bg-background px-3 py-2 text-sm";
 const format = (template: string, values: Record<string, string | number>) =>
@@ -19,11 +20,12 @@ export function ItTaskActions({ ticketId, taskId, assigneeIds, canAssign, onChan
   const [selected, setSelected] = useState("");
   const { user } = useAuth();
   const { t, language } = useTranslation();
+  const [, navigate] = useLocation();
   const fail = (error: { message: string }) => toast.error(localizeApiError(error.message, language));
   const { data: users } = trpc.users.list.useQuery();
   const members = users?.filter((u: any) => isItTeamRole(u.role) && u.isActive !== 0) || [];
   const assign = trpc.tickets.assignDepartmentTask.useMutation({ onSuccess: onChanged, onError: fail });
-  const promote = trpc.tickets.promoteDepartmentTask.useMutation({ onSuccess: onChanged, onError: fail });
+  const promote = trpc.tickets.promoteDepartmentTask.useMutation({ onSuccess: (result) => { onChanged(); navigate(`/tickets/${result.ticketId}`); }, onError: fail });
   const assignee = members.find((u: any) => assigneeIds.includes(u.id));
   return <div className="space-y-2 rounded border p-3">
     <p className="text-sm">{t.workflow.ticket.itAssigneeLabel}: {assignee?.name || assignee?.email || t.workflow.ticket.notAssigned}</p>
@@ -33,8 +35,55 @@ export function ItTaskActions({ ticketId, taskId, assigneeIds, canAssign, onChan
       </select>
       <Button variant="outline" disabled={!selected || assign.isPending} onClick={() => assign.mutate({ ticketId, taskId, technicianIds: [Number(selected)] })}>{t.workflow.ticket.saveAssignment}</Button>
     </div>}
-    {(canAssign || assigneeIds.includes(user?.id || 0)) && <Button disabled={!assigneeIds.length || promote.isPending} onClick={() => promote.mutate({ ticketId, taskId })}>{t.workflow.ticket.startTaskCreateSubTicket}</Button>}
+    {assigneeIds.includes(user?.id || 0) && <Button disabled={!assigneeIds.length || promote.isPending} onClick={() => promote.mutate({ ticketId, taskId })}>{language === "ar" ? "بدء التنفيذ" : language === "ur" ? "کام شروع کریں" : "Start execution"}</Button>}
   </div>;
+}
+
+function ItExecutionPanel({ ticket, onChanged }: { ticket: any; onChanged: () => void }) {
+  const { user } = useAuth();
+  const { language } = useTranslation();
+  const l = (ar: string, en: string, ur: string) => language === "ar" ? ar : language === "ur" ? ur : en;
+  const fail = (error: { message: string }) => toast.error(localizeApiError(error.message, language));
+  const [note, setNote] = useState("");
+  const [materialsUsed, setMaterialsUsed] = useState("");
+  const assigned = canExecuteItSubTicket(user, ticket);
+  const start = trpc.tickets.startItExecution.useMutation({
+    onSuccess: () => { toast.success(l("بدأ التنفيذ", "Execution started", "کام شروع ہو گیا")); onChanged(); },
+    onError: fail,
+  });
+  const resume = trpc.tickets.startRepair.useMutation({
+    onSuccess: () => { toast.success(l("تم استئناف التنفيذ", "Execution resumed", "کام دوبارہ شروع ہو گیا")); onChanged(); },
+    onError: fail,
+  });
+  const outcome = trpc.tickets.recordItExecutionOutcome.useMutation({
+    onSuccess: (result) => {
+      toast.success(result.status === "closed" ? l("تم إنهاء البلاغ وإغلاقه", "Ticket completed and closed", "ٹکٹ مکمل اور بند ہو گیا") : l("تم حفظ نتيجة التنفيذ", "Execution result saved", "کام کا نتیجہ محفوظ ہو گیا"));
+      setNote(""); setMaterialsUsed(""); onChanged();
+    },
+    onError: fail,
+  });
+  if (!assigned || ["closed", "requester_confirmed"].includes(ticket.status)) return null;
+  const canStart = canStartItSubTicket(user, ticket);
+  const canResume = ticket.status === "received_warehouse" && ["B", "C"].includes(ticket.maintenancePath);
+  const active = ticket.status === "in_progress";
+  const submit = (value: ItExecutionOutcome) => outcome.mutate({ ticketId: ticket.id, outcome: value, note, materialsUsed: materialsUsed || undefined });
+  const disabled = (value: ItExecutionOutcome) => outcome.isPending || (itExecutionOutcomeRequiresNote(value) && !note.trim());
+  return <section className="rounded-lg border border-blue-200 bg-blue-50/40 p-4 space-y-3 dark:border-blue-800 dark:bg-blue-950/20">
+    <h3 className="font-semibold">{l("تنفيذ بلاغ تقنية المعلومات", "IT ticket execution", "آئی ٹی ٹکٹ پر کام")}</h3>
+    {canStart && <Button className="w-full sm:w-auto" disabled={start.isPending} onClick={() => start.mutate({ ticketId: ticket.id })}>{l("بدء التنفيذ", "Start execution", "کام شروع کریں")}</Button>}
+    {canResume && <Button className="w-full sm:w-auto" disabled={resume.isPending} onClick={() => resume.mutate({ id: ticket.id })}>{l("استئناف التنفيذ", "Resume execution", "کام دوبارہ شروع کریں")}</Button>}
+    {active && <>
+      <Textarea rows={3} maxLength={4000} value={note} onChange={event => setNote(event.target.value)} placeholder={l("ملاحظات الفحص أو تفاصيل الإصلاح (إلزامية للإصلاح والعائق والصيانة الخارجية)", "Inspection notes or repair details (required for repair, obstacle and external maintenance)", "معائنہ یا مرمت کی تفصیل")}/>
+      <Textarea rows={2} maxLength={4000} value={materialsUsed} onChange={event => setMaterialsUsed(event.target.value)} placeholder={l("مواد أخرى استُخدمت (إن وجدت)", "Other materials used (if any)", "استعمال شدہ دیگر مواد")}/>
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-5">
+        <Button disabled={disabled("ok")} onClick={() => submit("ok")}>{l("سليم ولا يحتاج إصلاح", "No repair needed", "مرمت کی ضرورت نہیں")}</Button>
+        <Button variant="outline" disabled={disabled("fixed")} onClick={() => submit("fixed")}>{l("تم الإصلاح", "Repaired", "مرمت مکمل")}</Button>
+        {!ticket.maintenancePath && <Button variant="outline" disabled={disabled("needs_material")} onClick={() => submit("needs_material")}>{l("يحتاج مواد", "Materials needed", "مواد درکار")}</Button>}
+        <Button variant="outline" disabled={disabled("blocked")} onClick={() => submit("blocked")}>{l("يوجد عائق", "Obstacle", "رکاوٹ")}</Button>
+        {!ticket.maintenancePath && <Button variant="outline" disabled={disabled("external")} onClick={() => submit("external")}>{l("صيانة خارجية", "External maintenance", "بیرونی مرمت")}</Button>}
+      </div>
+    </>}
+  </section>;
 }
 
 export function ItTeamPanel({ ticket, departments, onChanged }: { ticket: any; departments: any[]; onChanged: () => void }) {
@@ -81,6 +130,7 @@ export function ItTeamPanel({ ticket, departments, onChanged }: { ticket: any; d
         </div>}
       </section>;
     })}
+    {team && ticket.maintenanceResponsibleDepartment === DEPT.IT && <ItExecutionPanel ticket={ticket} onChanged={onChanged} />}
     {team && ticket.maintenanceResponsibleDepartment === DEPT.IT && <ItPurchaseNeedsPanel ticket={ticket} />}
   </div>;
 }
