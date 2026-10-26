@@ -140,7 +140,8 @@ export function ExecutionPanel({
     a = state?.assignments[0],
     technician =
       mode === "execution" &&
-      (role === "technician" || canExecuteAllTicketTeams(role)),
+      (["technician", "it_manager", "it_member"].includes(role) ||
+        canExecuteAllTicketTeams(role)),
     warehouse = ["warehouse", "owner", "admin"].includes(role),
     manager =
       mode === "execution" &&
@@ -284,7 +285,7 @@ export function ExecutionPanel({
     u =>
       u.active &&
       (canExecuteAllTicketTeams(u.role) ||
-        (u.role === "technician" &&
+        (["technician", "it_manager", "it_member"].includes(u.role) &&
           state.memberships.some(
             m => m.teamId === a.teamId && m.userId === u.id && m.active
           )))

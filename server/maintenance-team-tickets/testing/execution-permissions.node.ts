@@ -6,6 +6,10 @@ import {
   type Assignment,
 } from "../../../shared/maintenance-team-tickets/model";
 import { TICKET_TEAM_EXECUTION_OVERRIDE_ROLES } from "../../../shared/maintenance-team-tickets/execution-permissions";
+import {
+  canReadTicketTeamExecution,
+  canReviewTicketTeamExecution,
+} from "../../../shared/maintenance-team-tickets/execution-permissions";
 import { canRoleAccessPath } from "../../../shared/roles";
 
 let operation = 0;
@@ -204,6 +208,49 @@ test("warehouse and unsupported roles gain no technician execution; outsider tec
       d.service.submitOutcome(90, cmd(d.a), "ok", { note: "", usages: [] })
     );
   }
+});
+test("named active IT executors use the team material flow without opening foreign IT tickets", async () => {
+  for (const role of ["it_manager", "it_member"]) {
+    const d = createDemo();
+    await d.store.transaction(async s => {
+      s.users.push({ id: 90, name: "منفذ IT", role, active: true });
+      s.memberships.push({
+        teamId: 21,
+        userId: 90,
+        active: true,
+        joinedAt: "2026-10-24T00:00:00Z",
+        leftAt: null,
+        updatedById: 1,
+      });
+      s.tickets[0].assignedToId = 90;
+      s.tickets[0].responsibleDepartment =
+        "maintenance_report_department_it";
+    });
+    const ref = (await d.store.read()).tickets[0];
+    const assignment = await d.service.assign(1, { ...ref, teamId: 21 });
+    assert.equal((await d.service.read(90)).assignments.length, 1);
+    await d.service.requestMaterials(
+      90,
+      cmd(assignment),
+      [{ catalogItemId: 101, unit: "قطعة", quantity: 1 }],
+      [101]
+    );
+    assert.ok(
+      (await d.store.read()).deliveries.every(x => x.receivedById === 90)
+    );
+
+    await d.store.transaction(async s => {
+      s.tickets[0].assignedToId = 91;
+    });
+    assert.equal((await d.service.read(90)).assignments.length, 0);
+  }
+});
+test("IT roles gain only scoped execution capabilities", () => {
+  assert.equal(canReadTicketTeamExecution("it_manager"), true);
+  assert.equal(canReadTicketTeamExecution("it_member"), true);
+  assert.equal(canReviewTicketTeamExecution("it_manager", 8, 8), true);
+  assert.equal(canReviewTicketTeamExecution("it_manager", 8, 9), false);
+  assert.equal(canReviewTicketTeamExecution("it_member", 8, 8), false);
 });
 test("global executor remains subject to repair detail validation and optimistic revisions", async () => {
   const d = await setup("construction_procurement_manager");

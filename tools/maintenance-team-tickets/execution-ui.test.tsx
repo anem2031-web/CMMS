@@ -29,6 +29,7 @@ vi.mock("../../client/src/lib/trpc", () => ({
         }),
       },
       catalog: { useQuery: () => ({ data: [], error: null }) },
+      units: { useQuery: () => ({ data: [], error: null }) },
       preview: {
         useQuery: () => ({ data: null, error: null, isFetching: false }),
       },

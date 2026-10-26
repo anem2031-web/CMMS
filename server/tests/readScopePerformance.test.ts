@@ -12,6 +12,7 @@ import { loadTicketReadScope } from "../_core/db/ticket-read-scope";
 import { assertTicketReadable } from "../routers/tickets/tickets.access";
 import { loadDocumentListPort } from "../_core/db/document-list";
 import { purchaseDocumentPermission } from "../_core/authz/purchase-document";
+import { decorateDocumentRows } from "../_core/authz/document-list";
 import { getPurchaseOrdersByIds, getPurchaseOrdersForPackages, getFullPOItemsForPOs, getPackageSubmissionsWithBatchesForPackages } from "../_core/db/purchase-read-lists";
 import { assertCanViewPurchaseOrder, createPurchaseOrderReadGuard, createPurchaseOrderReadScope, filterVisiblePurchaseOrders } from "../_core/authz/guard";
 import { assertBusinessTranslationAccess } from "../_core/authz/business-resources";
@@ -114,6 +115,26 @@ describe("Real SQL list scopes and complete aggregate authorization", () => {
     expect(memory.queries).toHaveLength(6);
     expect(memory.queries.every(query => query.params.length <= 500)).toBe(true);
     expect((await purchaseDocumentPermission(actor("owner"), 1101, 1101, undefined, scope)).pdfAllowed).toBe(true);
+  });
+  it("shares completed financial archives across accountants with bounded reads for repeated and distinct parents", async () => {
+    const rows = Array.from({ length: 1101 }, (_, i) => ({ entityType: "po_financial_batch", entityId: i + 1, fileKey: `cmms/uploads/financial-${i + 1}.pdf` }));
+    for (const row of rows) {
+      memory.insert("purchase_orders", { id: row.entityId, status: "closed", requestedById: 9 });
+      memory.insert("po_pricing_batches", { id: row.entityId, purchaseOrderId: row.entityId, ...approval,
+        managementApprovedAt: row.entityId === 1101 ? null : approval.managementApprovedAt });
+    }
+    const reader = actor("accountant", 44);
+    const repeated = [...rows, ...rows];
+    const port = await loadDocumentListPort(repeated, memory, { actor: reader });
+    const decorated = await decorateDocumentRows(reader, repeated, port);
+    expect(decorated.filter(row => row.pdfAllowed)).toHaveLength(2200);
+    expect(decorated.filter(row => row.entityId === 1101).every(row => row.fileUrl === null)).toBe(true);
+    expect(memory.queries).toHaveLength(6);
+    expect(memory.queries.every(query => query.params.length <= 500)).toBe(true);
+    memory.memory.exec("UPDATE po_pricing_batches SET managementApprovedAt=NULL WHERE id=1");
+    const nextReader = actor("accountant", 45);
+    const next = await decorateDocumentRows(nextReader, rows.slice(0, 2), await loadDocumentListPort(rows.slice(0, 2), memory, { actor: nextReader }));
+    expect(next.map(row => row.pdfAllowed)).toEqual([false, true]);
   });
   it("full item batch retains names and quantities instead of the lightweight actionable DTO", async () => {
     for (const id of [3, 1, 2]) memory.insert("purchase_order_items", { id, purchaseOrderId: id === 3 ? 2 : 1, itemName: `item${id}`, quantity: "2.5", batchId: id });

@@ -53,8 +53,14 @@ function warehouse(s: Snapshot, id: number) {
     throw new TeamTicketError("FORBIDDEN", "الإجراء للمستودع فقط");
 }
 function member(s: Snapshot, id: number, a: Assignment) {
+  const actor = user(s, id);
+  const ticket = s.tickets.find(t => t.ticketId === a.ticketId);
+  const namedItExecutor =
+    ["it_manager", "it_member"].includes(actor.role) &&
+    ticket?.responsibleDepartment === "maintenance_report_department_it" &&
+    ticket.assignedToId === id;
   if (
-    user(s, id).role !== "technician" ||
+    !(actor.role === "technician" || namedItExecutor) ||
     !s.teams.some(t => t.id === a.teamId && t.active) ||
     !s.memberships.some(
       m => m.teamId === a.teamId && m.userId === id && m.active
@@ -133,7 +139,8 @@ export class MaintenanceTeamTicketService {
     const u = user(s, actorId);
     if (canExecuteAllTicketTeams(u.role) || u.role === "warehouse")
       return { ...s, operations: [] };
-    if (u.role !== "technician")
+    const itExecutor = ["it_manager", "it_member"].includes(u.role);
+    if (u.role !== "technician" && !itExecutor)
       throw new TeamTicketError("FORBIDDEN", "لا توجد صلاحية لهذه الطبقة");
     const teamIds = s.memberships
       .filter(
@@ -145,7 +152,18 @@ export class MaintenanceTeamTicketService {
       .map(m => m.teamId);
     const scoped = this.scope(
       s,
-      s.assignments.filter(a => teamIds.includes(a.teamId)).map(a => a.id)
+      s.assignments
+        .filter(a => {
+          if (!teamIds.includes(a.teamId)) return false;
+          if (!itExecutor) return true;
+          const ticket = s.tickets.find(t => t.ticketId === a.ticketId);
+          return (
+            ticket?.responsibleDepartment ===
+              "maintenance_report_department_it" &&
+            ticket.assignedToId === actorId
+          );
+        })
+        .map(a => a.id)
     );
     scoped.teams = s.teams.filter(t => teamIds.includes(t.id));
     scoped.memberships = s.memberships.filter(m => teamIds.includes(m.teamId));
@@ -1189,6 +1207,16 @@ export class MaintenanceTeamTicketService {
       }
     );
   }
+  async materialUnitsContext(actorId: number, assignmentId: number) {
+    const s = await this.store.read();
+    const a = assignment(s, assignmentId);
+    executor(s, actorId, a);
+    allowStage(a, ["action_required", "waiting_material", "reinstall_required"]);
+    const ticket = s.tickets.find(t => t.ticketItemId === a.ticketItemId && t.ticketId === a.ticketId);
+    if (!ticket) throw new TeamTicketError("NOT_FOUND", "البلاغ الأصلي غير موجود");
+    if (ticket.closed)
+      throw new TeamTicketError("CONFLICT", "انتهى البلاغ الأصلي");
+  }
   async materialIdentityContext(actorId: number, assignmentId: number, needId: number): Promise<TicketIdentityContext> {
     const s = await this.store.read();
     warehouse(s, actorId);
@@ -1221,17 +1249,15 @@ export class MaintenanceTeamTicketService {
           throw new TeamTicketError("INVALID", "الاحتياج أو الصنف غير صالح");
         if (currentNeeds(s, a).some(x => x.catalogItemId === catalogItemId))
           throw new TeamTicketError("CONFLICT", "الصنف موجود في طلب التذكرة");
-        if (n.unit !== item.unit)
-          throw new TeamTicketError(
-            "INVALID",
-            "وحدة الاحتياج لا تطابق الصنف؛ لا يوجد تحويل وحدات تلقائي"
-          );
+        const differentUnit = n.unit !== item.unit;
         const tracked = materialSupplyRemaining(s, n) !== null;
         n.catalogItemId = item.id;
         n.name = item.name;
-        const resolutionNote = required(note, "سبب مطابقة الصنف");
+        const resolutionNote = required(note, "سبب مطابقة الصنف") + (differentUnit
+          ? ` — ربط هوية فقط؛ الاحتياج ${n.requested} ${n.unit}، ووحدة الكتالوج ${item.unit}. لم تُحوّل الكمية.`
+          : "");
         const shortage = tracked
-          ? Math.max(
+          ? differentUnit ? n.requested : Math.max(
               0,
               n.requested - (await effects.availability(a.warehouseId, item.id))
             )
@@ -1275,6 +1301,9 @@ export class MaintenanceTeamTicketService {
           n => n.id === needId && n.catalogItemId !== null
         );
         if (!n) throw new TeamTicketError("INVALID", "حدد هوية الصنف أولًا");
+        const item = s.catalog.find(item => item.id === n.catalogItemId && item.active);
+        if (!item || item.unit !== n.unit)
+          throw new TeamTicketError("INVALID", "تم ربط الصنف؛ يلزم مراجعة وحدة وكمية الاحتياج قبل التوفير، ولا يوجد تحويل وحدات تلقائي");
         const pending = s.supplies
           .filter(x => x.needId === needId && x.status === "pending")
           .reduce((v, x) => v + x.quantity, 0);

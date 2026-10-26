@@ -9,13 +9,14 @@ import ur from "@/i18n/ur";
 import type { MaterialIdentityCandidate } from "@shared/catalog-material-identity";
 
 /** Extracted PMV2 identity dialog, shared without task/ticket API coupling. */
-export function MaterialIdentityDialog({ open, onClose, language, originalName, requestedQuantity, unit, referenceNumber, itemTitle, referenceLabel, search, onSearch, items, selectedId, onSelect, onConfirm, loading, error, busy, onOpenCatalog = () => window.open("/catalog", "_blank", "noopener,noreferrer") }: {
+export function MaterialIdentityDialog({ open, onClose, language, originalName, requestedQuantity, unit, referenceNumber, itemTitle, referenceLabel, search, onSearch, items, selectedId, onSelect, onConfirm, loading, error, busy, allowDifferentUnits = false, onOpenCatalog = () => window.open("/catalog", "_blank", "noopener,noreferrer") }: {
   open: boolean; onClose: () => void; language: string;
   originalName: string; requestedQuantity: number | null | undefined; unit: string | null | undefined;
   referenceNumber: string; itemTitle: string; referenceLabel?: string;
   search: string; onSearch: (value: string) => void; items: MaterialIdentityCandidate[];
   selectedId: number | null; onSelect: (id: number) => void; onConfirm: () => void;
   loading: boolean; error?: { message: string } | null; busy: boolean; onOpenCatalog?: () => void;
+  allowDifferentUnits?: boolean;
 }) {
   const t = language === "ar" ? ar : language === "ur" ? ur : en;
   const dir = language === "en" ? "ltr" : "rtl";
@@ -24,6 +25,7 @@ export function MaterialIdentityDialog({ open, onClose, language, originalName, 
   const fmt = (template: string, values: Record<string, string | number>) => Object.entries(values).reduce((out, [key, value]) => out.replaceAll(`{${key}}`, String(value)), template);
   const localizedName = (value: MaterialIdentityCandidate) => language === "ar" ? value.nameAr || value.nameEn || "—" : value.nameEn || value.nameAr || "—";
   const selectedItem = items.find(item => item.id === selectedId) ?? null;
+  const l = (ar: string, en: string, ur: string) => language === "ar" ? ar : language === "ur" ? ur : en;
   return (
 <Dialog open={open} onOpenChange={next => { if (!next && !busy) onClose(); }}>
         <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto" dir={dir}>
@@ -80,7 +82,7 @@ export function MaterialIdentityDialog({ open, onClose, language, originalName, 
               </div>
             ) : (
               <div className="max-h-[42vh] space-y-2 overflow-y-auto rounded-md border p-2">
-                {items.map((candidate: any) => {
+                {items.map(candidate => {
                   const selected = Number(selectedId) === Number(candidate.id);
                   const teamAvailability = candidate.teamAvailability;
                   const mainAvailability = candidate.mainWarehouseAvailability;
@@ -100,6 +102,12 @@ export function MaterialIdentityDialog({ open, onClose, language, originalName, 
                           {candidate.nameEn && candidate.nameEn !== candidate.nameAr && (
                             <p className="mt-0.5 text-xs text-muted-foreground">{candidate.nameEn}</p>
                           )}
+                          {candidate.measurementStatus === "compatible" && <p className="mt-1 text-xs text-emerald-700">
+                            {l("المقاس متوافق مع البحث", "Measurement matches the search", "پیمائش تلاش سے مطابقت رکھتی ہے")}
+                          </p>}
+                          {candidate.measurementStatus === "conflict" && <p className="mt-1 text-xs font-semibold text-amber-800">
+                            {l("تنبيه: المقاس يختلف عن البحث؛ راجع الصنف قبل الربط", "Different measurement: review the item before linking", "پیمائش مختلف ہے؛ ربط سے پہلے تصدیق کریں")}
+                          </p>}
                           <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs">
                             <span><span className="text-muted-foreground">{t.workflow.pmv2.codeLabel}:</span> {candidate.code || "—"}</span>
                             <span><span className="text-muted-foreground">{t.workflow.pmv2.unitLabelWh}:</span> {candidate.unit || teamAvailability?.unit || mainAvailability?.unit || "—"}</span>
@@ -120,6 +128,11 @@ export function MaterialIdentityDialog({ open, onClose, language, originalName, 
                   original: originalName || "—",
                   item: `${localizedName(selectedItem)}${selectedItem.code ? ` — ${selectedItem.code}` : ""}`,
                 })}
+                {allowDifferentUnits && unit && selectedItem.unit && unit !== selectedItem.unit && <p className="mt-2">
+                  {l(`وحدة الاحتياج: ${unit}؛ وحدة الكتالوج: ${selectedItem.unit}. يمكن تأكيد الربط، وتبقى الكمية ووحدة الاحتياج كما أدخلها الفني دون تحويل تلقائي.`,
+                    `Requested unit: ${unit}; catalog unit: ${selectedItem.unit}. Linking keeps the requested quantity and unit unchanged; no automatic conversion.`,
+                    `درخواست کی اکائی: ${unit}؛ کیٹلاگ کی اکائی: ${selectedItem.unit}۔ ربط کے بعد مقدار اور اکائی تبدیل نہیں ہوگی۔`)}
+                </p>}
               </div>
             )}
           </div>

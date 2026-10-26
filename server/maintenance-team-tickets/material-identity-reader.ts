@@ -1,5 +1,6 @@
 import { TeamTicketError } from "../../shared/maintenance-team-tickets/model";
 import type { IdentityAvailability, MaterialIdentityCandidate, TicketIdentityContext } from "../../shared/catalog-material-identity";
+import { searchTicketMaterialCatalog } from "./material-catalog-search";
 
 export interface IdentityReaders {
   searchCatalog(search: string, limit: number): Promise<Array<Omit<MaterialIdentityCandidate, "teamAvailability" | "mainWarehouseAvailability">>>;
@@ -9,9 +10,9 @@ export interface IdentityReaders {
 }
 async function existingReaders(): Promise<IdentityReaders> {
   // These are the existing catalog/inventory read adapters used by PMV2, without its task/request services.
-  const { currentCatalogAdapter, currentInventoryAdapter, currentWarehouseAdapter } = await import("../pmv2/adapters/current-system");
+  const { currentInventoryAdapter, currentWarehouseAdapter } = await import("../pmv2/adapters/current-system");
   return {
-    searchCatalog: (search, limit) => currentCatalogAdapter.searchActiveItems(search, limit),
+    searchCatalog: searchTicketMaterialCatalog,
     requireWarehouse: id => currentWarehouseAdapter.requireActiveWarehouse(id),
     mainWarehouse: () => currentWarehouseAdapter.requireSingleActiveMainWarehouse(),
     balances: (ids, warehouseId) => currentInventoryAdapter.getCatalogAvailabilities(ids, warehouseId),

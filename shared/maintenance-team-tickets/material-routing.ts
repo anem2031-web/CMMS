@@ -1,5 +1,11 @@
 import type { MaterialNeed, Snapshot } from "./model";
 
+/** Identity linking does not establish a conversion between requested and stock units. */
+export function materialUnitMismatch(state: Pick<Snapshot, "catalog">, need: MaterialNeed): boolean {
+  const item = state.catalog.find(item => item.id === need.catalogItemId);
+  return !!item && item.unit !== need.unit;
+}
+
 export function materialRouteNote(
   need: MaterialNeed,
   shortage: number,

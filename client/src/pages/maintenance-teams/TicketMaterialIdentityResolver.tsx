@@ -15,6 +15,7 @@ export function TicketMaterialIdentityResolver({ assignment, need, language, bus
     { retry: false, refetchOnWindowFocus: false }
   );
   return <MaterialIdentityDialog
+    allowDifferentUnits
     open onClose={() => { if (!busy) onClose(); }} language={language}
     originalName={need.originalName || need.name} requestedQuantity={need.requested} unit={need.unit}
     referenceLabel={language === "ar" ? "التذكرة" : language === "ur" ? "ٹکٹ" : "Ticket"}

@@ -1,7 +1,9 @@
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
 import { canOpenApprovalPdf } from "../../client/src/lib/approvalPdfAccess";
+import { purchaseAttachmentPermission } from "../_core/authz/purchase-document";
 
 const state = vi.hoisted(() => ({ role: "accountant", approved: false, calls: [] as { path: string; enabled: boolean; input?: any }[] }));
 vi.mock("../../client/src/_core/hooks/useAuth", () => ({ useAuth: () => ({ user: { id: 44, role: state.role, isActive: 1 } }) }));
@@ -61,6 +63,28 @@ describe("Approval document UI boundaries", () => {
     expect(html).toContain('title="تنزيل PDF"');
     expect(html).toContain(">طباعة<");
     expect(html).not.toContain('href="/purchase-orders/101"');
+  });
+
+  it("shows download and print to an accountant who did not personally approve the completed financial document", async () => {
+    const permission = await purchaseAttachmentPermission({ id: 44, role: "accountant" }, "po_financial_batch", 10, {
+      batch: async () => ({ id: 10, purchaseOrderId: 101,
+        accountingApprovedById: 3, accountingApprovedAt: "2026-10-26 08:00:00",
+        managementApprovedById: 8, managementApprovedAt: "2026-10-26 09:00:00" }),
+      order: async id => ({ id }), submission: async () => null, batches: async () => [], authorize: async () => {},
+    });
+    state.approved = permission.pdfAllowed;
+    const html = renderToStaticMarkup(<DocumentsCenter />);
+    expect(html).toContain("FINANCIAL.pdf");
+    expect(html).toContain('title="تنزيل PDF"');
+    expect(html).toContain(">طباعة<");
+    expect(html).not.toContain('href="/purchase-orders/101"');
+  });
+
+  it("does not hide the financial archive download action behind an accountant-only role wrapper", () => {
+    const source = readFileSync("client/src/pages/DocumentsCenter.tsx", "utf8");
+    expect(source).not.toContain('row.type !== "po_financial_batch" || role === "accountant" || role === "senior_management"');
+    expect(source).toContain('title="تنزيل PDF"');
+    expect(source).toContain('row.type === "po_financial_batch" && "تنزيل PDF"');
   });
 
   it("keeps senior-management inventory documents usable while financial PDFs await its approval", () => {

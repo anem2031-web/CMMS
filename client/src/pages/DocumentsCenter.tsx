@@ -654,14 +654,15 @@ export default function DocumentsCenter() {
                         >
                           <Eye className="w-3.5 h-3.5" />
                         </Button>
-                        {(row.type !== "po_financial_batch" || role === "accountant" || role === "senior_management") && <Button
+                        <Button
                             size="sm" variant="outline" className="gap-1.5 px-2"
                             disabled={downloadingKey === key}
                             title="تنزيل PDF"
                             onClick={() => handleDownloadPdf(row)}
                           >
                             <Download className="w-3.5 h-3.5" />
-                          </Button>}
+                            {row.type === "po_financial_batch" && "تنزيل PDF"}
+                          </Button>
                         </> : <span className="text-xs text-muted-foreground self-center">{role === "observer" ? "استعراض فقط" : "PDF متاح بعد اعتمادك"}</span>}
                         </>}
                       </div>

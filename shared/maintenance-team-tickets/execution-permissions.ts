@@ -17,6 +17,8 @@ export function canExecuteAllTicketTeams(role?: string | null): boolean {
 export function canReadTicketTeamExecution(role?: string | null): boolean {
   return (
     role === "technician" ||
+    role === "it_manager" ||
+    role === "it_member" ||
     role === "warehouse" ||
     canExecuteAllTicketTeams(role)
   );
@@ -31,7 +33,8 @@ export function canReviewTicketTeamExecution(
     role === "owner" ||
     role === "admin" ||
     ((role === "maintenance_manager" ||
-      role === "general_maintenance_manager") &&
+      role === "general_maintenance_manager" ||
+      role === "it_manager") &&
       actorId === responsibleManagerId)
   );
 }

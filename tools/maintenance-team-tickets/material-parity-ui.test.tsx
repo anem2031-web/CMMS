@@ -24,7 +24,21 @@ const fixture = vi.hoisted(() => ({
   previewLoading: false,
   previewError: null as any,
   busy: false,
+  unitsError: null as any,
+  unitsLoading: false,
 }));
+function captureSelect(type: any, props: any) {
+  if (type === "select" && props?.["aria-label"]) fixture.inputs.set(props["aria-label"], props);
+}
+vi.mock("react/jsx-runtime", async original => {
+  const actual = await original<any>();
+  return { ...actual, jsx: (...args: any[]) => { captureSelect(args[0], args[1]); return actual.jsx(...args); },
+    jsxs: (...args: any[]) => { captureSelect(args[0], args[1]); return actual.jsxs(...args); } };
+});
+vi.mock("react/jsx-dev-runtime", async original => {
+  const actual = await original<any>();
+  return { ...actual, jsxDEV: (...args: any[]) => { captureSelect(args[0], args[1]); return actual.jsxDEV(...args); } };
+});
 // Only the tested component's hook state is retained between isolated SSR renders.
 // UI primitives/API are replaced so no DOM, authentication, network or DB is used.
 vi.mock("react", async importOriginal => {
@@ -89,6 +103,11 @@ vi.mock("../../client/src/components/ui/alert-dialog", () => ({
 vi.mock("../../client/src/lib/trpc", () => ({
   trpc: {
     ticketTeamExecution: {
+      units: { useQuery: (input: any, options: any) => {
+        fixture.queries.push({ endpoint: "units", input, options });
+        return { data: [{ id: 1, nameAr: "قطعة", nameEn: "Piece" }, { id: 2, nameAr: "كرتون", nameEn: "Carton" }],
+          error: fixture.unitsError, isFetching: fixture.unitsLoading, refetch: vi.fn() };
+      } },
       catalog: {
         useQuery: (input: any, options: any) => {
           fixture.queries.push({ endpoint: "catalog", input, options });
@@ -182,10 +201,33 @@ beforeEach(() => {
     previewLoading: false,
     previewError: null,
     busy: false,
+    unitsError: null,
+    unitsLoading: false,
     stock: { 101: 5, 102: 1 },
   });
 });
 describe("ticket needs-material interactions at mocked boundaries", () => {
+  it("uses assigned active-unit choices only for unlisted items, retaining canonical Arabic values in English", async () => {
+    render();
+    expect(fixture.queries.filter(q => q.endpoint === "units").every(q => !q.options.enabled)).toBe(true);
+    await click(`${t().materialNotFoundPrompt} ${t().registerUnlistedMaterial}`);
+    expect(render()).toContain('<select');
+    expect(fixture.queries.filter(q => q.endpoint === "units").at(-1)).toMatchObject({ input: { assignmentId: 12 }, options: { enabled: true } });
+    type("unlisted-12", "مسمار"); type(t().requiredQuantityPlaceholder, "3");
+    type(t().unitPlaceholder, "قطعه");
+    expect(fixture.buttons.get(t().registerUnlistedAction).disabled).toBe(true);
+    type(t().unitPlaceholder, "قطعة");
+    fixture.language = "en"; const html = render();
+    expect(html).toContain('value="قطعة"'); expect(html).toContain('Piece');
+    await click(t().registerUnlistedAction);
+    expect(fixture.submits[0].need.unit).toBe("قطعة");
+  });
+  it("unit loading or errors cannot submit an unlisted material with a missing choice", async () => {
+    render(); await click(`${t().materialNotFoundPrompt} ${t().registerUnlistedMaterial}`);
+    fixture.unitsLoading = true; render(); expect(fixture.inputs.get(t().unitPlaceholder).disabled).toBe(true);
+    fixture.unitsLoading = false; fixture.unitsError = { message: "offline" };
+    expect(render()).toContain("تعذر تحميل الوحدات"); expect(fixture.buttons.get(t().registerUnlistedAction).disabled).toBe(true);
+  });
   it("starts with PMV2 labels, empty quantity and catalog search; no manual list/check/submit steps", () => {
     const html = render();
     expect(html).toContain(t().identifyMaterial);

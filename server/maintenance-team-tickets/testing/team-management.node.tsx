@@ -55,6 +55,7 @@ function initial(): TeamManagementData {
       { id: 32, name: "خالد", role: "technician", active: true },
       { id: 33, name: "معطل", role: "technician", active: false },
       { id: 34, name: "مستودع", role: "warehouse", active: true },
+      { id: 35, name: "عضو تقنية المعلومات", role: "it_member", active: true },
     ],
     warehouses: [
       { id: 40, name: "الفرعي", type: "branch", active: true },
@@ -279,7 +280,7 @@ test("duplicate team name returns conflict without creating a second row", async
   );
   assert.equal(repo.data.teams.length, 1);
 });
-test("membership permits only existing active technicians", async () => {
+test("membership permits active maintenance and IT executors only", async () => {
   const { repo, service } = fixture();
   for (const userId of [33, 34, 999])
     await assert.rejects(
@@ -300,6 +301,16 @@ test("membership permits only existing active technicians", async () => {
   assert.equal(repo.data.memberships.length, 2);
   assert.equal(repo.data.memberships[0].joinedAt, joinedAt);
   assert.equal(repo.data.memberships[0].leftAt, null);
+  await service.setMembership(manager, {
+    teamId: 21,
+    userId: 35,
+    active: true,
+  });
+  assert.ok(
+    repo.data.memberships.some(
+      membership => membership.userId === 35 && membership.active
+    )
+  );
 });
 test("repeating an active membership or team status does not duplicate audit", async () => {
   const { repo, service } = fixture();
@@ -760,7 +771,7 @@ test("production view shows collapsed team rows and read-only details without im
   assert.match(html, /<details/);
   assert.match(html, /<summary/);
   assert.match(html, /تعديل الفريق/);
-  assert.match(html, /إضافة فنيين/);
+  assert.match(html, /إضافة منفذين/);
   assert.doesNotMatch(html, /<input|<select|<details[^>]* open/);
   assert.doesNotMatch(html, /value="41"|value="42"|SIM-MT|إسناد تذكرة تجريبية/);
   assert.match(html, /أحمد/);

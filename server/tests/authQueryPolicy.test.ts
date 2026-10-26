@@ -18,11 +18,15 @@ describe("auth query recovery policy", () => {
     expect(shouldRetryAuthQuery(0, { message: "Failed to fetch" })).toBe(true);
     expect(shouldRetryAuthQuery(0, { data: { httpStatus: 401, code: "UNAUTHORIZED" } })).toBe(false);
     expect(shouldRetryAuthQuery(0, { data: { httpStatus: 403, code: "FORBIDDEN" } })).toBe(false);
-    expect(shouldRetryAuthQuery(2, { data: { httpStatus: 503 } })).toBe(false);
+    expect(shouldRetryAuthQuery(2, { data: { httpStatus: 503 } })).toBe(true);
+    expect(shouldRetryAuthQuery(3, { data: { httpStatus: 503 } })).toBe(false);
   });
 
-  it("uses a bounded retry delay", () => {
-    expect(authRetryDelay(0)).toBe(1_500);
-    expect(authRetryDelay(10)).toBe(6_000);
+  it("uses 5s, 10s and 20s recovery attempts before the bounded 30s interval", () => {
+    expect(authRetryDelay(0)).toBe(5_000);
+    expect(authRetryDelay(1)).toBe(10_000);
+    expect(authRetryDelay(2)).toBe(20_000);
+    expect(authRetryDelay(3)).toBe(30_000);
+    expect(authRetryDelay(10)).toBe(30_000);
   });
 });

@@ -4,6 +4,7 @@ import { getDb } from "./client";
 import { documentDayBoundary, documentSearchPattern, type DocumentListPageInput } from "../../../shared/document-list";
 import { purchaseDocumentPort, type PurchaseDocumentPort } from "../authz/purchase-document";
 import { readScopeChunks, groupReadRows } from "../authz/read-batch";
+import { APP_ROLE } from "../../../shared/roles";
 
 type DocumentReadOptions = {
   actor?: { id: number; role: string };
@@ -59,9 +60,18 @@ export async function loadDocumentListPort(rows: any[], database?: any, options:
   };
 }
 
-/** Single union keeps mixed legacy/package documents ordered and paged in SQL. */
-export function attachmentDocumentSource(kind: "po_financial_batch" | "delegate_pricing_documents") {
+function completedFinancialApprovals(alias: "b" | "s" | "scope_batch") {
+  const table = sql.identifier(alias);
+  return sql`${table}.accountingApprovedById > 0 AND ${table}.accountingApprovedAt IS NOT NULL
+    AND ${table}.managementApprovedById > 0 AND ${table}.managementApprovedAt IS NOT NULL`;
+}
+
+/** Single union keeps mixed legacy/package documents ordered and paged in SQL.
+ * actorRole is supplied by the authenticated RPC, never by list input.
+ */
+export function attachmentDocumentSource(kind: "po_financial_batch" | "delegate_pricing_documents", actorRole?: string) {
   const financial = kind === "po_financial_batch";
+  const requireBothApprovals = financial && actorRole === APP_ROLE.ACCOUNTANT;
   return sql`(
     SELECT a.*, b.submittedById AS delegateId, u.name AS delegateName,
       b.totalEstimatedCost, b.custodyAmount AS custodyBalance,
@@ -69,24 +79,29 @@ export function attachmentDocumentSource(kind: "po_financial_batch" | "delegate_
     FROM attachments a LEFT JOIN po_pricing_batches b ON b.id=a.entityId
     LEFT JOIN users u ON u.id=b.submittedById
     WHERE a.entityType=${financial ? "po_financial_batch" : "delegate_pricing_batch"}
+      ${requireBothApprovals ? sql`AND ${completedFinancialApprovals("b")}` : sql``}
     UNION ALL
     SELECT a.*, ${financial ? sql`b.submittedById` : sql`COALESCE(b.submittedById,a.uploadedById)`} AS delegateId,
       u.name AS delegateName, ${financial ? sql`s.totalEstimatedCost` : sql`COALESCE(t.total,0)`} AS totalEstimatedCost,
       s.custodyBalance, 'package_submission' AS documentScope
     FROM attachments a LEFT JOIN purchase_package_submissions s ON s.id=a.entityId
     LEFT JOIN (SELECT purchasePackageSubmissionId, MIN(id) AS firstBatchId,
-      SUM(COALESCE(totalEstimatedCost,0)) AS total FROM po_pricing_batches
+      SUM(COALESCE(totalEstimatedCost,0)) AS total
+      ${requireBothApprovals ? sql`, SUM(CASE WHEN ${completedFinancialApprovals("scope_batch")} THEN 0 ELSE 1 END) AS incompleteApprovals` : sql``}
+      FROM po_pricing_batches scope_batch
       WHERE purchasePackageSubmissionId IS NOT NULL GROUP BY purchasePackageSubmissionId) t ON t.purchasePackageSubmissionId=a.entityId
     LEFT JOIN po_pricing_batches b ON b.id=t.firstBatchId
     LEFT JOIN users u ON u.id=${financial ? sql`b.submittedById` : sql`COALESCE(b.submittedById,a.uploadedById)`}
     WHERE a.entityType=${financial ? "purchase_package_submission_financial" : "delegate_package_submission_pricing"}
+      ${requireBothApprovals ? sql`AND ${completedFinancialApprovals("s")}
+        AND t.firstBatchId IS NOT NULL AND t.incompleteApprovals=0` : sql``}
   ) d`;
 }
 
-export async function getAttachmentDocumentPage(kind: "po_financial_batch" | "delegate_pricing_documents", input: DocumentListPageInput, ownDelegateId?: number, database?: any) {
+export async function getAttachmentDocumentPage(kind: "po_financial_batch" | "delegate_pricing_documents", input: DocumentListPageInput, ownDelegateId?: number, database?: any, actorRole?: string) {
   const db = database ?? await getDb();
   if (!db) throw new Error("Database unavailable");
-  const source = attachmentDocumentSource(kind);
+  const source = attachmentDocumentSource(kind, actorRole);
   const base = ownDelegateId == null ? sql`1=1` : sql`d.delegateId=${ownDelegateId}`;
   const conditions = [base];
   if (input.delegateId != null) conditions.push(sql`d.delegateId=${input.delegateId}`);

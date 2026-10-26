@@ -1212,7 +1212,14 @@ async function startServer() {
     // فحص التخزين بعد الإقلاع مباشرة — لا يمنع تشغيل السيرفر ولا يؤخّر الاستماع،
     // لكنه يكشف خطأ مفتاح/صلاحية/مستودع خلال ثانيتين بدل انتظار شكوى مستخدم.
     void checkStorageHealth();
+    void startBackgroundJobsWhenDatabaseReady();
   });
+
+  let backgroundJobsStarted = false;
+
+  function scheduleBackgroundJobs() {
+    if (backgroundJobsStarted) return;
+    backgroundJobsStarted = true;
 
   // استعادة الـ translation jobs المعلقة عند بدء التشغيل، ثم دوريًا كل 30 دقيقة
   // (كانت سابقاً تُنفَّذ مرة واحدة فقط عند الإقلاع — أي مهمة تُفقَد بسبب إعادة تشغيل
@@ -1280,6 +1287,30 @@ async function startServer() {
     runConstructionAutomation();
     setInterval(runConstructionAutomation, FIVE_MINUTES);
   }, 30000);
+  }
+
+  const DATABASE_STARTUP_RETRY_DELAYS_MS = [5000, 10000, 20000, 30000] as const;
+
+  async function startBackgroundJobsWhenDatabaseReady(attempt = 0): Promise<void> {
+    if (backgroundJobsStarted) return;
+
+    try {
+      const database = await getDb();
+      if (database) {
+        console.log("[Jobs] Database ready; scheduling background jobs");
+        scheduleBackgroundJobs();
+        return;
+      }
+    } catch (error) {
+      console.warn("[Jobs] Database readiness check failed:", error);
+    }
+
+    const retryDelay = DATABASE_STARTUP_RETRY_DELAYS_MS[
+      Math.min(attempt, DATABASE_STARTUP_RETRY_DELAYS_MS.length - 1)
+    ];
+    console.warn(`[Jobs] Database unavailable; retrying background startup in ${retryDelay / 1000}s`);
+    setTimeout(() => void startBackgroundJobsWhenDatabaseReady(attempt + 1), retryDelay);
+  }
 
   // ============================================================
   // GLOBAL EXPRESS ERROR HANDLER (TASK 3)

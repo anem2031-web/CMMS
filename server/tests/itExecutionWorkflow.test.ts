@@ -13,11 +13,18 @@ const fixture = vi.hoisted(() => ({
   histories: [] as any[],
   audits: [] as any[],
   notifications: [] as any[],
+  sqlResults: [] as any[],
+  sqlCalls: [] as any[],
+  ticketItems: [{ id: 4401, ticketId: 44 }] as any[],
   pathB: vi.fn(async () => undefined),
 }));
 
 vi.mock("../_core/db", () => ({
   withTransaction: vi.fn(async (work: any) => work({
+    execute: async (statement: any) => {
+      fixture.sqlCalls.push(statement);
+      return fixture.sqlResults.shift() ?? [];
+    },
     insert: (table: any) => ({ values: async (row: any) => {
       if (String(table).includes("ticket_status_history")) fixture.histories.push(row);
       else fixture.audits.push(row);
@@ -27,6 +34,7 @@ vi.mock("../_core/db", () => ({
   getTicketById: vi.fn(async (id: number) => id === fixture.ticket.id ? { ...fixture.ticket } : null),
   updateTicket: vi.fn(async (_id: number, changes: any) => Object.assign(fixture.ticket, changes)),
   syncSingleTicketItem: vi.fn(async () => true),
+  getTicketItems: vi.fn(async () => fixture.ticketItems.map(item => ({ ...item }))),
   getUserById: vi.fn(async (id: number) => ({ id, role: fixture.ticket.actorRole ?? APP_ROLE.IT_MEMBER, isActive: 1 })),
   getExternalMaintenanceJobByTicketId: vi.fn(async () => ({ id: 90, status: "reinstall_in_progress" })),
   updateExternalMaintenanceJobByTicketId: vi.fn(async () => undefined),
@@ -51,6 +59,10 @@ function ticket(overrides: Record<string, any> = {}) {
     assignedToId: 7,
     maintenanceResponsibleDepartment: DEPT.IT,
     maintenanceResponsibleManagerId: 8,
+    title: "عطل شبكة",
+    siteId: 1,
+    sectionId: 2,
+    assetId: null,
     workflowModel: "sub_ticket",
     sourceTaskId: 12,
     status: "under_inspection",
@@ -64,6 +76,9 @@ beforeEach(() => {
   fixture.histories.length = 0;
   fixture.audits.length = 0;
   fixture.notifications.length = 0;
+  fixture.sqlResults.length = 0;
+  fixture.sqlCalls.length = 0;
+  fixture.ticketItems = [{ id: 4401, ticketId: 44 }];
   fixture.pathB.mockClear();
 });
 
@@ -126,5 +141,44 @@ describe("IT execution RPC boundary", () => {
     await expect(caller().recordItExecutionOutcome({ ticketId: 44, outcome: "fixed", note: "" })).rejects.toMatchObject({ code: "BAD_REQUEST" });
     await expect(caller(actor(9)).recordItExecutionOutcome({ ticketId: 44, outcome: "ok", note: "" })).rejects.toMatchObject({ code: "FORBIDDEN" });
     expect(fixture.ticket.status).toBe("in_progress");
+  });
+
+  it("saves an IT material list atomically before moving the ticket to path B", async () => {
+    fixture.ticket = ticket({ status: "in_progress" });
+    fixture.sqlResults.push(
+      [[]],
+      [[{ id: 21, warehouseId: 20 }]],
+      [{ insertId: 501 }],
+      [],
+      [],
+      []
+    );
+    await expect(caller().requestItMaterials({
+      ticketId: 44,
+      items: [{ itemName: "محول شبكة", quantity: 2, unit: "قطعة" }],
+      reason: "لاستكمال الإصلاح",
+    })).resolves.toEqual({ success: true, assignmentId: 501 });
+    expect(fixture.ticket).toMatchObject({
+      status: "work_approved",
+      maintenancePath: "B",
+    });
+    expect(fixture.sqlCalls).toHaveLength(6);
+    expect(fixture.audits.at(-1)).toMatchObject({
+      action: "request_it_ticket_materials",
+    });
+  });
+
+  it("rejects a material request from a foreign IT account before stock workflow writes", async () => {
+    fixture.ticket = ticket({ status: "in_progress" });
+    await expect(caller(actor(9)).requestItMaterials({
+      ticketId: 44,
+      items: [{ itemName: "محول شبكة", quantity: 1, unit: "قطعة" }],
+      reason: "",
+    })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(fixture.sqlCalls).toHaveLength(0);
+    expect(fixture.ticket).toMatchObject({
+      status: "in_progress",
+      maintenancePath: null,
+    });
   });
 });

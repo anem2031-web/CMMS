@@ -1,7 +1,9 @@
 import { z } from "zod";
+import { assertDatabaseSslPolicy } from "./db/connection-config";
 
 const serverEnvSchema = z.object({
   DATABASE_URL: z.string().min(1, "DATABASE_URL is required"),
+  DATABASE_SSL_MODE: z.enum(["verify", "disable"]).default("verify"),
   JWT_SECRET: z.string().min(1, "JWT_SECRET is required"),
   OAUTH_SERVER_URL: z.string().min(1, "OAUTH_SERVER_URL is required"),
   OWNER_OPEN_ID: z.string().min(1, "OWNER_OPEN_ID is required"),
@@ -21,6 +23,7 @@ const serverEnvSchema = z.object({
 export const validateEnv = () => {
   try {
     const parsed = serverEnvSchema.parse(process.env);
+    assertDatabaseSslPolicy(parsed.DATABASE_SSL_MODE, parsed.NODE_ENV);
     if (parsed.NODE_ENV === "production") {
 
       // Enforce VAPID keys in production if push notifications are enabled

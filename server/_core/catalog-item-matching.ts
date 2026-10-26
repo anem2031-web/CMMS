@@ -1,5 +1,4 @@
-import { invokeLLM } from "./llm";
-import { withAiResponseCache, type AiCacheSource } from "./ai-response-cache";
+import type { AiCacheSource } from "./ai-response-cache";
 
 export type MeasurementKind = "length" | "weight" | "volume";
 
@@ -762,6 +761,8 @@ async function expandHybridSearchTerms(
   query: ItemMatchQuery,
   reportUsage?: CatalogAiUsageReporter,
 ): Promise<string[]> {
+  const { withAiResponseCache } = await import("./ai-response-cache");
+  const { invokeLLM } = await import("./llm");
   const cached = await withAiResponseCache<string[]>({
     feature: CATALOG_AI_FEATURE,
     operation: "search_term_expansion",
@@ -819,6 +820,8 @@ async function rerankHybridShortlist(params: {
 }): Promise<AiSemanticScore[]> {
   const { query, shortlist, phase, reportUsage } = params;
   if (!shortlist.length) return [];
+  const { withAiResponseCache } = await import("./ai-response-cache");
+  const { invokeLLM } = await import("./llm");
   const allowedIds = new Set(shortlist.map(item => item.id));
   const cacheInput = {
     invoiceItem: query,

@@ -52,10 +52,10 @@ export const attachmentsRouter = router({
       throw new TRPCError({ code: "FORBIDDEN", message: "ليس لديك صلاحية للاطلاع على الوثائق المالية" });
     }
     if (input.pagination) {
-      const result = await getAttachmentDocumentPage(input.entityType, input.pagination);
+      const result = await getAttachmentDocumentPage(input.entityType, input.pagination, undefined, undefined, ctx.user.role);
       return { ...result, rows: await documentRows(ctx.user, result.rows) };
     }
-    return documentRows(ctx.user, await db.getFinancialBatchAttachmentsWithDelegate());
+    return documentRows(ctx.user, await db.getFinancialBatchAttachmentsWithDelegate(ctx.user.role));
   }),
 
   list: protectedProcedure.input(z.object({

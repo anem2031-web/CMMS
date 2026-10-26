@@ -20,6 +20,7 @@ export const purchaseDocumentPort: PurchaseDocumentPort = {
 };
 const denied = (message = "ليس لديك صلاحية لمستند طلب الشراء المحدد") => new TRPCError({ code: "FORBIDDEN", message });
 export const PURCHASE_PDF_APPROVAL_MESSAGE = "فتح وتنزيل PDF متاح بعد اعتمادك لهذه المعاملة فقط";
+const FINANCIAL_ARCHIVE_APPROVAL_MESSAGE = "الوثيقة المالية متاحة للحسابات بعد اكتمال اعتماد الحسابات والإدارة العليا";
 export const isPurchasePdfApprover = (user: PurchaseDocumentActor) => ["accountant", "senior_management"].includes(user.role);
 
 /** An exact approval belongs to an actor, not to a later aggregate header state. */
@@ -115,6 +116,29 @@ export async function withPurchaseDocumentPermissions<T extends Record<string, a
 export const PURCHASE_ATTACHMENT_TYPES = ["po_financial_batch", "purchase_package_submission_financial", "delegate_pricing_batch", "delegate_package_submission_pricing"] as const;
 export function isPurchaseDocumentAttachment(type: string) { return (PURCHASE_ATTACHMENT_TYPES as readonly string[]).includes(type); }
 
+/** Completed archived financial documents are shared by the accounting role.
+ * Pricing documents and live PO exports retain their exact-actor approval rule.
+ * List callers supply a bulk-loaded port; downloads supply fresh readers.
+ */
+async function authorizeCompletedFinancialArchive(user: PurchaseDocumentActor, scopes: any[], batches: any[], source: PurchaseDocumentPort) {
+  const fullyApproved = scopes.length > 0 && scopes.every(scope => ["accounting", "management"].every(prefix => {
+    const approvedById = Number(scope?.[`${prefix}ApprovedById`]);
+    const approvedAt = scope?.[`${prefix}ApprovedAt`];
+    return Number.isSafeInteger(approvedById) && approvedById > 0
+      && approvedAt != null && String(approvedAt).trim().length > 0 && Number.isFinite(new Date(approvedAt).getTime());
+  }));
+  if (!Number.isSafeInteger(user.id) || user.id <= 0 || !batches.length || !fullyApproved) throw denied(FINANCIAL_ARCHIVE_APPROVAL_MESSAGE);
+  const orderIds = Array.from(new Set<number>(batches.map(batch => Number(batch.purchaseOrderId))));
+  let firstOrder: any;
+  for (const id of orderIds) {
+    if (!Number.isSafeInteger(id) || id <= 0) throw denied();
+    const order = await source.order(id);
+    if (!order) throw denied();
+    firstOrder ??= order;
+  }
+  return firstOrder;
+}
+
 /** Archived attachment identifiers are batch/submission IDs, never PO IDs. */
 export async function authorizePurchaseAttachment(user: PurchaseDocumentActor, type: string, entityId: number, source = purchaseDocumentPort) {
   if (!Number.isSafeInteger(entityId) || entityId <= 0 || !isPurchaseDocumentAttachment(type)) throw denied();
@@ -124,10 +148,14 @@ export async function authorizePurchaseAttachment(user: PurchaseDocumentActor, t
   if (type === "po_financial_batch" || type === "delegate_pricing_batch") {
     const batch = await source.batch(entityId);
     if (!batch || !Number.isSafeInteger(Number(batch.purchaseOrderId)) || Number(batch.purchaseOrderId) <= 0) throw denied();
+    if (financial && user.role === "accountant") return authorizeCompletedFinancialArchive(user, [batch], [batch], source);
     return authorizePurchaseDocument(user, Number(batch.purchaseOrderId), entityId, undefined, source);
   }
   const batches = await source.batches(entityId);
   if (!batches.length) throw denied();
+  if (financial && user.role === "accountant") {
+    return authorizeCompletedFinancialArchive(user, [await source.submission(entityId), ...batches], batches, source);
+  }
   return authorizePurchaseDocument(user, Number(batches[0].purchaseOrderId), undefined, entityId, source);
 }
 
@@ -135,6 +163,8 @@ export async function purchaseAttachmentPermission(user: PurchaseDocumentActor, 
   try { await authorizePurchaseAttachment(user, type, entityId, source); return { pdfAllowed: true, pdfBlockedReason: null as string | null }; }
   catch (error) {
     if (!(error instanceof TRPCError) || !["FORBIDDEN", "NOT_FOUND", "BAD_REQUEST"].includes(error.code)) throw error;
-    return { pdfAllowed: false, pdfBlockedReason: isPurchasePdfApprover(user) ? PURCHASE_PDF_APPROVAL_MESSAGE : "ليس لديك صلاحية لتنزيل هذا المستند" };
+    const sharedFinancialArchive = user.role === "accountant" && ["po_financial_batch", "purchase_package_submission_financial"].includes(type);
+    return { pdfAllowed: false, pdfBlockedReason: sharedFinancialArchive ? FINANCIAL_ARCHIVE_APPROVAL_MESSAGE
+      : isPurchasePdfApprover(user) ? PURCHASE_PDF_APPROVAL_MESSAGE : "ليس لديك صلاحية لتنزيل هذا المستند" };
   }
 }

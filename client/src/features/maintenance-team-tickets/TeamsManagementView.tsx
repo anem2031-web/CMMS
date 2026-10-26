@@ -1,5 +1,6 @@
 import { useState } from "react";
 import {
+  isTicketTeamExecutorRole,
   teamManagementSnapshot,
   type TeamManagementData,
   type TeamDraft,
@@ -15,52 +16,52 @@ const copies = {
     warehouse: "المستودع المرتبط",
     choose: "اختر المستودع الفرعي",
     add: "إضافة فريق",
-    members: "الفنيون المرتبطون",
+    members: "المنفذون المرتبطون",
     active: "نشط",
     inactive: "معطل",
     activate: "تفعيل الفريق",
     deactivate: "تعطيل الفريق",
     empty: "لا توجد فرق صيانة بعد.",
     noWarehouses: "لا توجد مستودعات فرعية نشطة للاختيار.",
-    noTechnicians: "لا يوجد فنيون داخليون نشطون للاختيار.",
+    noTechnicians: "لا يوجد فنيون أو أعضاء تقنية معلومات نشطون للاختيار.",
     unavailable: "غير نشط أو غير متاح",
-    search: "بحث عن فني",
+    search: "بحث عن منفذ",
     save: "حفظ",
     saveChanges: "حفظ التعديلات",
     cancel: "إلغاء",
     edit: "تعديل الفريق",
-    addMembers: "إضافة فنيين",
-    noMembers: "لا يوجد فنيون مرتبطون",
-    memberCount: "فني",
-    activateFirst: "فعّل الفريق قبل تعديل الفنيين",
+    addMembers: "إضافة منفذين",
+    noMembers: "لا يوجد منفذون مرتبطون",
+    memberCount: "منفذ",
+    activateFirst: "فعّل الفريق قبل تعديل المنفذين",
     details: "عرض التفاصيل",
     newTeam: "فريق جديد",
   },
   en: {
     title: "Maintenance Teams",
-    help: "Manage maintenance ticket teams with existing technicians and branch warehouses.",
+    help: "Manage maintenance ticket teams with existing maintenance and IT executors and branch warehouses.",
     name: "Team name",
     warehouse: "Linked warehouse",
     choose: "Choose a branch warehouse",
     add: "Add team",
-    members: "Linked technicians",
+    members: "Linked executors",
     active: "Active",
     inactive: "Inactive",
     activate: "Activate team",
     deactivate: "Deactivate team",
     empty: "No maintenance teams yet.",
     noWarehouses: "No active branch warehouses available.",
-    noTechnicians: "No active internal technicians available.",
+    noTechnicians: "No active maintenance or IT executors available.",
     unavailable: "Inactive or unavailable",
-    search: "Search technicians",
+    search: "Search executors",
     save: "Save",
     saveChanges: "Save changes",
     cancel: "Cancel",
     edit: "Edit team",
-    addMembers: "Add technicians",
-    noMembers: "No linked technicians",
-    memberCount: "technicians",
-    activateFirst: "Activate the team before editing technicians",
+    addMembers: "Add executors",
+    noMembers: "No linked executors",
+    memberCount: "executors",
+    activateFirst: "Activate the team before editing executors",
     details: "View details",
     newTeam: "New team",
   },
@@ -141,7 +142,7 @@ function TeamEditor(p: {
   );
   const candidates = p.data.technicians.filter(
     u =>
-      (u.active && u.role === "technician") ||
+      (u.active && isTicketTeamExecutorRole(u.role)) ||
       p.initial.memberIds.includes(u.id)
   );
   for (const id of p.initial.memberIds)
@@ -247,7 +248,7 @@ function TeamEditor(p: {
                   checked={members.includes(u.id)}
                   disabled={
                     !p.initial.memberIds.includes(u.id) &&
-                    (!u.active || u.role !== "technician")
+                    (!u.active || !isTicketTeamExecutorRole(u.role))
                   }
                   onChange={e =>
                     setMembers(current =>
@@ -258,7 +259,7 @@ function TeamEditor(p: {
                   }
                 />
                 {u.name}
-                {!u.active || u.role !== "technician"
+                {!u.active || !isTicketTeamExecutorRole(u.role)
                   ? " (" + p.copy.unavailable + ")"
                   : ""}
               </label>
@@ -386,7 +387,7 @@ export function TeamsManagementView(p: TeamsManagementViewProps) {
                       return (
                         <li key={m.userId}>
                           {u?.name ?? "#" + m.userId}
-                          {!u?.active || u.role !== "technician"
+                          {!u?.active || !isTicketTeamExecutorRole(u.role)
                             ? " (" + copy.unavailable + ")"
                             : ""}
                         </li>

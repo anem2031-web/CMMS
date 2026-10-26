@@ -46,6 +46,8 @@ export interface TicketRef {
   responsibleManagerId: number;
   closed: boolean;
   assignmentMode: "unassigned" | "name" | "team";
+  assignedToId?: number | null;
+  responsibleDepartment?: string | null;
 }
 export interface Team {
   id: number;

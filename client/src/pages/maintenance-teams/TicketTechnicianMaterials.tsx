@@ -4,7 +4,7 @@ import ar from "@/i18n/ar";
 import en from "@/i18n/en";
 import ur from "@/i18n/ur";
 import { issued, remainingReturn, type Assignment, type Snapshot } from "@shared/maintenance-team-tickets/model";
-import { materialSupplyRemaining } from "@shared/maintenance-team-tickets/material-routing";
+import { materialSupplyRemaining, materialUnitMismatch } from "@shared/maintenance-team-tickets/material-routing";
 
 export function TicketTechnicianMaterials({ state, assignment: a, balances, busy, language, onReceive }: {
   state: Snapshot; assignment: Assignment; balances: Array<{ needId: number; branch: number; main: number }>;
@@ -19,7 +19,8 @@ export function TicketTechnicianMaterials({ state, assignment: a, balances, busy
     <div className="flex flex-wrap items-center gap-2 text-sm font-semibold">{l("المواد والاستلام والاستخدام والمرتجع", "Materials, receipt, usage and returns", "مواد، وصولی، استعمال اور واپسی")}<Badge variant="secondary">{needs.length}</Badge></div>
     {needs.map(n => {
       const left = Math.max(0, n.requested - issued(state, n.id));
-      const balance = balances.find(b => b.needId === n.id);
+      const differentUnit = materialUnitMismatch(state, n);
+      const balance = differentUnit ? undefined : balances.find(b => b.needId === n.id);
       const supplyRemaining = materialSupplyRemaining(state, n);
       const canReceive = a.stage === "waiting_material" && n.round === a.materialRound && n.catalogItemId != null && left > 0 && !!balance && balance.branch >= left && (supplyRemaining ?? 0) === 0;
       const waitingIdentity = n.catalogItemId == null;
@@ -30,7 +31,8 @@ export function TicketTechnicianMaterials({ state, assignment: a, balances, busy
         {!!n.originalName && n.originalName !== n.name && <div className="rounded border border-blue-200 bg-blue-50/60 p-2 text-blue-900"><p className="font-medium">{t.warehouseIdentifiedMaterial}</p><p>{t.yourDescription}: «{n.originalName}»</p><p>{t.resolvedItem}: <strong>{n.name}</strong></p></div>}
         <p>{t.issuedForTask}: {issued(state, n.id)} {n.unit} · {t.remainingForTask}: {left} {n.unit}</p>
         {balance && <p className={canReceive ? "text-emerald-800" : "text-amber-800"}>{t.availableNow}: {balance.branch} {n.unit}. {t.requiredForFullReceipt}: {left} {n.unit}.</p>}
-        {a.stage === "waiting_material" && left > 0 && !balance && <p className="text-muted-foreground">{t.recheckingBalance}</p>}
+        {a.stage === "waiting_material" && left > 0 && !balance && !differentUnit && <p className="text-muted-foreground">{t.recheckingBalance}</p>}
+        {differentUnit && <p className="text-amber-800">{l("تم ربط الصنف؛ وحدة الكتالوج مختلفة وتحتاج مراجعة قبل الاستلام.", "Item linked; catalog unit differs and needs review before receipt.", "صنف منسلک ہوگیا؛ وصولی سے پہلے مختلف اکائی کا جائزہ درکار ہے۔")}</p>}
         {waitingIdentity && <p className="text-amber-800">{l("بانتظار تحديد المستودع للصنف والوحدة.", "Awaiting catalog identification by the warehouse.", "گودام سے کیٹلاگ کی شناخت کا انتظار۔")}</p>}
         {state.supplies.filter(s => s.needId === n.id).map(s => <p key={s.id}><span className="font-medium">{s.sourceNumber}</span> · {s.quantity} {n.unit}</p>)}
         {canReceive && <TicketMaterialReceiptButton name={n.name} quantity={left} unit={n.unit} warehouseName={warehouseName} language={language} busy={busy} disabled={!canReceive} onConfirm={() => onReceive(n.id)} />}

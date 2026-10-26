@@ -7,8 +7,8 @@ export function documentDatabase() {
   const memory = new DatabaseSync(":memory:");
   memory.exec(`
     CREATE TABLE attachments (id INTEGER,entityType TEXT,entityId INTEGER,fileName TEXT,fileUrl TEXT,fileKey TEXT,mimeType TEXT,fileSize INTEGER,uploadedById INTEGER,createdAt TEXT);
-    CREATE TABLE po_pricing_batches (id INTEGER,purchaseOrderId INTEGER,purchasePackageSubmissionId INTEGER,submittedById INTEGER,totalEstimatedCost TEXT,custodyAmount TEXT);
-    CREATE TABLE purchase_package_submissions (id INTEGER,purchasePackageId INTEGER,totalEstimatedCost TEXT,custodyBalance TEXT);
+    CREATE TABLE po_pricing_batches (id INTEGER,purchaseOrderId INTEGER,purchasePackageSubmissionId INTEGER,submittedById INTEGER,totalEstimatedCost TEXT,custodyAmount TEXT,accountingApprovedById INTEGER,accountingApprovedAt TEXT,managementApprovedById INTEGER,managementApprovedAt TEXT);
+    CREATE TABLE purchase_package_submissions (id INTEGER,purchasePackageId INTEGER,totalEstimatedCost TEXT,custodyBalance TEXT,accountingApprovedById INTEGER,accountingApprovedAt TEXT,managementApprovedById INTEGER,managementApprovedAt TEXT);
     CREATE TABLE users (id INTEGER,name TEXT);
   `);
   const dialect = new MySqlDialect();

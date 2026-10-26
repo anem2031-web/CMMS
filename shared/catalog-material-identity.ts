@@ -16,6 +16,7 @@ export interface MaterialIdentityCandidate {
   unit: string | null;
   teamAvailability: IdentityAvailability;
   mainWarehouseAvailability: IdentityAvailability;
+  measurementStatus?: "compatible" | "conflict" | "unknown";
 }
 export interface TicketIdentityContext {
   assignmentId: number;

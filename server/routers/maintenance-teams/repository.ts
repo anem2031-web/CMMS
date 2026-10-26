@@ -117,7 +117,7 @@ class Transaction implements TeamManagementTransaction {
   }
   async remainingActiveMemberCount(teamId: number, excludedUserId: number) {
     const [r] = await this.select(
-      sql`SELECT COUNT(*) AS total FROM maintenance_team_members m INNER JOIN users u ON u.id=m.userId WHERE m.teamId=${teamId} AND m.userId<>${excludedUserId} AND m.isActive=1 AND u.isActive=1 AND u.role='technician'`
+      sql`SELECT COUNT(*) AS total FROM maintenance_team_members m INNER JOIN users u ON u.id=m.userId WHERE m.teamId=${teamId} AND m.userId<>${excludedUserId} AND m.isActive=1 AND u.isActive=1 AND u.role IN ('technician','it_manager','it_member')`
     );
     return Number(r.total);
   }
@@ -180,7 +180,7 @@ export class SqlTeamManagementRepository implements TeamManagementRepository {
       ).map(membership);
       const technicians = rows(
         await tx.execute(
-          sql`SELECT id,name,role,isActive FROM users WHERE (role='technician' AND isActive=1) OR id IN (SELECT userId FROM maintenance_team_members) ORDER BY name,id`
+          sql`SELECT id,name,role,isActive FROM users WHERE (role IN ('technician','it_manager','it_member') AND isActive=1) OR id IN (SELECT userId FROM maintenance_team_members) ORDER BY name,id`
         )
       ).map(user);
       const warehouses = rows(

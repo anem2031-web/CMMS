@@ -42,11 +42,11 @@ export function isRecoverableAuthFailure(error: unknown) {
 }
 
 export function shouldRetryAuthQuery(failureCount: number, error: unknown) {
-  return failureCount < 2 && isRecoverableAuthFailure(error);
+  return failureCount < 3 && isRecoverableAuthFailure(error);
 }
 
 export function authRetryDelay(attemptIndex: number) {
-  return Math.min(1_500 * (2 ** attemptIndex), 6_000);
+  return [5_000, 10_000, 20_000][attemptIndex] ?? 30_000;
 }
 
 export const AUTH_RECOVERY_INTERVAL_MS = 30_000;

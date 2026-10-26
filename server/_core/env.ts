@@ -4,6 +4,7 @@ export const ENV = {
   appId: env.VITE_APP_ID ?? "",
   cookieSecret: env.JWT_SECRET,
   databaseUrl: env.DATABASE_URL,
+  databaseSslMode: env.DATABASE_SSL_MODE,
   oAuthServerUrl: env.OAUTH_SERVER_URL,
   ownerOpenId: env.OWNER_OPEN_ID,
   isProduction: env.NODE_ENV === "production",

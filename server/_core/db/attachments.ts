@@ -89,18 +89,18 @@ export async function getAttachmentsByType(entityType: string) {
  * الفصل بين النوعين يمنع تداخل أرقام Pricing Batch مع أرقام دفعات الإرسال،
  * مع إبقاء واجهة مركز المستندات الحالية وقواعد صلاحياتها كما هي.
  */
-export async function getFinancialBatchAttachmentsWithDelegate() {
-  return allDocumentAttachments("po_financial_batch");
+export async function getFinancialBatchAttachmentsWithDelegate(actorRole?: string) {
+  return allDocumentAttachments("po_financial_batch", actorRole);
 }
 
 export async function getDelegatePricingAttachmentsWithDelegate() {
   return allDocumentAttachments("delegate_pricing_documents");
 }
 
-async function allDocumentAttachments(kind: "po_financial_batch" | "delegate_pricing_documents") {
+async function allDocumentAttachments(kind: "po_financial_batch" | "delegate_pricing_documents", actorRole?: string) {
   const db = await getDb();
   if (!db) return [];
-  const rows = await documentQueryRows(db, sql`SELECT d.* FROM ${attachmentDocumentSource(kind)} ORDER BY d.createdAt DESC,d.id DESC`);
+  const rows = await documentQueryRows(db, sql`SELECT d.* FROM ${attachmentDocumentSource(kind, actorRole)} ORDER BY d.createdAt DESC,d.id DESC`);
   return rows.map(({ documentScope, ...row }) => ({ ...row,
     totalEstimatedCost: kind === "delegate_pricing_documents" && documentScope === "package_submission"
       ? Number(row.totalEstimatedCost || 0).toFixed(2) : row.totalEstimatedCost,

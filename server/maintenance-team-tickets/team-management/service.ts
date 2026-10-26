@@ -5,6 +5,7 @@ import {
 } from "../../../shared/maintenance-team-tickets/model";
 import {
   canManageTicketTeams,
+  isTicketTeamExecutorRole,
   type TeamManagementRepository,
   type TeamManagementActor,
   type SaveTeamInput,
@@ -52,8 +53,8 @@ export class TicketTeamManagementService {
         throw new TeamTicketError("CONFLICT", "اسم الفريق موجود مسبقًا");
       for (const userId of selected) {
         const tech = await tx.findUser(userId);
-        if (!tech?.active || tech.role !== "technician")
-          throw new TeamTicketError("INVALID", "اختر فنيين داخليين نشطين فقط");
+        if (!tech?.active || !isTicketTeamExecutorRole(tech.role))
+          throw new TeamTicketError("INVALID", "اختر منفذي صيانة أو تقنية معلومات نشطين فقط");
       }
       const id = await tx.createTeam(name, input.warehouseId, actor.id);
       integer(id, "الفريق الجديد");
@@ -135,9 +136,9 @@ export class TicketTeamManagementService {
       // Validate the final membership before any write; a replacement technician can be added in the same save.
       for (const userId of selected) {
         const tech = await tx.findUser(userId);
-        if (tech?.active && tech.role === "technician") validSelected++;
+        if (tech?.active && isTicketTeamExecutorRole(tech.role)) validSelected++;
         else if (added.includes(userId))
-          throw new TeamTicketError("INVALID", "اختر فنيين داخليين نشطين فقط");
+          throw new TeamTicketError("INVALID", "اختر منفذي صيانة أو تقنية معلومات نشطين فقط");
       }
       if (
         removed.length &&
@@ -220,10 +221,10 @@ export class TicketTeamManagementService {
         return { changed: false };
       if (input.active) {
         const tech = await tx.findUser(input.userId);
-        if (!team.active || !tech?.active || tech.role !== "technician")
+        if (!team.active || !tech?.active || !isTicketTeamExecutorRole(tech.role))
           throw new TeamTicketError(
             "INVALID",
-            "اختر فنيًا داخليًا نشطًا وفريقًا نشطًا"
+            "اختر منفذ صيانة أو تقنية معلومات نشطًا وفريقًا نشطًا"
           );
       } else if (
         (await tx.hasOpenExecution(team.id)) &&

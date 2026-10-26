@@ -44,7 +44,10 @@ export function previewTeamRepository(store: Store): TeamManagementRepository {
                 m.userId !== excluded &&
                 m.active &&
                 s.users.some(
-                  u => u.id === m.userId && u.active && u.role === "technician"
+                  u =>
+                    u.id === m.userId &&
+                    u.active &&
+                    ["technician", "it_manager", "it_member"].includes(u.role)
                 )
             ).length,
           hasOpenExecution: async teamId =>

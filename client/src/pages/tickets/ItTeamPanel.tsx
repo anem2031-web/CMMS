@@ -11,10 +11,55 @@ import { getDefaultRequiredDate } from "@/lib/purchaseItemTiming";
 import { useTranslation } from "@/contexts/LanguageContext";
 import { localizeApiError } from "@/i18n/apiError";
 import { canExecuteItSubTicket, canStartItSubTicket, itExecutionOutcomeRequiresNote, type ItExecutionOutcome } from "@shared/it-execution-workflow";
+import { ExecutionPanel } from "../maintenance-teams/ExecutionPanel";
+import { TicketMaterialCatalogPicker, type TicketCatalogCandidate } from "../maintenance-teams/TicketMaterialCatalogPicker";
 
 const selectClass = "border rounded-md bg-background px-3 py-2 text-sm";
 const format = (template: string, values: Record<string, string | number>) =>
   Object.entries(values).reduce((text, [key, value]) => text.replace(`{${key}}`, String(value)), template);
+
+type ItMaterialDraft = { catalogItemId?: number; itemName: string; quantity: number; unit: string };
+function ItMaterialRequestForm({ ticketId, onSaved, onCancel }: { ticketId: number; onSaved: () => void; onCancel: () => void }) {
+  const { language } = useTranslation();
+  const l = (ar: string, en: string, ur: string) => language === "ar" ? ar : language === "ur" ? ur : en;
+  const [search, setSearch] = useState("");
+  const [selected, setSelected] = useState<TicketCatalogCandidate | null>(null);
+  const [items, setItems] = useState<ItMaterialDraft[]>([]);
+  const [reason, setReason] = useState("");
+  const catalog = trpc.catalog.items.list.useQuery({ search, isActive: true, limit: 30, offset: 0 }, { retry: false });
+  const request = trpc.tickets.requestItMaterials.useMutation({
+    onSuccess: () => { toast.success(l("أُرسل احتياج المواد إلى المستودع", "Material needs sent to the warehouse", "مواد کی ضرورت گودام کو بھیج دی گئی")); onSaved(); },
+    onError: error => toast.error(localizeApiError(error.message, language)),
+  });
+  const candidates: TicketCatalogCandidate[] = (catalog.data ?? []).map((item: any) => ({ id: item.id, code: item.code, name: item.nameAr, nameEn: item.nameEn, unit: item.unit }));
+  const valid = items.length > 0 && items.length <= 20 && items.every(item => item.itemName.trim() && item.unit.trim() && Number.isSafeInteger(item.quantity) && item.quantity > 0);
+  return <div className="space-y-3 rounded-md border border-amber-200 bg-background p-3">
+    <p className="font-medium">{l("حدد المواد المطلوبة ثم احفظها لإرسالها إلى المستودع", "Choose the required materials, then save them for the warehouse", "مطلوبہ مواد منتخب کریں پھر گودام کے لیے محفوظ کریں")}</p>
+    <TicketMaterialCatalogPicker
+      items={candidates} selected={selected} search={search} onSearch={setSearch}
+      blockedIds={items.flatMap(item => item.catalogItemId ? [item.catalogItemId] : [])}
+      loading={catalog.isFetching} disabled={request.isPending || items.length >= 20} language={language}
+      onSelect={item => {
+        setSelected(item);
+        setItems(current => current.some(row => row.catalogItemId === item.id) ? current : [...current, { catalogItemId: item.id, itemName: item.name, quantity: 1, unit: item.unit }]);
+      }}
+    />
+    <Button type="button" variant="outline" disabled={request.isPending || items.length >= 20} onClick={() => setItems(current => [...current, { itemName: "", quantity: 1, unit: "" }])}>
+      {l("إضافة مادة غير موجودة في الكتالوج", "Add an unlisted material", "کیٹلاگ سے باہر مواد شامل کریں")}
+    </Button>
+    {items.map((item, index) => <div key={`${item.catalogItemId ?? "manual"}-${index}`} className="grid grid-cols-1 gap-2 rounded border p-2 sm:grid-cols-[1fr_110px_130px_auto]">
+      <Input value={item.itemName} disabled={request.isPending || item.catalogItemId != null} placeholder={l("اسم المادة", "Material name", "مواد کا نام")} onChange={event => setItems(rows => rows.map((row, i) => i === index ? { ...row, itemName: event.target.value } : row))} />
+      <Input type="number" min={1} step={1} value={item.quantity} disabled={request.isPending} aria-label={l("الكمية", "Quantity", "مقدار")} onChange={event => setItems(rows => rows.map((row, i) => i === index ? { ...row, quantity: Number(event.target.value) } : row))} />
+      <Input value={item.unit} disabled={request.isPending || item.catalogItemId != null} placeholder={l("الوحدة", "Unit", "اکائی")} onChange={event => setItems(rows => rows.map((row, i) => i === index ? { ...row, unit: event.target.value } : row))} />
+      <Button type="button" variant="ghost" disabled={request.isPending} onClick={() => setItems(rows => rows.filter((_, i) => i !== index))}>{l("حذف", "Remove", "حذف")}</Button>
+    </div>)}
+    <Textarea value={reason} maxLength={2000} disabled={request.isPending} placeholder={l("ملاحظات للمستودع (اختيارية)", "Warehouse notes (optional)", "گودام کے لیے نوٹس (اختیاری)")} onChange={event => setReason(event.target.value)} />
+    <div className="flex flex-wrap gap-2">
+      <Button disabled={request.isPending || !valid} onClick={() => request.mutate({ ticketId, items, reason })}>{l("حفظ وإرسال للمستودع", "Save and send to warehouse", "محفوظ کرکے گودام کو بھیجیں")}</Button>
+      <Button variant="ghost" disabled={request.isPending} onClick={onCancel}>{l("إلغاء", "Cancel", "منسوخ")}</Button>
+    </div>
+  </div>;
+}
 
 export function ItTaskActions({ ticketId, taskId, assigneeIds, canAssign, onChanged }: { ticketId: number; taskId: number; assigneeIds: number[]; canAssign: boolean; onChanged: () => void }) {
   const [selected, setSelected] = useState("");
@@ -47,8 +92,11 @@ function ItExecutionPanel({ ticket, onChanged }: { ticket: any; onChanged: () =>
   const [note, setNote] = useState("");
   const [materialsUsed, setMaterialsUsed] = useState("");
   const [pendingOutcome, setPendingOutcome] = useState<ItExecutionOutcome | null>(null);
+  const [materialsOpen, setMaterialsOpen] = useState(false);
   const noteRef = useRef<HTMLTextAreaElement>(null);
   const assigned = canExecuteItSubTicket(user, ticket);
+  const utils = trpc.useUtils();
+  const materialAssignment = trpc.tickets.itMaterialAssignment.useQuery({ ticketId: ticket.id }, { enabled: assigned, retry: false });
   const start = trpc.tickets.startItExecution.useMutation({
     onSuccess: () => { toast.success(l("بدأ التنفيذ", "Execution started", "کام شروع ہو گیا")); onChanged(); },
     onError: fail,
@@ -65,6 +113,9 @@ function ItExecutionPanel({ ticket, onChanged }: { ticket: any; onChanged: () =>
     onError: fail,
   });
   if (!assigned || ["closed", "requester_confirmed"].includes(ticket.status)) return null;
+  if (materialAssignment.data) return <section className="rounded-lg border border-blue-200 bg-blue-50/40 p-4 dark:border-blue-800 dark:bg-blue-950/20">
+    <ExecutionPanel assignmentId={materialAssignment.data.assignmentId} actorId={user!.id} role={user!.role} language={language} mode="execution" onChanged={onChanged} />
+  </section>;
   const canStart = canStartItSubTicket(user, ticket);
   const canResume = ticket.status === "received_warehouse" && ["B", "C"].includes(ticket.maintenancePath);
   const active = ticket.status === "in_progress";
@@ -79,6 +130,11 @@ function ItExecutionPanel({ ticket, onChanged }: { ticket: any; onChanged: () =>
           : l("صيانة خارجية", "External maintenance", "بیرونی مرمت");
   const saveOutcome = (value: ItExecutionOutcome) => outcome.mutate({ ticketId: ticket.id, outcome: value, note, materialsUsed: materialsUsed || undefined });
   const chooseOutcome = (value: ItExecutionOutcome) => {
+    if (value === "needs_material") {
+      setMaterialsOpen(true);
+      setPendingOutcome(null);
+      return;
+    }
     if (!itExecutionOutcomeRequiresNote(value)) {
       saveOutcome(value);
       return;
@@ -107,6 +163,7 @@ function ItExecutionPanel({ ticket, onChanged }: { ticket: any; onChanged: () =>
           <Button variant="ghost" disabled={outcome.isPending} onClick={() => { setPendingOutcome(null); setNote(""); }}>{l("إلغاء", "Cancel", "منسوخ")}</Button>
         </div>
       </div>}
+      {materialsOpen && <ItMaterialRequestForm ticketId={ticket.id} onCancel={() => setMaterialsOpen(false)} onSaved={() => { setMaterialsOpen(false); void Promise.all([materialAssignment.refetch(), utils.tickets.getById.invalidate()]); onChanged(); }} />}
     </>}
   </section>;
 }
@@ -205,11 +262,15 @@ export function ItPurchaseNeedsPanel({ ticket }: { ticket?: any }) {
   const team = isItTeamRole(user?.role);
   const utils = trpc.useUtils();
   const needs = trpc.tickets.itPurchaseNeeds.useQuery(ticket ? { ticketId: ticket.id } : undefined, { enabled: team });
+  const materialAssignment = trpc.tickets.itMaterialAssignment.useQuery(
+    { ticketId: ticket?.id ?? 0 },
+    { enabled: team && !!ticket?.id, retry: false }
+  );
   const [reason, setReason] = useState("");
   const [items, setItems] = useState<NeedItem[]>([{ itemName: "", quantity: 1, unit: "" }]);
   const changed = () => { needs.refetch(); utils.tickets.getById.invalidate(); utils.purchaseOrders.list.invalidate(); };
   const submit = trpc.tickets.submitItPurchaseNeed.useMutation({ onSuccess: () => { setReason(""); changed(); }, onError: fail });
-  const canSubmit = user?.role === APP_ROLE.IT_MEMBER && ticket?.assignedToId === user?.id && ticket?.maintenancePath === "B" && ticket?.status === "work_approved" && !needs.data?.some(n => n.status === "pending");
+  const canSubmit = user?.role === APP_ROLE.IT_MEMBER && ticket?.assignedToId === user?.id && ticket?.maintenancePath === "B" && ticket?.status === "work_approved" && !materialAssignment.data && !needs.data?.some(n => n.status === "pending");
   if (!team || (!canSubmit && !needs.data?.length)) return null;
   return <section className="rounded-lg border p-4 space-y-3">
     <h3 className="font-semibold">{t.workflow.ticket.itPurchaseNeedsTitle}</h3>

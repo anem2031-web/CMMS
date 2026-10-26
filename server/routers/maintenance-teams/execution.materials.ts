@@ -224,19 +224,25 @@ export class ProductionMaterialGateway implements MaterialGateway {
       x => x.id === input.receiverId && x.active
     );
     const a = this.state.assignments[0];
+    const ticket = this.state.tickets.find(t => t.ticketId === a.ticketId);
+    const namedItExecutor =
+      !!recipient &&
+      ["it_manager", "it_member"].includes(recipient.role) &&
+      ticket?.responsibleDepartment === "maintenance_report_department_it" &&
+      ticket.assignedToId === recipient.id;
     const warehouseIssue =
       ["warehouse", "owner", "admin"].includes(this.actor.role) &&
       recipient &&
       this.state.teams.some(t => t.id === a.teamId && t.active) &&
       (canExecuteAllTicketTeams(recipient.role) ||
-        (recipient.role === "technician" &&
+        ((recipient.role === "technician" || namedItExecutor) &&
           this.state.memberships.some(
             m => m.teamId === a.teamId && m.userId === recipient.id && m.active
           )));
     if (input.receiverId !== this.actor.id && !warehouseIssue)
       throw new TeamTicketError(
         "FORBIDDEN",
-        "الاستلام للفني الذي أكد الاستلام فقط"
+        "الاستلام متاح فقط لمنفذ البلاغ المسند إليه"
       );
     const { inventory, allocations } = await this.plan(
         input.warehouseId,

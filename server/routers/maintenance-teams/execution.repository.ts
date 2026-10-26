@@ -76,7 +76,7 @@ export async function loadExecution(
   );
   const [r] = await selectRows(
     tx,
-    sql`SELECT a.*,k.status AS ticketStatus,k.workflowModel,i.status AS itemStatus,i.ticketId AS itemTicketId FROM ticket_team_assignments a INNER JOIN tickets k ON k.id=a.ticketId INNER JOIN ticket_items i ON i.id=a.ticketItemId WHERE a.id=${id}${suffix}`
+    sql`SELECT a.*,k.status AS ticketStatus,k.workflowModel,k.assignedToId,k.maintenanceResponsibleDepartment,i.status AS itemStatus,i.ticketId AS itemTicketId FROM ticket_team_assignments a INNER JOIN tickets k ON k.id=a.ticketId INNER JOIN ticket_items i ON i.id=a.ticketItemId WHERE a.id=${id}${suffix}`
   );
   if (
     !r ||
@@ -113,7 +113,10 @@ export async function loadExecution(
   const privileged =
     canExecuteAllTicketTeams(u && observerReadActorRole(num(u.id), u.role)) || u?.role === "warehouse";
   const member =
-    u?.role === "technician" &&
+    (u?.role === "technician" ||
+      (["it_manager", "it_member"].includes(u?.role) &&
+        num(r.assignedToId) === actor.id &&
+        r.maintenanceResponsibleDepartment === "maintenance_report_department_it")) &&
     num(teams[0]?.isActive) === 1 &&
     memberships.some(m => num(m.userId) === actor.id && num(m.isActive) === 1);
   if (!actor.active || !u || !(privileged || member))
@@ -320,6 +323,8 @@ export async function loadExecution(
         responsibleManagerId: a.responsibleManagerId,
         closed,
         assignmentMode: "team",
+        assignedToId: r.assignedToId == null ? null : num(r.assignedToId),
+        responsibleDepartment: r.maintenanceResponsibleDepartment ?? null,
       },
     ],
     assignments: [a],

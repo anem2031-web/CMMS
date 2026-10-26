@@ -19,7 +19,37 @@ export async function bridgeTicketExecution(
     old = before.assignments[0],
     action = state.actions.find(x => x.revision === a.revision);
   if (!action) throw new Error("إجراء الفريق مفقود");
-  if (action.kind === "approve_result") {
+  const [sourceTicket] = await selectRows(
+    tx,
+    sql`SELECT maintenanceResponsibleDepartment,assignedToId,reportedById FROM tickets WHERE id=${a.ticketId} FOR UPDATE`
+  );
+  const itExecutionResult =
+    sourceTicket?.maintenanceResponsibleDepartment ===
+      "maintenance_report_department_it" &&
+    Number(sourceTicket.assignedToId) === actor.id &&
+    ["ok", "fixed"].includes(action.kind);
+  if (itExecutionResult) {
+    const materials = state.needs.map(n => ({
+      name: n.name,
+      unit: n.unit,
+      used: n.used,
+      requested: n.requested,
+    }));
+    a.stage = "closed";
+    await tx.execute(
+      sql`UPDATE ticket_items SET status='closed',maintenancePath='B',repairNotes=${action.note},materialsUsed=${JSON.stringify(materials)},closedAt=CURRENT_TIMESTAMP WHERE id=${a.ticketItemId} AND ticketId=${a.ticketId}`
+    );
+    await tx.execute(
+      sql`UPDATE tickets SET status='closed',maintenancePath='B',repairNotes=${action.note},materialsUsed=${JSON.stringify(materials)},closedAt=CURRENT_TIMESTAMP WHERE id=${a.ticketId}`
+    );
+    await tx.execute(
+      sql`INSERT INTO ticket_status_history (ticketId,toStatus,changedById,notes) VALUES (${a.ticketId},'closed',${actor.id},'أنهى منفذ تقنية المعلومات الإصلاح بعد استلام المواد')`
+    );
+    if (sourceTicket.reportedById && Number(sourceTicket.reportedById) !== actor.id)
+      await tx.execute(
+        sql`INSERT INTO notifications (userId,title,message,type,relatedTicketId) VALUES (${Number(sourceTicket.reportedById)},'🔒 تم إغلاق بلاغك',${`أنهى فريق تقنية المعلومات البلاغ ${a.ticketNumber}. يرجى تأكيد إتمام العمل.`},'success',${a.ticketId})`
+      );
+  } else if (action.kind === "approve_result") {
     const [item] = await selectRows(
       tx,
       sql`SELECT id,ticketId,itemNumber,maintenancePath,status FROM ticket_items WHERE id=${a.ticketItemId} AND ticketId=${a.ticketId} FOR UPDATE`
@@ -168,8 +198,20 @@ export async function bridgeTicketExecution(
                 m =>
                   m.active &&
                   state.users.some(
-                    u =>
-                      u.id === m.userId && u.active && u.role === "technician"
+                    u => {
+                      const ticket = state.tickets.find(
+                        t => t.ticketId === a.ticketId
+                      );
+                      return (
+                        u.id === m.userId &&
+                        u.active &&
+                        (u.role === "technician" ||
+                          (["it_manager", "it_member"].includes(u.role) &&
+                            ticket?.responsibleDepartment ===
+                              "maintenance_report_department_it" &&
+                            ticket.assignedToId === u.id))
+                      );
+                    }
                   )
               )
               .map(m => m.userId)

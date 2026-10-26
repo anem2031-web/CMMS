@@ -12,6 +12,7 @@ import type { MaintenanceTeamTicketService } from "../../maintenance-team-ticket
 import type { TeamManagementActor } from "../../../shared/maintenance-team-tickets/team-management";
 import { canReadTicketTeamExecution } from "../../../shared/maintenance-team-tickets/execution-permissions";
 import { searchTicketIdentityCandidates } from "../../maintenance-team-tickets/material-identity-reader";
+import { readTicketMaterialUnits } from "../../maintenance-team-tickets/material-catalog-search";
 const id = z.number().int().positive();
 const command = z.object({
   assignmentId: id,
@@ -70,7 +71,8 @@ export function createTicketTeamExecutionRouter(
       recipientId?: number;
     }
   ) => MaintenanceTeamTicketService = executionService,
-  identityReader = searchTicketIdentityCandidates
+  identityReader = searchTicketIdentityCandidates,
+  unitsReader = readTicketMaterialUnits
 ) {
   const service = (ctx: any, input: { assignmentId: number }, options = {}) => {
     const a = actor(ctx);
@@ -82,6 +84,12 @@ export function createTicketTeamExecutionRouter(
     return factory(input.assignmentId, a, options);
   };
   return router({
+    units: protectedProcedure
+      .input(z.object({ assignmentId: id }).strict())
+      .query(({ ctx, input }) => result(async () => {
+        await service(ctx, input).materialUnitsContext(ctx.user.id, input.assignmentId);
+        return unitsReader();
+      })),
     searchMaterialIdentityCandidates: protectedProcedure
       .input(z.object({ assignmentId: id, needId: id, search: z.string().trim().max(120).default("") }).strict())
       .query(({ ctx, input }) => result(async () => {

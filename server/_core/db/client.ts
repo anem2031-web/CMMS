@@ -45,18 +45,26 @@ import {
 } from "../../../drizzle/schema";
 import { ENV } from '../env';
 import { guardObserverSqlClient } from '../authz/observer-read-scope';
+import { databaseConnectionOptions } from './connection-config';
 
 
 
 let _db: ReturnType<typeof drizzle> | null = null;
 let _pool: mysql.Pool | null = null;
+let _connecting: Promise<ReturnType<typeof drizzle> | null> | null = null;
 
 export async function getDb() {
-  if (!_db && process.env.DATABASE_URL) {
+  if (_db) return _db;
+  if (!process.env.DATABASE_URL) return null;
+  if (_connecting) return _connecting;
+
+  _connecting = (async () => {
+    let candidatePool: mysql.Pool | null = null;
     try {
+      const connection = databaseConnectionOptions(process.env.DATABASE_URL!, ENV.databaseSslMode);
       // استخدام Pool بدل اتصال واحد — يعيد الاتصال تلقائياً عند الانقطاع
-      _pool = mysql.createPool({
-        uri:                process.env.DATABASE_URL,
+      candidatePool = mysql.createPool({
+        ...connection,
         waitForConnections: true,
         connectionLimit:    10,
         queueLimit:         0,
@@ -64,15 +72,25 @@ export async function getDb() {
         keepAliveInitialDelay: 30000,
         connectTimeout:     60000,
       });
-      _db = drizzle(guardObserverSqlClient(_pool) as any);
-      console.log("[Database] Pool created successfully");
+      // createPool is lazy; a real query is required before announcing that
+      // the database is ready or allowing background jobs to start.
+      await candidatePool.query("SELECT 1");
+      _pool = candidatePool;
+      _db = drizzle(guardObserverSqlClient(candidatePool) as any);
+      console.log("[Database] Secure connection verified");
+      return _db;
     } catch (error) {
       console.warn("[Database] Failed to connect:", error);
+      try { await candidatePool?.end(); } catch {}
       _db   = null;
       _pool = null;
+      return null;
+    } finally {
+      _connecting = null;
     }
-  }
-  return _db;
+  })();
+
+  return _connecting;
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -93,6 +111,7 @@ export async function resetDb() {
   try { await _pool?.end(); } catch {}
   _db   = null;
   _pool = null;
+  _connecting = null;
   return getDb();
 }
 

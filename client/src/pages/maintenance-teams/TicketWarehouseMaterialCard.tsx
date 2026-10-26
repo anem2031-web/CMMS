@@ -18,7 +18,7 @@ import {
   type Snapshot,
   type MaterialNeed,
 } from "@shared/maintenance-team-tickets/model";
-import { materialSupplyRemaining } from "@shared/maintenance-team-tickets/material-routing";
+import { materialSupplyRemaining, materialUnitMismatch } from "@shared/maintenance-team-tickets/material-routing";
 import type { AssignedTeamTicket } from "@shared/maintenance-team-tickets/assignment";
 
 /** Presentation only. All operations and authorization remain in ExecutionPanel. */
@@ -50,6 +50,15 @@ export function TicketWarehouseMaterialCard({
     .pmv2;
   const received = issued(state, need.id),
     returns = remainingReturn(state, need.id);
+  if (received === 0 && materialUnitMismatch(state, need)) return <div className="space-y-2 rounded-lg border border-amber-200 p-3 text-sm">
+    <p className="font-semibold">{need.name}</p>
+    <p>{l("المطلوب", "Requested", "درخواست")}: {need.requested} {need.unit}</p>
+    <p>{l("وحدة الكتالوج", "Catalog unit", "کیٹلاگ اکائی")}: {state.catalog.find(item => item.id === need.catalogItemId)?.unit}</p>
+    <p role="status" className="text-amber-800">{l(
+      "تم ربط الصنف. راجع وحدة وكمية الاحتياج قبل الصرف أو التوفير؛ لم تُحوّل الكمية تلقائيًا.",
+      "Item linked. Review the requested unit and quantity before issue or supply; no automatic conversion was made.",
+      "صنف منسلک ہوگیا۔ اجرا یا فراہمی سے پہلے اکائی اور مقدار کا جائزہ لیں؛ خودکار تبدیلی نہیں ہوئی۔")}</p>
+  </div>;
   if (!warehouse)
     return (
       <div className="space-y-3 rounded-lg border p-3">

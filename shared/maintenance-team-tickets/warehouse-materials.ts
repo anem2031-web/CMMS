@@ -4,7 +4,7 @@ import {
   type Snapshot,
   type MaterialNeed,
 } from "./model";
-import { materialSupplyRemaining } from "./material-routing";
+import { materialSupplyRemaining, materialUnitMismatch } from "./material-routing";
 export type WarehouseSection = "waiting" | "ready" | "returns";
 export function materialSection(
   state: Snapshot,
@@ -21,6 +21,7 @@ export function materialSection(
   )
     return null;
   return need.catalogItemId !== null &&
+    !materialUnitMismatch(state, need) &&
     (materialSupplyRemaining(state, need) ?? 0) === 0 &&
     branch !== undefined &&
     branch >= need.requested - issued(state, need.id)

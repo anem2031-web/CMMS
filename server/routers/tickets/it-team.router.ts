@@ -18,6 +18,12 @@ import { assertActiveItUser, getItManager, notifyItTeamArrival } from "./it-team
 import { assertPathBMaterialsDeliveredToTechnician } from "../purchase/ticket-purchase-workflow";
 
 const needItems = z.array(z.object({ itemName: z.string().trim().min(1).max(300), quantity: z.number().min(1), unit: z.string().trim().max(50).optional() })).min(1).max(20);
+const itMaterialItems = z.array(z.object({
+  catalogItemId: z.number().int().positive().optional(),
+  itemName: z.string().trim().min(1).max(300),
+  quantity: z.number().int().positive(),
+  unit: z.string().trim().min(1).max(50),
+}).strict()).min(1).max(20);
 const executionOutcome = z.enum(IT_EXECUTION_OUTCOMES);
 function fail(message: string): never { throw new TRPCError({ code: "BAD_REQUEST", message }); }
 function assertTeam(user: { role: string; isActive?: number }) {
@@ -199,6 +205,79 @@ export const itTeamRouter = router({
     await db.addTicketStatusHistory({ ticketId: input.ticketId, toStatus: "department_planning", changedById: ctx.user.id, notes: `تحويل إلى فريق تقنية المعلومات: ${input.reason}` });
     await notifyItTeamArrival(input.ticketId, number);
     return { success: true };
+  }),
+
+  itMaterialAssignment: protectedProcedure.input(z.object({ ticketId: z.number().int().positive() }).strict()).query(async ({ ctx, input }) => {
+    assertTeam(ctx.user);
+    const ticket = await db.getTicketById(input.ticketId);
+    if (!ticket) throw new TRPCError({ code: "NOT_FOUND", message: "البلاغ غير موجود" });
+    await assertTicketReadable(ctx.user, ticket);
+    const database = await db.getDb();
+    if (!database) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "قاعدة البيانات غير متاحة" });
+    const result = await database.execute(sql`SELECT a.id AS assignmentId,a.stage,a.revision,a.warehouseId FROM ticket_team_assignments a WHERE a.ticketId=${input.ticketId} LIMIT 1`);
+    const row = (result as any)?.[0]?.[0];
+    return row ? { assignmentId: Number(row.assignmentId), stage: String(row.stage), revision: Number(row.revision), warehouseId: Number(row.warehouseId) } : null;
+  }),
+
+  requestItMaterials: protectedProcedure.input(z.object({
+    ticketId: z.number().int().positive(),
+    items: itMaterialItems,
+    reason: z.string().trim().max(2000).default(""),
+  }).strict()).mutation(async ({ ctx, input }) => {
+    assertTeam(ctx.user);
+    await assertActiveItUser(ctx.user.id);
+    const catalogIds = Array.from(new Set(input.items.flatMap(item => item.catalogItemId ? [item.catalogItemId] : [])));
+    if (catalogIds.length !== input.items.filter(item => item.catalogItemId != null).length) fail("لا تكرر صنف الكتالوج في الطلب");
+    const manualNames = input.items.filter(item => item.catalogItemId == null).map(item => item.itemName.trim().toLocaleLowerCase());
+    if (new Set(manualNames).size !== manualNames.length) fail("لا تكرر المادة المكتوبة في الطلب");
+    let assignmentId = 0;
+    await db.withTransaction(async tx => {
+      await db.lockTicketForSubTicketSequence(input.ticketId, tx);
+      const ticket = await db.getTicketById(input.ticketId, tx);
+      if (!ticket) throw new TRPCError({ code: "NOT_FOUND", message: "البلاغ غير موجود" });
+      if (!canRecordItExecutionOutcome(ctx.user, ticket)) throw new TRPCError({ code: "FORBIDDEN", message: "طلب المواد متاح فقط لمنفذ تقنية المعلومات أثناء التنفيذ" });
+      if (ticket.maintenancePath) fail("تم اختيار مسار تنفيذ لهذا البلاغ مسبقًا");
+      const ticketItems = await db.getTicketItems(ticket.id, tx);
+      if (ticketItems.length !== 1) fail("بلاغ التنفيذ يجب أن يحتوي بندًا واحدًا");
+      if (!ticket.siteId || !ticket.sectionId || !ticket.maintenanceResponsibleManagerId) fail("الموقع والقسم ومسؤول تقنية المعلومات مطلوبة قبل طلب المواد");
+      const existingResult = await tx.execute(sql`SELECT id FROM ticket_team_assignments WHERE ticketItemId=${ticketItems[0].id} LIMIT 1 FOR UPDATE`);
+      if ((existingResult as any)?.[0]?.length) fail("يوجد طلب مواد محفوظ لهذا البلاغ بالفعل");
+      const teamResult = await tx.execute(sql`SELECT t.id,t.warehouseId FROM maintenance_team_members m INNER JOIN maintenance_teams t ON t.id=m.teamId AND t.isActive=1 INNER JOIN warehouses w ON w.id=t.warehouseId AND w.isActive=1 AND w.type='branch' INNER JOIN users u ON u.id=m.userId AND u.isActive=1 AND u.role IN ('it_manager','it_member') WHERE m.userId=${ctx.user.id} AND m.isActive=1 ORDER BY t.id FOR UPDATE`);
+      const teams = (teamResult as any)?.[0] ?? [];
+      if (teams.length === 0) fail("اربط منفذ تقنية المعلومات بفريق نشط له مستودع فرعي قبل طلب المواد");
+      if (teams.length > 1) fail("منفذ تقنية المعلومات مرتبط بأكثر من فريق نشط؛ أبقِ له فريق مواد واحدًا فقط");
+      const teamId = Number(teams[0].id), warehouseId = Number(teams[0].warehouseId);
+      const catalogResult = catalogIds.length
+        ? await tx.execute(sql`SELECT id,nameAr,unit,isActive FROM catalog_items WHERE id IN (${sql.join(catalogIds.map(id => sql`${id}`), sql`,`)}) FOR UPDATE`)
+        : [[], []];
+      const catalogRows = (catalogResult as any)?.[0] ?? [];
+      if (catalogRows.length !== catalogIds.length) fail("أحد أصناف الكتالوج غير موجود");
+      const normalized = input.items.map(item => {
+        if (!item.catalogItemId) return item;
+        const catalog = catalogRows.find((row: any) => Number(row.id) === item.catalogItemId);
+        if (!catalog || Number(catalog.isActive) !== 1) fail("أحد أصناف الكتالوج غير نشط");
+        if (String(catalog.unit).trim() !== item.unit.trim()) fail(`وحدة الصنف «${catalog.nameAr}» لا تطابق الكتالوج`);
+        return { ...item, itemName: String(catalog.nameAr) };
+      });
+      const insertResult = await tx.execute(sql`INSERT INTO ticket_team_assignments (ticketId,ticketItemId,ticketNumber,titleSnapshot,teamId,warehouseId,responsibleManagerId,siteId,sectionId,assetId,stage,outcome,revision,materialRound,assignedById) VALUES (${ticket.id},${ticketItems[0].id},${ticket.ticketNumber},${String(ticket.title).slice(0,250)},${teamId},${warehouseId},${ticket.maintenanceResponsibleManagerId},${ticket.siteId},${ticket.sectionId},${ticket.assetId ?? null},'waiting_material','needs_material',1,1,${ctx.user.id})`);
+      assignmentId = Number(
+        (insertResult as any)?.insertId ??
+          (insertResult as any)?.[0]?.insertId ??
+          0
+      );
+      if (!assignmentId) throw new Error("تعذر إنشاء طلب مواد تقنية المعلومات");
+      await tx.execute(sql`INSERT INTO ticket_team_actions (assignmentId,actorId,kind,note,revision,operationKey) VALUES (${assignmentId},${ctx.user.id},'execution_protocol','{"version":1}',0,${`it-material-protocol:${assignmentId}`}),(${assignmentId},${ctx.user.id},'needs_material',${input.reason || "احتياج مواد تقنية المعلومات"},1,${`it-material-request:${assignmentId}`})`);
+      for (const item of normalized) {
+        await tx.execute(sql`INSERT INTO ticket_team_material_needs (assignmentId,materialRound,catalogItemId,itemNameSnapshot,originalItemName,unitSnapshot,requestedQuantity,usedQuantity,requestedById,warehouseId) VALUES (${assignmentId},1,${item.catalogItemId ?? null},${item.itemName},${item.itemName},${item.unit},${item.quantity},NULL,${ctx.user.id},${warehouseId})`);
+      }
+      const changes = { status: "work_approved", maintenancePath: "B" } as const;
+      await db.updateTicket(ticket.id, changes, tx);
+      if (!await db.syncSingleTicketItem(ticket.id, changes, tx)) fail("تعذر مزامنة بند البلاغ");
+      await tx.insert(ticketStatusHistory).values({ ticketId: ticket.id, fromStatus: ticket.status, toStatus: "work_approved", changedById: ctx.user.id, notes: "حُفظ احتياج مواد تقنية المعلومات وأُرسل للمستودع" });
+      await audit(tx, ctx.user.id, ticket.id, "request_it_ticket_materials", { assignmentId, teamId, warehouseId, items: normalized, reason: input.reason });
+      await tx.execute(sql`INSERT INTO notifications (userId,title,message,type,eventKey,relatedTicketId) SELECT id,'📦 طلب مواد لتذكرة IT',${`${ticket.ticketNumber}: احتياج مواد جديد بانتظار معالجة المستودع.`},'warning','ticket_material_request',${ticket.id} FROM users WHERE isActive=1 AND role='warehouse'`);
+    });
+    return { success: true, assignmentId };
   }),
 
   itPurchaseNeeds: protectedProcedure.input(z.object({ ticketId: z.number().optional() }).optional()).query(async ({ ctx, input }) => {

@@ -21,4 +21,20 @@ describe("Purchase Packages — financial document archive compatibility", () =>
     expect(rows[1]).toMatchObject({ id: 11, entityType: "po_financial_batch", financialDocumentScope: "pricing_batch", totalEstimatedCost: "1000.00", custodyBalance: "1200.00" });
     expect(db.queries).toHaveLength(1);
   });
+
+  it("also applies both approvals to the unpaginated accountant list without changing other roles", async () => {
+    const approvals = { accountingApprovedById: 3, accountingApprovedAt: "2026-10-26 08:00:00", managementApprovedById: 4, managementApprovedAt: "2026-10-26 09:00:00" };
+    db.insert("po_pricing_batches", { id: 1, ...approvals });
+    db.insert("po_pricing_batches", { id: 2, ...approvals, managementApprovedAt: null });
+    db.insert("purchase_package_submissions", { id: 3, ...approvals });
+    db.insert("po_pricing_batches", { id: 4, purchasePackageSubmissionId: 3, ...approvals });
+    db.insert("attachments", { id: 11, entityType: "po_financial_batch", entityId: 1 });
+    db.insert("attachments", { id: 12, entityType: "po_financial_batch", entityId: 2 });
+    db.insert("attachments", { id: 13, entityType: "purchase_package_submission_financial", entityId: 3 });
+    expect((await getFinancialBatchAttachmentsWithDelegate("accountant")).map(row => row.id)).toEqual([13, 11]);
+    expect(db.queries).toHaveLength(1);
+    for (const role of ["owner", "admin", "senior_management"]) {
+      expect((await getFinancialBatchAttachmentsWithDelegate(role)).map(row => row.id)).toEqual([13, 12, 11]);
+    }
+  });
 });

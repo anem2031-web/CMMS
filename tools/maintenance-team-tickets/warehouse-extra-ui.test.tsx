@@ -113,6 +113,7 @@ vi.mock("../../client/src/lib/trpc", () => ({
         }),
       },
       catalog: { useQuery: () => ({ data: [] }) },
+      units: { useQuery: () => ({ data: [], error: null }) },
       preview: {
         useQuery: () => ({ data: null, error: null, isFetching: false }),
       },
@@ -162,6 +163,8 @@ async function initPanel() {
     teamId: 21,
   });
   fixture.state = await d.store.read();
+  // This fixture tests stock operations, so its need and catalog must use the same unit.
+  fixture.state.catalog.find((item: any) => item.id === 103).unit = "حبة";
   fixture.state.assignments[0].stage = "waiting_material";
   fixture.state.needs.push({
     id: 12,
@@ -405,6 +408,10 @@ describe("warehouse extra quantity with isolated UI/API boundaries", () => {
     expect(html).toContain("DLV-11");
     expect(html).toContain("991");
     expect(html).toContain("تأكيد استلام المرتجع للمستودع");
+    fixture.state.catalog.find((item: any) => item.id === 103).unit = "كرتون";
+    const historical = panel("warehouse", "warehouse", true);
+    expect(historical).toContain("تأكيد استلام المرتجع للمستودع");
+    expect(historical).toContain("DLV-11");
   });
   it("a material card never shows or submits another need in the same assignment", async () => {
     await initPanel();
@@ -494,6 +501,7 @@ describe("warehouse extra quantity with isolated UI/API boundaries", () => {
   });
   it("each need has an independent warehouse extra and ready issue stays at ticket quantity", async () => {
     await initPanel();
+    fixture.state.catalog.find((item: any) => item.id === 102).unit = "حبة";
     fixture.state.needs.push({
       ...fixture.state.needs[0],
       id: 13,
@@ -509,5 +517,15 @@ describe("warehouse extra quantity with isolated UI/API boundaries", () => {
     panel();
     expect(fixture.inputs.get(`${prefix}-12-total`).value).toBe(8);
     expect(fixture.inputs.get(`${prefix}-13-total`).value).toBe(2);
+  });
+  it("a linked item with a different unit shows a review notice instead of false stock quantities or issue actions", async () => {
+    await initPanel();
+    fixture.state.catalog.find((item: any) => item.id === 103).unit = "كرتون";
+    fixture.balances = [{ needId: 12, branch: 100, main: 100 }];
+    const html = panel();
+    expect(html).toContain("تم ربط الصنف"); expect(html).toContain("كرتون");
+    expect(html).not.toContain("جاهزة للصرف");
+    expect(fixture.buttons.has("صرف كامل الاحتياج")).toBe(false);
+    expect(fixture.inputs.size).toBe(0);
   });
 });

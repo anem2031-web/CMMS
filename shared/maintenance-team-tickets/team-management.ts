@@ -30,6 +30,11 @@ export interface TeamManagementData {
   technicians: UserRef[];
   warehouses: TeamWarehouse[];
 }
+
+/** Roles that may execute work through a warehouse-backed maintenance team. */
+export function isTicketTeamExecutorRole(role?: string | null): boolean {
+  return role === "technician" || role === "it_manager" || role === "it_member";
+}
 export interface TeamManagementActor {
   id: number;
   role: string;
