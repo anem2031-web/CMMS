@@ -14,7 +14,7 @@
  * ============================================================
  */
 
-import { eq, and, desc, sql, inArray } from "drizzle-orm";
+import { eq, and, desc, sql, inArray, ne, getTableColumns } from "drizzle-orm";
 import { isObserverReadScope } from "../../_core/authz/observer-read-scope";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
@@ -27,6 +27,8 @@ import {
 import { invokeLLM } from "../../_core/llm";
 import { getDb } from "../../_core/db";
 import crypto from "crypto";
+import { automaticTranslationScope, loadNotificationRecipientRole } from "./notificationTranslationScope";
+import { isAutomaticTranslationEnabled, canProcessTranslationJob, TRANSLATION_RETRY_BATCH_SIZE } from "./translationPolicy";
 
 // ============================================================
 // TYPES
@@ -210,6 +212,7 @@ ${context ? `Context: ${context}` : ""}`;
 
   try {
     const result = await invokeLLM({
+      timeoutMs: 60_000,
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: sourceText },
@@ -469,6 +472,9 @@ export async function queueTranslation(request: TranslationRequest): Promise<num
     return [];
   }
 
+  const recipientRole = await loadNotificationRecipientRole(db, request.entityType, request.entityId);
+  if (!isAutomaticTranslationEnabled(request.entityType, recipientRole)) return [];
+
   const targetLangs = request.targetLanguages ||
     supportedLanguages.filter(l => l !== request.sourceLanguage);
 
@@ -503,7 +509,7 @@ export async function queueTranslation(request: TranslationRequest): Promise<num
           eq(translationJobs.fieldName, field.fieldName),
           eq(translationJobs.targetLanguage, targetLang),
           eq(translationJobs.previousTextHash, hash),
-          eq(translationJobs.status, "completed")
+          inArray(translationJobs.status, ["pending", "processing", "completed"])
         )
       ).limit(1);
 
@@ -680,7 +686,14 @@ async function writeBackToDirectColumn(
 /**
  * Process translation jobs (called asynchronously)
  */
-async function processTranslationJobs(jobIds: number[]): Promise<void> {
+// Creation, retry and recovery share a single worker in this process.
+let processingTail: Promise<void> = Promise.resolve();
+function processTranslationJobs(jobIds: number[]): Promise<void> {
+  const work = processingTail.then(() => runTranslationJobs(jobIds));
+  processingTail = work.catch(() => {});
+  return work;
+}
+async function runTranslationJobs(jobIds: number[]): Promise<void> {
   const db = await getDb();
   if (!db) {
     console.error("[TranslationEngine] Failed to get database connection for processTranslationJobs. Job aborted.");
@@ -692,9 +705,16 @@ async function processTranslationJobs(jobIds: number[]): Promise<void> {
       // Get job
       const [job] = await db.select().from(translationJobs).where(eq(translationJobs.id, jobId)).limit(1);
       if (!job || job.status !== "pending") continue;
-
-      // Mark as processing
-      await db.update(translationJobs).set({ status: "processing" }).where(eq(translationJobs.id, jobId));
+      const recipientRole = await loadNotificationRecipientRole(db, job.entityType, job.entityId);
+      if (!isAutomaticTranslationEnabled(job.entityType, recipientRole)) continue;
+      const [currentTranslation] = await db.select().from(entityTranslations).where(and(
+        eq(entityTranslations.entityType, job.entityType), eq(entityTranslations.entityId, job.entityId),
+        eq(entityTranslations.fieldName, job.fieldName), eq(entityTranslations.languageCode, job.targetLanguage)
+      )).limit(1);
+      if (!canProcessTranslationJob(job, currentTranslation, recipientRole)) continue;
+      const [claim] = await db.update(translationJobs).set({ status: "processing" })
+        .where(and(eq(translationJobs.id, jobId), eq(translationJobs.status, "pending")));
+      if (!claim.affectedRows) continue;
 
       // Translate
       const translated = await translateWithLLM(
@@ -703,6 +723,10 @@ async function processTranslationJobs(jobIds: number[]): Promise<void> {
         job.targetLanguage as SupportedLanguage,
         `Entity: ${job.entityType}, Field: ${job.fieldName}`
       );
+
+      // Recheck the recipient if its role changed while the external translation ran.
+      if (job.entityType === "NOTIFICATION" && !isAutomaticTranslationEnabled(job.entityType,
+        await loadNotificationRecipientRole(db, job.entityType, job.entityId))) continue;
 
       // Update job as completed
       await db.update(translationJobs).set({
@@ -721,7 +745,7 @@ async function processTranslationJobs(jobIds: number[]): Promise<void> {
         )
       ).limit(1);
 
-      if (etRecord) {
+      if (etRecord && etRecord.translationJobId === jobId && !["approved", "completed"].includes(etRecord.translationStatus)) {
         const newVersion = etRecord.versionNumber + 1;
         // Save version history
         await db.insert(translationVersions).values({
@@ -732,14 +756,18 @@ async function processTranslationJobs(jobIds: number[]): Promise<void> {
           changeReason: "auto_translate",
         });
 
-        await db.update(entityTranslations).set({
+        const [saved] = await db.update(entityTranslations).set({
           translatedText: translated,
           translationStatus: "completed",
           versionNumber: newVersion,
           lastAttemptAt: new Date(),
           errorMessage: null,
           translationJobId: jobId,
-        }).where(eq(entityTranslations.id, etRecord.id));
+        }).where(and(eq(entityTranslations.id, etRecord.id),
+          eq(entityTranslations.translationJobId, jobId),
+          ne(entityTranslations.translationStatus, "approved"),
+          ne(entityTranslations.translationStatus, "completed")));
+        if (!saved.affectedRows) continue;
 
         // Update cache
         translationCache.set(
@@ -778,7 +806,10 @@ async function processTranslationJobs(jobIds: number[]): Promise<void> {
           eq(entityTranslations.entityType, job.entityType),
           eq(entityTranslations.entityId, job.entityId),
           eq(entityTranslations.fieldName, job.fieldName),
-          eq(entityTranslations.languageCode, job.targetLanguage)
+          eq(entityTranslations.languageCode, job.targetLanguage),
+          eq(entityTranslations.translationJobId, jobId),
+          ne(entityTranslations.translationStatus, "approved"),
+          ne(entityTranslations.translationStatus, "completed")
         )
       );
 
@@ -1022,22 +1053,30 @@ export async function getTranslationVersions(
 /**
  * Retry failed translation jobs
  */
-export async function retryFailedJobs(entityType?: string): Promise<number> {
+export async function retryFailedJobs(entityType?: string, jobId?: number): Promise<number> {
   const db = await getDb();
   if (!db) return 0;
 
-  const conditions: any[] = [eq(translationJobs.status, "failed")];
+  const conditions: any[] = [eq(translationJobs.status, "failed"), automaticTranslationScope(translationJobs.entityType, translationJobs.entityId),
+    sql`EXISTS (SELECT 1 FROM entity_translations et WHERE et.entityType = ${translationJobs.entityType}
+      AND et.entityId = ${translationJobs.entityId} AND et.fieldName = ${translationJobs.fieldName}
+      AND et.languageCode = ${translationJobs.targetLanguage} AND et.translationJobId = ${translationJobs.id}
+      AND et.translationStatus IN ('failed', 'pending'))`];
+  if (jobId !== undefined) conditions.push(eq(translationJobs.id, jobId));
   if (entityType) conditions.push(eq(translationJobs.entityType, entityType));
 
-  const failedJobs = await db.select().from(translationJobs).where(and(...conditions));
+  const failedJobs = await db.select().from(translationJobs).where(and(...conditions))
+    .orderBy(translationJobs.id).limit(jobId !== undefined ? 1 : TRANSLATION_RETRY_BATCH_SIZE);
 
   const jobIds: number[] = [];
   for (const job of failedJobs) {
-    await db.update(translationJobs).set({
+    const [reset] = await db.update(translationJobs).set({
       status: "pending",
       retryCount: 0,
       errorMessage: null,
-    }).where(eq(translationJobs.id, job.id));
+    }).where(and(eq(translationJobs.id, job.id), eq(translationJobs.status, "failed"),
+      automaticTranslationScope(translationJobs.entityType, translationJobs.entityId)));
+    if (!reset.affectedRows) continue;
 
     // Reset entity_translations status
     await db.update(entityTranslations).set({
@@ -1048,7 +1087,9 @@ export async function retryFailedJobs(entityType?: string): Promise<number> {
         eq(entityTranslations.entityType, job.entityType),
         eq(entityTranslations.entityId, job.entityId),
         eq(entityTranslations.fieldName, job.fieldName),
-        eq(entityTranslations.languageCode, job.targetLanguage)
+        eq(entityTranslations.languageCode, job.targetLanguage),
+        eq(entityTranslations.translationJobId, job.id),
+        inArray(entityTranslations.translationStatus, ["failed", "pending"])
       )
     );
 
@@ -1127,6 +1168,7 @@ export async function getTranslationStats() {
 export async function getTranslationJobsList(filters?: {
   status?: string;
   entityType?: string;
+  entityId?: number;
   limit?: number;
 }) {
   const db = await getDb();
@@ -1138,9 +1180,12 @@ export async function getTranslationJobsList(filters?: {
   const conditions: any[] = [];
   if (filters?.status) conditions.push(eq(translationJobs.status, filters.status as any));
   if (filters?.entityType) conditions.push(eq(translationJobs.entityType, filters.entityType));
+  if (filters?.entityId) conditions.push(eq(translationJobs.entityId, filters.entityId));
 
   const where = conditions.length > 0 ? and(...conditions) : undefined;
-  return db.select().from(translationJobs)
+  return db.select({ ...getTableColumns(translationJobs),
+    automaticTranslationEnabled: automaticTranslationScope(translationJobs.entityType, translationJobs.entityId).mapWith(Number),
+  }).from(translationJobs)
     .where(where)
     .orderBy(desc(translationJobs.createdAt))
     .limit(filters?.limit || 100);
@@ -1168,7 +1213,13 @@ export async function recoverPendingTranslations(): Promise<void> {
 
   const pending = await db.select()
     .from(translationJobs)
-    .where(inArray(translationJobs.status, ["pending", "processing"]))
+    .where(and(automaticTranslationScope(translationJobs.entityType, translationJobs.entityId),
+      sql`(${translationJobs.status} = 'pending' OR (${translationJobs.status} = 'processing'
+        AND ${translationJobs.updatedAt} < DATE_SUB(NOW(), INTERVAL 30 MINUTE)))`,
+      sql`EXISTS (SELECT 1 FROM entity_translations et WHERE et.translationJobId = ${translationJobs.id}
+        AND et.entityType = ${translationJobs.entityType} AND et.entityId = ${translationJobs.entityId}
+        AND et.fieldName = ${translationJobs.fieldName} AND et.languageCode = ${translationJobs.targetLanguage}
+        AND et.translationStatus IN ('pending', 'processing', 'failed'))`))
     .limit(50);
 
   if (pending.length === 0) {
@@ -1186,7 +1237,8 @@ export async function recoverPendingTranslations(): Promise<void> {
   if (processingIds.length > 0) {
     await db.update(translationJobs)
       .set({ status: "pending" })
-      .where(inArray(translationJobs.id, processingIds));
+      .where(and(inArray(translationJobs.id, processingIds),
+        automaticTranslationScope(translationJobs.entityType, translationJobs.entityId)));
   }
 
   const allPendingIds = pending.map(j => j.id);

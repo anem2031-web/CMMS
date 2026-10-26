@@ -49,7 +49,8 @@ const langLabels: Record<string, string> = {
 };
 
 export default function TranslationMonitor() {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
+  const retryBatchLabel = language === "en" ? "Retry batch (up to 20, IT notifications only)" : language === "ur" ? "دوبارہ کوشش (زیادہ سے زیادہ 20، صرف IT اطلاعات)" : "إعادة محاولة دفعة (حتى 20، إشعارات IT فقط)";
   const [activeTab, setActiveTab] = useState("overview");
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
@@ -65,6 +66,7 @@ export default function TranslationMonitor() {
   const { data: jobs, isLoading: jobsLoading, refetch: refetchJobs } = trpc.translation.getJobs.useQuery({
     status: statusFilter !== "all" ? statusFilter : undefined,
     entityType: entityFilter !== "all" ? entityFilter : undefined,
+    entityId: /^\d+$/.test(searchQuery.trim()) && Number(searchQuery.trim()) > 0 ? Number(searchQuery.trim()) : undefined,
     limit: 50,
   });
 
@@ -104,7 +106,7 @@ export default function TranslationMonitor() {
       result = result.filter((j: any) =>
         j.sourceText?.toLowerCase().includes(q) ||
         j.translatedText?.toLowerCase().includes(q) ||
-        j.entityType?.toLowerCase().includes(q)
+        j.entityType?.toLowerCase().includes(q) || String(j.entityId) === q
       );
     }
     return result;
@@ -130,6 +132,13 @@ export default function TranslationMonitor() {
             <Languages className="w-6 h-6 text-primary" /> {t.translationMonitor.title}
           </h1>
           <p className="text-sm text-muted-foreground mt-1">{t.translationMonitor.stats}</p>
+          <p className="text-sm text-muted-foreground mt-1">
+            {language === "en"
+              ? "Only notifications addressed to IT managers and IT members are translated. Other notification records remain visible but are excluded from retries. Search by entity ID to find a specific ticket."
+              : language === "ur"
+                ? "صرف IT مینیجر اور IT ارکان کو بھیجی گئی اطلاعات کا ترجمہ ہوتا ہے۔ باقی اطلاعات دوبارہ کوشش میں شامل نہیں۔"
+                : "تُترجم فقط الإشعارات الموجّهة إلى مدير IT وأعضاء IT؛ بقية الإشعارات مستبعدة من إعادة المحاولة. ابحث بالمعرّف الداخلي للوصول إلى بلاغ محدد."}
+          </p>
         </div>
         <div className="flex gap-2">
           <Button variant="outline" size="sm" onClick={() => { refetchStats(); refetchJobs(); }} className="gap-1.5">
@@ -138,7 +147,7 @@ export default function TranslationMonitor() {
           {failedCount > 0 && (
             <Button size="sm" variant="destructive" onClick={() => retryMut.mutate({})} disabled={retryMut.isPending} className="gap-1.5">
               {retryMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <RotateCcw className="w-4 h-4" />}
-              {t.translationMonitor.retryAll} ({failedCount})
+              {retryBatchLabel}
             </Button>
           )}
         </div>
@@ -326,7 +335,7 @@ export default function TranslationMonitor() {
                           </Button>
                         )}
                         {job.status === "failed" && (
-                          <Button variant="ghost" size="icon" className="h-7 w-7 text-red-600" onClick={() => retryMut.mutate({ entityType: job.entityType })}>
+                          <Button variant="ghost" size="icon" className="h-7 w-7 text-red-600" aria-label={language === "en" ? `Retry job ${job.id}` : `إعادة محاولة المهمة ${job.id}`} disabled={retryMut.isPending || (job.entityType === "NOTIFICATION" && Number(job.automaticTranslationEnabled ?? 0) !== 1)} onClick={() => retryMut.mutate({ jobId: job.id })}>
                             <RotateCcw className="w-3.5 h-3.5" />
                           </Button>
                         )}

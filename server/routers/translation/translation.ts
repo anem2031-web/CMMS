@@ -138,13 +138,14 @@ export const translationRouter = router({
   retryFailed: protectedProcedure
     .input(z.object({
       entityType: z.string().optional(),
+      jobId: z.number().int().positive().optional(),
     }).optional())
     .mutation(async ({ input, ctx }) => {
       // Only owner/admin can retry
       if (ctx.user.role !== "owner" && ctx.user.role !== "admin") {
         throw new TRPCError({ code: "FORBIDDEN", message: "فقط المالك يمكنه إعادة المحاولة" });
       }
-      const count = await retryFailedJobs(input?.entityType);
+      const count = await retryFailedJobs(input?.entityType, input?.jobId);
       return { success: true, retriedCount: count };
     }),
 
@@ -162,7 +163,8 @@ export const translationRouter = router({
     .input(z.object({
       status: z.string().optional(),
       entityType: z.string().optional(),
-      limit: z.number().optional(),
+      entityId: z.number().int().positive().optional(),
+      limit: z.number().int().min(1).max(100).optional(),
     }).optional())
     .query(async ({ input }) => {
       return getTranslationJobsList(input || undefined);

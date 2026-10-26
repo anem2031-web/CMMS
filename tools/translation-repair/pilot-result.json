@@ -1,0 +1,14 @@
+{
+  "startedAt": "2026-10-26T12:45:03.606Z",
+  "completed": [
+    1650029,
+    1650030,
+    1650031,
+    1650032,
+    1650033
+  ],
+  "skipped": [],
+  "failed": [],
+  "status": "batch_finished",
+  "finishedAt": "2026-10-26T12:46:27.657Z"
+}
