@@ -5,13 +5,15 @@ import { describe, expect, it, vi } from "vitest";
 import { TRPCError } from "@trpc/server";
 import { delegateSupplyStage, isDelegateSupplyItemOpen } from "../../shared/delegateSupplyStage";
 import { delegateFollowupText } from "../../client/src/i18n/delegateFollowup";
+import { isDelegateOwnPurchaseDraft } from "../../shared/purchaseDraftVisibility";
+import { isPurchasePdfApprover } from "../_core/authz/purchase-document";
 const ui=vi.hoisted(()=>({language:"ar"}));
 vi.mock("../../client/src/contexts/LanguageContext",()=>({useTranslation:()=>({language:ui.language})}));
 vi.mock("../../client/src/hooks/useContentTranslation",()=>({getLocalizedItemField:(item:any)=>item.itemName}));
 vi.mock("wouter",()=>({Link:({children,href,...props}:any)=><a href={href} {...props}>{children}</a>}));
 import { DelegateSupplyRows } from "../../client/src/components/purchase/DelegateSupplyRows";
 const file="server/routers/purchase/purchase-orders.router.ts",source=ts.createSourceFile(file,fs.readFileSync(file,"utf8"),ts.ScriptTarget.Latest,true);
-function evaluate(code:string,context:any){return vm.runInNewContext(ts.transpileModule(`(${code})`,{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,context);}
+function evaluate(code:string,context:any){return vm.runInNewContext(ts.transpileModule(`(${code})`,{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,{isDelegateOwnPurchaseDraft,isPurchasePdfApprover,localizeMasterDataReferences:async(value:any)=>value,...context});}
 function handler(name:string,context:any){let fn="";function walk(node:ts.Node){if(ts.isPropertyAssignment(node)&&node.name.getText(source)===name&&ts.isCallExpression(node.initializer)&&ts.isPropertyAccessExpression(node.initializer.expression)&&node.initializer.expression.name.text==="query")fn=node.initializer.arguments[0].getText(source);ts.forEachChild(node,walk);}walk(source);if(!fn)throw Error(name);return evaluate(fn,{TRPCError,...context});}
 const fn=(name:string,context:any)=>evaluate((source.statements.find(n=>ts.isFunctionDeclaration(n)&&n.name?.text===name)!).getText(source).replace(/^export /,""),context);
 describe("Delegate supply stage from the item's batch and path",()=>{
@@ -47,7 +49,7 @@ describe("Actual delegate RPC read handlers with isolated source data",()=>{
   });
   it("filters batches to their submitting delegate after the PO guard",async()=>{
     const guard=vi.fn();const call=handler("listPricingBatches",{db:{getPurchaseOrderById:async()=>({id:7}),getPOPricingBatches:async()=>[{id:1,submittedById:11},{id:2,submittedById:22}]},assertCanViewPurchaseOrder:guard,rejectEmptyPendingPricingBatches:async()=>{}});
-    expect(await call({ctx,input:{purchaseOrderId:7}})).toEqual([{id:1,submittedById:11}]);expect(guard).toHaveBeenCalledOnce();
+    expect(await call({ctx,input:{purchaseOrderId:7}})).toEqual([{id:1,submittedById:11,pdfAllowed:true,pdfBlockedReason:null}]);expect(guard).toHaveBeenCalledOnce();
   });
   it.each(["delegate","admin"])("keeps original purchase package details scoped for %s",async role=>{
     const file="server/routers/purchase/purchase-packages.router.ts",pkg=ts.createSourceFile(file,fs.readFileSync(file,"utf8"),ts.ScriptTarget.Latest,true);let code="";

@@ -1,5 +1,6 @@
 import { PricingBundleLink, PricingBundleAddButton } from "@/components/purchase/PricingBundleActions";
 import { DelegateSupplyRows } from "@/components/purchase/DelegateSupplyRows";
+import { DelegateCompletedItems, completedLabels } from "@/components/purchase/DelegateCompletedItems";
 import { trpc } from "@/lib/trpc";
 import { independentReadOptions } from "@/lib/read-transport";
 import { readHistoryEntryState, writeHistoryEntryState } from "@/lib/backStack";
@@ -59,7 +60,7 @@ type PurchaseOrdersHistoryState = {
   requestedById: string;
   searchQuery: string;
   currentPage: number;
-  view: "actionable" | "items" | "tracking" | "supply" | "all";
+  view: "actionable" | "items" | "tracking" | "supply" | "completed" | "all";
 };
 
 type DelegateActionFilter = "all" | "estimate" | "purchase";
@@ -121,16 +122,16 @@ export default function PurchaseOrders() {
   // ── عرض "بانتظار إجرائي" مقابل "جميع الطلبات" ──
   // مدير الصيانة دوره إشرافي ويتابع جميع الطلبات بغض النظر عن منشئها، لذلك
   // يبدأ من العرض الكامل. المندوب يبدأ بأصنافه، وبقية الأدوار تبدأ بانتظار إجرائها.
-  const [selectedView, setView] = useState<"actionable" | "items" | "tracking" | "supply" | "all">(savedHistoryState?.view ?? "actionable");
+  const [selectedView, setView] = useState<"actionable" | "items" | "tracking" | "supply" | "completed" | "all">(savedHistoryState?.view ?? "actionable");
   // Old saved views remain valid for other roles; delegates enter their existing item queue.
-  const view = user?.role === "delegate" && selectedView !== "items" && selectedView !== "supply" ? "items" : selectedView;
+  const view = user?.role === "delegate" && selectedView !== "items" && selectedView !== "supply" && selectedView !== "completed" ? "items" : selectedView;
   useEffect(() => {
     if (["maintenance_manager", "general_maintenance_manager", "construction_procurement_manager"].includes(user?.role || "")) {
       setView("all");
     }
   }, [user?.role]);
   useEffect(() => {
-    if (user?.role && user.role !== "delegate" && view === "items") {
+    if (user?.role && user.role !== "delegate" && (view === "items" || view === "completed")) {
       setView("actionable");
     }
   }, [user?.role, view]);
@@ -696,6 +697,8 @@ export default function PurchaseOrders() {
             {t.workflow.purchase.supplyTrackingCount.replace("{count}", String(filteredSupplyTrackingItems.length))}
           </p>
         )
+      ) : view === "completed" && user?.role === "delegate" ? (
+        <p className="text-base font-medium">{completedLabels[language].title}</p>
       ) : view === "tracking" && canAccessMyItemsTracking ? (
         myRequestedItemsLoading ? (
           <Skeleton className="h-6 w-64" />
@@ -759,6 +762,7 @@ export default function PurchaseOrders() {
             {user?.role === "delegate" ? t.workflow.purchase.myItemsFollowupTab : t.workflow.purchase.supplyTrackingTab} {supplyTrackingCount > 0 && `(${supplyTrackingCount})`}
           </Button>
         )}
+        {user?.role === "delegate" && <Button variant={view === "completed" ? "default" : "outline"} size="sm" onClick={() => setView("completed")}>{completedLabels[language].title}</Button>}
         {user?.role !== "delegate" && <Button
           variant={view === "all" ? "default" : "outline"}
           size="sm"
@@ -1110,6 +1114,7 @@ export default function PurchaseOrders() {
       )}
 
       {/* ── متابعة التوريد: صف بطاقة واضح لكل صنف ───────────────── */}
+      {view === "completed" && user?.role === "delegate" && <DelegateCompletedItems />}
       {view === "supply" && canAccessSupplyTracking && (
         <div className="space-y-4">
           <Card className="border-primary/10">

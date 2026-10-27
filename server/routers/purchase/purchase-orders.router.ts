@@ -1,5 +1,7 @@
 import { pricingBundlesEnabled, reservedPricingItemIds, assertItemOutsidePricingBundle } from "../../services/delegate-pricing-bundles/reservations";
 import { isDelegateSupplyItemOpen } from "../../../shared/delegateSupplyStage";
+import { delegateCompletedInput } from "../../../shared/delegate-completed";
+import { listDelegateCompleted } from "../../services/delegate-completed";
 import { isDelegateOwnPurchaseDraft } from "../../../shared/purchaseDraftVisibility";
 import { isItTeamRole } from "@shared/roles";
 import { assertLegacyTeamExecutionAllowed } from "../maintenance-teams/execution.guard";
@@ -2312,6 +2314,9 @@ list: protectedProcedure.input(z.object({
 
   return withPurchaseDocumentPermissions(ctx.user, await localizePurchaseUserNames(visible as any[], (ctx.user.preferredLanguage || "ar") as SupportedLanguage));
 }),
+
+  // Delegate-only read archive; existing operation/download boundaries remain unchanged.
+  completedItems: delegateProcedure.input(delegateCompletedInput).query(({ ctx, input }) => listDelegateCompleted(ctx.user, input)),
 
   myItems: protectedProcedure.query(async ({ ctx }) => {
     const isAdminOrOwner = ctx.user.role === "admin" || ctx.user.role === "owner";
