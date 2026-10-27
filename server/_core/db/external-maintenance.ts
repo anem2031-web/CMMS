@@ -187,6 +187,11 @@ export async function prepareExternalMaintenanceJob(input: {
   warehouseNotes?: string;
 }) {
   return withTransaction(async (tx) => {
+    // Serialize with a warehouse return / manager route decision. The router's
+    // earlier read is not authorization for a later write after the path changed.
+    const [freshTicket] = await tx.select({ id: tickets.id }).from(tickets).where(eq(tickets.id, input.ticketId)).for("update");
+    const [freshItem] = await tx.select().from(ticketItems).where(and(eq(ticketItems.id, input.ticketItemId), eq(ticketItems.ticketId, input.ticketId))).for("update");
+    if (!freshTicket || !freshItem || freshItem.maintenancePath !== "C" || freshItem.status !== "work_approved") throw new Error("EXTERNAL_TICKET_INVALID_EXIT_STAGE");
     const existing = await tx.select({ id: externalMaintenanceJobs.id })
       .from(externalMaintenanceJobs)
       .where(eq(externalMaintenanceJobs.ticketItemId, input.ticketItemId))

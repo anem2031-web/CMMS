@@ -1,4 +1,5 @@
 import { MaterialCostPanel } from "@/components/inventory/MaterialCostPanel";
+import { ExternalRouteReviewPanel } from "../tickets/ExternalRouteReviewPanel";
 import { useEffect, useRef, useState } from "react";
 import { ExecutionElapsedTime } from "@/components/maintenance/TechnicianExecutionWindow";
 import { TicketExecutionControls } from "./TicketExecutionControls";
@@ -117,7 +118,7 @@ export function ExecutionPanel({
         : (english[value] ?? value);
   const utils = trpc.useUtils(),
     details = trpc.ticketTeamExecution.details.useQuery(
-      { assignmentId },
+      { assignmentId, language: language === "ar" ? "ar" : language === "ur" ? "ur" : "en" },
       { retry: false }
     );
   const [catalogNeedId, setCatalogNeedId] = useState<number | null>(null);
@@ -320,6 +321,7 @@ export function ExecutionPanel({
     );
   return (
     <div className="space-y-5" aria-busy={busy}>
+      {mode === "execution" && <ExternalRouteReviewPanel ticketId={a.ticketId} ticketItemId={a.ticketItemId} onChanged={() => { void details.refetch(); onChanged(); }} />}
       {mode === "execution" && <MaterialCostPanel source="ticket" id={a.ticketId} />}
       {warehouseNeedId == null && (
         <p className="font-medium">{ticketExecutionSession(state, a).working ? l("قيد التنفيذ", "In progress", "کام جاری ہے") : label(a.stage)}</p>
@@ -767,6 +769,7 @@ export function ExecutionPanel({
         </div>
       )}
       {warehouseNeedId == null &&
+        state.actions.filter(x => x.assignmentId === a.id && ["external_route_returned", "external_route_decided"].includes(x.kind)).sort((x, y) => y.revision - x.revision)[0]?.kind !== "external_route_returned" &&
         ((manager &&
           ["awaiting_review", "blocked", "external_requested"].includes(
             a.stage
@@ -915,7 +918,7 @@ export function ExecutionPanel({
                   — {x.at}
                 </p>
                 <p className="whitespace-pre-wrap">
-                  {ticketSessionActionText(x, language) ?? materialActionMessage(x.note)}
+                  {ticketSessionActionText(x, language) ?? x.translatedNote ?? materialActionMessage(x.note)}
                 </p>
               </div>
             ))}

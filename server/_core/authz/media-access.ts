@@ -7,7 +7,7 @@ export type MediaActor = { id: number; role: string; isActive?: number };
 export type MediaReference = { kind: string; id: number; parentId?: number | null; entityType?: string; ownerId?: number | null };
 export interface MediaAccessPort {
   references(key: string): Promise<MediaReference[]>;
-  authorize(user: MediaActor, reference: MediaReference): Promise<void>;
+  authorize(user: MediaActor, reference: MediaReference, key?: string): Promise<void>;
 }
 const denied = () => new TRPCError({ code: "FORBIDDEN", message: "ليس لديك صلاحية لفتح هذا الملف" });
 
@@ -100,7 +100,7 @@ export const mediaAccessPort: MediaAccessPort = {
     const [rows]: any = await connection.execute(sql.join(queries, sql` UNION ALL `));
     return rows.filter((row: any) => containsKey(row.payload, key)).map(({ payload, ...reference }: any) => reference);
   },
-  async authorize(user, ref) {
+  async authorize(user, ref, key) {
     if (user.role === "gate_security") {
       await assertGateSecurityMediaReference(user, ref);
       return;
@@ -141,6 +141,13 @@ export const mediaAccessPort: MediaAccessPort = {
     if (ref.kind === "ticket" || ref.kind === "external") {
       const ticket = await db.getTicketById(ref.parentId!);
       if (!ticket) throw denied();
+      // Only the initial photo actually displayed in the warehouse preparation
+      // card. Do not grant ticket detail, after photos, or arbitrary attachments.
+      if (ref.kind === "ticket" && user.role === "warehouse" && key
+        && mediaKeyFromValue(ticket.beforePhotoUrl) === key) {
+        const { isWaitingExternalWarehousePreparation } = await import("./external-preparation-photo");
+        if (await isWaitingExternalWarehousePreparation(ticket.id)) return;
+      }
       const { assertTicketReadable } = await import("../../routers/tickets/tickets.access");
       await assertTicketReadable(user, ticket);
       return;
@@ -188,14 +195,14 @@ export async function assertMediaAccess(user: MediaActor | null | undefined, raw
   // must pass before the ordinary any-readable-reference fallback below.
   if (isPurchasePdfApprover(user)) {
     for (const reference of references.filter(ref => ref.kind === "attachment" && isPurchaseDocumentAttachment(ref.entityType || ""))) {
-      await port.authorize(user, reference);
+      await port.authorize(user, reference, key);
     }
   }
   // Preview an unlinked upload only. Once saved, its parent determines access
   // even if the uploader later loses access to that document.
   if (user.role !== "gate_security" && !references.length && key.startsWith(`cmms/uploads/u-${user.id}/`)) return key;
   for (const reference of references) {
-    try { await port.authorize(user, reference); return key; }
+    try { await port.authorize(user, reference, key); return key; }
     catch (error) { if (!(error instanceof TRPCError) || !["FORBIDDEN", "NOT_FOUND", "BAD_REQUEST"].includes(error.code)) throw error; }
   }
   throw denied();

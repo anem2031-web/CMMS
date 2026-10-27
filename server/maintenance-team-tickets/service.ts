@@ -1540,6 +1540,8 @@ export class MaintenanceTeamTicketService {
           : manager(s, actorId, a),
       async (s, a) => {
         const reason = required(note, "ملاحظات المسؤول");
+        const lastRouteReview = s.actions.filter(x => x.assignmentId === a.id && ["external_route_returned", "external_route_decided"].includes(x.kind)).sort((x, y) => y.revision - x.revision)[0];
+        if (lastRouteReview?.kind === "external_route_returned") throw new TeamTicketError("CONFLICT", "استخدم مراجعة المسار A / B / C للطلب المعاد من المستودع");
         switch (decision) {
           case "return_to_team":
             allowStage(a, ["blocked", "external_requested", "awaiting_review"]);

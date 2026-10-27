@@ -83,6 +83,7 @@ const warehouseOversightQueries = [
   ...paths("purchaseOrders", "searchItemNames trackItem"),
 ];
 const warehouseMutations = [
+  "externalMaintenance.returnForRouteReview",
   ...paths("inventoryCount", "saveSettlementDraft submitSettlementDraft correctCount"),
   "users.create", "deliveryDocuments.generate",
   "externalMaintenance.prepareByWarehouse", "externalMaintenance.receiveByWarehouse", "externalMaintenance.handoverByWarehouse",

@@ -9,6 +9,7 @@ import {
   TeamTicketError,
   type Snapshot,
   type Assignment,
+  type Action,
 } from "../../../shared/maintenance-team-tickets/model";
 import type { TeamManagementActor } from "../../../shared/maintenance-team-tickets/team-management";
 import { canExecuteAllTicketTeams } from "../../../shared/maintenance-team-tickets/execution-permissions";
@@ -22,6 +23,7 @@ export const resultRows = (value: unknown): any[] => {
 export const selectRows = async (tx: TeamDatabaseTransaction, query: SQL) =>
   resultRows(await tx.execute(query));
 export interface ExecutionDependencies {
+  queueActionTranslations?: (actions: Action[]) => Promise<void>;
   db: TeamDatabase;
   gateway(
     tx: TeamDatabaseTransaction,
@@ -45,6 +47,10 @@ async function applicationDependencies(): Promise<ExecutionDependencies> {
   if (!db) throw new TeamTicketError("UNAVAILABLE", "قاعدة البيانات غير متاحة");
   return {
     db: db as unknown as TeamDatabase,
+    queueActionTranslations: async actions => {
+      const { queueActionTranslations } = await import("../../maintenance-team-tickets/action-translations");
+      await queueActionTranslations(actions);
+    },
     gateway: (tx, state, actor, options) =>
       new ProductionMaterialGateway(tx, state, actor, options),
   };
@@ -412,7 +418,8 @@ export async function persistExecution(
   tx: TeamDatabaseTransaction,
   before: Snapshot,
   state: Snapshot,
-  actor: TeamManagementActor
+  actor: TeamManagementActor,
+  committedActions: Action[] = []
 ) {
   const a = state.assignments[0],
     old = before.assignments[0];
@@ -468,10 +475,11 @@ export async function persistExecution(
       sql`INSERT INTO ticket_team_return_links (deliveryLinkId,sourceDeliveryDocumentId,warehouseReturnId,returnNumber,quantity,actorId) VALUES (${deliveryIds.get(r.deliveryLinkId)!},${r.sourceDeliveryId},${r.returnId},${r.returnNumber},${r.quantity},${r.actorId})`
     );
   for (const x of state.actions.filter(x => x.revision > old.revision)) {
-    await insert(
+    const actionId = await insert(
       tx,
       sql`INSERT INTO ticket_team_actions (assignmentId,actorId,kind,note,revision,operationKey) VALUES (${a.id},${x.actorId},${x.kind},${x.note},${x.revision},${x.operationKey})`
     );
+    committedActions.push({ ...x, id: actionId });
     await tx.execute(
       sql`INSERT INTO audit_logs (userId,action,entityType,entityId,oldValues,newValues,ipAddress,userAgent) VALUES (${actor.id},${`ticket_team_${x.kind}`},'ticket_team_assignment',${a.id},${JSON.stringify({ stage: old.stage, revision: old.revision })},${JSON.stringify({ stage: a.stage, revision: a.revision, note: x.note, ticketId: a.ticketId })},${actor.ipAddress ?? null},${actor.userAgent ?? null})`
     );
@@ -508,7 +516,8 @@ export class SqlExecutionStore implements Store {
     work: (s: Snapshot, effects: MaterialGateway) => Promise<T>
   ): Promise<T> {
     const deps = await this.load();
-    return deps.db.transaction(async tx => {
+    const committedActions: Action[] = [];
+    const outcome = await deps.db.transaction(async tx => {
       const state = await loadExecution(
           tx,
           this.assignmentId,
@@ -524,10 +533,16 @@ export class SqlExecutionStore implements Store {
       if (state.assignments[0].revision !== before.assignments[0].revision) {
         const { bridgeTicketExecution } = await import("./execution.workflow");
         await bridgeTicketExecution(tx, before, state, this.actor);
-        await persistExecution(tx, before, state, this.actor);
+        await persistExecution(tx, before, state, this.actor, committedActions);
       }
       return result;
     });
+    // Translation is best effort after commit: neither latency nor failure changes execution.
+    if (committedActions.length && deps.queueActionTranslations) {
+      void Promise.resolve().then(() => deps.queueActionTranslations!(committedActions))
+        .catch(error => console.error("[TICKET_TEAM_ACTION] translation queue failed", error));
+    }
+    return outcome;
   }
 }
 export const executionService = (

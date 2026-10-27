@@ -13,6 +13,7 @@ import type { TeamManagementActor } from "../../../shared/maintenance-team-ticke
 import { canReadTicketTeamExecution } from "../../../shared/maintenance-team-tickets/execution-permissions";
 import { searchTicketIdentityCandidates } from "../../maintenance-team-tickets/material-identity-reader";
 import { readTicketMaterialUnits } from "../../maintenance-team-tickets/material-catalog-search";
+import { localizeActionSnapshot } from "../../maintenance-team-tickets/action-translations";
 const id = z.number().int().positive();
 const command = z.object({
   assignmentId: id,
@@ -204,9 +205,9 @@ export function createTicketTeamExecutionRouter(
         )
       ),
     details: protectedProcedure
-      .input(z.object({ assignmentId: id }).strict())
+      .input(z.object({ assignmentId: id, language: z.enum(["ar", "en", "ur"]).optional() }).strict())
       .query(({ ctx, input }) =>
-        result(() => service(ctx, input).read(ctx.user.id))
+        result(async () => localizeActionSnapshot(await service(ctx, input).read(ctx.user.id), input.language))
       ),
     balances: protectedProcedure
       .input(z.object({ assignmentId: id }).strict())

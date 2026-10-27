@@ -82,6 +82,8 @@ export interface Assignment {
   outcome?: Outcome;
 }
 export interface Action {
+  /** Localized read-only display; never persisted in the action ledger. */
+  translatedNote?: string;
   id: number;
   assignmentId: number;
   actorId: number;

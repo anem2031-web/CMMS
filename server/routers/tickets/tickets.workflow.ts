@@ -15,6 +15,7 @@ import * as db from "../../_core/db";
 import { countPendingSubTicketTasks, summarizeSubTicketFamily } from "@shared/ticketUiRules";
 import { detectLanguage } from "../../services/translation/translation";
 import { queueTranslation } from "../../services/translation/translationEngine";
+import { assertNoPendingExternalRouteReview } from "../../services/external-route-review";
 import {
   assertTicketReadable,
   assertTicketWorkflowManageable,
@@ -1248,6 +1249,7 @@ export const ticketsWorkflowRouter = router({
     if (!canSelectTicketMaintenancePath(ctx.user, ticket as any)) {
       throw new TRPCError({ code: "BAD_REQUEST", message: "لا يمكن تحديد مسار التنفيذ قبل اعتماد نتيجة الفحص" });
     }
+    await assertNoPendingExternalRouteReview(ticket.id);
     if (input.maintenancePath === "C" && !input.justification) {
       throw new TRPCError({ code: "BAD_REQUEST", message: "المسار C يتطلب مبرراً للصيانة الخارجية" });
     }
@@ -1327,6 +1329,7 @@ export const ticketsWorkflowRouter = router({
     if (!canSelectTicketItemMaintenancePath(ctx.user, ticket as any, item as any)) {
       throw new TRPCError({ code: "BAD_REQUEST", message: "لا يمكن تحديد مسار التنفيذ لهذا البند الآن" });
     }
+    await assertNoPendingExternalRouteReview(ticket.id, item.id);
     if (input.maintenancePath === "C" && !input.justification) {
       throw new TRPCError({ code: "BAD_REQUEST", message: "المسار C يتطلب مبرراً للصيانة الخارجية" });
     }

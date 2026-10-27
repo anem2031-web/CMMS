@@ -223,6 +223,16 @@ export default function ExternalMaintenanceWarehouseTab() {
   const { data: users = [] } = trpc.users.list.useQuery();
 
   const [prepareTicket, setPrepareTicket] = useState<any>(null);
+  const [returnTicket, setReturnTicket] = useState<any>(null);
+  const [returnReason, setReturnReason] = useState("");
+  const routeText = (ar: string, en: string, ur: string) => language === "ar" ? ar : language === "ur" ? ur : en;
+  const returnRoute = trpc.externalMaintenance.returnForRouteReview.useMutation({
+    onSuccess: () => {
+      setReturnTicket(null); setReturnReason("");
+      void utils.externalMaintenance.listForWarehouse.invalidate();
+      toast.success(routeText("تمت إعادة الطلب للمسؤول", "Returned to the approving manager", "درخواست ذمہ دار کو واپس کردی گئی"));
+    },
+  });
   const [receiveRow, setReceiveRow] = useState<any>(null);
   const [handoverRow, setHandoverRow] = useState<any>(null);
   const [uploading, setUploading] = useState<string | null>(null);
@@ -428,6 +438,9 @@ export default function ExternalMaintenanceWarehouseTab() {
                     warehouseNotes: "",
                   });
                 }} className="gap-2"><Truck className="w-4 h-4"/> {t.workflow.purchase.prepareAsset}</Button>
+                <Button variant="outline" onClick={() => { setReturnTicket(ticket); setReturnReason(""); returnRoute.reset(); }}>
+                  {routeText("إعادة للمسؤول لمراجعة المسار", "Return for route review", "راستے کے جائزے کیلئے واپس")}
+                </Button>
               </CardContent>
             </Card>
           ))}
@@ -499,6 +512,15 @@ export default function ExternalMaintenanceWarehouseTab() {
         </TabsContent>
       </Tabs>
 
+      <Dialog open={!!returnTicket} onOpenChange={open => { if (!open && !returnRoute.isPending) setReturnTicket(null); }}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>{routeText("إعادة للمسؤول لمراجعة المسار", "Return for route review", "راستے کے جائزے کیلئے واپس")}</DialogTitle></DialogHeader>
+          <Label>{routeText("سبب الإعادة (مطلوب)", "Return reason (required)", "واپسی کی وجہ (ضروری)")}</Label>
+          <Textarea value={returnReason} maxLength={4000} onChange={e => setReturnReason(e.target.value)} disabled={returnRoute.isPending} />
+          {returnRoute.error && <p role="alert" className="text-destructive">{returnRoute.error.message}</p>}
+          <DialogFooter><Button disabled={!returnReason.trim() || returnRoute.isPending} onClick={() => returnRoute.mutate({ ticketId: returnTicket.ticketId, ticketItemId: returnTicket.ticketItemId, reason: returnReason })}>{routeText("تأكيد الإعادة", "Confirm return", "واپسی کی تصدیق")}</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
       <Dialog open={!!prepareTicket} onOpenChange={open => !open && setPrepareTicket(null)}>
         <DialogContent className="max-w-lg">
           <DialogHeader><DialogTitle>{t.workflow.purchase.prepareExternalTitle}</DialogTitle></DialogHeader>

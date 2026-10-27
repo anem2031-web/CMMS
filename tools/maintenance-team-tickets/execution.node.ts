@@ -587,10 +587,12 @@ test("cancelled purchases no longer reserve demand; inactive units cannot be new
   assert.equal(s.catalog[0].active, false);
 });
 test("SQL store saves one action/audit/operation and replays retry without another mutation", async () => {
+  const translated: any[] = [];
   const h = harness(),
     store = new SqlExecutionStore(100, tech, {}, async () => ({
       db: h.db,
       gateway: () => noEffects,
+      queueActionTranslations: async actions => { assert.ok(h.committed().length > 0); translated.push(...actions); },
     }));
   const service = new MaintenanceTeamTicketService(store),
     c = { assignmentId: 100, expectedRevision: 0, operationKey: "retry-once" };
@@ -599,6 +601,8 @@ test("SQL store saves one action/audit/operation and replays retry without anoth
   await service.submitOutcome(3, c, "fixed", { note: "Repaired", usages: [] });
   assert.equal(h.committed().length, count);
   assert.equal(h.assignment.revision, 1);
+  assert.equal(translated.length, 1);
+  assert.equal(translated[0].note, "Repaired");
   await assert.rejects(
     service.submitOutcome(3, { ...c, operationKey: "different" }, "blocked", {
       note: "Blocked",
@@ -613,6 +617,7 @@ test("SQL store saves one action/audit/operation and replays retry without anoth
   );
 });
 test("SQL failures in audit and operation persistence roll back entire team action", async () => {
+  const translated: any[] = [];
   for (const fail of [
     "INSERT INTO audit_logs",
     "INSERT INTO ticket_team_operations",
@@ -622,6 +627,7 @@ test("SQL failures in audit and operation persistence roll back entire team acti
         new SqlExecutionStore(100, tech, {}, async () => ({
           db: h.db,
           gateway: () => noEffects,
+          queueActionTranslations: async actions => { translated.push(...actions); },
         }))
       );
     await assert.rejects(
@@ -635,6 +641,7 @@ test("SQL failures in audit and operation persistence roll back entire team acti
     );
     assert.equal(h.committed().length, 0);
     assert.equal(h.assignment.revision, 0);
+    assert.equal(translated.length, 0);
   }
 });
 test("a failure after physical issue rolls back issue and all team links in the same transaction", async () => {

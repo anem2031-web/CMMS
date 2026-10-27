@@ -1,4 +1,5 @@
 import React from "react";
+vi.mock("../../client/src/pages/tickets/ExternalRouteReviewPanel", () => ({ ExternalRouteReviewPanel: () => null }));
 // Financial reads are verified separately; retain this fixture's execution-only boundary.
 vi.mock("../../client/src/components/inventory/MaterialCostPanel", () => ({ MaterialCostPanel: () => null }));
 import { describe, it, expect, vi } from "vitest";
@@ -79,6 +80,15 @@ async function render(
   );
 }
 describe("production execution UI rendered with mock queries only", () => {
+  it("shows translated action notes and falls back to the original without changing it", async () => {
+    await render("technician", "awaiting_review", false, 3);
+    const a = fixture.state.assignments[0];
+    fixture.state.actions.push({ id: 991, assignmentId: a.id, actorId: 3, kind: "fixed", note: "تم إصلاح المحرك", translatedNote: "Motor repaired", at: new Date().toISOString(), revision: 2, operationKey: "translated" });
+    const show = () => renderToStaticMarkup(<ExecutionPanel assignmentId={a.id} actorId={3} role="technician" language="en" onChanged={() => {}} />);
+    expect(show()).toContain("Motor repaired");
+    delete fixture.state.actions.at(-1).translatedNote;
+    expect(show()).toContain("تم إصلاح المحرك");
+  });
   it("ready section selects a real team recipient and issues without duplicate technician confirmation", async () => {
     fixture.balances = [{ needId: 12, branch: 3, main: 0 }];
     const html = await render(

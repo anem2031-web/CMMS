@@ -1,6 +1,8 @@
 import { MaterialCostPanel } from "@/components/inventory/MaterialCostPanel";
 import { ImprovementReference } from "@/components/improvement/ImprovementReference";
 import { ItTeamPanel, ItTaskActions } from "./ItTeamPanel";
+import { ExternalRouteReviewPanel } from "./ExternalRouteReviewPanel";
+import { isExternalRouteReviewer } from "@shared/external-route-review";
 import { isItTeamRole } from "@shared/roles";
 import { trpc } from "@/lib/trpc";
 import { mediaUrl } from "@/lib/mediaUrl";
@@ -160,6 +162,7 @@ const { getField } = useResolvedTranslation(
   // بنود البلاغ — الخطوة 2 من ميزة البلاغ متعدد الجهات (2026-08-08). قراءة فقط، بنفس حارس
   // صلاحية البلاغ نفسه (tickets.items تُحقق assertTicketReadable داخليًا).
   const { data: ticketItems } = trpc.tickets.items.useQuery({ ticketId }, { enabled: !!ticketId });
+  const { data: externalRouteReviews = [] } = trpc.externalMaintenance.routeReviews.useQuery({ ticketId }, { enabled: !!ticketId && !!user && isExternalRouteReviewer(user.role) });
 
   const approveMut = trpc.tickets.approve.useMutation({ onSuccess: () => { toast.success(t.common.confirm); refetch(); } });
   const assignMut = trpc.tickets.assign.useMutation({
@@ -610,7 +613,7 @@ const { getField } = useResolvedTranslation(
     inspectionWorkflowStatus === MAINTENANCE_INSPECTION_WORKFLOW_STATUS.SUBMITTED_FOR_REVIEW;
   const canClosePathA = (isSupervisor || isManager) && ticket?.status === "ready_for_closure" && ticket?.maintenancePath === "A";
 
-  const canApproveWork = !isTicketReadOnly && ticket?.status === "under_inspection" && isInspectionManager &&
+  const canApproveWork = !externalRouteReviews.length && !isTicketReadOnly && ticket?.status === "under_inspection" && isInspectionManager &&
     inspectionWorkflowStatus === MAINTENANCE_INSPECTION_WORKFLOW_STATUS.APPROVED;
   const canClosePathBC = isTicketWorkflowManager && ticket?.status === "ready_for_closure" && ["B", "C"].includes(ticket?.maintenancePath as any);
 
@@ -800,6 +803,7 @@ const { getField } = useResolvedTranslation(
       )}
 
       <ItTeamPanel ticket={ticket} departments={departmentPlan?.departments || []} onChanged={() => { refetch(); refetchDepartmentPlan(); }} />
+      <ExternalRouteReviewPanel ticketId={ticketId} onChanged={refetchAll} />
       {ticket.workflowModel === "department_tasks" && ticket.status !== "pending_triage" && departmentPlan && (
         <Card className="border-purple-200 dark:border-purple-800">
           <CardHeader className="pb-2">
@@ -1943,6 +1947,7 @@ const { getField } = useResolvedTranslation(
                 ticket?.inspectionWorkflowStatus === MAINTENANCE_INSPECTION_WORKFLOW_STATUS.APPROVED &&
                 ticketItems && ticketItems.length > 1 &&
                 ticketItems.filter((item: any) => {
+                  if (externalRouteReviews.some(r => r.ticketItemId === item.id)) return false;
                   if (item.status !== "under_inspection") return false;
                   if (isAdminOrOwner || role === APP_ROLE.MAINTENANCE_MANAGER || role === APP_ROLE.SUPERVISOR) return true;
                   if (role === APP_ROLE.GENERAL_MAINTENANCE_MANAGER) {

@@ -18,6 +18,7 @@ import * as db from "../../_core/db";
 import { assertTicketReadable } from "../tickets/tickets.access";
 import { queueTranslation } from "../../services/translation/translationEngine";
 import { detectLanguage } from "../../services/translation/translation";
+import { returnExternalRoute, readExternalRouteReviews, decideExternalRoute } from "../../services/external-route-review";
 
 function translateExternalDbError(error: unknown): never {
   const code = error instanceof Error ? error.message : String(error);
@@ -67,6 +68,12 @@ async function assertActiveUserWithRole(userId: number, allowedRoles: string[], 
 }
 
 export const externalMaintenanceRouter = router({
+  returnForRouteReview: warehouseProcedure.input(z.object({ ticketId: z.number().int().positive(), ticketItemId: z.number().int().positive(), reason: z.string().trim().min(1).max(4000) }).strict())
+    .mutation(({ ctx, input }) => returnExternalRoute(ctx.user, input)),
+  routeReviews: protectedProcedure.input(z.object({ ticketId: z.number().int().positive() }).strict())
+    .query(({ ctx, input }) => readExternalRouteReviews(ctx.user, input.ticketId)),
+  decideRouteReview: protectedProcedure.input(z.object({ ticketId: z.number().int().positive(), ticketItemId: z.number().int().positive(), returnId: z.number().int().positive(), path: z.enum(["A", "B", "C"]), reason: z.string().trim().min(1).max(4000) }).strict())
+    .mutation(({ ctx, input }) => decideExternalRoute(ctx.user, input)),
   getByTicket: protectedProcedure.input(z.object({ ticketId: z.number() })).query(async ({ input, ctx }) => {
     const ticket = await db.getTicketById(input.ticketId);
     if (!ticket) throw new TRPCError({ code: "NOT_FOUND", message: "البلاغ غير موجود" });

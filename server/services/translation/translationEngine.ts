@@ -121,6 +121,7 @@ export const ENTITY_FIELD_MAP: Record<string, string[]> = {
   PMV2_PROGRAM: ["title"],
   PMV2_TASK_ITEM: ["titleSnapshot"],
   PMV2_ITEM_ACTION: ["note"],
+  TICKET_TEAM_ACTION: ["note"],
   PMV2_MATERIAL_REQUEST_ITEM: ["itemNameSnapshot"],
   PMV2_DAILY_REPORT_REVIEW: ["note"],
 };
