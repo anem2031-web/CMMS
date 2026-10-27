@@ -27,6 +27,7 @@ import {
 import { invokeLLM } from "../../_core/llm";
 import { getDb } from "../../_core/db";
 import crypto from "crypto";
+import { splitTranslationBatches, translateJobBatch } from "./translationBatch";
 import { automaticTranslationScope, loadNotificationRecipientRole } from "./notificationTranslationScope";
 import { isAutomaticTranslationEnabled, canProcessTranslationJob, TRANSLATION_RETRY_BATCH_SIZE } from "./translationPolicy";
 
@@ -192,46 +193,6 @@ const LANGUAGE_NAMES: Record<SupportedLanguage, string> = {
   en: "English",
   ur: "Urdu",
 };
-
-async function translateWithLLM(
-  sourceText: string,
-  sourceLang: SupportedLanguage,
-  targetLang: SupportedLanguage,
-  context?: string
-): Promise<string> {
-  const systemPrompt = `You are a professional translator for a maintenance management system (CMMS). 
-Translate the following text from ${LANGUAGE_NAMES[sourceLang]} to ${LANGUAGE_NAMES[targetLang]}.
-Rules:
-- Maintain technical terminology accuracy
-- Preserve any numbers, codes, or references (like MT-2026-00001)
-- Keep proper nouns unchanged unless the context explicitly asks to transliterate a person's display name
-- For Entity: USER, Field: name, transliterate the person's name naturally into the target script; do not translate its meaning
-- Use formal/professional tone
-- Return ONLY the translated text, no explanations
-${context ? `Context: ${context}` : ""}`;
-
-  try {
-    const result = await invokeLLM({
-      timeoutMs: 60_000,
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: sourceText },
-      ],
-    });
-
-    const translated = result.choices?.[0]?.message?.content;
-    if (typeof translated === "string") return translated.trim();
-    if (Array.isArray(translated)) {
-      const textPart = translated.find((p: any) => p.type === "text");
-      if (textPart && "text" in textPart) return (textPart as any).text.trim();
-    }
-    throw new Error("No translation content in LLM response");
-  } catch (error: any) {
-
-    throw error;
-  }
-}
-
 
 // ============================================================
 // PERSISTED MASTER-DATA NAME TRANSLATIONS
@@ -464,7 +425,7 @@ export async function ensureStoredNameTranslations(
  * Queue translation jobs for an entity (async, non-blocking)
  * Creates pending jobs and translation records
  */
-export async function queueTranslation(request: TranslationRequest): Promise<number[]> {
+export async function queueTranslation(request: TranslationRequest, maintenanceOptions?: { deferProcessing: boolean }): Promise<number[]> {
   if (isObserverReadScope()) return [];
   const db = await getDb();
   if (!db) {
@@ -509,6 +470,7 @@ export async function queueTranslation(request: TranslationRequest): Promise<num
           eq(translationJobs.fieldName, field.fieldName),
           eq(translationJobs.targetLanguage, targetLang),
           eq(translationJobs.previousTextHash, hash),
+          ...(existing[0]?.translationJobId ? [eq(translationJobs.id, existing[0].translationJobId)] : []),
           inArray(translationJobs.status, ["pending", "processing", "completed"])
         )
       ).limit(1);
@@ -561,7 +523,7 @@ export async function queueTranslation(request: TranslationRequest): Promise<num
   }
 
   // Process jobs asynchronously (fire and forget)
-  if (jobIds.length > 0) {
+  if (jobIds.length > 0 && !maintenanceOptions?.deferProcessing) {
     processTranslationJobs(jobIds).catch(err =>
       console.error("[TranslationEngine] Background job processing error for jobIds:", jobIds, err)
     );
@@ -693,40 +655,11 @@ function processTranslationJobs(jobIds: number[]): Promise<void> {
   processingTail = work.catch(() => {});
   return work;
 }
-async function runTranslationJobs(jobIds: number[]): Promise<void> {
-  const db = await getDb();
-  if (!db) {
-    console.error("[TranslationEngine] Failed to get database connection for processTranslationJobs. Job aborted.");
-    return;
-  }
-
-  for (const jobId of jobIds) {
-    try {
-      // Get job
-      const [job] = await db.select().from(translationJobs).where(eq(translationJobs.id, jobId)).limit(1);
-      if (!job || job.status !== "pending") continue;
-      const recipientRole = await loadNotificationRecipientRole(db, job.entityType, job.entityId);
-      if (!isAutomaticTranslationEnabled(job.entityType, recipientRole)) continue;
-      const [currentTranslation] = await db.select().from(entityTranslations).where(and(
-        eq(entityTranslations.entityType, job.entityType), eq(entityTranslations.entityId, job.entityId),
-        eq(entityTranslations.fieldName, job.fieldName), eq(entityTranslations.languageCode, job.targetLanguage)
-      )).limit(1);
-      if (!canProcessTranslationJob(job, currentTranslation, recipientRole)) continue;
-      const [claim] = await db.update(translationJobs).set({ status: "processing" })
-        .where(and(eq(translationJobs.id, jobId), eq(translationJobs.status, "pending")));
-      if (!claim.affectedRows) continue;
-
-      // Translate
-      const translated = await translateWithLLM(
-        job.sourceText,
-        job.sourceLanguage as SupportedLanguage,
-        job.targetLanguage as SupportedLanguage,
-        `Entity: ${job.entityType}, Field: ${job.fieldName}`
-      );
-
+async function saveTranslatedJob(db: any, job: any, translated: string): Promise<void> {
+  const jobId = job.id;
       // Recheck the recipient if its role changed while the external translation ran.
       if (job.entityType === "NOTIFICATION" && !isAutomaticTranslationEnabled(job.entityType,
-        await loadNotificationRecipientRole(db, job.entityType, job.entityId))) continue;
+        await loadNotificationRecipientRole(db, job.entityType, job.entityId))) return;
 
       // Update job as completed
       await db.update(translationJobs).set({
@@ -767,7 +700,7 @@ async function runTranslationJobs(jobIds: number[]): Promise<void> {
           eq(entityTranslations.translationJobId, jobId),
           ne(entityTranslations.translationStatus, "approved"),
           ne(entityTranslations.translationStatus, "completed")));
-        if (!saved.affectedRows) continue;
+        if (!saved.affectedRows) return;
 
         // Update cache
         translationCache.set(
@@ -782,10 +715,12 @@ async function runTranslationJobs(jobIds: number[]): Promise<void> {
         );
       }
 
-    } catch (error: any) {
+}
+
+async function failTranslatedJob(db: any, jobId: number, error: any): Promise<void> {
       // Handle failure with retry
       const [job] = await db.select().from(translationJobs).where(eq(translationJobs.id, jobId)).limit(1);
-      if (!job) continue;
+      if (!job) return;
 
       const newRetryCount = job.retryCount + 1;
       const isFinalFailure = newRetryCount >= job.maxRetries;
@@ -818,6 +753,50 @@ async function runTranslationJobs(jobIds: number[]): Promise<void> {
         setTimeout(() => {
           processTranslationJobs([jobId]).catch(console.error);
         }, 5000 * newRetryCount); // Exponential backoff
+      }
+}
+
+export async function runTranslationJobs(jobIds: number[], maintenanceBatch = false): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  const candidates: any[] = [];
+  for (const jobId of [...new Set(jobIds)]) {
+    const [job] = await db.select().from(translationJobs).where(eq(translationJobs.id, jobId)).limit(1);
+    if (job?.status === "pending") candidates.push(job);
+  }
+  // Maintenance-only opt-in; normal app callers retain per-record boundaries.
+  if (maintenanceBatch && (candidates.length > 2500 || candidates.reduce((n, j) => n + j.sourceText.length, 0) > 400000)) {
+    throw new Error("Maintenance translation batch exceeds safe payload bound");
+  }
+  for (const batch of maintenanceBatch ? [candidates] : splitTranslationBatches(candidates)) {
+    const claimed: any[] = [];
+    for (const job of batch) {
+      const recipientRole = await loadNotificationRecipientRole(db, job.entityType, job.entityId);
+      if (!isAutomaticTranslationEnabled(job.entityType, recipientRole)) continue;
+      const [current] = await db.select().from(entityTranslations).where(and(
+        eq(entityTranslations.entityType, job.entityType), eq(entityTranslations.entityId, job.entityId),
+        eq(entityTranslations.fieldName, job.fieldName), eq(entityTranslations.languageCode, job.targetLanguage)
+      )).limit(1);
+      if (!canProcessTranslationJob(job, current, recipientRole)) continue;
+      const [claim] = await db.update(translationJobs).set({ status: "processing" })
+        .where(and(eq(translationJobs.id, job.id), eq(translationJobs.status, "pending")));
+      if (claim.affectedRows) claimed.push(job);
+    }
+    if (!claimed.length) continue;
+    let translated: Map<number, string>;
+    try {
+      translated = await translateJobBatch(claimed, maintenanceBatch ? 300_000 : 60_000);
+    } catch (error) {
+      for (const job of claimed) await failTranslatedJob(db, job.id, error);
+      continue;
+    }
+    for (const job of claimed) {
+      try {
+        const text = translated.get(job.id);
+        if (!text) throw new Error("Missing translation for requested target");
+        await saveTranslatedJob(db, job, text);
+      } catch (error) {
+        await failTranslatedJob(db, job.id, error);
       }
     }
   }

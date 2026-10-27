@@ -1,0 +1,1659 @@
+{
+  "at": "2026-10-26T13:22:09.383Z",
+  "tickets": [
+    2010150,
+    2010151,
+    2010152,
+    2010153,
+    2010154,
+    2010155,
+    2010156,
+    2010157,
+    2010158,
+    2010159
+  ],
+  "counts": {
+    "TICKET:completed": 4,
+    "TICKET:missing": 36,
+    "TICKET:pending": 4,
+    "TICKET:failed": 32,
+    "TICKET_ITEM:missing": 64,
+    "TICKET_TASK:missing": 8,
+    "TICKET_STATUS_HISTORY:missing": 58,
+    "INSPECTION_RESULT:missing": 38
+  },
+  "missing": [
+    {
+      "entityType": "TICKET",
+      "entityId": 2010150,
+      "ticketId": 2010150,
+      "fieldName": "inspectionNotes",
+      "sourceLanguage": "ar",
+      "targetLanguage": "en"
+    },
+    {
+      "entityType": "TICKET",
+      "entityId": 2010150,
+      "ticketId": 2010150,
+      "fieldName": "inspectionNotes",
+      "sourceLanguage": "ar",
+      "targetLanguage": "ur"
+    },
+    {
+      "entityType": "TICKET",
+      "entityId": 2010150,
+      "ticketId": 2010150,
+      "fieldName": "maintenanceRoutingNote",
+      "sourceLanguage": "ar",
+      "targetLanguage": "en"
+    },
+    {
+      "entityType": "TICKET",
+      "entityId": 2010150,
+      "ticketId": 2010150,
+      "fieldName": "maintenanceRoutingNote",
+      "sourceLanguage": "ar",
+      "targetLanguage": "ur"
+    },
+    {
+      "entityType": "TICKET",
+      "entityId": 2010151,
+      "ticketId": 2010151,
+      "fieldName": "maintenanceRoutingNote",
+      "sourceLanguage": "ar",
+      "targetLanguage": "en"
+    },
+    {
+      "entityType": "TICKET",
+      "entityId": 2010151,
+      "ticketId": 2010151,
+      "fieldName": "maintenanceRoutingNote",
+      "sourceLanguage": "ar",
+      "targetLanguage": "ur"
+    },
+    {
+      "entityType": "TICKET",
+      "entityId": 2010152,
+      "ticketId": 2010152,
+      "fieldName": "repairNotes",
+      "sourceLanguage": "ar",
+      "targetLanguage": "en"
+    },
+    {
+      "entityType": "TICKET",
+      "entityId": 2010152,
+      "ticketId": 2010152,
+      "fieldName": "repairNotes",
+      "sourceLanguage": "ar",
+      "targetLanguage": "ur"
+    },
+    {
+      "entityType": "TICKET",
+      "entityId": 2010152,
+      "ticketId": 2010152,
+      "fieldName": "inspectionNotes",
+      "sourceLanguage": "ar",
+      "targetLanguage": "en"
+    },
+    {
+      "entityType": "TICKET",
+      "entityId": 2010152,
+      "ticketId": 2010152,
+      "fieldName": "inspectionNotes",
+      "sourceLanguage": "ar",
+      "targetLanguage": "ur"
+    },
+    {
+      "entityType": "TICKET",
+      "entityId": 2010152,
+      "ticketId": 2010152,
+      "fieldName": "maintenanceRoutingNote",
+      "sourceLanguage": "ar",
+      "targetLanguage": "en"
+    },
+    {
+      "entityType": "TICKET",
+      "entityId": 2010152,
+      "ticketId": 2010152,
+      "fieldName": "maintenanceRoutingNote",
+      "sourceLanguage": "ar",
+      "targetLanguage": "ur"
+    },
+    {
+      "entityType": "TICKET",
+      "entityId": 2010153,
+      "ticketId": 2010153,
+      "fieldName": "repairNotes",
+      "sourceLanguage": "ar",
+      "targetLanguage": "en"
+    },
+    {
+      "entityType": "TICKET",
+      "entityId": 2010153,
+      "ticketId": 2010153,
+      "fieldName": "repairNotes",
+      "sourceLanguage": "ar",
+      "targetLanguage": "ur"
+    },
+    {
+      "entityType": "TICKET",
+      "entityId": 2010153,
+      "ticketId": 2010153,
+      "fieldName": "inspectionNotes",
+      "sourceLanguage": "ar",
+      "targetLanguage": "en"
+    },
+    {
+      "entityType": "TICKET",
+      "entityId": 2010153,
+      "ticketId": 2010153,
+      "fieldName": "inspectionNotes",
+      "sourceLanguage": "ar",
+      "targetLanguage": "ur"
+    },
+    {
+      "entityType": "TICKET",
+      "entityId": 2010153,
+      "ticketId": 2010153,
+      "fieldName": "maintenanceRoutingNote",
+      "sourceLanguage": "ar",
+      "targetLanguage": "en"
+    },
+    {
+      "entityType": "TICKET",
+      "entityId": 2010153,
+      "ticketId": 2010153,
+      "fieldName": "maintenanceRoutingNote",
+      "sourceLanguage": "ar",
+      "targetLanguage": "ur"
+    },
+    {
+      "entityType": "TICKET",
+      "entityId": 2010154,
+      "ticketId": 2010154,
+      "fieldName": "repairNotes",
+      "sourceLanguage": "ar",
+      "targetLanguage": "en"
+    },
+    {
+      "entityType": "TICKET",
+      "entityId": 2010154,
+      "ticketId": 2010154,
+      "fieldName": "repairNotes",
+      "sourceLanguage": "ar",
+      "targetLanguage": "ur"
+    },
+    {
+      "entityType": "TICKET",
+      "entityId": 2010154,
+      "ticketId": 2010154,
+      "fieldName": "inspectionNotes",
+      "sourceLanguage": "ar",
+      "targetLanguage": "en"
+    },
+    {
+      "entityType": "TICKET",
+      "entityId": 2010154,
+      "ticketId": 2010154,
+      "fieldName": "inspectionNotes",
+      "sourceLanguage": "ar",
+      "targetLanguage": "ur"
+    },
+    {
+      "entityType": "TICKET",
+      "entityId": 2010154,
+      "ticketId": 2010154,
+      "fieldName": "maintenanceRoutingNote",
+      "sourceLanguage": "ar",
+      "targetLanguage": "en"
+    },
+    {
+      "entityType": "TICKET",
+      "entityId": 2010154,
+      "ticketId": 2010154,
+      "fieldName": "maintenanceRoutingNote",
+      "sourceLanguage": "ar",
+      "targetLanguage": "ur"
+    },
+    {
+      "entityType": "TICKET",
+      "entityId": 2010155,
+      "ticketId": 2010155,
+      "fieldName": "repairNotes",
+      "sourceLanguage": "ar",
+      "targetLanguage": "en"
+    },
+    {
+      "entityType": "TICKET",
+      "entityId": 2010155,
+      "ticketId": 2010155,
+      "fieldName": "repairNotes",
+      "sourceLanguage": "ar",
+      "targetLanguage": "ur"
+    },
+    {
+      "entityType": "TICKET",
+      "entityId": 2010155,
+      "ticketId": 2010155,
+      "fieldName": "inspectionNotes",
+      "sourceLanguage": "ar",
+      "targetLanguage": "en"
+    },
+    {
+      "entityType": "TICKET",
+      "entityId": 2010155,
+      "ticketId": 2010155,
+      "fieldName": "inspectionNotes",
+      "sourceLanguage": "ar",
+      "targetLanguage": "ur"
+    },
+    {
+      "entityType": "TICKET",
+      "entityId": 2010155,
+      "ticketId": 2010155,
+      "fieldName": "maintenanceRoutingNote",
+      "sourceLanguage": "ar",
+      "targetLanguage": "en"
+    },
+    {
+      "entityType": "TICKET",
+      "entityId": 2010155,
+      "ticketId": 2010155,
+      "fieldName": "maintenanceRoutingNote",
+      "sourceLanguage": "ar",
+      "targetLanguage": "ur"
+    },
+    {
+      "entityType": "TICKET",
+      "entityId": 2010156,
+      "ticketId": 2010156,
+      "fieldName": "repairNotes",
+      "sourceLanguage": "ar",
+      "targetLanguage": "en"
+    },
+    {
+      "entityType": "TICKET",
+      "entityId": 2010156,
+      "ticketId": 2010156,
+      "fieldName": "repairNotes",
+      "sourceLanguage": "ar",
+      "targetLanguage": "ur"
+    },
+    {
+      "entityType": "TICKET",
+      "entityId": 2010156,
+      "ticketId": 2010156,
+      "fieldName": "inspectionNotes",
+      "sourceLanguage": "ar",
+      "targetLanguage": "en"
+    },
+    {
+      "entityType": "TICKET",
+      "entityId": 2010156,
+      "ticketId": 2010156,
+      "fieldName": "inspectionNotes",
+      "sourceLanguage": "ar",
+      "targetLanguage": "ur"
+    },
+    {
+      "entityType": "TICKET",
+      "entityId": 2010156,
+      "ticketId": 2010156,
+      "fieldName": "maintenanceRoutingNote",
+      "sourceLanguage": "ar",
+      "targetLanguage": "en"
+    },
+    {
+      "entityType": "TICKET",
+      "entityId": 2010156,
+      "ticketId": 2010156,
+      "fieldName": "maintenanceRoutingNote",
+      "sourceLanguage": "ar",
+      "targetLanguage": "ur"
+    },
+    {
+      "entityType": "TICKET_ITEM",
+      "entityId": 210150,
+      "ticketId": 2010150,
+      "fieldName": "title",
+      "sourceLanguage": "ar",
+      "targetLanguage": "en"
+    },
+    {
+      "entityType": "TICKET_ITEM",
+      "entityId": 210150,
+      "ticketId": 2010150,
+      "fieldName": "title",
+      "sourceLanguage": "ar",
+      "targetLanguage": "ur"
+    },
+    {
+      "entityType": "TICKET_ITEM",
+      "entityId": 210150,
+      "ticketId": 2010150,
+      "fieldName": "description",
+      "sourceLanguage": "ar",
+      "targetLanguage": "en"
+    },
+    {
+      "entityType": "TICKET_ITEM",
+      "entityId": 210150,
+      "ticketId": 2010150,
+      "fieldName": "description",
+      "sourceLanguage": "ar",
+      "targetLanguage": "ur"
+    },
+    {
+      "entityType": "TICKET_ITEM",
+      "entityId": 210150,
+      "ticketId": 2010150,
+      "fieldName": "routingNote",
+      "sourceLanguage": "ar",
+      "targetLanguage": "en"
+    },
+    {
+      "entityType": "TICKET_ITEM",
+      "entityId": 210150,
+      "ticketId": 2010150,
+      "fieldName": "routingNote",
+      "sourceLanguage": "ar",
+      "targetLanguage": "ur"
+    },
+    {
+      "entityType": "TICKET_ITEM",
+      "entityId": 210151,
+      "ticketId": 2010151,
+      "fieldName": "title",
+      "sourceLanguage": "en",
+      "targetLanguage": "ar"
+    },
+    {
+      "entityType": "TICKET_ITEM",
+      "entityId": 210151,
+      "ticketId": 2010151,
+      "fieldName": "title",
+      "sourceLanguage": "en",
+      "targetLanguage": "ur"
+    },
+    {
+      "entityType": "TICKET_ITEM",
+      "entityId": 210151,
+      "ticketId": 2010151,
+      "fieldName": "description",
+      "sourceLanguage": "en",
+      "targetLanguage": "ar"
+    },
+    {
+      "entityType": "TICKET_ITEM",
+      "entityId": 210151,
+      "ticketId": 2010151,
+      "fieldName": "description",
+      "sourceLanguage": "en",
+      "targetLanguage": "ur"
+    },
+    {
+      "entityType": "TICKET_ITEM",
+      "entityId": 210151,
+      "ticketId": 2010151,
+      "fieldName": "routingNote",
+      "sourceLanguage": "ar",
+      "targetLanguage": "en"
+    },
+    {
+      "entityType": "TICKET_ITEM",
+      "entityId": 210151,
+      "ticketId": 2010151,
+      "fieldName": "routingNote",
+      "sourceLanguage": "ar",
+      "targetLanguage": "ur"
+    },
+    {
+      "entityType": "TICKET_ITEM",
+      "entityId": 210152,
+      "ticketId": 2010152,
+      "fieldName": "title",
+      "sourceLanguage": "ar",
+      "targetLanguage": "en"
+    },
+    {
+      "entityType": "TICKET_ITEM",
+      "entityId": 210152,
+      "ticketId": 2010152,
+      "fieldName": "title",
+      "sourceLanguage": "ar",
+      "targetLanguage": "ur"
+    },
+    {
+      "entityType": "TICKET_ITEM",
+      "entityId": 210152,
+      "ticketId": 2010152,
+      "fieldName": "description",
+      "sourceLanguage": "ar",
+      "targetLanguage": "en"
+    },
+    {
+      "entityType": "TICKET_ITEM",
+      "entityId": 210152,
+      "ticketId": 2010152,
+      "fieldName": "description",
+      "sourceLanguage": "ar",
+      "targetLanguage": "ur"
+    },
+    {
+      "entityType": "TICKET_ITEM",
+      "entityId": 210152,
+      "ticketId": 2010152,
+      "fieldName": "routingNote",
+      "sourceLanguage": "ar",
+      "targetLanguage": "en"
+    },
+    {
+      "entityType": "TICKET_ITEM",
+      "entityId": 210152,
+      "ticketId": 2010152,
+      "fieldName": "routingNote",
+      "sourceLanguage": "ar",
+      "targetLanguage": "ur"
+    },
+    {
+      "entityType": "TICKET_ITEM",
+      "entityId": 210152,
+      "ticketId": 2010152,
+      "fieldName": "repairNotes",
+      "sourceLanguage": "ar",
+      "targetLanguage": "en"
+    },
+    {
+      "entityType": "TICKET_ITEM",
+      "entityId": 210152,
+      "ticketId": 2010152,
+      "fieldName": "repairNotes",
+      "sourceLanguage": "ar",
+      "targetLanguage": "ur"
+    },
+    {
+      "entityType": "TICKET_ITEM",
+      "entityId": 210153,
+      "ticketId": 2010153,
+      "fieldName": "title",
+      "sourceLanguage": "ar",
+      "targetLanguage": "en"
+    },
+    {
+      "entityType": "TICKET_ITEM",
+      "entityId": 210153,
+      "ticketId": 2010153,
+      "fieldName": "title",
+      "sourceLanguage": "ar",
+      "targetLanguage": "ur"
+    },
+    {
+      "entityType": "TICKET_ITEM",
+      "entityId": 210153,
+      "ticketId": 2010153,
+      "fieldName": "description",
+      "sourceLanguage": "ar",
+      "targetLanguage": "en"
+    },
+    {
+      "entityType": "TICKET_ITEM",
+      "entityId": 210153,
+      "ticketId": 2010153,
+      "fieldName": "description",
+      "sourceLanguage": "ar",
+      "targetLanguage": "ur"
+    },
+    {
+      "entityType": "TICKET_ITEM",
+      "entityId": 210153,
+      "ticketId": 2010153,
+      "fieldName": "routingNote",
+      "sourceLanguage": "ar",
+      "targetLanguage": "en"
+    },
+    {
+      "entityType": "TICKET_ITEM",
+      "entityId": 210153,
+      "ticketId": 2010153,
+      "fieldName": "routingNote",
+      "sourceLanguage": "ar",
+      "targetLanguage": "ur"
+    },
+    {
+      "entityType": "TICKET_ITEM",
+      "entityId": 210153,
+      "ticketId": 2010153,
+      "fieldName": "repairNotes",
+      "sourceLanguage": "ar",
+      "targetLanguage": "en"
+    },
+    {
+      "entityType": "TICKET_ITEM",
+      "entityId": 210153,
+      "ticketId": 2010153,
+      "fieldName": "repairNotes",
+      "sourceLanguage": "ar",
+      "targetLanguage": "ur"
+    },
+    {
+      "entityType": "TICKET_ITEM",
+      "entityId": 210154,
+      "ticketId": 2010154,
+      "fieldName": "title",
+      "sourceLanguage": "en",
+      "targetLanguage": "ar"
+    },
+    {
+      "entityType": "TICKET_ITEM",
+      "entityId": 210154,
+      "ticketId": 2010154,
+      "fieldName": "title",
+      "sourceLanguage": "en",
+      "targetLanguage": "ur"
+    },
+    {
+      "entityType": "TICKET_ITEM",
+      "entityId": 210154,
+      "ticketId": 2010154,
+      "fieldName": "description",
+      "sourceLanguage": "en",
+      "targetLanguage": "ar"
+    },
+    {
+      "entityType": "TICKET_ITEM",
+      "entityId": 210154,
+      "ticketId": 2010154,
+      "fieldName": "description",
+      "sourceLanguage": "en",
+      "targetLanguage": "ur"
+    },
+    {
+      "entityType": "TICKET_ITEM",
+      "entityId": 210154,
+      "ticketId": 2010154,
+      "fieldName": "routingNote",
+      "sourceLanguage": "ar",
+      "targetLanguage": "en"
+    },
+    {
+      "entityType": "TICKET_ITEM",
+      "entityId": 210154,
+      "ticketId": 2010154,
+      "fieldName": "routingNote",
+      "sourceLanguage": "ar",
+      "targetLanguage": "ur"
+    },
+    {
+      "entityType": "TICKET_ITEM",
+      "entityId": 210154,
+      "ticketId": 2010154,
+      "fieldName": "repairNotes",
+      "sourceLanguage": "ar",
+      "targetLanguage": "en"
+    },
+    {
+      "entityType": "TICKET_ITEM",
+      "entityId": 210154,
+      "ticketId": 2010154,
+      "fieldName": "repairNotes",
+      "sourceLanguage": "ar",
+      "targetLanguage": "ur"
+    },
+    {
+      "entityType": "TICKET_ITEM",
+      "entityId": 210155,
+      "ticketId": 2010155,
+      "fieldName": "title",
+      "sourceLanguage": "en",
+      "targetLanguage": "ar"
+    },
+    {
+      "entityType": "TICKET_ITEM",
+      "entityId": 210155,
+      "ticketId": 2010155,
+      "fieldName": "title",
+      "sourceLanguage": "en",
+      "targetLanguage": "ur"
+    },
+    {
+      "entityType": "TICKET_ITEM",
+      "entityId": 210155,
+      "ticketId": 2010155,
+      "fieldName": "description",
+      "sourceLanguage": "en",
+      "targetLanguage": "ar"
+    },
+    {
+      "entityType": "TICKET_ITEM",
+      "entityId": 210155,
+      "ticketId": 2010155,
+      "fieldName": "description",
+      "sourceLanguage": "en",
+      "targetLanguage": "ur"
+    },
+    {
+      "entityType": "TICKET_ITEM",
+      "entityId": 210155,
+      "ticketId": 2010155,
+      "fieldName": "routingNote",
+      "sourceLanguage": "ar",
+      "targetLanguage": "en"
+    },
+    {
+      "entityType": "TICKET_ITEM",
+      "entityId": 210155,
+      "ticketId": 2010155,
+      "fieldName": "routingNote",
+      "sourceLanguage": "ar",
+      "targetLanguage": "ur"
+    },
+    {
+      "entityType": "TICKET_ITEM",
+      "entityId": 210155,
+      "ticketId": 2010155,
+      "fieldName": "repairNotes",
+      "sourceLanguage": "ar",
+      "targetLanguage": "en"
+    },
+    {
+      "entityType": "TICKET_ITEM",
+      "entityId": 210155,
+      "ticketId": 2010155,
+      "fieldName": "repairNotes",
+      "sourceLanguage": "ar",
+      "targetLanguage": "ur"
+    },
+    {
+      "entityType": "TICKET_ITEM",
+      "entityId": 210156,
+      "ticketId": 2010156,
+      "fieldName": "title",
+      "sourceLanguage": "ar",
+      "targetLanguage": "en"
+    },
+    {
+      "entityType": "TICKET_ITEM",
+      "entityId": 210156,
+      "ticketId": 2010156,
+      "fieldName": "title",
+      "sourceLanguage": "ar",
+      "targetLanguage": "ur"
+    },
+    {
+      "entityType": "TICKET_ITEM",
+      "entityId": 210156,
+      "ticketId": 2010156,
+      "fieldName": "description",
+      "sourceLanguage": "ar",
+      "targetLanguage": "en"
+    },
+    {
+      "entityType": "TICKET_ITEM",
+      "entityId": 210156,
+      "ticketId": 2010156,
+      "fieldName": "description",
+      "sourceLanguage": "ar",
+      "targetLanguage": "ur"
+    },
+    {
+      "entityType": "TICKET_ITEM",
+      "entityId": 210156,
+      "ticketId": 2010156,
+      "fieldName": "routingNote",
+      "sourceLanguage": "ar",
+      "targetLanguage": "en"
+    },
+    {
+      "entityType": "TICKET_ITEM",
+      "entityId": 210156,
+      "ticketId": 2010156,
+      "fieldName": "routingNote",
+      "sourceLanguage": "ar",
+      "targetLanguage": "ur"
+    },
+    {
+      "entityType": "TICKET_ITEM",
+      "entityId": 210156,
+      "ticketId": 2010156,
+      "fieldName": "repairNotes",
+      "sourceLanguage": "ar",
+      "targetLanguage": "en"
+    },
+    {
+      "entityType": "TICKET_ITEM",
+      "entityId": 210156,
+      "ticketId": 2010156,
+      "fieldName": "repairNotes",
+      "sourceLanguage": "ar",
+      "targetLanguage": "ur"
+    },
+    {
+      "entityType": "TICKET_ITEM",
+      "entityId": 210157,
+      "ticketId": 2010157,
+      "fieldName": "title",
+      "sourceLanguage": "en",
+      "targetLanguage": "ar"
+    },
+    {
+      "entityType": "TICKET_ITEM",
+      "entityId": 210157,
+      "ticketId": 2010157,
+      "fieldName": "title",
+      "sourceLanguage": "en",
+      "targetLanguage": "ur"
+    },
+    {
+      "entityType": "TICKET_ITEM",
+      "entityId": 210157,
+      "ticketId": 2010157,
+      "fieldName": "description",
+      "sourceLanguage": "en",
+      "targetLanguage": "ar"
+    },
+    {
+      "entityType": "TICKET_ITEM",
+      "entityId": 210157,
+      "ticketId": 2010157,
+      "fieldName": "description",
+      "sourceLanguage": "en",
+      "targetLanguage": "ur"
+    },
+    {
+      "entityType": "TICKET_ITEM",
+      "entityId": 210158,
+      "ticketId": 2010158,
+      "fieldName": "title",
+      "sourceLanguage": "en",
+      "targetLanguage": "ar"
+    },
+    {
+      "entityType": "TICKET_ITEM",
+      "entityId": 210158,
+      "ticketId": 2010158,
+      "fieldName": "title",
+      "sourceLanguage": "en",
+      "targetLanguage": "ur"
+    },
+    {
+      "entityType": "TICKET_ITEM",
+      "entityId": 210158,
+      "ticketId": 2010158,
+      "fieldName": "description",
+      "sourceLanguage": "en",
+      "targetLanguage": "ar"
+    },
+    {
+      "entityType": "TICKET_ITEM",
+      "entityId": 210158,
+      "ticketId": 2010158,
+      "fieldName": "description",
+      "sourceLanguage": "en",
+      "targetLanguage": "ur"
+    },
+    {
+      "entityType": "TICKET_ITEM",
+      "entityId": 210159,
+      "ticketId": 2010159,
+      "fieldName": "title",
+      "sourceLanguage": "en",
+      "targetLanguage": "ar"
+    },
+    {
+      "entityType": "TICKET_ITEM",
+      "entityId": 210159,
+      "ticketId": 2010159,
+      "fieldName": "title",
+      "sourceLanguage": "en",
+      "targetLanguage": "ur"
+    },
+    {
+      "entityType": "TICKET_ITEM",
+      "entityId": 210159,
+      "ticketId": 2010159,
+      "fieldName": "description",
+      "sourceLanguage": "en",
+      "targetLanguage": "ar"
+    },
+    {
+      "entityType": "TICKET_ITEM",
+      "entityId": 210159,
+      "ticketId": 2010159,
+      "fieldName": "description",
+      "sourceLanguage": "en",
+      "targetLanguage": "ur"
+    },
+    {
+      "entityType": "TICKET_TASK",
+      "entityId": 150098,
+      "ticketId": 2010157,
+      "fieldName": "title",
+      "sourceLanguage": "en",
+      "targetLanguage": "ar"
+    },
+    {
+      "entityType": "TICKET_TASK",
+      "entityId": 150098,
+      "ticketId": 2010157,
+      "fieldName": "title",
+      "sourceLanguage": "en",
+      "targetLanguage": "ur"
+    },
+    {
+      "entityType": "TICKET_TASK",
+      "entityId": 150098,
+      "ticketId": 2010157,
+      "fieldName": "description",
+      "sourceLanguage": "en",
+      "targetLanguage": "ar"
+    },
+    {
+      "entityType": "TICKET_TASK",
+      "entityId": 150098,
+      "ticketId": 2010157,
+      "fieldName": "description",
+      "sourceLanguage": "en",
+      "targetLanguage": "ur"
+    },
+    {
+      "entityType": "TICKET_TASK",
+      "entityId": 150099,
+      "ticketId": 2010159,
+      "fieldName": "title",
+      "sourceLanguage": "en",
+      "targetLanguage": "ar"
+    },
+    {
+      "entityType": "TICKET_TASK",
+      "entityId": 150099,
+      "ticketId": 2010159,
+      "fieldName": "title",
+      "sourceLanguage": "en",
+      "targetLanguage": "ur"
+    },
+    {
+      "entityType": "TICKET_TASK",
+      "entityId": 150099,
+      "ticketId": 2010159,
+      "fieldName": "description",
+      "sourceLanguage": "en",
+      "targetLanguage": "ar"
+    },
+    {
+      "entityType": "TICKET_TASK",
+      "entityId": 150099,
+      "ticketId": 2010159,
+      "fieldName": "description",
+      "sourceLanguage": "en",
+      "targetLanguage": "ur"
+    },
+    {
+      "entityType": "TICKET_STATUS_HISTORY",
+      "entityId": 2940783,
+      "ticketId": 2010150,
+      "fieldName": "notes",
+      "sourceLanguage": "ar",
+      "targetLanguage": "en"
+    },
+    {
+      "entityType": "TICKET_STATUS_HISTORY",
+      "entityId": 2940783,
+      "ticketId": 2010150,
+      "fieldName": "notes",
+      "sourceLanguage": "ar",
+      "targetLanguage": "ur"
+    },
+    {
+      "entityType": "TICKET_STATUS_HISTORY",
+      "entityId": 2940785,
+      "ticketId": 2010151,
+      "fieldName": "notes",
+      "sourceLanguage": "ar",
+      "targetLanguage": "en"
+    },
+    {
+      "entityType": "TICKET_STATUS_HISTORY",
+      "entityId": 2940785,
+      "ticketId": 2010151,
+      "fieldName": "notes",
+      "sourceLanguage": "ar",
+      "targetLanguage": "ur"
+    },
+    {
+      "entityType": "TICKET_STATUS_HISTORY",
+      "entityId": 2940787,
+      "ticketId": 2010152,
+      "fieldName": "notes",
+      "sourceLanguage": "ar",
+      "targetLanguage": "en"
+    },
+    {
+      "entityType": "TICKET_STATUS_HISTORY",
+      "entityId": 2940787,
+      "ticketId": 2010152,
+      "fieldName": "notes",
+      "sourceLanguage": "ar",
+      "targetLanguage": "ur"
+    },
+    {
+      "entityType": "TICKET_STATUS_HISTORY",
+      "entityId": 2940789,
+      "ticketId": 2010153,
+      "fieldName": "notes",
+      "sourceLanguage": "ar",
+      "targetLanguage": "en"
+    },
+    {
+      "entityType": "TICKET_STATUS_HISTORY",
+      "entityId": 2940789,
+      "ticketId": 2010153,
+      "fieldName": "notes",
+      "sourceLanguage": "ar",
+      "targetLanguage": "ur"
+    },
+    {
+      "entityType": "TICKET_STATUS_HISTORY",
+      "entityId": 2940790,
+      "ticketId": 2010153,
+      "fieldName": "notes",
+      "sourceLanguage": "ar",
+      "targetLanguage": "en"
+    },
+    {
+      "entityType": "TICKET_STATUS_HISTORY",
+      "entityId": 2940790,
+      "ticketId": 2010153,
+      "fieldName": "notes",
+      "sourceLanguage": "ar",
+      "targetLanguage": "ur"
+    },
+    {
+      "entityType": "TICKET_STATUS_HISTORY",
+      "entityId": 2940791,
+      "ticketId": 2010153,
+      "fieldName": "notes",
+      "sourceLanguage": "ar",
+      "targetLanguage": "en"
+    },
+    {
+      "entityType": "TICKET_STATUS_HISTORY",
+      "entityId": 2940791,
+      "ticketId": 2010153,
+      "fieldName": "notes",
+      "sourceLanguage": "ar",
+      "targetLanguage": "ur"
+    },
+    {
+      "entityType": "TICKET_STATUS_HISTORY",
+      "entityId": 2940796,
+      "ticketId": 2010152,
+      "fieldName": "notes",
+      "sourceLanguage": "ar",
+      "targetLanguage": "en"
+    },
+    {
+      "entityType": "TICKET_STATUS_HISTORY",
+      "entityId": 2940796,
+      "ticketId": 2010152,
+      "fieldName": "notes",
+      "sourceLanguage": "ar",
+      "targetLanguage": "ur"
+    },
+    {
+      "entityType": "TICKET_STATUS_HISTORY",
+      "entityId": 2940797,
+      "ticketId": 2010152,
+      "fieldName": "notes",
+      "sourceLanguage": "ar",
+      "targetLanguage": "en"
+    },
+    {
+      "entityType": "TICKET_STATUS_HISTORY",
+      "entityId": 2940797,
+      "ticketId": 2010152,
+      "fieldName": "notes",
+      "sourceLanguage": "ar",
+      "targetLanguage": "ur"
+    },
+    {
+      "entityType": "TICKET_STATUS_HISTORY",
+      "entityId": 2940802,
+      "ticketId": 2010150,
+      "fieldName": "notes",
+      "sourceLanguage": "ar",
+      "targetLanguage": "en"
+    },
+    {
+      "entityType": "TICKET_STATUS_HISTORY",
+      "entityId": 2940802,
+      "ticketId": 2010150,
+      "fieldName": "notes",
+      "sourceLanguage": "ar",
+      "targetLanguage": "ur"
+    },
+    {
+      "entityType": "TICKET_STATUS_HISTORY",
+      "entityId": 2940803,
+      "ticketId": 2010150,
+      "fieldName": "notes",
+      "sourceLanguage": "ar",
+      "targetLanguage": "en"
+    },
+    {
+      "entityType": "TICKET_STATUS_HISTORY",
+      "entityId": 2940803,
+      "ticketId": 2010150,
+      "fieldName": "notes",
+      "sourceLanguage": "ar",
+      "targetLanguage": "ur"
+    },
+    {
+      "entityType": "TICKET_STATUS_HISTORY",
+      "entityId": 2940804,
+      "ticketId": 2010150,
+      "fieldName": "notes",
+      "sourceLanguage": "ar",
+      "targetLanguage": "en"
+    },
+    {
+      "entityType": "TICKET_STATUS_HISTORY",
+      "entityId": 2940804,
+      "ticketId": 2010150,
+      "fieldName": "notes",
+      "sourceLanguage": "ar",
+      "targetLanguage": "ur"
+    },
+    {
+      "entityType": "TICKET_STATUS_HISTORY",
+      "entityId": 2940806,
+      "ticketId": 2010150,
+      "fieldName": "notes",
+      "sourceLanguage": "ar",
+      "targetLanguage": "en"
+    },
+    {
+      "entityType": "TICKET_STATUS_HISTORY",
+      "entityId": 2940806,
+      "ticketId": 2010150,
+      "fieldName": "notes",
+      "sourceLanguage": "ar",
+      "targetLanguage": "ur"
+    },
+    {
+      "entityType": "TICKET_STATUS_HISTORY",
+      "entityId": 2940808,
+      "ticketId": 2010150,
+      "fieldName": "notes",
+      "sourceLanguage": "ar",
+      "targetLanguage": "en"
+    },
+    {
+      "entityType": "TICKET_STATUS_HISTORY",
+      "entityId": 2940808,
+      "ticketId": 2010150,
+      "fieldName": "notes",
+      "sourceLanguage": "ar",
+      "targetLanguage": "ur"
+    },
+    {
+      "entityType": "TICKET_STATUS_HISTORY",
+      "entityId": 2940809,
+      "ticketId": 2010150,
+      "fieldName": "notes",
+      "sourceLanguage": "ar",
+      "targetLanguage": "en"
+    },
+    {
+      "entityType": "TICKET_STATUS_HISTORY",
+      "entityId": 2940809,
+      "ticketId": 2010150,
+      "fieldName": "notes",
+      "sourceLanguage": "ar",
+      "targetLanguage": "ur"
+    },
+    {
+      "entityType": "TICKET_STATUS_HISTORY",
+      "entityId": 2940811,
+      "ticketId": 2010154,
+      "fieldName": "notes",
+      "sourceLanguage": "ar",
+      "targetLanguage": "en"
+    },
+    {
+      "entityType": "TICKET_STATUS_HISTORY",
+      "entityId": 2940811,
+      "ticketId": 2010154,
+      "fieldName": "notes",
+      "sourceLanguage": "ar",
+      "targetLanguage": "ur"
+    },
+    {
+      "entityType": "TICKET_STATUS_HISTORY",
+      "entityId": 2940812,
+      "ticketId": 2010154,
+      "fieldName": "notes",
+      "sourceLanguage": "ar",
+      "targetLanguage": "en"
+    },
+    {
+      "entityType": "TICKET_STATUS_HISTORY",
+      "entityId": 2940812,
+      "ticketId": 2010154,
+      "fieldName": "notes",
+      "sourceLanguage": "ar",
+      "targetLanguage": "ur"
+    },
+    {
+      "entityType": "TICKET_STATUS_HISTORY",
+      "entityId": 2940813,
+      "ticketId": 2010154,
+      "fieldName": "notes",
+      "sourceLanguage": "ar",
+      "targetLanguage": "en"
+    },
+    {
+      "entityType": "TICKET_STATUS_HISTORY",
+      "entityId": 2940813,
+      "ticketId": 2010154,
+      "fieldName": "notes",
+      "sourceLanguage": "ar",
+      "targetLanguage": "ur"
+    },
+    {
+      "entityType": "TICKET_STATUS_HISTORY",
+      "entityId": 2940824,
+      "ticketId": 2010150,
+      "fieldName": "notes",
+      "sourceLanguage": "ar",
+      "targetLanguage": "en"
+    },
+    {
+      "entityType": "TICKET_STATUS_HISTORY",
+      "entityId": 2940824,
+      "ticketId": 2010150,
+      "fieldName": "notes",
+      "sourceLanguage": "ar",
+      "targetLanguage": "ur"
+    },
+    {
+      "entityType": "TICKET_STATUS_HISTORY",
+      "entityId": 2940832,
+      "ticketId": 2010155,
+      "fieldName": "notes",
+      "sourceLanguage": "ar",
+      "targetLanguage": "en"
+    },
+    {
+      "entityType": "TICKET_STATUS_HISTORY",
+      "entityId": 2940832,
+      "ticketId": 2010155,
+      "fieldName": "notes",
+      "sourceLanguage": "ar",
+      "targetLanguage": "ur"
+    },
+    {
+      "entityType": "TICKET_STATUS_HISTORY",
+      "entityId": 2940833,
+      "ticketId": 2010155,
+      "fieldName": "notes",
+      "sourceLanguage": "ar",
+      "targetLanguage": "en"
+    },
+    {
+      "entityType": "TICKET_STATUS_HISTORY",
+      "entityId": 2940833,
+      "ticketId": 2010155,
+      "fieldName": "notes",
+      "sourceLanguage": "ar",
+      "targetLanguage": "ur"
+    },
+    {
+      "entityType": "TICKET_STATUS_HISTORY",
+      "entityId": 2940834,
+      "ticketId": 2010155,
+      "fieldName": "notes",
+      "sourceLanguage": "ar",
+      "targetLanguage": "en"
+    },
+    {
+      "entityType": "TICKET_STATUS_HISTORY",
+      "entityId": 2940834,
+      "ticketId": 2010155,
+      "fieldName": "notes",
+      "sourceLanguage": "ar",
+      "targetLanguage": "ur"
+    },
+    {
+      "entityType": "TICKET_STATUS_HISTORY",
+      "entityId": 2940838,
+      "ticketId": 2010150,
+      "fieldName": "notes",
+      "sourceLanguage": "ar",
+      "targetLanguage": "en"
+    },
+    {
+      "entityType": "TICKET_STATUS_HISTORY",
+      "entityId": 2940838,
+      "ticketId": 2010150,
+      "fieldName": "notes",
+      "sourceLanguage": "ar",
+      "targetLanguage": "ur"
+    },
+    {
+      "entityType": "TICKET_STATUS_HISTORY",
+      "entityId": 2940839,
+      "ticketId": 2010150,
+      "fieldName": "notes",
+      "sourceLanguage": "ar",
+      "targetLanguage": "en"
+    },
+    {
+      "entityType": "TICKET_STATUS_HISTORY",
+      "entityId": 2940839,
+      "ticketId": 2010150,
+      "fieldName": "notes",
+      "sourceLanguage": "ar",
+      "targetLanguage": "ur"
+    },
+    {
+      "entityType": "TICKET_STATUS_HISTORY",
+      "entityId": 2940840,
+      "ticketId": 2010156,
+      "fieldName": "notes",
+      "sourceLanguage": "ar",
+      "targetLanguage": "en"
+    },
+    {
+      "entityType": "TICKET_STATUS_HISTORY",
+      "entityId": 2940840,
+      "ticketId": 2010156,
+      "fieldName": "notes",
+      "sourceLanguage": "ar",
+      "targetLanguage": "ur"
+    },
+    {
+      "entityType": "TICKET_STATUS_HISTORY",
+      "entityId": 2940841,
+      "ticketId": 2010156,
+      "fieldName": "notes",
+      "sourceLanguage": "ar",
+      "targetLanguage": "en"
+    },
+    {
+      "entityType": "TICKET_STATUS_HISTORY",
+      "entityId": 2940841,
+      "ticketId": 2010156,
+      "fieldName": "notes",
+      "sourceLanguage": "ar",
+      "targetLanguage": "ur"
+    },
+    {
+      "entityType": "TICKET_STATUS_HISTORY",
+      "entityId": 2940842,
+      "ticketId": 2010156,
+      "fieldName": "notes",
+      "sourceLanguage": "ar",
+      "targetLanguage": "en"
+    },
+    {
+      "entityType": "TICKET_STATUS_HISTORY",
+      "entityId": 2940842,
+      "ticketId": 2010156,
+      "fieldName": "notes",
+      "sourceLanguage": "ar",
+      "targetLanguage": "ur"
+    },
+    {
+      "entityType": "TICKET_STATUS_HISTORY",
+      "entityId": 2940889,
+      "ticketId": 2010157,
+      "fieldName": "notes",
+      "sourceLanguage": "ar",
+      "targetLanguage": "en"
+    },
+    {
+      "entityType": "TICKET_STATUS_HISTORY",
+      "entityId": 2940889,
+      "ticketId": 2010157,
+      "fieldName": "notes",
+      "sourceLanguage": "ar",
+      "targetLanguage": "ur"
+    },
+    {
+      "entityType": "TICKET_STATUS_HISTORY",
+      "entityId": 2940891,
+      "ticketId": 2010158,
+      "fieldName": "notes",
+      "sourceLanguage": "ar",
+      "targetLanguage": "en"
+    },
+    {
+      "entityType": "TICKET_STATUS_HISTORY",
+      "entityId": 2940891,
+      "ticketId": 2010158,
+      "fieldName": "notes",
+      "sourceLanguage": "ar",
+      "targetLanguage": "ur"
+    },
+    {
+      "entityType": "TICKET_STATUS_HISTORY",
+      "entityId": 2940892,
+      "ticketId": 2010159,
+      "fieldName": "notes",
+      "sourceLanguage": "ar",
+      "targetLanguage": "en"
+    },
+    {
+      "entityType": "TICKET_STATUS_HISTORY",
+      "entityId": 2940892,
+      "ticketId": 2010159,
+      "fieldName": "notes",
+      "sourceLanguage": "ar",
+      "targetLanguage": "ur"
+    },
+    {
+      "entityType": "INSPECTION_RESULT",
+      "entityId": 630072,
+      "ticketId": 2010153,
+      "fieldName": "findings",
+      "sourceLanguage": "ar",
+      "targetLanguage": "en"
+    },
+    {
+      "entityType": "INSPECTION_RESULT",
+      "entityId": 630072,
+      "ticketId": 2010153,
+      "fieldName": "findings",
+      "sourceLanguage": "ar",
+      "targetLanguage": "ur"
+    },
+    {
+      "entityType": "INSPECTION_RESULT",
+      "entityId": 630072,
+      "ticketId": 2010153,
+      "fieldName": "recommendedAction",
+      "sourceLanguage": "ar",
+      "targetLanguage": "en"
+    },
+    {
+      "entityType": "INSPECTION_RESULT",
+      "entityId": 630072,
+      "ticketId": 2010153,
+      "fieldName": "recommendedAction",
+      "sourceLanguage": "ar",
+      "targetLanguage": "ur"
+    },
+    {
+      "entityType": "INSPECTION_RESULT",
+      "entityId": 630072,
+      "ticketId": 2010153,
+      "fieldName": "inspectionNotes",
+      "sourceLanguage": "ar",
+      "targetLanguage": "en"
+    },
+    {
+      "entityType": "INSPECTION_RESULT",
+      "entityId": 630072,
+      "ticketId": 2010153,
+      "fieldName": "inspectionNotes",
+      "sourceLanguage": "ar",
+      "targetLanguage": "ur"
+    },
+    {
+      "entityType": "INSPECTION_RESULT",
+      "entityId": 630073,
+      "ticketId": 2010152,
+      "fieldName": "findings",
+      "sourceLanguage": "ar",
+      "targetLanguage": "en"
+    },
+    {
+      "entityType": "INSPECTION_RESULT",
+      "entityId": 630073,
+      "ticketId": 2010152,
+      "fieldName": "findings",
+      "sourceLanguage": "ar",
+      "targetLanguage": "ur"
+    },
+    {
+      "entityType": "INSPECTION_RESULT",
+      "entityId": 630073,
+      "ticketId": 2010152,
+      "fieldName": "recommendedAction",
+      "sourceLanguage": "ar",
+      "targetLanguage": "en"
+    },
+    {
+      "entityType": "INSPECTION_RESULT",
+      "entityId": 630073,
+      "ticketId": 2010152,
+      "fieldName": "recommendedAction",
+      "sourceLanguage": "ar",
+      "targetLanguage": "ur"
+    },
+    {
+      "entityType": "INSPECTION_RESULT",
+      "entityId": 630073,
+      "ticketId": 2010152,
+      "fieldName": "inspectionNotes",
+      "sourceLanguage": "ar",
+      "targetLanguage": "en"
+    },
+    {
+      "entityType": "INSPECTION_RESULT",
+      "entityId": 630073,
+      "ticketId": 2010152,
+      "fieldName": "inspectionNotes",
+      "sourceLanguage": "ar",
+      "targetLanguage": "ur"
+    },
+    {
+      "entityType": "INSPECTION_RESULT",
+      "entityId": 630074,
+      "ticketId": 2010150,
+      "fieldName": "findings",
+      "sourceLanguage": "ar",
+      "targetLanguage": "en"
+    },
+    {
+      "entityType": "INSPECTION_RESULT",
+      "entityId": 630074,
+      "ticketId": 2010150,
+      "fieldName": "findings",
+      "sourceLanguage": "ar",
+      "targetLanguage": "ur"
+    },
+    {
+      "entityType": "INSPECTION_RESULT",
+      "entityId": 630074,
+      "ticketId": 2010150,
+      "fieldName": "recommendedAction",
+      "sourceLanguage": "ar",
+      "targetLanguage": "en"
+    },
+    {
+      "entityType": "INSPECTION_RESULT",
+      "entityId": 630074,
+      "ticketId": 2010150,
+      "fieldName": "recommendedAction",
+      "sourceLanguage": "ar",
+      "targetLanguage": "ur"
+    },
+    {
+      "entityType": "INSPECTION_RESULT",
+      "entityId": 630074,
+      "ticketId": 2010150,
+      "fieldName": "inspectionNotes",
+      "sourceLanguage": "ar",
+      "targetLanguage": "en"
+    },
+    {
+      "entityType": "INSPECTION_RESULT",
+      "entityId": 630074,
+      "ticketId": 2010150,
+      "fieldName": "inspectionNotes",
+      "sourceLanguage": "ar",
+      "targetLanguage": "ur"
+    },
+    {
+      "entityType": "INSPECTION_RESULT",
+      "entityId": 630075,
+      "ticketId": 2010154,
+      "fieldName": "findings",
+      "sourceLanguage": "ar",
+      "targetLanguage": "en"
+    },
+    {
+      "entityType": "INSPECTION_RESULT",
+      "entityId": 630075,
+      "ticketId": 2010154,
+      "fieldName": "findings",
+      "sourceLanguage": "ar",
+      "targetLanguage": "ur"
+    },
+    {
+      "entityType": "INSPECTION_RESULT",
+      "entityId": 630075,
+      "ticketId": 2010154,
+      "fieldName": "recommendedAction",
+      "sourceLanguage": "ar",
+      "targetLanguage": "en"
+    },
+    {
+      "entityType": "INSPECTION_RESULT",
+      "entityId": 630075,
+      "ticketId": 2010154,
+      "fieldName": "recommendedAction",
+      "sourceLanguage": "ar",
+      "targetLanguage": "ur"
+    },
+    {
+      "entityType": "INSPECTION_RESULT",
+      "entityId": 630075,
+      "ticketId": 2010154,
+      "fieldName": "inspectionNotes",
+      "sourceLanguage": "ar",
+      "targetLanguage": "en"
+    },
+    {
+      "entityType": "INSPECTION_RESULT",
+      "entityId": 630075,
+      "ticketId": 2010154,
+      "fieldName": "inspectionNotes",
+      "sourceLanguage": "ar",
+      "targetLanguage": "ur"
+    },
+    {
+      "entityType": "INSPECTION_RESULT",
+      "entityId": 630078,
+      "ticketId": 2010155,
+      "fieldName": "rootCause",
+      "sourceLanguage": "ar",
+      "targetLanguage": "en"
+    },
+    {
+      "entityType": "INSPECTION_RESULT",
+      "entityId": 630078,
+      "ticketId": 2010155,
+      "fieldName": "rootCause",
+      "sourceLanguage": "ar",
+      "targetLanguage": "ur"
+    },
+    {
+      "entityType": "INSPECTION_RESULT",
+      "entityId": 630078,
+      "ticketId": 2010155,
+      "fieldName": "findings",
+      "sourceLanguage": "ar",
+      "targetLanguage": "en"
+    },
+    {
+      "entityType": "INSPECTION_RESULT",
+      "entityId": 630078,
+      "ticketId": 2010155,
+      "fieldName": "findings",
+      "sourceLanguage": "ar",
+      "targetLanguage": "ur"
+    },
+    {
+      "entityType": "INSPECTION_RESULT",
+      "entityId": 630078,
+      "ticketId": 2010155,
+      "fieldName": "recommendedAction",
+      "sourceLanguage": "ar",
+      "targetLanguage": "en"
+    },
+    {
+      "entityType": "INSPECTION_RESULT",
+      "entityId": 630078,
+      "ticketId": 2010155,
+      "fieldName": "recommendedAction",
+      "sourceLanguage": "ar",
+      "targetLanguage": "ur"
+    },
+    {
+      "entityType": "INSPECTION_RESULT",
+      "entityId": 630078,
+      "ticketId": 2010155,
+      "fieldName": "inspectionNotes",
+      "sourceLanguage": "ar",
+      "targetLanguage": "en"
+    },
+    {
+      "entityType": "INSPECTION_RESULT",
+      "entityId": 630078,
+      "ticketId": 2010155,
+      "fieldName": "inspectionNotes",
+      "sourceLanguage": "ar",
+      "targetLanguage": "ur"
+    },
+    {
+      "entityType": "INSPECTION_RESULT",
+      "entityId": 630079,
+      "ticketId": 2010156,
+      "fieldName": "findings",
+      "sourceLanguage": "ar",
+      "targetLanguage": "en"
+    },
+    {
+      "entityType": "INSPECTION_RESULT",
+      "entityId": 630079,
+      "ticketId": 2010156,
+      "fieldName": "findings",
+      "sourceLanguage": "ar",
+      "targetLanguage": "ur"
+    },
+    {
+      "entityType": "INSPECTION_RESULT",
+      "entityId": 630079,
+      "ticketId": 2010156,
+      "fieldName": "recommendedAction",
+      "sourceLanguage": "ar",
+      "targetLanguage": "en"
+    },
+    {
+      "entityType": "INSPECTION_RESULT",
+      "entityId": 630079,
+      "ticketId": 2010156,
+      "fieldName": "recommendedAction",
+      "sourceLanguage": "ar",
+      "targetLanguage": "ur"
+    },
+    {
+      "entityType": "INSPECTION_RESULT",
+      "entityId": 630079,
+      "ticketId": 2010156,
+      "fieldName": "inspectionNotes",
+      "sourceLanguage": "ar",
+      "targetLanguage": "en"
+    },
+    {
+      "entityType": "INSPECTION_RESULT",
+      "entityId": 630079,
+      "ticketId": 2010156,
+      "fieldName": "inspectionNotes",
+      "sourceLanguage": "ar",
+      "targetLanguage": "ur"
+    }
+  ]
+}

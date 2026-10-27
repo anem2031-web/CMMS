@@ -95,6 +95,22 @@ describe("automatic translation scope and retry boundaries (no live environment)
       targetLanguages: ["en"], fields: [{ fieldName: "title", text: "changed" }] })).toEqual([]);
     expect(insert).not.toHaveBeenCalled(); expect(mocks.llm).not.toHaveBeenCalled();
   });
+  it("queues only the changed field, not the unchanged completed title", async () => {
+    const results = [
+      [{ id: 11, translationStatus: "completed", translationJobId: 21 }], [{ id: 21 }],
+      [{ id: 12, translationStatus: "completed", translationJobId: 22 }], [],
+    ];
+    const chain: any = { from: () => chain, where: (p: any) => { mocks.predicates.push(p); return chain; },
+      limit: async () => results.shift() ?? [] };
+    const values = vi.fn(async (_values: any) => [{ insertId: 101 }]);
+    mocks.getDb.mockResolvedValue({ select: () => chain, insert: () => ({ values }),
+      update: () => ({ set: () => ({ where: async () => [{ affectedRows: 1 }] }) }) });
+    expect(await queueTranslation({ entityType: "TICKET", entityId: 10, sourceLanguage: "ar", targetLanguages: ["en"],
+      fields: [{ fieldName: "title", text: "same title" }, { fieldName: "description", text: "changed description" }] })).toEqual([101]);
+    expect(values).toHaveBeenCalledTimes(1);
+    expect(values.mock.calls[0][0]).toMatchObject({ fieldName: "description", sourceText: "changed description" });
+    expect(new MySqlDialect().sqlToQuery(mocks.predicates[1]).params).toContain(21);
+  });
 });
 
 
