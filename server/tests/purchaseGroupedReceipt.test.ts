@@ -118,6 +118,55 @@ describe('real grouped receipt writer on disposable transactional data',()=>{
     await expect(caller().warehouseReceiptsV2.receiveFromPurchaseV2(input())).rejects.toThrow('second lot failed');
     expect([f.receipts.length,f.lines.length,f.lots.length,f.movements.length,f.inventory.length]).toEqual([0,0,0,0,0]);
   });
+  it('posts invoice quantities and keeps a per-lot conversion despite a different catalog unit', async () => {
+    const data = input();
+    const line = {
+      ...data.items[0],
+      receivedQuantity: 3,
+      purchaseUnit: "كرتون",
+      issueUnit: "حبة",
+      conversionFactor: 8,
+      unitCost: "80",
+      taxAmount: "36",
+      lineTotal: "276",
+    };
+    f.items[0].unit = "كرتون";
+    await caller().warehouseReceiptsV2.receiveFromPurchaseV2({
+      ...data,
+      purchaseOrderIds: undefined,
+      sourceInvoiceNumber: undefined,
+      items: [line],
+    });
+
+    expect(f.lines[0]).toMatchObject({ purchaseUnit: "كرتون", receivedQuantity: "3" });
+    expect(f.items[0].receivedQuantity).toBe(3);
+    expect(f.inventory[0]).toMatchObject({
+      unit: "حبة", issueUnit: "حبة", issueUnitApprovedAt: expect.any(String),
+    });
+    expect(f.lots[0]).toMatchObject({
+      purchaseUnit: "كرتون", issueUnit: "حبة", issueQuantity: 24, conversionFactor: 8, issueUnitCost: 10,
+    });
+    expect(f.movements[0]).toMatchObject({ quantity: 24, totalCost: "240.00" });
+  });
+  it('rolls back when neither receiving unit maps to the linked order unit', async () => {
+    const data = input();
+    f.items[0].unit = "علبة";
+    const line = { ...data.items[0], purchaseUnit: "كرتون", issueUnit: "حبة", conversionFactor: 8 };
+    await expect(caller().warehouseReceiptsV2.receiveFromPurchaseV2({
+      ...data, purchaseOrderIds: undefined, sourceInvoiceNumber: undefined, items: [line],
+    })).rejects.toMatchObject({ code: "BAD_REQUEST", message: expect.stringContaining("علبة") });
+    expect([f.receipts.length, f.lines.length, f.lots.length, f.inventory.length]).toEqual([0, 0, 0, 0]);
+  });
+
+  it('keeps optional legacy order unit blank while preserving the incoming lot units', async () => {
+    const data = input();
+    f.items[0].unit = null;
+    await caller().warehouseReceiptsV2.receiveFromPurchaseV2({
+      ...data, purchaseOrderIds: undefined, sourceInvoiceNumber: undefined, items: [data.items[0]],
+    });
+    expect(f.lots[0]).toMatchObject({ purchaseUnit: "قطعة", issueUnit: "قطعة", issueQuantity: 1 });
+    expect(f.items[0].receivedQuantity).toBeUndefined();
+  });
   it('retains single-PO receipt behavior and conversion costing',async()=>{
     const data=input();
     const single:any={...data,purchaseOrderIds:undefined,sourceInvoiceNumber:undefined,

@@ -1,7 +1,7 @@
 import { sql, type SQL } from "drizzle-orm";
 import { ticketExecutionSession } from "../../../shared/maintenance-team-tickets/execution-session";
 import { TeamTicketError } from "../../../shared/maintenance-team-tickets/model";
-import { materialSupplyRemaining } from "../../../shared/maintenance-team-tickets/material-routing";
+import { materialStockUnitApproval, materialSupplyRemaining } from "../../../shared/maintenance-team-tickets/material-routing";
 import { ticketTeamQueueScope } from "./assignment-read-scope";
 import { loadTeamReportMedia } from "../../maintenance-team-tickets/report-media";
 import type {
@@ -317,6 +317,32 @@ export class SqlTicketTeamAssignmentRepository implements TeamAssignmentReposito
       assignmentId: Number(r.assignmentId),
       revision: Number(r.revision),
     })) as Snapshot["actions"];
+    const converted = new Map(needs.flatMap(n => {
+      const approval = materialStockUnitApproval(actions, {
+        id: Number(n.id), assignmentId: Number(n.assignmentId), unit: String(n.unitSnapshot),
+      });
+      return approval?.deliveryIds.length ? [[Number(n.id), approval] as const] : [];
+    }));
+    const convertedIds = Array.from(converted.keys());
+    const convertedLinks = [];
+    for (let offset = 0; offset < convertedIds.length; offset += 500) {
+      const ids = sql.join(convertedIds.slice(offset, offset + 500).map(id => sql`${id}`), sql`,`);
+      convertedLinks.push(...rows(await db.execute(sql`SELECT id,needId,issuedQuantity,returnedQuantity,usedQuantity
+        FROM ticket_team_delivery_links WHERE needId IN (${ids})`)));
+    }
+    const stockUnitAdjustments = new Map<number, { issued: number; returned: number; pendingReturn: number; usageComplete: boolean }>();
+    for (const link of convertedLinks) {
+      const needId = Number(link.needId);
+      const approval = converted.get(needId);
+      if (!approval) continue;
+      const factor = approval.deliveryIds.includes(Number(link.id)) ? approval.factor : 1;
+      const value = stockUnitAdjustments.get(needId) ?? { issued: 0, returned: 0, pendingReturn: 0, usageComplete: true };
+      value.issued += Number(link.issuedQuantity) * (factor - 1);
+      value.returned += Number(link.returnedQuantity) * (factor - 1);
+      if (link.usedQuantity == null) value.usageComplete = false;
+      else value.pendingReturn += Math.max(0, Number(link.issuedQuantity) - Number(link.usedQuantity) - Number(link.returnedQuantity)) * factor;
+      stockUnitAdjustments.set(needId, value);
+    }
     const supplies = rows(
       await db.execute(
         sql`SELECT s.needId,s.sourceKind AS kind,s.linkedQuantity AS quantity,s.status FROM ticket_team_supply_links s INNER JOIN ticket_team_material_needs n ON n.id=s.needId WHERE n.assignmentId IN (${queueIds}) AND s.sourceKind='transfer' AND s.status='received'`
@@ -340,11 +366,14 @@ export class SqlTicketTeamAssignmentRepository implements TeamAssignmentReposito
               requestCreatedAt: n.requestCreatedAt instanceof Date ? n.requestCreatedAt.toISOString() : n.requestCreatedAt == null ? null : String(n.requestCreatedAt),
             },
           ];
-          const left = Number(n.requestedQuantity) - Number(n.issued);
+          const adjustment = stockUnitAdjustments.get(Number(n.id));
+          const issued = Number(n.issued) + (adjustment?.issued ?? 0);
+          const returned = Number(n.returned) + (adjustment?.returned ?? 0);
+          const left = Number(n.requestedQuantity) - issued;
           const pendingReturn =
             n.usedQuantity == null
-              ? 0
-              : Number(n.issued) - Number(n.usedQuantity) - Number(n.returned);
+              ? adjustment?.usageComplete ? adjustment.pendingReturn : 0
+              : issued - Number(n.usedQuantity) - returned;
           if (pendingReturn > 0) return entry("returns");
           if (
             t.stage !== "waiting_material" ||

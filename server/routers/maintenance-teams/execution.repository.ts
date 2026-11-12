@@ -16,6 +16,7 @@ import { canExecuteAllTicketTeams } from "../../../shared/maintenance-team-ticke
 import type { TeamDatabase, TeamDatabaseTransaction } from "./repository";
 import { limitReplacementSourceCoverage, loadReplacementFulfillments, replacementPhysicalToOriginal } from "../../supplier-return-followup/fulfillment";
 import { decimal4 } from "../../supplier-return-followup/amounts";
+import { materialStockUnitApproval } from "../../../shared/maintenance-team-tickets/material-routing";
 
 export const resultRows = (value: unknown): any[] => {
   if (!Array.isArray(value) || !Array.isArray(value[0]))
@@ -163,6 +164,16 @@ export async function loadExecution(
     tx,
     sql`SELECT d.* FROM ticket_team_supply_links d INNER JOIN ticket_team_material_needs n ON n.id=d.needId WHERE n.assignmentId=${id} ORDER BY d.id${suffix}`
   );
+  const actions = await selectRows(
+    tx,
+    sql`SELECT * FROM ticket_team_actions WHERE assignmentId=${id} ORDER BY revision`
+  );
+  const typedActions = actions.map(action => ({ ...action, assignmentId: num(action.assignmentId) }));
+  const approvedByNeed = new Map(needs.flatMap(need => {
+    const approved = materialStockUnitApproval(typedActions,
+      { id: num(need.id), assignmentId: id, unit: String(need.unitSnapshot) });
+    return approved ? [[num(need.id), approved] as const] : [];
+  }));
   const replacementBySource = await loadReplacementFulfillments(tx,
     supplies.filter(s => s.sourceKind === "purchase").map(s => num(s.sourceId)));
   const equivalentByDelivery = new Map<number, number>();
@@ -222,13 +233,15 @@ export async function loadExecution(
         ? "cancelled"
         : "pending";
     const need = needs.find(n => num(n.id) === num(s.needId));
+    const approval = need ? approvedByNeed.get(num(need.id)) : undefined;
+    const receiptFactor = approval && approval.fromUnit === p.unit ? approval.factor : 1;
     if (
       s.status === "pending" &&
       need &&
       p.receivedAt &&
-      num(p.receivedQuantity) >= num(s.linkedQuantity) &&
+      num(p.receivedQuantity) * receiptFactor >= num(s.linkedQuantity) &&
       num(p.catalogItemId) === num(need.catalogItemId) &&
-      p.unit === need.unitSnapshot &&
+      (p.unit === need.unitSnapshot || approval?.fromUnit === p.unit) &&
       [
         "approved",
         "partial_purchase",
@@ -250,10 +263,6 @@ export async function loadExecution(
   const returns = await selectRows(
     tx,
     sql`SELECT d.* FROM ticket_team_return_links d INNER JOIN ticket_team_delivery_links l ON l.id=d.deliveryLinkId INNER JOIN ticket_team_material_needs n ON n.id=l.needId WHERE n.assignmentId=${id} ORDER BY d.id${suffix}`
-  );
-  const actions = await selectRows(
-    tx,
-    sql`SELECT * FROM ticket_team_actions WHERE assignmentId=${id} ORDER BY revision`
   );
   // Display the actual executor/recipient even when they are not a team member.
   // Authorization above uses only the current, locked actor; these names grant no permission.
@@ -384,20 +393,26 @@ export async function loadExecution(
       warehouseId: num(n.warehouseId),
       round: num(n.materialRound),
     })),
-    deliveries: deliveries.map(d => ({
-      id: num(d.id),
-      needId: num(d.needId),
-      deliveryId: num(d.deliveryDocumentId),
-      deliveryNumber: d.deliveryNumber,
-      lotId: num(d.lotId),
-      inventoryTransactionId: num(d.inventoryTransactionId),
-      quantity: num(d.issuedQuantity),
-      receivedById: num(d.receivedById),
-      used: d.usedQuantity == null ? null : num(d.usedQuantity),
-      returned: num(d.returnedQuantity),
-      ...(equivalentByDelivery.has(num(d.id)) ? { originalEquivalent: equivalentByDelivery.get(num(d.id)) } : {}),
-      ...(replacementDelivery.get(num(d.id)) ?? {}),
-    })),
+    deliveries: deliveries.map(d => {
+      const approval = approvedByNeed.get(num(d.needId));
+      const converted = approval?.deliveryIds.includes(num(d.id)) ? approval : undefined;
+      const originalEquivalent = converted ? num(d.issuedQuantity) * converted.factor : equivalentByDelivery.get(num(d.id));
+      return {
+        id: num(d.id),
+        needId: num(d.needId),
+        deliveryId: num(d.deliveryDocumentId),
+        deliveryNumber: d.deliveryNumber,
+        lotId: num(d.lotId),
+        inventoryTransactionId: num(d.inventoryTransactionId),
+        quantity: num(d.issuedQuantity),
+        receivedById: num(d.receivedById),
+        used: d.usedQuantity == null ? null : num(d.usedQuantity),
+        returned: num(d.returnedQuantity),
+        ...(originalEquivalent != null ? { originalEquivalent } : {}),
+        ...(converted ? { physicalUnit: converted.fromUnit } : {}),
+        ...(replacementDelivery.get(num(d.id)) ?? {}),
+      };
+    }),
     supplies: supplies.map(s => ({
       id: num(s.id),
       needId: num(s.needId),

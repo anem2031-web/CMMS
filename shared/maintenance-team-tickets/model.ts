@@ -118,7 +118,7 @@ export interface DeliveryLink {
   receivedById: number;
   used: number | null;
   returned: number;
-  /** Derived from approved replacement provenance; never persisted as stock. */
+  /** Fulfilment equivalent in the current need unit; never persisted as stock. */
   originalEquivalent?: number;
   replacementName?: string;
   physicalUnit?: string;
@@ -244,9 +244,14 @@ export function deliveryOriginalEquivalent(link: DeliveryLink, physical: number)
     throw new TeamTicketError("INVALID", "كمية البديل الجزئية لا تمثل كمية دقيقة من الاحتياج الأصلي");
   return rounded;
 }
+export function isPreConversionDelivery(link: DeliveryLink): boolean {
+  return link.physicalUnit != null && link.replacementPlanId == null;
+}
 export function remainingReturn(state: Snapshot, needId: number): number {
   const need = state.needs.find(n => n.id === needId);
   const links = state.deliveries.filter(d => d.needId === needId);
+  if (need && links.some(isPreConversionDelivery) && links.every(d => d.used !== null))
+    return links.reduce((sum, d) => sum + deliveryOriginalEquivalent(d, Math.max(0, d.quantity - d.used! - d.returned)), 0);
   if (need && links.some(d => d.replacementPlanId != null) && links.length > 0 && links.every(d => d.used !== null))
     return links.reduce((sum, d) => sum + Math.max(0, d.quantity - d.used! - d.returned), 0);
   if (!need || need.used === null) return 0;

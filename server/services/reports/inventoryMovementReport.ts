@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, like, lte, or } from "drizzle-orm";
+import { and, asc, desc, eq, gte, like, lte, or, sql } from "drizzle-orm";
 import {
   deliveryDocuments,
   inventory,
@@ -311,7 +311,7 @@ export async function loadInventoryMovementReport(filtersInput: InventoryMovemen
       direction: inventoryTransactions.type,
       transactionType: inventoryTransactions.transactionType,
       quantity: inventoryTransactions.quantity,
-      unit: inventory.unit,
+      unit: sql<string | null>`COALESCE(${inventoryTransactions.unitSnapshot}, ${inventory.unit})`,
       unitCost: inventoryTransactions.unitCost,
       totalCost: inventoryTransactions.totalCost,
       documentUrl: inventoryTransactions.documentUrl,

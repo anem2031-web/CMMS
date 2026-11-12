@@ -114,6 +114,14 @@ describe("Approved DPB named-account capability and complete document scope",()=
     for(const username of ['ANIS2',' ANIS','@ANIS','other','ahmed10'])expect(canReadApprovedPricingDocuments({...actor,username})).toBe(false);
     expect(canReadApprovedPricingDocuments({...actor,username:'AhMeD1'})).toBe(true);
   });
+  it.each(['delegate','delegate_manager'])("does not let a named %s bypass the document center restriction",async role=>{
+    const f=fixture(); const user={...f.actor(),role};
+    expect(canReadApprovedPricingDocuments(user)).toBe(false);
+    expect(approvedPricingDocumentPageAllowed(user,'/documents')).toBe(false);
+    await expect(caller(f,user).approvedPricingDocuments.listPage({page:1})).rejects.toMatchObject({code:'FORBIDDEN'});
+    await expect(caller(f,user).approvedPricingDocuments.pdf({id:1})).rejects.toMatchObject({code:'FORBIDDEN'});
+    expect(f.ports.database).not.toHaveBeenCalled();
+  });
   it("uses unified final approval and approved-only total without changing frozen source rows",async()=>{
     const f=fixture();const snapshot=f.add(1,true,101,2);vi.stubEnv('DELEGATE_PRICING_BUNDLE_APPROVALS_ENABLED','true');
     f.memory.prepare("INSERT INTO delegate_pricing_bundle_approvals VALUES(1,'approved',7,'2026-11-02 08:00:00',8,'2026-11-02 09:00:00',NULL,NULL,'265',NULL,NULL,?,'[]')").run(JSON.stringify([{itemId:100,reason:'Rejected item'}]));

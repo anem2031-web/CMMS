@@ -15,6 +15,7 @@ import type { TeamManagementActor } from "../../../shared/maintenance-team-ticke
 import type { TeamDatabaseTransaction } from "./repository";
 import { selectRows, type ExecutionOptions } from "./execution.repository";
 import { canExecuteAllTicketTeams } from "../../../shared/maintenance-team-tickets/execution-permissions";
+import { materialStockUnitApproval } from "../../../shared/maintenance-team-tickets/material-routing";
 import { exactOriginalAllocation, limitReplacementSourceCoverage, loadReplacementFulfillments, replacementOriginalPerPhysical, replacementAllocationQuantum, representableReplacementAllocation, replacementOriginalToPhysical, replacementPhysicalToOriginal, type ReplacementFulfillment } from "../../supplier-return-followup/fulfillment";
 
 export interface InventoryWriters {
@@ -503,7 +504,10 @@ export class ProductionMaterialGateway implements MaterialGateway {
       item = this.state.catalog.find(
         c => c.id === input.catalogItemId && c.active
       );
-    if (!item || item.unit !== input.unit)
+    const approvedUnit = this.state.needs.find(need => need.assignmentId === a.id && need.round === a.materialRound &&
+      need.catalogItemId === input.catalogItemId && need.unit === input.unit &&
+      materialStockUnitApproval(this.state.actions, need));
+    if (!item || (item.unit !== input.unit && !approvedUnit))
       throw new TeamTicketError("INVALID", "الصنف أو الوحدة غير نشط");
     const date = this.options.requiredDate;
     if (

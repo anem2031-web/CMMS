@@ -302,6 +302,7 @@ function matchesPrefix(path: string, prefix: string): boolean {
 export function canRoleAccessPath(role: string | null | undefined, path: string): boolean {
   if (!role) return false;
   const normalizedPath = path.split(/[?#]/, 1)[0] || "/";
+  if (isDelegateRole(role) && matchesPrefix(normalizedPath, "/documents")) return false;
   if (normalizedPath === RETURNS_CENTER_PATH) return canAccessReturnsCenter(role);
   // Construction and legacy preventive maintenance are explicitly restricted
   // to the authenticated owner/admin identity. Observer projection must not

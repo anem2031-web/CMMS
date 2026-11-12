@@ -302,6 +302,7 @@ export async function createWarehouseTransfer(params: {
           unit: source.unit || undefined,
           purchaseUnit: source.purchaseUnit || undefined,
           issueUnit: source.issueUnit || undefined,
+          issueUnitApprovedAt: source.issueUnit ? source.issueUnitApprovedAt ?? undefined : undefined,
           conversionFactor: source.conversionFactor || undefined,
           minQuantity: source.minQuantity || undefined,
           averageCost: source.averageCost || "0",

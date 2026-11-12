@@ -1321,6 +1321,7 @@ export const inventory = mysqlTable("inventory", {
 	purchaseUnit: varchar({ length: 50 }),
 	issueUnit: varchar({ length: 50 }),
 	conversionFactor: decimal({ precision: 10, scale: 4 }).default('1').notNull(),
+	issueUnitApprovedAt: datetime({ mode: "string", fsp: 3 }),
 	// you can use { mode: 'date' }, if you want to have Date as type for this column
 	expiryDate: date({ mode: 'string' }),
 	linkedItemId: int(),
@@ -1456,6 +1457,7 @@ export const inventoryCountSnapshots = mysqlTable("inventory_count_snapshots", {
 	lotId: int(),
 	systemQuantity: decimal({ precision: 12, scale: 3 }).notNull(),
 	averageCostSnapshot: decimal({ precision: 12, scale: 4 }).notNull(),
+	unitSnapshot: varchar({ length: 50 }),
 	// you can use { mode: 'date' }, if you want to have Date as type for this column
 	expiryDate: date({ mode: 'string' }),
 	createdAt: timestamp({ mode: 'string' }).default('CURRENT_TIMESTAMP').notNull(),
@@ -1473,6 +1475,7 @@ export const inventoryCountItems = mysqlTable("inventory_count_items", {
 	// 2B-8: الجرد الدوري يصبح على مستوى الدفعة/QR، لا Inventory المجمع فقط.
 	lotId: int(),
 	systemQuantity: decimal({ precision: 12, scale: 3 }).notNull(),
+	unitSnapshot: varchar({ length: 50 }),
 	countedQuantity: decimal({ precision: 12, scale: 3 }),
 	diffQuantity: decimal({ precision: 12, scale: 3 }),
 	lotNumber: varchar({ length: 50 }),
@@ -1533,6 +1536,7 @@ export const inventorySettlementItems = mysqlTable("inventory_settlement_items",
 	beforeQuantity: decimal({ precision: 12, scale: 3 }).notNull(),
 	afterQuantity: decimal({ precision: 12, scale: 3 }).notNull(),
 	diffQuantity: decimal({ precision: 12, scale: 3 }).notNull(),
+	unitSnapshot: varchar({ length: 50 }),
 	// Main Phase 4 / Step 2: nullable for legacy rows; new supported settlements
 	// will persist the posting valuation basis and signed financial adjustment.
 	unitCostUsed: decimal({ precision: 12, scale: 4 }),
@@ -1679,6 +1683,7 @@ export const inventoryTransactions = mysqlTable("inventory_transactions", {
 	lotId: int(),
 	type: mysqlEnum(['in','out']).notNull(),
 	quantity: decimal({ precision: 12, scale: 3, mode: 'number' }).notNull(),
+	unitSnapshot: varchar({ length: 50 }),
 	reason: text(),
 	ticketId: int(),
 	purchaseOrderItemId: int().references(() => purchaseOrderItems.id, { onDelete: "set null" } ),

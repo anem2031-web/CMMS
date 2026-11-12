@@ -2,8 +2,9 @@
 // db/inventory.ts — المخزون والبحث بالباركود
 // (مُقسَّم من db.ts الأصلي حسب المجال الوظيفي)
 // ============================================================
-import { eq, desc, asc, and, sql, count, sum, inArray, notInArray, like, or, gte, lte, lt, isNull, isNotNull, ne } from "drizzle-orm";
+import { eq, desc, asc, and, sql, count, sum, inArray, notInArray, like, or, gt, gte, lte, lt, isNull, isNotNull, ne } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
+import { TRPCError } from "@trpc/server";
 import { alias } from "drizzle-orm/mysql-core";
 import mysql from "mysql2/promise";
 import {
@@ -69,6 +70,7 @@ export async function getInventoryMatchesByCatalogItemAndWarehouse(
   warehouseId: number,
   tx?: any,
   issueUnit?: string,
+  options?: { enforceApprovedIssueUnit?: boolean },
 ) {
   const db = tx || await getDb();
   if (!db) return [];
@@ -77,9 +79,44 @@ export async function getInventoryMatchesByCatalogItemAndWarehouse(
     if (!tx) throw new Error("اختيار سجل دفتر الاستلام يتطلب معاملة قائمة");
     const [masters] = await tx.execute(sql`SELECT id FROM catalog_items WHERE id=${catalogItemId} FOR UPDATE`);
     if(!masters.length) throw new Error("صنف الكتالوج غير موجود");
-    return tx.select({ id: inventory.id, warehouseId: inventory.warehouseId, linkedItemId: inventory.linkedItemId })
-      .from(inventory).where(and(eq(inventory.linkedItemId, catalogItemId), eq(inventory.warehouseId, warehouseId), activeBookStockUnit(issueUnit)))
-      .orderBy(asc(inventory.id)).limit(1);
+    const scope = and(eq(inventory.linkedItemId, catalogItemId), eq(inventory.warehouseId, warehouseId));
+    const compatible = activeBookStockUnit(issueUnit);
+    const identity = { id: inventory.id, warehouseId: inventory.warehouseId, linkedItemId: inventory.linkedItemId };
+    if (!options?.enforceApprovedIssueUnit) {
+      return tx.select(identity).from(inventory).where(and(scope, compatible))
+        .orderBy(asc(inventory.id)).limit(1).for("update");
+    }
+
+    const active = and(scope, eq(inventory.isFrozen, 0));
+    const positive = sql<number>`CASE WHEN ${inventory.quantity}>0 THEN 1 ELSE 0 END`;
+    const matchesUnit = sql<number>`CASE WHEN ${compatible} THEN 1 ELSE 0 END`;
+    const [approved] = await tx.select({
+      ...identity, quantity: inventory.quantity, issueUnit: inventory.issueUnit, unit: inventory.unit, matchesUnit,
+    }).from(inventory).where(and(active, isNotNull(inventory.issueUnitApprovedAt)))
+      .orderBy(desc(matchesUnit), desc(positive), asc(inventory.id)).limit(1).for("update");
+
+    if (approved && !Number(approved.matchesUnit)) {
+      throw new TRPCError({ code: "CONFLICT", message: `وحدة الصرف المعتمدة لهذا الصنف في المستودع هي «${approved.issueUnit || approved.unit}». اختر هذه الوحدة وأدخل معامل الدفعة.` });
+    }
+
+    const match = approved ?? (await tx.select({ ...identity, quantity: inventory.quantity })
+      .from(inventory).where(and(scope, compatible))
+      .orderBy(desc(positive), asc(inventory.id)).limit(1).for("update"))[0];
+
+    if (!match || Number(match.quantity) <= 0) {
+      const [current] = await tx.select({ issueUnit: inventory.issueUnit, unit: inventory.unit })
+        .from(inventory).where(and(active, gt(inventory.quantity, 0)))
+        .orderBy(asc(inventory.id)).limit(1).for("update");
+      if (current) {
+        const unit = current.issueUnit?.trim() || current.unit?.trim() || "غير محددة";
+        throw new TRPCError({
+          code: "CONFLICT",
+          message: `يوجد لهذا الصنف رصيد قائم في المستودع بوحدة «${unit}». راجع الرصيد واعتمد وحدة صرفه في شاشة المستودع قبل إضافة الدفعة إلى سجل آخر.`,
+        });
+      }
+    }
+
+    return match ? [{ id: match.id, warehouseId: match.warehouseId, linkedItemId: match.linkedItemId }] : [];
   }
 
   return db.select({
@@ -232,6 +269,7 @@ export async function getInventoryCatalogTaxonomy() {
   const linkedCatalogItems = await db.select({
     id: catalogItems.id,
     code: catalogItems.code,
+    unit: catalogItems.unit,
     nameAr: catalogItems.nameAr,
     nameEn: catalogItems.nameEn,
     nodeId: catalogItems.nodeId,
@@ -287,6 +325,7 @@ export async function getInventoryCatalogTaxonomy() {
       inventoryId: Number(row.inventoryId),
       catalogItemId: Number(row.catalogItemId),
       catalogItemCode: catalogItem?.code ?? null,
+      catalogUnit: catalogItem?.unit ?? null,
       catalogItemNameAr: catalogItem?.nameAr ?? null,
       catalogItemNameEn: catalogItem?.nameEn ?? null,
       catalogNodeId: categoryNode?.id ?? null,
@@ -320,7 +359,19 @@ export async function updateInventoryItem(id: number, data: any) {
     ...(data.quantity != null ? { quantity: normalizeInventoryQuantity(Number(data.quantity)) } : {}),
     ...(data.minQuantity != null ? { minQuantity: normalizeInventoryQuantity(Number(data.minQuantity)) } : {}),
   };
-  await db.update(inventory).set(normalizedData).where(eq(inventory.id, id));
+  if (!Object.keys(normalizedData).length) return;
+  if (data.unit === undefined) {
+    await db.update(inventory).set(normalizedData).where(eq(inventory.id, id));
+    return;
+  }
+  await db.transaction(async tx => {
+    const [row] = await tx.select({ issueUnitApprovedAt: inventory.issueUnitApprovedAt })
+      .from(inventory).where(eq(inventory.id, id)).limit(1).for("update");
+    if (row?.issueUnitApprovedAt) {
+      throw new TRPCError({ code: "CONFLICT", message: "وحدة الصرف المعتمدة لا تتغير من شاشة التعديل" });
+    }
+    await tx.update(inventory).set(normalizedData).where(eq(inventory.id, id));
+  });
 }
 
 export async function addInventoryTransaction(data: any) {

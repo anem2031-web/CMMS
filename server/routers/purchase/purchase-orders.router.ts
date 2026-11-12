@@ -1836,7 +1836,7 @@ export const purchaseOrdersRouter = router({
     let ticketTeamCreated = true;
     try {
       poId = await db.withTransaction(async (tx: any) => {
-        await assertPurchaseCatalogBaseUnits(tx, input.items);
+        if (!input.pmv2RequestItemId && !input.ticketTeam) await assertPurchaseCatalogBaseUnits(tx, input.items);
         const replacement = input.supplierReturnPlanId
           ? await (await import("../../supplier-return-followup/purchase-bridge")).prepareReplacementPurchase(tx, ctx.user, input.supplierReturnPlanId, {
               ticketId: input.ticketId, ticketItemId: input.ticketItemId, items: input.items, context: purchaseContext,
@@ -1844,6 +1844,7 @@ export const purchaseOrdersRouter = router({
           : null;
         if (input.ticketTeam) {
           const linked = await createTicketMaterialPurchase(tx, { id: ctx.user.id, role: ctx.user.role, active: ctx.user.isActive === 1 }, input, async handoff => {
+            if (!handoff.approvedStockUnit) await assertPurchaseCatalogBaseUnits(tx, input.items);
             const breakdown = ticketPurchaseBreakdown(handoff, handoff.unit);
             const submittedAt = new Date();
             const id = Number(await db.createPurchaseOrder({ poNumber, ticketId: input.ticketId, ticketItemId: input.ticketItemId, requestedById: ctx.user.id, status: "pending_review", submittedAt, notes: [input.notes?.trim(), breakdown].filter(Boolean).join("\n"), ...purchaseContext }, tx));
@@ -1879,6 +1880,8 @@ export const purchaseOrdersRouter = router({
               purchaseItem: input.items[0],
             })
           : null;
+        const approvedPmv2StockUnit = pmv2Atomic?.handoff.approvedStockUnit;
+        if (pmv2Atomic && !approvedPmv2StockUnit) await assertPurchaseCatalogBaseUnits(tx, input.items);
 
         const submittedAt = new Date();
         const newPoId = await db.createPurchaseOrder({
@@ -1892,7 +1895,7 @@ export const purchaseOrdersRouter = router({
           ...purchaseContext,
         }, tx);
         // delegateId is optional at creation — assigned during reviewItems step
-        const itemsData = input.items.map((item, index) => ({ ...item, ...itemContexts[index], ...resolvePurchaseItemNeedTiming(item, submittedAt), purchaseOrderId: newPoId!, delegateId: null, status: "pending_review" }));
+        const itemsData = input.items.map((item, index) => ({ ...item, ...(approvedPmv2StockUnit ? { unit: approvedPmv2StockUnit } : {}), ...itemContexts[index], ...resolvePurchaseItemNeedTiming(item, submittedAt), purchaseOrderId: newPoId!, delegateId: null, status: "pending_review" }));
         await db.createPOItems(itemsData, tx);
         if (replacement) {
           const createdItems = await db.getPOItems(newPoId!, tx);

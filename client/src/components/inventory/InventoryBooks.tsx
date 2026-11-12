@@ -1,20 +1,23 @@
-import { Fragment, useState } from "react";
+import { Fragment, useState, type ReactNode } from "react";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ChevronDown, ChevronRight, Loader2 } from "lucide-react";
 import { InventoryItemCard } from "./InventoryItemCard";
+import type { InventoryIssueUnitItem } from "./InventoryIssueUnitDialog";
 
 export type BookLotSelection = { lot: any; page: any; master: any };
 export function InventoryBookPages({
   catalogItemId,
   warehouseId,
   onPick,
+  renderIssueUnitActions,
   supplierReturn = false,
 }: {
   catalogItemId: number;
   warehouseId?: number;
   onPick?: (selection: BookLotSelection) => void;
+  renderIssueUnitActions?: (item: InventoryIssueUnitItem) => ReactNode;
   supplierReturn?: boolean;
 }) {
   const [afterId, setAfterId] = useState(0);
@@ -54,13 +57,20 @@ export function InventoryBookPages({
               {Number(total.outgoing)} {total.unit}
             </p>
           ))}
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setHistoryId(page.id)}
-          >
-            الحركات والمستندات التفصيلية
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setHistoryId(page.id)}
+            >
+              الحركات والمستندات التفصيلية
+            </Button>
+            {renderIssueUnitActions && renderIssueUnitActions({
+              ...page,
+              linkedItemId: result.data?.master.id,
+              catalogUnit: result.data?.master.unit,
+            })}
+          </div>
           {(page.lots || []).map((lot: any) => (
             <div
               key={`${page.id}:${lot.lotId}`}
@@ -146,6 +156,7 @@ export function InventoryBooks({
   includeZero = false,
   onPick,
   onFifo,
+  renderIssueUnitActions,
   supplierReturn = false,
   nodeIds,
   sort,
@@ -164,6 +175,7 @@ export function InventoryBooks({
   supplierReturn?: boolean;
   onPick?: (selection: BookLotSelection) => void;
   onFifo?: (book: any, unit: string) => void;
+  renderIssueUnitActions?: (item: InventoryIssueUnitItem) => ReactNode;
 }) {
   const [search, setSearch] = useState("");
   const [cursor, setCursor] = useState({ key: "", id: 0 });
@@ -208,7 +220,8 @@ export function InventoryBooks({
             dir="rtl"
           >
             <colgroup>
-              <col style={{ width: onFifo ? "32%" : "42%" }} />
+              <col style={{ width: "5%" }} />
+              <col style={{ width: onFifo ? "27%" : "37%" }} />
               <col style={{ width: "12%" }} />
               <col style={{ width: "8%" }} />
               <col style={{ width: "14%" }} />
@@ -220,6 +233,7 @@ export function InventoryBooks({
             <thead>
               <tr className="bg-muted/50 text-xs text-muted-foreground">
                 {[
+                  "م",
                   "الصنف",
                   "الكود",
                   "الرصيد",
@@ -232,7 +246,7 @@ export function InventoryBooks({
                   <th
                     key={label}
                     scope="col"
-                    className={`h-10 px-3 py-2 font-medium whitespace-nowrap ${index === 0 ? "text-right" : "text-center"} ${index < labels.length - 1 ? "border-e" : ""}`}
+                    className={`h-10 px-3 py-2 font-medium whitespace-nowrap ${label === "الصنف" ? "text-right" : "text-center"} ${index < labels.length - 1 ? "border-e" : ""}`}
                   >
                     {label}
                   </th>
@@ -240,9 +254,12 @@ export function InventoryBooks({
               </tr>
             </thead>
             <tbody>
-              {(result.data?.books || []).map((book: any) => (
+              {(result.data?.books || []).map((book: any, index: number) => (
                 <Fragment key={book.id}>
                   <tr className="border-t hover:bg-muted/30 transition-colors">
+                    <td className="border-e px-2 py-2 align-middle text-center tabular-nums">
+                      {afterId + index + 1}
+                    </td>
                     <td className="border-e px-3 py-2 align-middle">
                       <div className="flex h-8 min-w-0 items-center gap-1">
                         <Button
@@ -366,13 +383,14 @@ export function InventoryBooks({
                   </tr>
                   {expanded === book.id && (
                     <tr className="border-t bg-muted/10">
-                      <td colSpan={onFifo ? 8 : 7} className="p-2">
+                      <td colSpan={onFifo ? 9 : 8} className="p-2">
                         <div id={`inventory-book-${book.id}-details`}>
                           <InventoryBookPages
                             key={`${book.id}:${warehouseId}`}
                             catalogItemId={book.id}
                             warehouseId={warehouseId}
                             onPick={onPick}
+                            renderIssueUnitActions={renderIssueUnitActions}
                             supplierReturn={supplierReturn}
                           />
                         </div>
@@ -439,6 +457,7 @@ export function InventoryBooks({
                 catalogItemId={book.id}
                 warehouseId={warehouseId}
                 onPick={onPick}
+                renderIssueUnitActions={renderIssueUnitActions}
                 supplierReturn={supplierReturn}
               />
             )}

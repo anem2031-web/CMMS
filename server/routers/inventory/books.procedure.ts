@@ -106,7 +106,7 @@ export async function readInventoryBookPages(
   const limit = Math.min(50, Math.max(1, input.limit || 25));
   const records = await rows(
     db,
-    sql`SELECT i.id,i.itemName,COALESCE(NULLIF(TRIM(i.issueUnit),''),i.unit) AS unit,i.unit AS storedUnit,i.quantity,i.isFrozen,i.warehouseId,i.createdAt
+    sql`SELECT i.id,i.itemName,COALESCE(NULLIF(TRIM(i.issueUnit),''),i.unit) AS unit,i.issueUnit,i.issueUnitApprovedAt,i.unit AS storedUnit,i.quantity,i.isFrozen,i.warehouseId,i.createdAt
     FROM inventory i WHERE i.linkedItemId=${input.catalogItemId} AND ${warehouseScope(input.warehouseId)}
     AND i.id>${input.afterId || 0} ORDER BY i.id LIMIT ${limit + 1}`
   );
@@ -134,10 +134,10 @@ export async function readInventoryBookPages(
     });
   const movementTotals = await rows(
     db,
-    sql`SELECT t.inventoryId,COALESCE(NULLIF(TRIM(l.issueUnit),''),NULLIF(TRIM(i.issueUnit),''),i.unit) AS unit,
+    sql`SELECT t.inventoryId,COALESCE(t.unitSnapshot,NULLIF(TRIM(l.issueUnit),''),NULLIF(TRIM(i.issueUnit),''),i.unit) AS unit,
     SUM(CASE WHEN t.type='in' THEN t.quantity ELSE 0 END) AS incoming,SUM(CASE WHEN t.type='out' THEN t.quantity ELSE 0 END) AS outgoing
     FROM inventory_transactions t JOIN inventory i ON i.id=t.inventoryId LEFT JOIN inventory_lots l ON l.id=t.lotId
-    WHERE t.inventoryId IN (${ids}) GROUP BY t.inventoryId,COALESCE(NULLIF(TRIM(l.issueUnit),''),NULLIF(TRIM(i.issueUnit),''),i.unit)`
+    WHERE t.inventoryId IN (${ids}) GROUP BY t.inventoryId,COALESCE(t.unitSnapshot,NULLIF(TRIM(l.issueUnit),''),NULLIF(TRIM(i.issueUnit),''),i.unit)`
   );
   return {
     master: master[0],

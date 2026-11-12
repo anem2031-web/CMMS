@@ -78,6 +78,7 @@ export interface MaterialGateway {
     purchaseTotalQuantity: number;
     catalogItemId: number;
     unit: string;
+    approvedStockUnit?: true;
     location: LocationRef;
     ticketId: number;
     ticketItemId: number;

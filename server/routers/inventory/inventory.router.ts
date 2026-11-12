@@ -13,10 +13,39 @@ import { createCatalogStockProcedure } from "./catalog-stock.procedure";
 import { shouldExposeTicketMaterialLink } from "@shared/ticketMaterialDelivery";
 import { createInventoryBookProcedures } from "./books.procedure";
 import { filterSpecificationLots } from "../../services/purchase-specification-guards";
+import { approveIssueUnitConversion, matchCatalogIssueUnit, previewIssueUnitConversion } from "../../services/inventory/issue-unit-approval";
+
+const issueUnitConversionInput = z.object({
+  inventoryId: z.number().int().positive(),
+  issueUnit: z.string().trim().min(1).max(50),
+  factor: z.number().finite().min(0.0001).max(999999.9999)
+    .refine(value => Math.abs(value * 10_000 - Math.round(value * 10_000)) < 0.000002,
+      "معامل التحويل يدعم أربع منازل عشرية"),
+}).strict();
+
+const issueUnitProcedure = warehouseProcedure.use(({ ctx, next }) => {
+  const actor = ctx.authenticatedUser ?? ctx.user;
+  if (Number(actor.isActive) !== 1 || !["warehouse", "admin", "owner"].includes(actor.role)) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "هذا الإجراء متاح للمستودع فقط" });
+  }
+  return next({ ctx: { issueUnitActorId: actor.id } });
+});
 
 export const inventoryRouter = router({
   ...createInventoryBookProcedures(db.getDb),
   catalogStock: createCatalogStockProcedure(db.getDb),
+  previewIssueUnitConversion: issueUnitProcedure.input(issueUnitConversionInput).query(async ({ input }) => {
+    const database = await db.getDb();
+    if (!database) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر الاتصال بقاعدة البيانات" });
+    return previewIssueUnitConversion(database, input);
+  }),
+  approveIssueUnitConversion: issueUnitProcedure.input(issueUnitConversionInput.extend({
+    confirmationToken: z.string().regex(/^[a-f0-9]{64}$/),
+  })).mutation(({ input, ctx }) => db.withTransaction(tx => approveIssueUnitConversion(tx, input, ctx.issueUnitActorId))),
+  matchCatalogIssueUnit: issueUnitProcedure.input(z.object({
+    inventoryId: z.number().int().positive(),
+    expectedCatalogUnit: z.string().max(50).nullable(),
+  }).strict()).mutation(({ input, ctx }) => db.withTransaction(tx => matchCatalogIssueUnit(tx, input, ctx.issueUnitActorId))),
   list: inventoryReadProcedure.query(async () => {
     return db.getInventoryItems();
   }),
@@ -136,6 +165,7 @@ export const inventoryRouter = router({
     const item = await db.getInventoryItemById(input.id);
     if (!item) throw new TRPCError({ code: "NOT_FOUND", message: "الصنف غير موجود" });
     const { id, ...updateData } = input;
+    if (updateData.unit === item.unit) delete updateData.unit;
     const oldValues = { itemName: item.itemName, description: item.description, unit: item.unit, minQuantity: item.minQuantity, location: item.location };
     await db.updateInventoryItem(id, updateData);
     await db.createAuditLog({ userId: ctx.user.id, action: "update_inventory", entityType: "inventory", entityId: id, oldValues, newValues: updateData });

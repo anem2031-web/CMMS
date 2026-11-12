@@ -8,6 +8,7 @@ const state = vi.hoisted(() => ({
   buttons: [] as any[],
   queries: [] as any[],
   error: null as any,
+  nextBooksOffset: null as number | null,
 }));
 vi.mock("react", async original => {
   const actual = await original<typeof import("react")>();
@@ -74,7 +75,7 @@ vi.mock("../../client/src/lib/trpc", () => ({
                   ],
                 },
               ],
-              nextId: null,
+              nextId: input.afterId ? null : state.nextBooksOffset,
             },
           };
         },
@@ -85,7 +86,7 @@ vi.mock("../../client/src/lib/trpc", () => ({
           return {
             error: state.error,
             data: {
-              master: { id: 9, nameAr: "دجاج 1100 جم" },
+              master: { id: 9, nameAr: "دجاج 1100 جم", unit: "صندوق" },
               pages: [
                 {
                   id: 100,
@@ -172,6 +173,7 @@ beforeEach(() => {
   state.buttons = [];
   state.queries = [];
   state.error = null;
+  state.nextBooksOffset = null;
 });
 const render = (node: React.ReactElement) => {
   state.index = 0;
@@ -228,6 +230,27 @@ it("supplier return offers only the selected receipt lot and retains supplier/da
     })
   );
 });
+it("passes the catalog unit and stock record to the opt-in warehouse unit action", () => {
+  const actions = vi.fn(() => <span>إجراء الوحدة</span>);
+  const view = (
+    <InventoryBooks layout="table" warehouseId={1} renderIssueUnitActions={actions} />
+  );
+  render(view);
+  expect(actions).not.toHaveBeenCalled();
+  state.buttons
+    .find(button => button["aria-label"] === "تفاصيل دفتر دجاج 1100 جم")
+    .onClick();
+  expect(render(view)).toContain("إجراء الوحدة");
+  expect(actions).toHaveBeenCalledWith(expect.objectContaining({
+    id: 200,
+    linkedItemId: 9,
+    catalogUnit: "صندوق",
+  }));
+  actions.mockClear();
+  state.values = [];
+  expect(render(<InventoryBookPages catalogItemId={9} />)).not.toContain("إجراء الوحدة");
+  expect(actions).not.toHaveBeenCalled();
+});
 it("FIFO is an explicit opt-in action for a nonfrozen unit group", () => {
   const fifo = vi.fn();
   render(<InventoryBooks warehouseId={1} onFifo={fifo} />);
@@ -247,6 +270,7 @@ it("FIFO is an explicit opt-in action for a nonfrozen unit group", () => {
 it("renders warehouse books as table rows, retaining unit groups and expanding the original lot details", () => {
   const pick = vi.fn();
   const fifo = vi.fn();
+  state.nextBooksOffset = 36;
   const view = (
     <InventoryBooks
       layout="table"
@@ -259,6 +283,8 @@ it("renders warehouse books as table rows, retaining unit groups and expanding t
   );
   let html = render(view);
   expect(html).toContain("<table");
+  expect(html).toMatch(/<th[^>]*>م<\/th><th[^>]*>الصنف<\/th>/);
+  expect(html).toMatch(/<tr[^>]*><td[^>]*>1<\/td>/);
   for (const label of [
     "الصنف",
     "الكود",
@@ -285,7 +311,7 @@ it("renders warehouse books as table rows, retaining unit groups and expanding t
     .find(button => button["aria-label"] === "تفاصيل دفتر دجاج 1100 جم")
     .onClick();
   html = render(view);
-  expect(html).toContain('colSpan="8"');
+  expect(html).toContain('colSpan="9"');
   expect(html).toContain("LOT-OLD");
   expect(html).toContain("LOT-NEW");
   const lots = state.buttons.filter(
@@ -306,6 +332,9 @@ it("renders warehouse books as table rows, retaining unit groups and expanding t
     search: "اسم قديم",
     includeZero: true,
   });
+  state.buttons.find(button => button.children === "الدفاتر التالية").onClick();
+  expect(render(view)).toMatch(/<tr[^>]*><td[^>]*>37<\/td>/);
+  expect(render(React.cloneElement(view, { search: "بحث جديد" }))).toMatch(/<tr[^>]*><td[^>]*>1<\/td>/);
 });
 it("keeps table read-only without callbacks and preserves the existing card layout by default", () => {
   let html = render(<InventoryBooks layout="table" warehouseId={1} />);
@@ -315,7 +344,7 @@ it("keeps table read-only without callbacks and preserves the existing card layo
     .find(button => button["aria-label"] === "تفاصيل دفتر دجاج 1100 جم")
     .onClick();
   html = render(<InventoryBooks layout="table" warehouseId={1} />);
-  expect(html).toContain('colSpan="7"');
+  expect(html).toContain('colSpan="8"');
   expect(html).not.toContain("اختيار اللوت");
   expect(render(<InventoryBooks warehouseId={1} />)).not.toContain("<table");
 });

@@ -6,6 +6,7 @@ export type ApprovedPricingDocumentActor = {
 export const APPROVED_PRICING_DOCUMENT_TITLE = "حزم التسعير المعتمدة";
 export function canReadApprovedPricingDocuments(actor: ApprovedPricingDocumentActor | null | undefined): boolean {
   if (!actor || actor.isActive !== 1 || !Number.isSafeInteger(actor.id) || actor.id <= 0) return false;
+  if (["delegate", "delegate_manager"].includes(actor.role)) return false;
   return ["admin", "owner"].includes(actor.role)
     || ["anis", "ahmed1"].includes((actor.username || "").toLowerCase());
 }

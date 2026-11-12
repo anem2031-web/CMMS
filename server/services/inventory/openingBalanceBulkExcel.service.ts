@@ -2,6 +2,7 @@ import ExcelJS from "exceljs";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import {
   catalogItems,
+  catalogUnits,
   catalogCodeAliases,
   inventory,
   inventoryCountItems,
@@ -297,8 +298,20 @@ async function validateParsedRows(writer: any, operationId: number, parsedRows: 
         id: inventory.id,
         linkedItemId: inventory.linkedItemId,
         quantity: inventory.quantity,
-      }).from(inventory).where(and(eq(inventory.warehouseId, op.warehouseId), inArray(inventory.linkedItemId, chunk))))
+        issueUnit: inventory.issueUnit,
+        issueUnitApprovedAt: inventory.issueUnitApprovedAt,
+      }).from(inventory).where(and(eq(inventory.warehouseId, op.warehouseId), eq(inventory.isFrozen, 0), inArray(inventory.linkedItemId, chunk))))
     : [];
+
+  const activeUnits = await writer.select({ nameAr: catalogUnits.nameAr, nameEn: catalogUnits.nameEn })
+    .from(catalogUnits).where(eq(catalogUnits.isActive, 1)).orderBy(catalogUnits.id);
+  const unitByName = new Map<string, string>();
+  for (const unit of activeUnits) {
+    for (const name of [unit.nameAr, unit.nameEn]) {
+      const key = name?.trim().toLowerCase();
+      if (key && !unitByName.has(key)) unitByName.set(key, unit.nameAr);
+    }
+  }
 
   const inventoryByCatalogId = new Map<number, any[]>();
   for (const row of inventoryRows) {
@@ -351,6 +364,12 @@ async function validateParsedRows(writer: any, operationId: number, parsedRows: 
     if (inv && normalizeInventoryQuantity(Number(inv.quantity || 0)) !== 0) {
       errors.push("هذا الصنف لديه رصيد قائم في المستودع؛ الرصيد الافتتاحي مخصص للرصيد الصفري فقط");
     }
+    const issueUnit = inv ? (inv.issueUnitApprovedAt && inv.issueUnit?.trim()) || null
+      : unitByName.get(String(catalog?.unit || "").trim().toLowerCase()) || null;
+    if (catalog && !issueUnit) {
+      errors.push(inv ? "اعتمد وحدة الصرف لهذا الصنف في المستودع قبل إدخاله في الرصيد الافتتاحي"
+        : "حدد وحدة صرف فعالة لهذا الصنف في الكتالوج");
+    }
     if (catalog && existingCatalogIds.has(Number(catalog.id))) {
       errors.push("هذا الصنف مضاف بالفعل إلى عملية الرصيد الافتتاحي الحالية");
     }
@@ -366,7 +385,7 @@ async function validateParsedRows(writer: any, operationId: number, parsedRows: 
       errors,
       catalogItemId: catalog ? Number(catalog.id) : null,
       itemName: catalog?.nameAr || null,
-      unit: catalog?.unit || null,
+      unit: issueUnit,
       inventoryId: inv ? Number(inv.id) : null,
       lineValue: qty != null && cost != null ? roundTo(qty * cost, 2) : null,
     };
@@ -410,43 +429,47 @@ export async function commitOpeningBalanceImport(operationId: number, fileBase64
     let createdInventoryCount = 0;
     let reusedZeroInventoryCount = 0;
     for (const row of preview.rows) {
-      if (!row.catalogItemId || row.quantity == null || row.unitCost == null) throw new Error(`فشل التحقق الداخلي للسطر ${row.rowNumber}`);
+      if (!row.catalogItemId || !row.unit || row.quantity == null || row.unitCost == null) throw new Error(`فشل التحقق الداخلي للسطر ${row.rowNumber}`);
       const catalogRows = await tx.select().from(catalogItems)
-        .where(and(eq(catalogItems.id, row.catalogItemId), eq(catalogItems.isActive, 1))).limit(1);
+        .where(and(eq(catalogItems.id, row.catalogItemId), eq(catalogItems.isActive, 1))).limit(1).for("update");
       const catalog = catalogRows[0];
       if (!catalog) throw new Error(`السطر ${row.rowNumber}: صنف الكتالوج لم يعد متاحاً`);
 
       let inventoryId = row.inventoryId;
       if (inventoryId) {
         const lockedRows = await tx.select().from(inventory)
-          .where(and(eq(inventory.id, inventoryId), eq(inventory.warehouseId, preview.operation.warehouseId))).limit(1);
+          .where(and(eq(inventory.id, inventoryId), eq(inventory.warehouseId, preview.operation.warehouseId), eq(inventory.isFrozen, 0))).limit(1).for("update");
         const existing = lockedRows[0];
-        if (!existing || normalizeInventoryQuantity(Number(existing.quantity || 0)) !== 0) {
-          throw new Error(`السطر ${row.rowNumber}: تغير رصيد الصنف بعد المعاينة؛ أعد رفع الملف`);
+        if (!existing || !existing.issueUnitApprovedAt || existing.issueUnit?.trim() !== row.unit || normalizeInventoryQuantity(Number(existing.quantity || 0)) !== 0) {
+          throw new Error(`السطر ${row.rowNumber}: تغير رصيد الصنف أو وحدة صرفه بعد المعاينة؛ أعد رفع الملف`);
         }
         await tx.update(inventory).set({
           linkedItemId: catalog.id,
           itemName: catalog.nameAr,
           itemNameAr: catalog.nameAr,
           itemNameEn: catalog.nameEn,
-          unit: catalog.unit || (existing as any).unit || "قطعة",
-          purchaseUnit: catalog.unit || (existing as any).purchaseUnit || (existing as any).unit || "قطعة",
-          issueUnit: catalog.unit || (existing as any).issueUnit || (existing as any).unit || "قطعة",
           averageCost: Number(row.unitCost).toFixed(4),
           totalCostValue: "0.00",
           updatedAt: new Date(),
         } as any).where(eq(inventory.id, inventoryId));
         reusedZeroInventoryCount++;
       } else {
+        const [concurrent] = await tx.select({ id: inventory.id }).from(inventory).where(and(
+          eq(inventory.linkedItemId, catalog.id),
+          eq(inventory.warehouseId, preview.operation.warehouseId),
+          eq(inventory.isFrozen, 0),
+        )).limit(1).for("update");
+        if (concurrent) throw new Error(`السطر ${row.rowNumber}: أضيف سجل مخزون للصنف بعد المعاينة؛ أعد رفع الملف`);
         const internalCode = await getNextInventoryCode(tx);
         inventoryId = Number(await createInventoryItemV2({
           itemName: catalog.nameAr,
           itemNameAr: catalog.nameAr,
           itemNameEn: catalog.nameEn,
           quantity: 0,
-          unit: catalog.unit || "قطعة",
-          purchaseUnit: catalog.unit || "قطعة",
-          issueUnit: catalog.unit || "قطعة",
+          unit: row.unit,
+          purchaseUnit: row.unit,
+          issueUnit: row.unit,
+          issueUnitApprovedAt: new Date().toISOString().slice(0, 23).replace("T", " "),
           conversionFactor: "1.0000",
           internalCode,
           averageCost: Number(row.unitCost).toFixed(4),
@@ -466,6 +489,7 @@ export async function commitOpeningBalanceImport(operationId: number, fileBase64
         operationId,
         inventoryId,
         systemQuantity: "0.000",
+        unitSnapshot: row.unit,
         countedQuantity: Number(row.quantity).toFixed(3),
         diffQuantity: Number(row.quantity).toFixed(3),
         expiryDate: row.expiryDate || null,

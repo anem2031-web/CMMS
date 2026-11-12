@@ -52,7 +52,7 @@ import { getDb } from "./client";
 import { getInventoryItemById, getUserById } from "./deletes";
 import { getPOItemById, getPurchaseOrderById, getPOItems, updatePurchaseOrder } from "./purchase";
 import { getNextDeliveryNumber, getNextReturnNumber } from "./warehouse-receipts";
-import { calculateInventoryValue, calculateMovementTotal, normalizeInventoryQuantity, roundTo } from "../inventory-costing";
+import { calculateInventoryValue, calculateIssueQuantity, calculateIssueUnitCost, calculateMovementTotal, normalizeInventoryQuantity, roundTo } from "../inventory-costing";
 import { consumeInventoryLotForIssue, isInventoryLotsEnabled, resolveInventoryLotForSupplierReturn } from "../inventory-lots";
 import { assertNoSpecificationAggregateBypass, assertSpecificationPurchaseItemCompletion } from "../../services/purchase-specification-guards";
 import { materialExecutionCostsEnabled } from "../../services/material-costs/feature";
@@ -613,6 +613,7 @@ async function readRecipientReturnSourceById(sourceDeliveryDocumentId: number, t
       movementType: inventoryTransactions.type,
       movementTransactionType: inventoryTransactions.transactionType,
       movementQuantity: inventoryTransactions.quantity,
+      movementUnit: inventoryTransactions.unitSnapshot,
       movementUnitCost: inventoryTransactions.unitCost,
       movementTotalCost: inventoryTransactions.totalCost,
       movementTicketId: inventoryTransactions.ticketId,
@@ -675,7 +676,7 @@ async function readRecipientReturnSourceById(sourceDeliveryDocumentId: number, t
     itemName: String(row.itemName),
     internalCode: row.internalCode ?? null,
     manufacturerBarcode: row.manufacturerBarcode ?? null,
-    unit: row.unit ?? null,
+    unit: row.unit ?? row.movementUnit ?? null,
     deliveredToId: row.deliveredToId == null ? null : Number(row.deliveredToId),
     deliveredToName: row.deliveredToName ?? null,
     deliveredByName: row.deliveredByName ?? null,
@@ -764,16 +765,16 @@ export async function createRecipientWarehouseReturn(params: {
       .where(and(
         eq(inventoryLotBalances.lotId, source.lotId),
         eq(inventoryLotBalances.inventoryId, source.inventoryId),
-      ));
+      )).for("update");
     if (balanceRows.length !== 1) {
       throw new Error("رصيد الـLot الأصلي في المخزن غير موجود أو غير متسق؛ لا يمكن إنشاء رصيد جديد بصمت");
     }
 
     const lotRows = await tx
-      .select({ id: inventoryLots.id, remainingQuantity: inventoryLots.remainingQuantity })
+      .select({ id: inventoryLots.id, remainingQuantity: inventoryLots.remainingQuantity, issueUnit: inventoryLots.issueUnit })
       .from(inventoryLots)
       .where(eq(inventoryLots.id, source.lotId))
-      .limit(1);
+      .limit(1).for("update");
     if (lotRows.length !== 1) throw new Error("الـLot الأصلي لم يعد موجودًا");
 
     const inventoryRows = await tx
@@ -786,10 +787,12 @@ export async function createRecipientWarehouseReturn(params: {
         internalCode: inventory.internalCode,
         manufacturerBarcode: inventory.manufacturerBarcode,
         unit: inventory.unit,
+        issueUnit: inventory.issueUnit,
+        issueUnitApprovedAt: inventory.issueUnitApprovedAt,
       })
       .from(inventory)
       .where(eq(inventory.id, source.inventoryId))
-      .limit(1);
+      .limit(1).for("update");
     const currentInventory: any = inventoryRows[0];
     if (!currentInventory) throw new Error("سجل المخزون الأصلي لم يعد موجودًا");
 
@@ -799,10 +802,32 @@ export async function createRecipientWarehouseReturn(params: {
     const currentValue = roundTo(Number(currentInventory.totalCostValue || 0), 2);
     const originalIssueUnitCost = roundTo(Number(source.originalIssueUnitCost || 0), 4);
     const returnValue = calculateMovementTotal(returnedQuantity, originalIssueUnitCost);
+    const stockUnit = lotRows[0].issueUnit || currentInventory.issueUnit || currentInventory.unit;
+    let stockQuantity = returnedQuantity;
+    let stockUnitCost = originalIssueUnitCost;
+    const rebaseReturn = !!(currentInventory.issueUnitApprovedAt && source.unit && stockUnit && source.unit.trim() !== stockUnit.trim());
+    if (rebaseReturn) {
+      const [approval] = await tx.select({ before: auditLogs.oldValues, after: auditLogs.newValues })
+        .from(auditLogs).where(and(eq(auditLogs.action, "approve_inventory_issue_unit"),
+          eq(auditLogs.entityType, "inventory"), eq(auditLogs.entityId, source.inventoryId)))
+        .orderBy(desc(auditLogs.id)).limit(1).for("update");
+      const before = typeof approval?.before === "string" ? JSON.parse(approval.before) : approval?.before;
+      const after = typeof approval?.after === "string" ? JSON.parse(approval.after) : approval?.after;
+      if (before?.unit !== source.unit.trim() || after?.unit !== stockUnit.trim() ||
+        !Number.isFinite(after?.factor) || after.factor <= 0) {
+        throw new Error("وحدة سند الصرف تختلف عن الوحدة الحالية، ولم يُعثر على معامل التحويل المعتمد لهذا الصنف");
+      }
+      stockQuantity = calculateIssueQuantity(returnedQuantity, after.factor);
+      if (Math.abs(stockQuantity - returnedQuantity * after.factor) > 0.0000001) {
+        throw new Error("كمية المرتجع بوحدة المخزون تتجاوز الدقة المدعومة");
+      }
+      stockUnitCost = calculateIssueUnitCost(originalIssueUnitCost, after.factor);
+    }
+    const documentUnit = rebaseReturn ? source.unit : currentInventory.unit || source.unit;
 
-    const newBalance = normalizeInventoryQuantity(currentBalance + returnedQuantity);
-    const newLotRemaining = normalizeInventoryQuantity(currentLotRemaining + returnedQuantity);
-    const newQuantity = normalizeInventoryQuantity(currentQuantity + returnedQuantity);
+    const newBalance = normalizeInventoryQuantity(currentBalance + stockQuantity);
+    const newLotRemaining = normalizeInventoryQuantity(currentLotRemaining + stockQuantity);
+    const newQuantity = normalizeInventoryQuantity(currentQuantity + stockQuantity);
     const newValue = roundTo(currentValue + returnValue, 2);
     const newAverageCost = newQuantity > 0 ? roundTo(newValue / newQuantity, 4) : 0;
 
@@ -843,8 +868,9 @@ export async function createRecipientWarehouseReturn(params: {
       inventoryId: source.inventoryId,
       lotId: source.lotId,
       type: "in",
-      quantity: returnedQuantity,
-      unitCost: originalIssueUnitCost.toFixed(4),
+      quantity: stockQuantity,
+      unitSnapshot: stockUnit ?? null,
+      unitCost: stockUnitCost.toFixed(4),
       totalCost: returnValue.toFixed(2),
       reason: `إرجاع من الجهة إلى المخزن - ${String(params.reason).trim()} - عكس سند ${source.deliveryNumber} - مرتجع ${returnNumber}`,
       ticketId: source.movementTicketId ?? undefined,
@@ -869,7 +895,7 @@ export async function createRecipientWarehouseReturn(params: {
       internalCode: currentInventory.internalCode || undefined,
       manufacturerBarcode: currentInventory.manufacturerBarcode || undefined,
       returnedQuantity,
-      unit: currentInventory.unit || source.unit || undefined,
+      unit: documentUnit || undefined,
       reason: String(params.reason).trim(),
       returnedByName: performer?.name || performer?.username || "مستخدم المستودع",
       // For recipient returns this is the original recipient who is returning the item.
@@ -887,7 +913,7 @@ export async function createRecipientWarehouseReturn(params: {
       lotId: source.lotId,
       lotCode: source.lotCode,
       itemName: currentInventory.itemName || source.itemName,
-      unit: currentInventory.unit || source.unit || null,
+      unit: documentUnit || null,
       returnedQuantity,
       previouslyReturnedQuantity: source.previouslyReturnedQuantity,
       remainingReturnableQuantity: normalizeInventoryQuantity(source.returnableQuantity - returnedQuantity),
@@ -929,6 +955,7 @@ export async function getInventoryPurchaseHistory(inventoryId: number) {
     .select({
       transactionId:      inventoryTransactions.id,
       quantity:           inventoryTransactions.quantity,
+      unitSnapshot:       inventoryTransactions.unitSnapshot,
       transactionUnitCost: inventoryTransactions.unitCost,
       purchaseOrderItemId: inventoryTransactions.purchaseOrderItemId,
       createdAt:          inventoryTransactions.createdAt,
@@ -985,6 +1012,7 @@ export async function getInventoryPurchaseHistory(inventoryId: number) {
     return {
       transactionId: row.transactionId,
       quantity: row.quantity,
+      unit: row.unitSnapshot,
       unitCost: (exactKey && exactCost.get(exactKey))
         || (fallbackKey && fallbackCost.get(fallbackKey))
         || row.transactionUnitCost,
@@ -1011,7 +1039,7 @@ export async function getInventoryLedger(inventoryId: number) {
     .select()
     .from(inventoryTransactions)
     .where(eq(inventoryTransactions.inventoryId, inventoryId))
-    .orderBy(asc(inventoryTransactions.createdAt));
+    .orderBy(asc(inventoryTransactions.createdAt), asc(inventoryTransactions.id));
 
   if (transactions.length === 0) return [];
 
@@ -1039,12 +1067,21 @@ export async function getInventoryLedger(inventoryId: number) {
     for (const d of deliveries) deliveryMap.set(d.poItemId, d.deliveryNumber);
   }
 
-  // حساب الرصيد التراكمي بعد كل حركة (بترتيب زمني تصاعدي)
-  let runningBalance = 0;
+  const [approval] = await db.select({ oldValues: auditLogs.oldValues, newValues: auditLogs.newValues })
+    .from(auditLogs).where(and(eq(auditLogs.entityType, "inventory"), eq(auditLogs.entityId, inventoryId),
+      eq(auditLogs.action, "approve_inventory_issue_unit"))).orderBy(desc(auditLogs.id)).limit(1);
+  const before = approval?.oldValues as { unit: string } | undefined;
+  const after = approval?.newValues as { unit: string; quantity: number; lastMovementId: number } | undefined;
+  const priorBalances = new Map<string | null, number>();
+  let approvedBalance = Number(after?.quantity ?? 0);
   const ledger = transactions.map(tx => {
     const inQty  = tx.type === "in"  ? tx.quantity : 0;
     const outQty = tx.type === "out" ? tx.quantity : 0;
-    runningBalance += inQty - outQty;
+    const isAfterApproval = !!after && tx.id > after.lastMovementId;
+    const unit = tx.unitSnapshot ?? (isAfterApproval ? after.unit : before?.unit ?? null);
+    const balanceAfter = normalizeInventoryQuantity((isAfterApproval ? approvedBalance : priorBalances.get(unit) ?? 0) + inQty - outQty);
+    if (isAfterApproval) approvedBalance = balanceAfter;
+    else priorBalances.set(unit, balanceAfter);
 
     // تحديد المرجع حسب نوع الحركة — enum ثابت يستوعب التحويل والاستبعاد مستقبلاً بدون تعديل بنيوي
     let reference: string | null = null;
@@ -1071,7 +1108,8 @@ export async function getInventoryLedger(inventoryId: number) {
       transactionType:  tx.transactionType,       // "purchase" | "return" | "delivery" | "adjustment"
       inQty,
       outQty,
-      balanceAfter:     runningBalance,
+      unit,
+      balanceAfter,
       reference,                                   // null = "غير متاح بعد"
       reason:           tx.reason,
     };
@@ -1703,6 +1741,7 @@ export async function createInventoryItemV2(data: {
   unit?:              string;
   purchaseUnit?:      string;
   issueUnit?:         string;
+  issueUnitApprovedAt?: string;
   conversionFactor?:  string;
   minQuantity?:       number;
   averageCost?:       string;

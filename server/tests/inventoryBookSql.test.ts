@@ -16,7 +16,7 @@ function fixture() {
     CREATE TABLE catalog_items(id INTEGER,nameAr TEXT,nameEn TEXT,code TEXT,unit TEXT,nodeId INTEGER);
     CREATE TABLE catalog_item_candidates(resolvedCatalogItemId INTEGER,itemName TEXT);
     CREATE TABLE inventory_lots(id INTEGER,catalogItemId INTEGER,issueUnit TEXT,supplierItemName TEXT,lotCode TEXT,trackingToken TEXT);
-    CREATE TABLE inventory_transactions(inventoryId INTEGER,lotId INTEGER,type TEXT,quantity REAL);
+    CREATE TABLE inventory_transactions(inventoryId INTEGER,lotId INTEGER,type TEXT,quantity REAL,unitSnapshot TEXT);
     INSERT INTO catalog_units VALUES('حبة','Each',1),('قطعة','Piece',1),('كجم','Kg',1);
     INSERT INTO catalog_items VALUES(9,'دجاج 1100 جم','Chicken','CAT-9','قطعة',1),(99,'سمك','Fish','FISH-99','حبة',2);
     INSERT INTO inventory VALUES
@@ -28,7 +28,8 @@ function fixture() {
       (6,9,1,'Piece','Piece',0,2,'English unit','INV-6',NULL,'2026-06-01');
     INSERT INTO inventory_lots VALUES(1,9,'كجم','Supplier old chicken','LOT-1','tok-1'),(7,9,'كجم','Old delivery','LOT-7','tok-7'),(8,9,'حبة','New supplier name','LOT-8','tok-8'),(9,9,'قطعة','Pieces','LOT-9','tok-9');
     INSERT INTO catalog_item_candidates VALUES(9,'Candidate alias chicken');
-    INSERT INTO inventory_transactions VALUES(1,1,'in',50),(1,1,'out',50),(2,7,'in',50),(2,7,'out',50),(2,8,'in',3),(3,9,'in',7);`);
+    INSERT INTO inventory_transactions VALUES(1,1,'in',50,NULL),(1,1,'out',50,NULL),(2,7,'in',50,'كجم'),(2,7,'out',50,'كجم'),(2,8,'in',3,NULL),(3,9,'in',7,NULL);
+    UPDATE inventory_lots SET issueUnit='حبة' WHERE id=7;`);
   const dialect = new MySqlDialect();
   const execute = async (query: any) => {
     const compiled = dialect.sqlToQuery(query);

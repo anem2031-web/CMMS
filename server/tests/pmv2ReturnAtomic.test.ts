@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import ts from "typescript";
-import { and, eq, sql } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { MySqlDialect } from "drizzle-orm/mysql-core";
 import * as schema from "../../drizzle/schema";
 import * as costing from "../_core/inventory-costing";
@@ -39,7 +39,7 @@ const adapterCode = ts.transpileModule(`(${adapterDeclaration.initializer.getTex
 
 function nativeWriter() {
   return vm.runInNewContext(nativeCode, {
-    ...schema, ...costing, sql, eq, and,
+    ...schema, ...costing, sql, eq, and, desc,
     getDb: async () => ports.db,
     readRecipientReturnSourceById: async (id: number) => {
       const source = f.memory.prepare("SELECT * FROM delivery_documents WHERE id=?").get(id) as any;
@@ -113,6 +113,7 @@ beforeEach(() => {
     ALTER TABLE inventory ADD COLUMN internalCode TEXT;
     ALTER TABLE inventory ADD COLUMN manufacturerBarcode TEXT;
     ALTER TABLE inventory ADD COLUMN updatedAt TEXT;
+    ALTER TABLE inventory ADD COLUMN issueUnitApprovedAt TEXT;
     ALTER TABLE warehouse_returns ADD COLUMN purchaseOrderId INTEGER;
     ALTER TABLE warehouse_returns ADD COLUMN purchaseOrderItemId INTEGER;
     ALTER TABLE warehouse_returns ADD COLUMN inventoryId INTEGER;
@@ -120,6 +121,7 @@ beforeEach(() => {
     ALTER TABLE warehouse_returns ADD COLUMN reason TEXT;
     ALTER TABLE warehouse_returns ADD COLUMN returnedById INTEGER;
     ALTER TABLE inventory_transactions ADD COLUMN returnId INTEGER;
+    ALTER TABLE inventory_transactions ADD COLUMN unitSnapshot TEXT;
     CREATE TABLE delivery_documents(id INTEGER PRIMARY KEY,inventoryId INTEGER,lotId INTEGER,warehouseId INTEGER,catalogItemId INTEGER,quantity NUMERIC,unitCost NUMERIC,unit TEXT,deliveredToId INTEGER);
     CREATE TABLE return_documents(id INTEGER PRIMARY KEY,returnId INTEGER,returnNumber TEXT,returnedQuantity NUMERIC);
     CREATE TABLE test_return_counter(sequence INTEGER); INSERT INTO test_return_counter VALUES(0);
@@ -180,6 +182,20 @@ describe("PMV2 physical return + task linkage + usage finalization share one tra
       { action: "material_return_part_linked" }, { action: "material_consumption_finalized" }, { action: "material_return_completed" },
     ]);
     expect(await service.listPendingReturns()).toEqual([]);
+  });
+
+  it("adds converted stock from an old delivery while keeping its return quantity and value", async () => {
+    seed();
+    f.memory.exec(`UPDATE inventory SET unit='حبة',issueUnit='حبة',issueUnitApprovedAt='2026-11-11' WHERE id=200;
+      UPDATE inventory_lots SET issueUnit='حبة',originalQuantity=120 WHERE id=20;`);
+    f.insert("audit_logs", { entityType: "inventory", entityId: 200, action: "approve_inventory_issue_unit",
+      oldValues: JSON.stringify({ unit: "قطعة" }), newValues: JSON.stringify({ unit: "حبة", factor: 20 }) });
+    const result = await ports.nativeReturn({ sourceDeliveryDocumentId: 30, returnedQuantity: 2, reason: "Unused", returnedById: 50 });
+    expect(result).toMatchObject({ returnedQuantity: 2, unit: "قطعة", inventoryQuantityAfter: 40, returnValue: 10 });
+    expect(f.memory.prepare("SELECT quantity,unitSnapshot,unitCost,totalCost FROM inventory_transactions").get())
+      .toEqual({ quantity: 40, unitSnapshot: "حبة", unitCost: 0.25, totalCost: 10 });
+    expect(f.memory.prepare("SELECT quantity FROM inventory_lot_balances WHERE lotId=20").get()).toEqual({ quantity: 40 });
+    expect(f.memory.prepare("SELECT returnedQuantity FROM warehouse_returns").get()).toEqual({ returnedQuantity: 2 });
   });
 
   it("rechecks the fresh source cap after another generic return commits before the delivery lock", async () => {

@@ -145,7 +145,7 @@ const NAV_SECTIONS: NavSection[] = [
         roles: [...RETURNS_CENTER_SUPPLIER_ROLES] },
       { icon: Truck, labelKey: "nav.purchaseCycle", path: "/purchase-cycle", roles: ["delegate", "delegate_manager","warehouse","owner","admin"] },
       { icon: FileStack, labelKey: "nav.documentsCenter", path: "/documents",
-        roles: ["delegate", "delegate_manager","warehouse","accountant","senior_management","executive_director","maintenance_manager","purchase_requester","food_warehouse_manager","food_warehouse_assistant","owner","admin"] },
+        roles: ["warehouse","accountant","senior_management","executive_director","maintenance_manager","purchase_requester","food_warehouse_manager","food_warehouse_assistant","owner","admin"] },
     ],
   },
   // 5. المستودع والمخزون

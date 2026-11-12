@@ -20,10 +20,14 @@ describe("Document center organization preserves available document scopes",()=>
     expect(types(role)).toContain('delegate_pricing_bundle');expect(types(role)).toContain('po_financial_batch');
     expect(types(role)).not.toContain('approved_pricing_bundle');expect(types(role)).toContain('delegate_pricing_documents');
   });
-  it("keeps the accountant's three types and the delegate's sole original pricing type",()=>{
+  it("keeps the accountant's three types and removes the center for delegate roles",()=>{
     expect(new Set(types('accountant'))).toEqual(new Set(['po_financial_batch','delegate_pricing_bundle','delegate_pricing_documents']));
-    expect(types('delegate')).toEqual(['delegate_pricing_documents']);
-    expect(defaultDocumentKind(actor('accountant'))).toBe('po_financial_batch');expect(defaultDocumentKind(actor('delegate'))).toBe('delegate_pricing_documents');
+    for (const role of ['delegate','delegate_manager']) {
+      expect(types(role)).toEqual([]);
+      expect(types(role,'ANIS')).toEqual([]);
+      expect(defaultDocumentKind(actor(role))).toBeUndefined();
+    }
+    expect(defaultDocumentKind(actor('accountant'))).toBe('po_financial_batch');
   });
   it.each(['warehouse','food_warehouse_manager','food_warehouse_assistant','maintenance_manager','executive_director','purchase_requester','observer'])("keeps the original nonfinancial types for %s without adding a financial grant",role=>{
     expect(new Set(types(role))).toEqual(new Set(['purchase_order','receipt','delivery','warehouse_issue','return','disposal','count','settlement']));

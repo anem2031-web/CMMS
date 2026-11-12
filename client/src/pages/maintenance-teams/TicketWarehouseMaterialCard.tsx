@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import {
   issued,
+  isPreConversionDelivery,
   remainingReturn,
   type Snapshot,
   type MaterialNeed,
@@ -53,7 +54,7 @@ export function TicketWarehouseMaterialCard({
   const received = issued(state, need.id),
     returns = remainingReturn(state, need.id);
   const actualLinks = state.deliveries.filter(d => d.needId === need.id);
-  const physicalReturns = actualLinks.some(d => d.replacementPlanId != null) && actualLinks.every(d => d.used !== null);
+  const physicalReturns = actualLinks.some(d => d.replacementPlanId != null || isPreConversionDelivery(d)) && actualLinks.every(d => d.used !== null);
   const physicalReturnText = actualLinks.filter(d => d.used !== null && d.quantity > d.used! + d.returned)
     .map(d => `${d.quantity - d.used! - d.returned} ${d.physicalUnit ?? need.unit} — ${d.deliveryNumber}`).join(" · ");
   if (received === 0 && materialUnitMismatch(state, need)) return <div className="space-y-2 rounded-lg border border-amber-200 p-3 text-sm">

@@ -141,7 +141,7 @@ describe("Manager delegate UI parity without global permissions", () => {
     const delegate = { id: 20, role: "delegate", isActive: 1 }, manager = { ...delegate, role: "delegate_manager" };
     expect(documentCenterSections(manager)).toEqual(documentCenterSections(delegate));
     expect(defaultDocumentKind(manager)).toBe(defaultDocumentKind(delegate));
-    expect(documentCenterSections(manager).flatMap(section => section.types).map(type => type.key)).toEqual(["delegate_pricing_documents"]);
+    expect(documentCenterSections(manager)).toEqual([]);
     expect(isDelegateRole("delegate_manager")).toBe(true); expect(isDelegateRole("senior_management")).toBe(false);
   });
   it("gives manager exactly the same sidebar role entries as delegate", () => {

@@ -9,6 +9,7 @@ export type DocumentSection = { id: "financial" | "purchasing" | "warehouse"; la
 /** Display organization only. Every type keeps its existing RPC and server scope. */
 export function documentCenterSections(user: ApprovedPricingDocumentActor | null | undefined): DocumentSection[] {
   if (!user || user.isActive !== 1) return [];
+  if (isDelegateRole(user.role)) return [];
   const oldCenter = EXISTING_DOCUMENT_CENTER_ROLES.includes(user.role);
   const general = oldCenter && !["accountant", "delegate", "delegate_manager"].includes(user.role);
   const approvedReader = canReadApprovedPricingDocuments(user);

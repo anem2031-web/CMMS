@@ -880,6 +880,31 @@ test("aggregate material usage leaves source lot consumption unallocated until w
   assert.equal(remainingReturn(state, d.need.id), 0);
 });
 
+test("converted needs confirm unused quantities against their respective original delivery documents", async () => {
+  const d = await setup();
+  await d.service.requestMaterials(3, cmd(d.a), [{ catalogItemId: 101, quantity: 4, unit: "قطعة" }], [101]);
+  await d.store.transaction(async state => {
+    const [earlier, current] = state.deliveries;
+    earlier.originalEquivalent = earlier.quantity * 20;
+    earlier.physicalUnit = "كرتون";
+    current.lotId = earlier.lotId;
+    state.needs[0].requested = earlier.originalEquivalent + current.quantity;
+  });
+  const before = await d.store.read();
+  await d.service.submitOutcome(4, cmd(await d.current()), "fixed", {
+    note: "تم الإصلاح بعد استكمال المواد",
+    usages: [],
+    physicalUsages: before.deliveries.map(delivery => ({ deliveryId: delivery.deliveryId, used: 1 })),
+  });
+  const needId = before.needs[0].id;
+  assert.equal(remainingReturn(await d.store.read(), needId), 21);
+  await d.service.confirmReturn(2, cmd(await d.current()), needId);
+  const after = await d.store.read();
+  assert.equal(remainingReturn(after, needId), 0);
+  assert.deepEqual(after.returns.map(result => [result.sourceDeliveryId, result.quantity]),
+    before.deliveries.map(delivery => [delivery.deliveryId, 1]));
+});
+
 test("warehouse return validates complete total, original lots, bounds, whole quantities and duplicate lots", async () => {
   const d = await returnedMaterial();
   const lot = d.links[0].lotId;

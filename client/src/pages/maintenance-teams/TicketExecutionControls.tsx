@@ -8,7 +8,7 @@ import { AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, A
 import ar from "@/i18n/ar";
 import en from "@/i18n/en";
 import ur from "@/i18n/ur";
-import { issued, type Snapshot, type Assignment, type Outcome, type CompletionInput } from "@shared/maintenance-team-tickets/model";
+import { issued, isPreConversionDelivery, type Snapshot, type Assignment, type Outcome, type CompletionInput } from "@shared/maintenance-team-tickets/model";
 import { ticketExecutionSession } from "@shared/maintenance-team-tickets/execution-session";
 import { useExecutionDraftDirty } from "./ExecutionLeaveGuard";
 
@@ -31,7 +31,7 @@ export function TicketExecutionControls({ state, assignment: a, actorId, languag
   const [physicalUsages, setPhysicalUsages] = useState<Record<number, string>>({});
   useExecutionDraftDirty(Boolean(note.trim() || otherMaterials.trim() || Object.keys(usages).length || Object.keys(physicalUsages).length || dependency && dependencyNote.trim()));
   const current = state.needs.filter(n => n.assignmentId === a.id && n.round === a.materialRound);
-  const substituted = current.filter(n => state.deliveries.some(d => d.needId === n.id && d.replacementPlanId != null));
+  const substituted = current.filter(n => state.deliveries.some(d => d.needId === n.id && (d.replacementPlanId != null || isPreConversionDelivery(d))));
   const actualDeliveries = state.deliveries.filter(d => substituted.some(n => n.id === d.needId));
   const actionable = ["action_required", "ready_to_repair", "reinstall_required"].includes(a.stage);
   const materialCompletion = a.stage === "ready_to_repair";

@@ -1,6 +1,7 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { pendingPurchaseCoverageQuantity } from "./specification-purchase-coverage";
 import {
+  pmv2ItemActions,
   pmv2MaterialPurchaseLinks,
   pmv2MaterialRequestItems,
   pmv2MaterialRequests,
@@ -88,6 +89,40 @@ async function loadRequestItemContext(db: any, requestItemId: number) {
   return rows[0] ?? null;
 }
 
+type ApprovedStockUnit = { inventoryId: number; warehouseId: number; unit: string };
+
+async function loadApprovedStockUnit(db: any, context: {
+  taskItemId: number; requestItemId: number; catalogItemId: number | null; unitSnapshot: string | null;
+}): Promise<ApprovedStockUnit | null> {
+  const actions: { note: string | null }[] = await db.select({ note: pmv2ItemActions.note }).from(pmv2ItemActions)
+    .where(and(eq(pmv2ItemActions.taskItemId, context.taskItemId), eq(pmv2ItemActions.action, "material_route_decision")))
+    .orderBy(desc(pmv2ItemActions.id));
+  for (const { note } of actions) {
+    if (!note) continue;
+    let route;
+    try { route = JSON.parse(note); } catch { continue; }
+    if (route?.route !== "material_request" || Number(route.materialRequestItemId) !== context.requestItemId) continue;
+    const approved = route.approvedStockUnit;
+    if (!approved) return null;
+    if (Number(route.catalogItemId) !== context.catalogItemId || route.unit !== context.unitSnapshot ||
+      approved.unit !== context.unitSnapshot || typeof approved.unit !== "string" || !approved.unit.trim() ||
+      !Number.isSafeInteger(approved.inventoryId) || approved.inventoryId <= 0 ||
+      !Number.isSafeInteger(approved.warehouseId) || approved.warehouseId <= 0) {
+      throw new Pmv2WarehousePurchaseHandoffError("سجل اعتماد وحدة صرف الاحتياج لا يطابق طلب المواد");
+    }
+    return { inventoryId: approved.inventoryId, warehouseId: approved.warehouseId, unit: approved.unit };
+  }
+  return null;
+}
+
+function assertApprovedStockUnitSource(approval: ApprovedStockUnit | null, warehouseId: number,
+  availability: { inventoryId: number | null; unit: string | null }) {
+  if (approval && (approval.warehouseId !== warehouseId || approval.inventoryId !== availability.inventoryId ||
+    approval.unit !== availability.unit)) {
+    throw new Pmv2WarehousePurchaseHandoffError("تغير رصيد المستودع المرتبط باعتماد وحدة صرف احتياج PM V2");
+  }
+}
+
 async function listPurchaseLinks(db: any, requestItemId: number) {
   const links = await db
     .select({
@@ -141,6 +176,7 @@ async function validatePurchaseUnitForCatalogItem(
   db: any,
   catalogItemId: number,
   purchaseUnit: string | null | undefined,
+  approvedStockUnit?: string | null,
 ) {
   let linkedCatalogItem;
   try {
@@ -150,13 +186,18 @@ async function validatePurchaseUnitForCatalogItem(
   }
 
   const expectedPurchaseCatalogUnit = await resolveActiveCatalogUnit(db, linkedCatalogItem!.unit);
+  const expectedUnit = approvedStockUnit ? await resolveActiveCatalogUnit(db, approvedStockUnit) : expectedPurchaseCatalogUnit;
   const purchaseCatalogUnit = purchaseUnit
     ? await resolveActiveCatalogUnit(db, purchaseUnit)
     : null;
   if (!purchaseCatalogUnit) {
     throw new Pmv2WarehousePurchaseHandoffError("اختر وحدة قياس فعالة لبند طلب الشراء قبل ربطه بـ PM V2");
   }
+  if (approvedStockUnit && (!expectedUnit || Number(expectedUnit.id) !== Number(purchaseCatalogUnit.id))) {
+    throw new Pmv2WarehousePurchaseHandoffError(`وحدة بند الشراء لهذا الاحتياج هي «${approvedStockUnit}» حسب اعتماد المستودع`);
+  }
   if (
+    !approvedStockUnit &&
     expectedPurchaseCatalogUnit &&
     Number(expectedPurchaseCatalogUnit.id) !== Number(purchaseCatalogUnit.id)
   ) {
@@ -219,7 +260,7 @@ export class Pmv2WarehousePurchaseHandoffService {
       );
     }
 
-    await validatePurchaseUnitForCatalogItem(tx, Number(handoff.catalogItemId), input.purchaseItem.unit);
+    await validatePurchaseUnitForCatalogItem(tx, Number(handoff.catalogItemId), input.purchaseItem.unit, handoff.approvedStockUnit);
 
     return {
       requestItemId,
@@ -310,15 +351,20 @@ export class Pmv2WarehousePurchaseHandoffService {
     if (availability.ambiguous) {
       throw new Pmv2WarehousePurchaseHandoffError("هوية مخزون الصنف في المستودع الرئيسي غير فريدة؛ صححها قبل تحديد كمية الشراء");
     }
+    const approval = await loadApprovedStockUnit(db, context);
+    assertApprovedStockUnitSource(approval, mainWarehouse!.id, availability);
     if (availability.unit && context.unitSnapshot && !(await unitsEquivalent(db, availability.unit, context.unitSnapshot))) {
       throw new Pmv2WarehousePurchaseHandoffError("وحدة المخزون الحالية لا تطابق وحدة طلب PM V2؛ يلزم التحقق قبل بدء الشراء");
     }
 
     const activeCatalogUnit = await resolveActiveCatalogUnit(db, catalogItem!.unit);
-    const purchaseUnit = activeCatalogUnit
-      ? String(activeCatalogUnit.nameAr || activeCatalogUnit.nameEn || "").trim()
+    const approvedUnit = approval ? await resolveActiveCatalogUnit(db, approval.unit) : null;
+    if (approval && !approvedUnit) throw new Pmv2WarehousePurchaseHandoffError("وحدة الصرف المعتمدة للاحتياج لم تعد فعالة");
+    const purchaseUnitRecord = approvedUnit || activeCatalogUnit;
+    const purchaseUnit = purchaseUnitRecord
+      ? String(purchaseUnitRecord.nameAr || purchaseUnitRecord.nameEn || "").trim()
       : String(context.unitSnapshot || availability.unit || catalogItem!.unit || "").trim();
-    const purchaseUnitId = activeCatalogUnit ? Number(activeCatalogUnit.id) : null;
+    const purchaseUnitId = purchaseUnitRecord ? Number(purchaseUnitRecord.id) : null;
 
     const requestedQuantity = roundQuantity(Number(context.requestedQuantity || 0));
     const issuedToTeamQuantity = roundQuantity(Number(context.issuedToTeamQuantity || 0));
@@ -350,6 +396,7 @@ export class Pmv2WarehousePurchaseHandoffService {
       itemCode: catalogItem!.code,
       unit: purchaseUnit || null,
       unitId: purchaseUnitId,
+      approvedStockUnit: approval ? purchaseUnit : null,
       requestShortageQuantity: requestedQuantity,
       issuedToTeamQuantity,
       remainingQuantity,
@@ -388,15 +435,14 @@ export class Pmv2WarehousePurchaseHandoffService {
     if (["rejected", "cancelled", "purchase_cancelled"].includes(purchaseItem.status) || purchase.order.status === "rejected") {
       throw new Pmv2WarehousePurchaseHandoffError("لا يمكن ربط طلب شراء مرفوض أو ملغي باحتياج PM V2");
     }
-    // Purchase unit rule is shared with atomic PM V2 Purchase creation.
-    await validatePurchaseUnitForCatalogItem(db, context.catalogItemId, purchaseItem.unit);
-
     return db.transaction(async (tx: any) => {
       await tx.execute(sql`SELECT id FROM pmv2_material_request_items WHERE id = ${requestItemId} FOR UPDATE`);
       const locked = await loadRequestItemContext(tx, requestItemId);
       if (!locked || locked.catalogItemId !== context.catalogItemId) {
         throw new Pmv2WarehousePurchaseHandoffError("تغيرت هوية طلب المواد أثناء الربط؛ حدّث الشاشة");
       }
+      const approval = await loadApprovedStockUnit(tx, locked);
+      await validatePurchaseUnitForCatalogItem(tx, locked.catalogItemId, purchaseItem.unit, approval?.unit);
       try {await assertPmv2CompensationSettled(tx,requestItemId,Number(locked.taskItemId));}
       catch(error) {if(error instanceof Pmv2ReplacementCoverageError) throw new Pmv2WarehousePurchaseHandoffError(error.message);throw error;}
 
@@ -434,6 +480,7 @@ export class Pmv2WarehousePurchaseHandoffService {
       if (availability.ambiguous) {
         throw new Pmv2WarehousePurchaseHandoffError("تعذر ربط الشراء لأن هوية مخزون الصنف في المستودع الرئيسي غير فريدة");
       }
+      assertApprovedStockUnitSource(approval, mainWarehouse!.id, availability);
 
       const requestedQuantity = roundQuantity(Number(locked.requestedQuantity || 0));
       const issuedToTeamQuantity = roundQuantity(Number(locked.issuedToTeamQuantity || 0));

@@ -112,11 +112,29 @@ test("5 technician + 3 warehouse = 8 ordered, while linked ticket coverage stays
     physical = await d.store.inspectPhysical();
   assert.equal(d.handoffs[0].technicianQuantity, 5);
   assert.equal(d.handoffs[0].purchaseTotalQuantity, 8);
+  assert.equal(d.handoffs[0].approvedStockUnit, undefined);
   assert.equal(physical.supplies[0].quantity, 8);
   assert.equal(s.supplies[0].quantity, 5);
   assert.equal(s.needs[0].requested, 5);
   assert.match(s.actions.at(-1)!.note, /إضافة المستودع للتخزين: 3 قطعة/);
   assert.match(s.actions.at(-1)!.note, /إجمالي طلب الشراء: 8 قطعة/);
+});
+test("a converted open ticket uses its approved stock unit for linked purchase", async () => {
+  const d = await setup();
+  await d.store.transaction(async s => {
+    const need = s.needs[0];
+    need.unit = "حبة";
+    need.requested = 50;
+    const action = s.actions.find(x => x.kind === "needs_material")!;
+    action.note = JSON.stringify({ ...JSON.parse(action.note), shortage: 50,
+      approvedStockUnit: { needId: need.id, unit: "حبة", fromUnit: "قطعة", factor: 10,
+        priorIssued: 0, priorReturned: 0, deliveryIds: [] } });
+  });
+  await d.service.purchaseFromForm(2, await d.command(), d.needId, form(0));
+  assert.equal(d.handoffs[0].unit, "حبة");
+  assert.equal(d.handoffs[0].approvedStockUnit, true);
+  assert.equal(d.handoffs[0].purchaseTotalQuantity, 50);
+  assert.equal((await d.store.read()).catalog.find(x => x.id === 103)?.unit, "قطعة");
 });
 test("receipt, transfer, issue and repair never issue the warehouse extra to the ticket", async () => {
   const d = await setup();
@@ -375,7 +393,7 @@ test("canonical purchase writer stores the computed total and trusted breakdown 
   const js = transformSync(`const create = ${callback!.getText(ast)}`, {
     loader: "ts",
   }).code;
-  let header: any, lines: any;
+  let header: any, lines: any, catalogChecks = 0;
   const tx = {},
     input = {
       ticketId: 1,
@@ -402,6 +420,13 @@ test("canonical purchase writer stores the computed total and trusted breakdown 
     poNumber: "PR-2",
     ctx: { user: { id: 2 } },
     purchaseContext: {},
+    itemContexts: [{}],
+    resolvePurchaseItemNeedTiming: () => ({}),
+    assertPurchaseCatalogBaseUnits: async (current: unknown, items: unknown) => {
+      assert.equal(current, tx);
+      assert.equal(items, input.items);
+      catalogChecks++;
+    },
     TeamTicketError: Error,
     ticketPurchaseBreakdown,
   };
@@ -413,6 +438,9 @@ test("canonical purchase writer stores the computed total and trusted breakdown 
   assert.match(header.notes, /كمية الفني المطلوبة: 5 حبة/);
   assert.match(lines[0].notes, /إضافة المستودع للتخزين: 3 حبة/);
   assert.equal(input.items[0].notes, "تفصيل");
+  assert.equal(catalogChecks, 1);
+  await create({ ...ticketPurchaseQuantities(5, 5, 3), unit: "حبة", approvedStockUnit: true });
+  assert.equal(catalogChecks, 1);
 });
 test("actual purchase form payload submits the calculated total; ordinary and PMV2 quantities stay unchanged", () => {
   const file = "client/src/pages/purchase/CreatePurchaseOrder.tsx",

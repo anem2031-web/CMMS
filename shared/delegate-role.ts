@@ -4,6 +4,11 @@ export function isDelegateRole(role?: string | null): role is typeof DELEGATE_RO
   return role === "delegate" || role === "delegate_manager";
 }
 
+/** Document-center lists are not part of the delegate pricing archive. */
+export function delegateDocumentCenterRpcAllowed(role: string | null | undefined, path: string): boolean {
+  return !isDelegateRole(role) || !["attachments.listByType", "delegatePricingBundles.listPage"].includes(path);
+}
+
 /** The manager's sole additional capability is this explicitly reviewed pair. */
 export function delegateManagerAssignmentRpcAllowed(user: { id: number; role: string; isActive?: number } | null | undefined, type: string, path: string): boolean {
   if (!["purchaseOrders.assignOwnDelegateItem", "purchaseOrders.delegateAssignmentOptions"].includes(path)) return true;

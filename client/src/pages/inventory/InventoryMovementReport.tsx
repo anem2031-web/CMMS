@@ -91,6 +91,19 @@ export default function InventoryMovementReport() {
   const costFormat = useMemo(() => new Intl.NumberFormat(locale, { minimumFractionDigits: 2, maximumFractionDigits: 4 }), [locale]);
   const valueFormat = useMemo(() => new Intl.NumberFormat(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 }), [locale]);
   const dateFormat = useMemo(() => new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeStyle: "short" }), [locale]);
+  const formatMovementQuantity = (direction: "in" | "out") => {
+    if (!report) return "—";
+    if (mode === "stockCard") {
+      const byUnit = new Map<string, number>();
+      for (const row of report.rows) {
+        if (row.direction !== direction) continue;
+        const unit = row.unit || "—";
+        byUnit.set(unit, (byUnit.get(unit) ?? 0) + row.quantity);
+      }
+      if (byUnit.size > 1) return Array.from(byUnit, ([unit, total]) => `${quantityFormat.format(total)} ${unit}`).join(" / ");
+    }
+    return quantityFormat.format(direction === "in" ? report.summary.inQuantity : report.summary.outQuantity);
+  };
 
   const warehouseName = (warehouse: any) => {
     const name = language === "en" ? (warehouse.nameEn || warehouse.nameAr) : warehouse.nameAr;
@@ -316,8 +329,8 @@ export default function InventoryMovementReport() {
 
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <Card><CardContent className="flex items-center justify-between p-4"><div><p className="text-xs text-muted-foreground">{copy.summary.movements}</p><p className="mt-1 text-2xl font-bold">{report?.summary.rows ?? "—"}</p></div><FileClock className="h-5 w-5 text-muted-foreground" /></CardContent></Card>
-            <Card><CardContent className="flex items-center justify-between p-4"><div><p className="text-xs text-muted-foreground">{copy.summary.inQuantity}</p><p className="mt-1 text-2xl font-bold">{report ? quantityFormat.format(report.summary.inQuantity) : "—"}</p></div><ArrowDownToLine className="h-5 w-5 text-emerald-600" /></CardContent></Card>
-            <Card><CardContent className="flex items-center justify-between p-4"><div><p className="text-xs text-muted-foreground">{copy.summary.outQuantity}</p><p className="mt-1 text-2xl font-bold">{report ? quantityFormat.format(report.summary.outQuantity) : "—"}</p></div><ArrowUpFromLine className="h-5 w-5 text-rose-600" /></CardContent></Card>
+            <Card><CardContent className="flex items-center justify-between p-4"><div><p className="text-xs text-muted-foreground">{copy.summary.inQuantity}</p><p className="mt-1 text-2xl font-bold">{formatMovementQuantity("in")}</p></div><ArrowDownToLine className="h-5 w-5 text-emerald-600" /></CardContent></Card>
+            <Card><CardContent className="flex items-center justify-between p-4"><div><p className="text-xs text-muted-foreground">{copy.summary.outQuantity}</p><p className="mt-1 text-2xl font-bold">{formatMovementQuantity("out")}</p></div><ArrowUpFromLine className="h-5 w-5 text-rose-600" /></CardContent></Card>
             <Card><CardContent className="flex items-center justify-between p-4"><div><p className="text-xs text-muted-foreground">{mode === "stockCard" ? copy.summary.currentBalance : copy.summary.distinctItems}</p><p className="mt-1 text-2xl font-bold">{mode === "stockCard" ? (report?.summary.currentQuantity == null ? "—" : quantityFormat.format(report.summary.currentQuantity)) : (report?.summary.distinctItems ?? "—")}</p></div><Warehouse className="h-5 w-5 text-muted-foreground" /></CardContent></Card>
           </div>
 

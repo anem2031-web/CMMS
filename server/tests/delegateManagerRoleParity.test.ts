@@ -50,6 +50,12 @@ describe("Delegate manager has delegate capability and the same record constrain
     expect(canReviewPurchaseItem(identity(), { reviewRole: "construction_procurement_manager", status: "pending_review" })).toBe(false);
   });
 
+  it.each(["delegate", "delegate_manager"])("denies direct document center URLs while retaining the pricing archive for %s", role => {
+    for (const path of ["/documents", "/documents?tab=approved", "/documents/other"]) expect(canRoleAccessPath(role, path)).toBe(false);
+    expect(canRoleAccessPath(role, "/delegate-pricing-bundles")).toBe(true);
+    expect(canRoleAccessPath(role, "/purchase-orders")).toBe(true);
+  });
+
   it("matches every existing PO action/status/creator decision without granting approval or delegate-change resolution", () => {
     for (const status of Object.values(PO_STATUS)) for (const isCreator of [false, true]) for (const actionName of Object.keys(ACTION_POLICY)) {
       expect(canPerformAction(actionName as any, { role: "delegate_manager", userId: 7, isCreator }, { status }), `${actionName}:${status}:${isCreator}`)

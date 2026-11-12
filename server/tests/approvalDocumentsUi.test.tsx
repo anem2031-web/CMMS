@@ -115,11 +115,12 @@ describe("Approval document UI boundaries", () => {
     expect(html).toContain("1 مستند مطابق");
     expect(html).not.toContain("مرات الطباعة");
   });
-  it("keeps the delegate restricted to its pricing document page", () => {
-    state.role = "delegate";
+  it.each(["delegate", "delegate_manager"])("does not render document center or request its lists for %s", role => {
+    state.role = role;
     const html = renderToStaticMarkup(<DocumentsCenter />);
-    expect(html).toContain("PRICING.pdf"); expect(html).not.toContain("FINANCIAL.pdf");
-    expect(state.calls.filter(call => call.enabled)).toEqual([expect.objectContaining({ path: "attachments.listByType", input: expect.objectContaining({ entityType: "delegate_pricing_documents" }) })]);
+    expect(html).toContain("لا توجد مستندات متاحة لهذا الحساب");
+    expect(html).not.toContain("PRICING.pdf"); expect(html).not.toContain("FINANCIAL.pdf");
+    expect(state.calls).toEqual([]);
   });
 
   it.each(["accountant", "senior_management"])("fails closed for %s on missing or explicitly blocked document permission", role => {

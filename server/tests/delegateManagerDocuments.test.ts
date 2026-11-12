@@ -31,24 +31,16 @@ const api = router({ attachments: router({ listByType: evaluate(property.initial
 const caller = (role: string, id = 7) => api.createCaller({ user: { id, role, isActive: 1 } } as any);
 beforeEach(() => vi.clearAllMocks());
 
-describe("Delegate-manager document scope equals delegate scope", () => {
-  it.each(["delegate", "delegate_manager"])("enriches only the own archived documents for %s", async role => {
-    const result = await caller(role).attachments.listByType({ entityType: "delegate_pricing_documents" });
-    expect(result.map((row: any) => row.id)).toEqual([1, 3]);
-    expect(enrich).toHaveBeenCalledOnce();
-    expect(JSON.stringify(enrich.mock.calls)).not.toContain("foreign");
+describe("Document center is unavailable to delegate roles", () => {
+  it.each(["delegate", "delegate_manager"])("denies direct list requests before loading for %s", async role => {
+    await expect(caller(role).attachments.listByType({ entityType: "delegate_pricing_documents" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(caller(role).attachments.listByType({ entityType: "delegate_pricing_documents", pagination: { page: 1 } })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(page).not.toHaveBeenCalled(); expect(enrich).not.toHaveBeenCalled();
   });
-  it.each(["delegate", "delegate_manager"])("filters in SQL before paginated enrichment for %s", async role => {
-    await caller(role).attachments.listByType({ entityType: "delegate_pricing_documents", pagination: { page: 1 } });
-    expect(page).toHaveBeenCalledWith("delegate_pricing_documents", { page: 1 }, 7);
-    expect(enrich).toHaveBeenCalledOnce();
-    expect(JSON.stringify(enrich.mock.calls)).not.toContain("foreign");
-  });
-  it("does not carry assignment scope between consecutive actors", async () => {
-    const first = await caller("delegate_manager").attachments.listByType({ entityType: "delegate_pricing_documents" });
-    const second = await caller("delegate_manager", 8).attachments.listByType({ entityType: "delegate_pricing_documents" });
-    expect(first.map((row: any) => row.id)).toEqual([1, 3]);
-    expect(second.map((row: any) => row.id)).toEqual([2]);
+  it("does not carry a denial across consecutive actors", async () => {
+    await expect(caller("delegate_manager").attachments.listByType({ entityType: "delegate_pricing_documents" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(await caller("accountant").attachments.listByType({ entityType: "delegate_pricing_documents" })).toHaveLength(3);
+    await expect(caller("delegate").attachments.listByType({ entityType: "delegate_pricing_documents" })).rejects.toMatchObject({ code: "FORBIDDEN" });
   });
   it("does not grant the new role access to financial attachment lists", async () => {
     await expect(caller("delegate_manager").attachments.listByType({ entityType: "po_financial_batch" })).rejects.toMatchObject({ code: "FORBIDDEN" });
@@ -56,6 +48,24 @@ describe("Delegate-manager document scope equals delegate scope", () => {
   });
   it.each(["admin", "owner", "accountant", "senior_management"])("keeps the previous %s document list", async role => {
     expect(await caller(role).attachments.listByType({ entityType: "delegate_pricing_documents" })).toHaveLength(3);
+  });
+});
+
+describe("Document center route does not block the separate pricing archive", () => {
+  const read = vi.fn(async () => "allowed");
+  const endpoint = protectedProcedure.query(() => read());
+  const api = router({ delegatePricingBundles: router({ listPage: endpoint, list: endpoint, detail: endpoint }) });
+  const account = (role: string) => api.createCaller({ user: { id: 7, role, isActive: 1 } } as any);
+
+  it.each(["delegate", "delegate_manager"])("denies the center list but keeps the archive for %s", async role => {
+    read.mockClear();
+    await expect(account(role).delegatePricingBundles.listPage()).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(read).not.toHaveBeenCalled();
+    await expect(account(role).delegatePricingBundles.list()).resolves.toBe("allowed");
+    await expect(account(role).delegatePricingBundles.detail()).resolves.toBe("allowed");
+  });
+  it.each(["accountant", "senior_management", "owner", "admin"])("keeps the center list for %s", async role => {
+    await expect(account(role).delegatePricingBundles.listPage()).resolves.toBe("allowed");
   });
 });
 

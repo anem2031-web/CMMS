@@ -152,7 +152,7 @@ export function InventoryItemCard({ itemId, open, onOpenChange }: {
                           <td className="px-2.5 py-2 font-mono">{p.receiptNumber || "—"}</td>
                           <td className="px-2.5 py-2 font-mono">{p.poNumber || "—"}</td>
                           <td className="px-2.5 py-2">{p.vendorName || "—"}</td>
-                          <td className="px-2.5 py-2 font-bold">{p.quantity}</td>
+                          <td className="px-2.5 py-2 font-bold">{p.quantity} {p.unit}</td>
                           <td className="px-2.5 py-2">{fmtMoney(p.unitCost)}</td>
                         </tr>
                       ))}
@@ -192,9 +192,9 @@ export function InventoryItemCard({ itemId, open, onOpenChange }: {
                             <td className="px-2.5 py-2">
                               <Badge className={`text-[10px] ${meta.color}`}>{meta.label}</Badge>
                             </td>
-                            <td className="px-2.5 py-2 text-emerald-700 font-medium">{row.inQty > 0 ? `+${row.inQty}` : "—"}</td>
-                            <td className="px-2.5 py-2 text-red-700 font-medium">{row.outQty > 0 ? `-${row.outQty}` : "—"}</td>
-                            <td className="px-2.5 py-2 font-bold">{row.balanceAfter}</td>
+                            <td className="px-2.5 py-2 text-emerald-700 font-medium">{row.inQty > 0 ? `+${row.inQty}${row.unit ? ` ${row.unit}` : ""}` : "—"}</td>
+                            <td className="px-2.5 py-2 text-red-700 font-medium">{row.outQty > 0 ? `-${row.outQty}${row.unit ? ` ${row.unit}` : ""}` : "—"}</td>
+                            <td className="px-2.5 py-2 font-bold">{row.balanceAfter} {row.unit}</td>
                             <td className="px-2.5 py-2 font-mono">
                               {row.reference ? row.reference : <span className="text-muted-foreground italic">غير متاح بعد</span>}
                             </td>

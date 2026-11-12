@@ -690,6 +690,12 @@ export const receiptsV2Router = router({
           const receivedUnit = (await getActiveCatalogUnitCanonicalName(item.purchaseUnit, tx)) || item.purchaseUnit;
           const inOrderUnits = receiptInOrderUnits({ orderUnit, receivedUnit, issueUnit: item.issueUnit,
             quantity: item.receivedQuantity, unitCost: processed.purchaseUnitCost, factor: item.conversionFactor });
+          if (item.purchaseOrderItemId && orderUnit.trim() && !inOrderUnits) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: `لا يمكن تسجيل الكمية المستلمة للصنف «${item.itemName}» بوحدة طلب الشراء «${orderUnit}». يجب أن تطابق وحدة الطلب وحدة الشراء في الفاتورة أو وحدة الصرف.`,
+            });
+          }
 
 
           const receiptItemId = await db.createWarehouseReceiptItem({
@@ -1145,11 +1151,6 @@ async function processReceiptItem(params: {
   const [issueUnitRecord] = await tx.select({ id: catalogUnits.id }).from(catalogUnits)
     .where(and(eq(catalogUnits.nameAr, item.issueUnit), eq(catalogUnits.isActive, 1))).limit(1);
   if (!issueUnitRecord) throw new TRPCError({ code: "BAD_REQUEST", message: "اختر وحدة صرف فعالة من قائمة الوحدات" });
-  if (item.linkedItemId) {
-    const [catalogItem] = await tx.select({ unit: catalogItems.unit }).from(catalogItems).where(eq(catalogItems.id, item.linkedItemId)).limit(1);
-    const catalogIssueUnit = (await getActiveCatalogUnitCanonicalName(catalogItem?.unit, tx)) || catalogItem?.unit;
-    if (catalogIssueUnit && catalogIssueUnit !== item.issueUnit) throw new TRPCError({ code: "BAD_REQUEST", message: `وحدة صرف صنف الكتالوج هي «${catalogIssueUnit}». اختر الوحدة المطابقة؛ تغيير الوحدة الأساسية للسجلات السابقة يحتاج معالجة مستقلة.` });
-  }
   let inventoryId = item.inventoryId;
 
   // Phase 2 deferred identity decision — future-facing protection only:
@@ -1163,6 +1164,7 @@ async function processReceiptItem(params: {
       receiptWarehouseId,
       tx,
       isInventoryLotsEnabled() ? item.issueUnit : undefined,
+      { enforceApprovedIssueUnit: true },
     );
 
     if (matches.length > 1) {
@@ -1192,6 +1194,10 @@ async function processReceiptItem(params: {
     await tx.execute(sql`SELECT id FROM inventory WHERE id = ${inventoryId} FOR UPDATE`);
     const existing = await db.getInventoryItemById(inventoryId, tx);
     if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: `الصنف ${inventoryId} غير موجود` });
+    if (Number(existing.isFrozen) === 1) throw new TRPCError({ code: "CONFLICT", message: "سجل المخزون المحدد مجمّد" });
+    if (existing.linkedItemId && item.linkedItemId && Number(existing.linkedItemId) !== Number(item.linkedItemId)) {
+      throw new TRPCError({ code: "CONFLICT", message: "سجل المخزون المحدد مرتبط بصنف آخر في الكتالوج" });
+    }
     const storedIssueUnit = String((existing as any).issueUnit || existing.unit || "").trim();
     const currentIssueUnit = (await getActiveCatalogUnitCanonicalName(storedIssueUnit, tx)) || storedIssueUnit;
     if (currentIssueUnit && currentIssueUnit !== item.issueUnit) {
@@ -1237,6 +1243,7 @@ async function processReceiptItem(params: {
       unit:                 item.issueUnit || item.purchaseUnit,
       purchaseUnit:         item.purchaseUnit,
       issueUnit:            item.issueUnit,
+      issueUnitApprovedAt:  new Date().toISOString().slice(0, 23).replace("T", " "),
       conversionFactor:     item.conversionFactor.toString(),
       minQuantity:          0,
       averageCost:          issueUnitCost.toFixed(4),

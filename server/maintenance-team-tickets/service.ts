@@ -5,6 +5,7 @@ import {
   required,
   issued,
   deliveryOriginalEquivalent,
+  isPreConversionDelivery,
   remainingReturn,
   isRequiredNow,
   type Snapshot,
@@ -24,6 +25,8 @@ import {
 import {
   materialRouteNote,
   materialSupplyRemaining,
+  materialUnitMismatch,
+  materialStockUnitApproval,
 } from "../../shared/maintenance-team-tickets/material-routing";
 import {
   canExecuteAllTicketTeams,
@@ -125,7 +128,7 @@ function materialIdentityReview(s: Snapshot, a: Assignment, needId: number) {
     throw new TeamTicketError("CONFLICT", "انتهى البلاغ الأصلي أو لم يعد متاحًا؛ لا يمكن مراجعة المادة");
   const need = currentNeeds(s, a).find(n => n.id === needId);
   const catalog = s.catalog.find(item => item.id === need?.catalogItemId && item.active);
-  if (!need || (need.catalogItemId !== null && (!catalog || catalog.unit === need.unit)))
+  if (!need || (need.catalogItemId !== null && (!catalog || !materialUnitMismatch(s, need))))
     throw new TeamTicketError("CONFLICT", "الاحتياج غير موجود أو لا يحتاج مراجعة هويته ووحدته");
   if (need.used !== null || s.deliveries.some(d => d.needId === need.id) || s.supplies.some(source => source.needId === need.id))
     throw new TeamTicketError("CONFLICT", "لا يمكن تعديل وحدة أو كمية احتياج مرتبط بصرف أو توفير أو استخدام أو مرتجع سابق");
@@ -508,7 +511,7 @@ export class MaintenanceTeamTicketService {
               "استلم جميع المواد المطلوبة قبل إكمال الإصلاح"
             );
           const ids = input.usages.map(x => x.catalogItemId);
-          const substituted = needs.filter(n => links.some(d => d.needId === n.id && d.replacementPlanId != null));
+          const substituted = needs.filter(n => links.some(d => d.needId === n.id && (d.replacementPlanId != null || isPreConversionDelivery(d))));
           const ordinary = needs.filter(n => !substituted.includes(n));
           if (
             new Set(ids).size !== ids.length ||
@@ -525,7 +528,7 @@ export class MaintenanceTeamTicketService {
           const physical = input.physicalUsages ?? [];
           if (physical.length !== actualLinks.length || new Set(physical.map(row => row.deliveryId)).size !== physical.length
             || physical.some(row => !actualLinks.some(d => d.deliveryId === row.deliveryId)))
-            throw new TeamTicketError("INVALID", "حدد الاستخدام الفعلي لكل سند بديل مرة واحدة");
+            throw new TeamTicketError("INVALID", "حدد الاستخدام الفعلي لكل سند صرف مرة واحدة");
           for (const d of actualLinks) {
             const used = integer(physical.find(row => row.deliveryId === d.deliveryId)!.used, "الكمية الفعلية المستخدمة", 0);
             if (used > d.quantity - d.returned) throw new TeamTicketError("INVALID", "الاستخدام الفعلي يتجاوز المصروف المتبقي");
@@ -859,7 +862,7 @@ export class MaintenanceTeamTicketService {
     if (
       !s.catalog.some(
         item =>
-          item.id === n.catalogItemId && item.active && item.unit === n.unit
+          item.id === n.catalogItemId && item.active && !materialUnitMismatch(s, n)
       )
     )
       throw new TeamTicketError(
@@ -1013,7 +1016,7 @@ export class MaintenanceTeamTicketService {
     const item =
       n &&
       s.catalog.find(
-        x => x.id === n.catalogItemId && x.active && x.unit === n.unit
+        x => x.id === n.catalogItemId && x.active && !materialUnitMismatch(s, n)
       );
     if (!n || !item)
       throw new TeamTicketError(
@@ -1204,6 +1207,7 @@ export class MaintenanceTeamTicketService {
         const result = await effects.purchaseForm({
           ...handoff,
           ...quantities,
+          ...(materialStockUnitApproval(s.actions, need) ? { approvedStockUnit: true as const } : {}),
         });
         integer(result.id, "طلب الشراء");
         integer(result.source.sourceId, "بند الشراء");
@@ -1347,7 +1351,7 @@ export class MaintenanceTeamTicketService {
         );
         if (!n) throw new TeamTicketError("INVALID", "حدد هوية الصنف أولًا");
         const item = s.catalog.find(item => item.id === n.catalogItemId && item.active);
-        if (!item || item.unit !== n.unit)
+        if (!item || materialUnitMismatch(s, n))
           throw new TeamTicketError("INVALID", "تم ربط الصنف؛ يلزم مراجعة وحدة وكمية الاحتياج قبل التوفير، ولا يوجد تحويل وحدات تلقائي");
         if (kind === "transfer" && effects.transferNeed && await effects.replacementContext?.(needId)) {
           const quantity = n.requested - issued(s, n.id);
@@ -1499,6 +1503,31 @@ export class MaintenanceTeamTicketService {
         if (!need || remainingReturn(s, needId) <= 0)
           throw new TeamTicketError("INVALID", "لا يوجد مرتجع معلق لهذا الصنف");
         const links = s.deliveries.filter(d => d.needId === needId);
+        const returnNumbers: string[] = [];
+        const confirmDelivery = async (d: typeof links[number], quantity: number) => {
+          const result = await effects.returnToWarehouse({
+            operationKey: `${c.operationKey}:return:${d.id}`,
+            sourceDeliveryId: d.deliveryId,
+            quantity,
+            actorId,
+          });
+          integer(result.returnId, "سند المرتجع");
+          if (result.quantity !== quantity || s.returns.some(r => r.returnId === result.returnId))
+            throw new TeamTicketError("INVALID", "سند المرتجع غير مطابق أو مرتبط سابقًا");
+          d.returned += quantity;
+          s.returns.push({ id: s.nextId++, deliveryLinkId: d.id, sourceDeliveryId: d.deliveryId, ...result, actorId });
+          returnNumbers.push(result.returnNumber);
+        };
+        const converted = links.some(isPreConversionDelivery) && links.every(d => d.used !== null);
+        if (converted) {
+          if (lotAllocations?.length) throw new TeamTicketError("INVALID", "مرتجع الصنف المحوّل يتبع الكمية الفعلية المسجلة لكل سند صرف");
+          for (const d of links) {
+            const quantity = d.quantity - d.used! - d.returned;
+            if (quantity > 0) await confirmDelivery(d, quantity);
+          }
+          noteAction(s, a, actorId, "return_received", `تأكيد مرتجع فعلي: ${returnNumbers.join("، ")}`, c.operationKey);
+          return { revision: a.revision, returnNumbers };
+        }
         const actualUsage = links.some(d => d.replacementPlanId != null) && links.every(d => d.used !== null);
         const lots = new Map<number, number>();
         for (const d of links)
@@ -1548,36 +1577,12 @@ export class MaintenanceTeamTicketService {
           if (actualUsage && x.quantity !== links.filter(d => d.lotId === x.lotId).reduce((sum, d) => sum + d.quantity - d.used! - d.returned, 0))
             throw new TeamTicketError("INVALID", "مرتجع كل لوت يجب أن يطابق الكمية الفعلية غير المستخدمة");
         }
-        const returnNumbers: string[] = [];
         for (const allocation of allocations) {
           let left = allocation.quantity;
           for (const d of links.filter(d => d.lotId === allocation.lotId)) {
             const quantity = Math.min(left, d.quantity - (actualUsage ? d.used! : 0) - d.returned);
             if (quantity <= 0) continue;
-            const result = await effects.returnToWarehouse({
-              operationKey: `${c.operationKey}:return:${d.id}`,
-              sourceDeliveryId: d.deliveryId,
-              quantity,
-              actorId,
-            });
-            integer(result.returnId, "سند المرتجع");
-            if (
-              result.quantity !== quantity ||
-              s.returns.some(r => r.returnId === result.returnId)
-            )
-              throw new TeamTicketError(
-                "INVALID",
-                "سند المرتجع غير مطابق أو مرتبط سابقًا"
-              );
-            d.returned += quantity;
-            s.returns.push({
-              id: s.nextId++,
-              deliveryLinkId: d.id,
-              sourceDeliveryId: d.deliveryId,
-              ...result,
-              actorId,
-            });
-            returnNumbers.push(result.returnNumber);
+            await confirmDelivery(d, quantity);
             left -= quantity;
           }
         }

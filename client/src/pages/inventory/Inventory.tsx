@@ -1,5 +1,6 @@
 import { InventoryBooks, loadBookLots } from "@/components/inventory/InventoryBooks";
 import { InventoryQuantitySummary } from "@/components/inventory/InventoryQuantitySummary";
+import { InventoryIssueUnitDialog, type InventoryIssueUnitItem } from "@/components/inventory/InventoryIssueUnitDialog";
 import { planBookFifo } from "@shared/inventory-book";
 import { isOwnerOrAdminRole } from "@shared/restricted-module-policy";
 import { trpc } from "@/lib/trpc";
@@ -493,6 +494,10 @@ export default function Inventory() {
 
   const [editOpen, setEditOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [issueUnitAction, setIssueUnitAction] = useState<{
+    item: InventoryIssueUnitItem;
+    mode: "approve" | "match";
+  } | null>(null);
   const [selectedItem, setSelectedItem] = useState<any>(null);
   const [editForm, setEditForm] = useState({ itemName: "", description: "", quantity: 0, unit: "", minQuantity: 0, location: "" });
 
@@ -504,6 +509,36 @@ export default function Inventory() {
   const openDelete = (item: any) => { setSelectedItem(item); setDeleteOpen(true); };
 
   const isWarehouse = user?.role === "warehouse" || user?.role === "admin" || user?.role === "owner";
+  const canManageIssueUnit = Number(authenticatedUser?.isActive) === 1 && (
+    authenticatedUser?.role === "warehouse" || isOwnerOrAdminRole(authenticatedUser?.role)
+  );
+
+  const renderIssueUnitActions = (item: InventoryIssueUnitItem) => {
+    if (!canManageIssueUnit || Number(item.isFrozen) || item.issueUnitApprovedAt === undefined) return null;
+    const issueUnit = item.issueUnit?.trim() || item.unit?.trim();
+    const canMatch = !!item.linkedItemId && item.catalogUnit !== undefined && !!issueUnit && item.catalogUnit?.trim() !== issueUnit;
+    if (item.issueUnitApprovedAt && !canMatch) return null;
+    return (
+      <div className="flex flex-wrap gap-1">
+        {item.issueUnitApprovedAt === null && (
+          <Button type="button" variant="outline" size="sm" className="h-7" onClick={event => {
+            event.stopPropagation();
+            setIssueUnitAction({ item, mode: "approve" });
+          }}>
+            اعتماد وحدة الصرف
+          </Button>
+        )}
+        {canMatch && (
+          <Button type="button" variant="outline" size="sm" className="h-7" onClick={event => {
+            event.stopPropagation();
+            setIssueUnitAction({ item, mode: "match" });
+          }}>
+            تغيير وحدة الكتالوج
+          </Button>
+        )}
+      </div>
+    );
+  };
 
   // إعادة الصفحة إلى 1 عند تغيير أي فلتر أو بحث، حتى لا تبقى على صفحة فارغة.
   // يجب أن يُستدعى هذا الـHook دائماً قبل أي "return" مبكر (مثل return طباعة QR
@@ -555,8 +590,9 @@ export default function Inventory() {
   const ITEMS_PER_PAGE = 36;
   const totalPages = Math.max(1, Math.ceil(filteredItems.length / ITEMS_PER_PAGE));
   const currentPageSafe = Math.min(currentPage, totalPages);
+  const firstItemIndex = (currentPageSafe - 1) * ITEMS_PER_PAGE;
   const pagedItems = filteredItems.slice(
-    (currentPageSafe - 1) * ITEMS_PER_PAGE,
+    firstItemIndex,
     currentPageSafe * ITEMS_PER_PAGE,
   );
 
@@ -749,6 +785,7 @@ export default function Inventory() {
 
       {selectedWarehouseId && lotsEnabled && <InventoryBooks layout="table" warehouseId={Number(selectedWarehouseId)} search={searchQuery} includeZero={!hideZeroStock} sort={sortBy} dateFrom={dateFrom} dateTo={dateTo}
         nodeIds={bookNodeIds}
+        renderIssueUnitActions={canManageIssueUnit ? renderIssueUnitActions : undefined}
         onFifo={isOwnerOrAdminRole(user?.role) && Number(user?.isActive) === 1 && lotsEnabled ? openBookDelivery : undefined}
         onPick={isWarehouse && lotsEnabled ? async ({lot,page,master}) => {
           setDeliverItem({...page, quantity:Number(page.quantity), itemName:master.nameAr || master.nameEn});
@@ -781,6 +818,7 @@ export default function Inventory() {
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-muted/50 text-xs text-muted-foreground">
+                <th scope="col" className="w-12 whitespace-nowrap px-3 py-2 text-center font-medium">م</th>
                 <th className="text-right font-medium px-3 py-2">الصنف</th>
                 <th className="text-right font-medium px-3 py-2">التصنيف</th>
                 <th className="text-right font-medium px-3 py-2">الكود</th>
@@ -793,7 +831,7 @@ export default function Inventory() {
               </tr>
             </thead>
             <tbody>
-              {pagedItems.map((item: any) => {
+              {pagedItems.map((item: any, index: number) => {
                 const isLow = (item.minQuantity || 0) > 0 && item.quantity <= (item.minQuantity || 0);
                 return (
                   <tr
@@ -801,6 +839,9 @@ export default function Inventory() {
                     className="border-t hover:bg-muted/30 transition-colors cursor-pointer"
                     onClick={() => setSelectedItemId(item.id)}
                   >
+                    <td className="whitespace-nowrap px-3 py-2.5 text-center tabular-nums">
+                      {firstItemIndex + index + 1}
+                    </td>
                     <td className="px-3 py-2.5">
                       <div className="flex items-center gap-1.5 flex-wrap">
                         <div className="font-medium">{item.itemName}</div>
@@ -833,7 +874,10 @@ export default function Inventory() {
                     <td className="px-3 py-2.5">
                       <span className={`font-bold ${isLow ? "text-destructive" : ""}`}>{item.quantity}</span>
                     </td>
-                    <td className="px-3 py-2.5 text-muted-foreground">{item.unit || item.issueUnit || "—"}</td>
+                    <td className="px-3 py-2.5 text-muted-foreground">
+                      <div>{item.issueUnitApprovedAt ? item.issueUnit || item.unit || "—" : item.unit || item.issueUnit || "—"}</div>
+                      <div className="mt-1 empty:hidden">{renderIssueUnitActions(item)}</div>
+                    </td>
                     <td className="px-3 py-2.5 text-muted-foreground">
                       {item.invoiceDate ? new Date(item.invoiceDate).toLocaleDateString("ar-SA") : "—"}
                     </td>
@@ -993,6 +1037,15 @@ export default function Inventory() {
         </DialogContent>
       </Dialog>
 
+      {canManageIssueUnit && issueUnitAction && (
+        <InventoryIssueUnitDialog
+          key={`${issueUnitAction.item.id}:${issueUnitAction.mode}`}
+          item={issueUnitAction.item}
+          mode={issueUnitAction.mode}
+          onClose={() => setIssueUnitAction(null)}
+        />
+      )}
+
       {/* Edit Inventory Item Dialog */}
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
         <DialogContent>
@@ -1002,14 +1055,18 @@ export default function Inventory() {
             <div className="space-y-2"><Label>{t.common.description}</Label><Input value={editForm.description} onChange={e => setEditForm(f => ({ ...f, description: e.target.value }))} /></div>
             <div className="grid grid-cols-3 gap-3">
               <div className="space-y-2"><Label>{t.inventory.currentStock}</Label><Input type="number" min={0} step={0.001} value={editForm.quantity} onChange={e => setEditForm(f => ({ ...f, quantity: parseFloat(e.target.value) || 0 }))} /></div>
-              <div className="space-y-2"><Label>{t.inventory.unit}</Label><Input value={editForm.unit} onChange={e => setEditForm(f => ({ ...f, unit: e.target.value }))} /></div>
+              <div className="space-y-2"><Label>{t.inventory.unit}</Label><Input value={editForm.unit} readOnly={!!selectedItem?.issueUnitApprovedAt} onChange={e => setEditForm(f => ({ ...f, unit: e.target.value }))} /></div>
               <div className="space-y-2"><Label>{t.inventory.minStock}</Label><Input type="number" min={0} step={0.001} value={editForm.minQuantity} onChange={e => setEditForm(f => ({ ...f, minQuantity: parseFloat(e.target.value) || 0 }))} /></div>
             </div>
             <div className="space-y-2"><Label>{t.inventory.location}</Label><Input value={editForm.location} onChange={e => setEditForm(f => ({ ...f, location: e.target.value }))} /></div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditOpen(false)}>{t.common.cancel}</Button>
-            <Button onClick={() => { if (!editForm.itemName) { toast.error(t.inventory.itemName); return; } updateMut.mutate({ id: selectedItem.id, ...editForm }); }} disabled={updateMut.isPending}>
+            <Button onClick={() => {
+              if (!editForm.itemName) { toast.error(t.inventory.itemName); return; }
+              const { unit, ...details } = editForm;
+              updateMut.mutate({ id: selectedItem.id, ...details, ...(selectedItem.issueUnitApprovedAt ? {} : { unit }) });
+            }} disabled={updateMut.isPending}>
               {updateMut.isPending ? t.common.saving : t.common.save}
             </Button>
           </DialogFooter>

@@ -2,6 +2,7 @@
 // db/invoice-drafts.ts — مسودات الفواتير واعتمادها
 // (مُقسَّم من db.ts الأصلي حسب المجال الوظيفي)
 // ============================================================
+import { TRPCError } from "@trpc/server";
 import { eq, desc, asc, and, sql, count, sum, inArray, notInArray, like, or, gte, lte, lt, isNull, isNotNull } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import { alias } from "drizzle-orm/mysql-core";
@@ -67,6 +68,7 @@ import {
   isInventoryLotsEnabled,
   resolveInventoryLotForCount,
 } from "../inventory-lots";
+import { getActiveCatalogUnitCanonicalName } from "../catalog-unit-governance";
 import { assertSpecificationReceiptTracking } from "../../services/purchase-specifications";
 import {
   calculateInventoryValue,
@@ -519,8 +521,8 @@ export async function getInventoryByPOItemId(purchaseOrderItemId: number) {
 // ═══════════════════════════════════════════════════════════════════════
 
 // ── توليد الأرقام التسلسلية ──
-export async function generateCountNumber(): Promise<string> {
-  const db = await getDb();
+export async function generateCountNumber(writer?: CountWriter): Promise<string> {
+  const db = writer ?? await getDb();
   const year = new Date().getFullYear();
   if (!db) return `CNT-${year}-0001`;
   const [result] = await db.insert(inventoryCountNumberCounter).values({ year });
@@ -614,7 +616,7 @@ async function assertInventoryMatchesOperationCatalogScope(
   }
 }
 
-export async function createCountOperation(params: {
+type CreateCountOperationInput = {
   operationTitle?: string;
   scope: "full" | "partial";
   countType?: "periodic" | "opening_balance";
@@ -623,10 +625,25 @@ export async function createCountOperation(params: {
   itemIds?: number[];        // مطلوبة لو scope = "partial" (إلا لو allowEmpty)
   allowEmpty?: boolean;
   createdById: number;
-}) {
-  const db = await getDb();
-  if (!db) throw new Error("تعذر الاتصال بقاعدة البيانات");
+};
 
+export async function createCountOperation(params: CreateCountOperationInput) {
+  const connection = await getDb();
+  if (!connection) throw new Error("تعذر الاتصال بقاعدة البيانات");
+  return connection.transaction(tx => openCountOperation(tx as unknown as CountWriter, params), {
+    isolationLevel: "read committed",
+  });
+}
+
+function assertCountIssueUnits(rows: Array<{ itemName: string; issueUnit: string | null; issueUnitApprovedAt: string | null }>) {
+  const missing = rows.filter(row => !row.issueUnitApprovedAt || !row.issueUnit?.trim());
+  if (missing.length === 0) return;
+  const names = missing.slice(0, 5).map(row => row.itemName).join("، ");
+  const more = missing.length > 5 ? ` و${missing.length - 5} أصناف أخرى` : "";
+  throw new TRPCError({ code: "BAD_REQUEST", message: `اعتمد وحدة الصرف في شاشة المستودع قبل فتح الجرد للأصناف التالية: ${names}${more}.` });
+}
+
+async function openCountOperation(db: CountWriter, params: CreateCountOperationInput) {
   const countType = params.countType || "periodic";
   if (countType === "opening_balance") {
     if (!isInventoryLotsEnabled()) {
@@ -656,7 +673,7 @@ export async function createCountOperation(params: {
     scopedCatalogItemIds = (catalogRows as any[]).map((row: any) => Number(row.id));
   }
 
-  const operationNumber = await generateCountNumber();
+  const operationNumber = await generateCountNumber(db);
   const { riyadhDate, riyadhDayName, riyadhStartTime } = getRiyadhNow();
   const defaultTitle = countType === "opening_balance"
     ? `رصيد افتتاحي ${riyadhDate}`
@@ -701,14 +718,22 @@ export async function createCountOperation(params: {
 
     const lotConditions: any[] = [
       eq(inventory.warehouseId, params.warehouseId),
+      eq(inventory.isFrozen, 0),
     ];
     if (params.catalogNodeId) {
       if (!scopedCatalogItemIds?.length) {
-        await db.delete(inventoryCountOperations).where(eq(inventoryCountOperations.id, operationId));
         throw new Error("لا توجد أصناف مرتبطة بالتصنيف المحدد للجرد");
       }
       lotConditions.push(inArray(inventory.linkedItemId, scopedCatalogItemIds));
     }
+
+    // Unit approval and stock conversion both lock Inventory before lot balances.
+    const stockRows = await db.select({
+      itemName: inventory.itemName,
+      issueUnit: inventory.issueUnit,
+      issueUnitApprovedAt: inventory.issueUnitApprovedAt,
+    }).from(inventory).where(and(...lotConditions)).orderBy(inventory.id).for("update");
+    assertCountIssueUnits(stockRows);
 
     // Main Phase 3 / Step 1: snapshot every existing Lot balance row in the warehouse,
     // including zero balances. A known QR with system balance zero may later reveal a
@@ -719,12 +744,14 @@ export async function createCountOperation(params: {
       lotId: inventoryLots.id,
       systemQuantity: inventoryLotBalances.quantity,
       averageCostSnapshot: inventory.averageCost,
+      unitSnapshot: inventory.issueUnit,
       expiryDate: inventoryLots.expiryDate,
     })
       .from(inventoryLotBalances)
       .innerJoin(inventoryLots, eq(inventoryLots.id, inventoryLotBalances.lotId))
       .innerJoin(inventory, eq(inventory.id, inventoryLotBalances.inventoryId))
-      .where(and(...lotConditions));
+      .where(and(...lotConditions))
+      .orderBy(inventory.id, inventoryLots.id).for("update");
 
     if (openingSnapshots.length > 0) {
       await db.insert(inventoryCountSnapshots).values(openingSnapshots.map((row: any) => ({
@@ -733,6 +760,7 @@ export async function createCountOperation(params: {
         lotId: Number(row.lotId),
         systemQuantity: Number(row.systemQuantity || 0).toFixed(3),
         averageCostSnapshot: Number(row.averageCostSnapshot || 0).toFixed(4),
+        unitSnapshot: row.unitSnapshot,
         expiryDate: row.expiryDate ?? null,
       })) as any);
     }
@@ -746,9 +774,6 @@ export async function createCountOperation(params: {
 
     const countTargets = openingSnapshots.filter((row: any) => Number(row.systemQuantity || 0) > 0);
     if (countTargets.length === 0) {
-      // لا نترك رأس عملية فارغاً إذا لم يوجد أي Lot موجب يطابق نطاق الجرد الشامل/المصنّف.
-      await db.delete(inventoryCountSnapshots).where(eq(inventoryCountSnapshots.operationId, operationId));
-      await db.delete(inventoryCountOperations).where(eq(inventoryCountOperations.id, operationId));
       throw new Error("لا توجد دفعات ذات رصيد مطابق لنطاق الجرد المحدد");
     }
 
@@ -758,6 +783,7 @@ export async function createCountOperation(params: {
         inventoryId: row.inventoryId,
         lotId: row.lotId,
         systemQuantity: Number(row.systemQuantity || 0).toFixed(3),
+        unitSnapshot: row.unitSnapshot,
         expiryDate: row.expiryDate ?? null,
       } as any);
     }
@@ -768,7 +794,7 @@ export async function createCountOperation(params: {
   // Legacy pre-Lot path: capture the opening state before an empty/manual barcode
   // workflow can add an Inventory row later. This preserves the same Phase 3 rule even
   // when the Lot feature flag is off.
-  const conditions = [];
+  const conditions = [eq(inventory.isFrozen, 0)];
   if (params.warehouseId) conditions.push(eq(inventory.warehouseId, params.warehouseId));
   if (effectiveScope === "partial" && params.itemIds?.length) {
     conditions.push(inArray(inventory.id, params.itemIds));
@@ -777,7 +803,8 @@ export async function createCountOperation(params: {
   const targetItems = await db
     .select()
     .from(inventory)
-    .where(conditions.length ? and(...conditions) : undefined);
+    .where(and(...conditions)).orderBy(inventory.id).for("update");
+  assertCountIssueUnits(targetItems);
 
   if (targetItems.length > 0) {
     await db.insert(inventoryCountSnapshots).values(targetItems.map((item: any) => ({
@@ -786,6 +813,7 @@ export async function createCountOperation(params: {
       lotId: null,
       systemQuantity: Number(item.quantity || 0).toFixed(3),
       averageCostSnapshot: Number(item.averageCost || 0).toFixed(4),
+      unitSnapshot: item.issueUnit,
       expiryDate: item.expiryDate ?? null,
     })) as any);
   }
@@ -796,7 +824,6 @@ export async function createCountOperation(params: {
   }
 
   if (targetItems.length === 0) {
-    await db.delete(inventoryCountOperations).where(eq(inventoryCountOperations.id, operationId));
     throw new Error("لا توجد أصناف مطابقة لنطاق الجرد المحدد");
   }
 
@@ -806,6 +833,7 @@ export async function createCountOperation(params: {
       operationId,
       inventoryId: item.id,
       systemQuantity: Number(item.quantity || 0).toFixed(3),
+      unitSnapshot: item.issueUnit,
       lotNumber: null,
       expiryDate: item.expiryDate ?? null,
     });
@@ -933,6 +961,7 @@ export async function scanCountItem(params: {
     operationId: params.operationId,
     inventoryId: params.inventoryId,
     systemQuantity: openingSystemQuantity.toFixed(3),
+    unitSnapshot: openingSnapshot.unitSnapshot || inv.issueUnit || inv.unit,
     countedQuantity: String(increment),
     diffQuantity: String(diff),
     expiryDate: openingSnapshot.expiryDate ?? null,
@@ -1040,7 +1069,19 @@ export async function searchInventoryCountCandidates(params: {
       .orderBy(asc(catalogItems.code), asc(catalogItems.nameAr))
       .limit(limit);
 
-    const catalogItemIds = (rows as any[]).map(row => Number(row.id));
+    const catalogItemIds = rows.map(row => Number(row.id));
+    const stockUnits = new Map<number, string | null>();
+    if (op.warehouseId && catalogItemIds.length > 0) {
+      const stockRows = await db.select({
+        catalogItemId: inventory.linkedItemId,
+        issueUnit: inventory.issueUnit,
+        issueUnitApprovedAt: inventory.issueUnitApprovedAt,
+      }).from(inventory).where(and(eq(inventory.warehouseId, op.warehouseId), eq(inventory.isFrozen, 0), inArray(inventory.linkedItemId, catalogItemIds)));
+      for (const row of stockRows) {
+        const id = Number(row.catalogItemId);
+        stockUnits.set(id, !stockUnits.has(id) && row.issueUnitApprovedAt ? row.issueUnit?.trim() || null : null);
+      }
+    }
     const barcodeByCatalogItemId = new Map<number, Set<string>>();
     const rememberBarcode = (catalogItemId: number, barcode: unknown) => {
       const normalized = String(barcode || "").trim();
@@ -1081,7 +1122,7 @@ export async function searchInventoryCountCandidates(params: {
       code: row.code ?? null,
       nameAr: row.nameAr,
       nameEn: row.nameEn,
-      unit: row.unit ?? null,
+      unit: stockUnits.has(Number(row.id)) ? stockUnits.get(Number(row.id)) ?? null : row.unit ?? null,
       manufacturer: row.manufacturer ?? null,
       nodeId: Number(row.nodeId),
       manufacturerBarcodes: Array.from(barcodeByCatalogItemId.get(Number(row.id)) || []),
@@ -1127,8 +1168,7 @@ export async function searchInventoryCountCandidates(params: {
     itemNameAr: inventory.itemNameAr,
     itemNameEn: inventory.itemNameEn,
     manufacturerBarcode: inventory.manufacturerBarcode,
-    unit: inventory.issueUnit,
-    fallbackUnit: inventory.unit,
+    unit: sql<string | null>`COALESCE(${inventoryCountSnapshots.unitSnapshot}, NULLIF(TRIM(${inventory.issueUnit}), ''), ${inventory.unit})`,
     systemQuantity: inventoryCountSnapshots.systemQuantity,
   })
     .from(inventoryCountSnapshots)
@@ -1152,7 +1192,7 @@ export async function searchInventoryCountCandidates(params: {
     nameEn: row.catalogItemNameEn || row.itemNameEn || null,
     nodeId: row.catalogNodeId == null ? null : Number(row.catalogNodeId),
     manufacturerBarcode: row.manufacturerBarcode ?? null,
-    unit: row.unit || row.fallbackUnit || null,
+    unit: row.unit ?? null,
     systemQuantity: Number(row.systemQuantity || 0),
   }));
 }
@@ -1217,6 +1257,7 @@ export async function scanCountLot(params: {
       inventoryId: lot.inventoryId,
       lotId: lot.lotId,
       systemQuantity: Number(openingSnapshot.systemQuantity || 0).toFixed(3),
+      unitSnapshot: openingSnapshot.unitSnapshot || inv.issueUnit || inv.unit,
       expiryDate: openingSnapshot.expiryDate ?? null,
     } as any);
     const id = Number((result as any).insertId);
@@ -1236,7 +1277,7 @@ export async function scanCountLot(params: {
     lotCode: lot.lotCode,
     trackingToken: lot.trackingToken,
     itemName: inv.itemName,
-    unit: (inv as any).issueUnit || inv.unit,
+    unit: row.unitSnapshot || openingSnapshot.unitSnapshot || inv.issueUnit || inv.unit,
     systemQuantity: Number(row.systemQuantity || 0),
     averageCostSnapshot: Number(openingSnapshot.averageCostSnapshot || 0),
     countedQuantity: row.countedQuantity !== null ? Number(row.countedQuantity) : null,
@@ -1287,7 +1328,7 @@ export async function addItemToCount(params: {
     return {
       countItemId: row.id,
       itemName: inv.itemName,
-      unit: inv.unit,
+      unit: row.unitSnapshot || inv.issueUnit || inv.unit,
       systemQuantity: parseFloat(row.systemQuantity),
       countedQuantity: row.countedQuantity !== null ? parseFloat(row.countedQuantity) : null,
       lotNumber: row.lotNumber,
@@ -1304,6 +1345,7 @@ export async function addItemToCount(params: {
     operationId: params.operationId,
     inventoryId: params.inventoryId,
     systemQuantity: Number(openingSnapshot.systemQuantity || 0).toFixed(3),
+    unitSnapshot: openingSnapshot.unitSnapshot || inv.issueUnit || inv.unit,
     expiryDate: openingSnapshot.expiryDate ?? null,
   });
   const countItemId = (result as any).insertId as number;
@@ -1311,7 +1353,7 @@ export async function addItemToCount(params: {
   return {
     countItemId,
     itemName: inv.itemName,
-    unit: inv.unit,
+    unit: openingSnapshot.unitSnapshot || inv.issueUnit || inv.unit,
     systemQuantity: Number(openingSnapshot.systemQuantity || 0),
     countedQuantity: null,
     lotNumber: null,
@@ -1361,25 +1403,29 @@ export async function addNewItemDuringCount(params: {
 
     const catalogRows = await db.select().from(catalogItems)
       .where(and(eq(catalogItems.id, params.catalogItemId), eq(catalogItems.isActive, 1)))
-      .limit(1);
+      .limit(1).for("update");
     const catalog = catalogRows[0];
     if (!catalog) throw new Error("صنف الكتالوج غير موجود أو غير نشط");
 
     const matchingInventory = await db.select().from(inventory).where(and(
       eq(inventory.linkedItemId, catalog.id),
       eq(inventory.warehouseId, op.warehouseId),
-    ));
+      eq(inventory.isFrozen, 0),
+    )).orderBy(inventory.id).for("update");
     if (matchingInventory.length > 1) {
       throw new Error(`يوجد أكثر من سجل Inventory لنفس صنف الكتالوج داخل المستودع. أصلح التكرار قبل الرصيد الافتتاحي`);
     }
 
     let inventoryId: number;
     let internalCode: string;
+    let issueUnit: string;
     if (matchingInventory[0]) {
       const existing = matchingInventory[0];
       if (normalizeInventoryQuantity(Number(existing.quantity || 0)) !== 0) {
         throw new Error("هذا الصنف لديه رصيد قائم في المستودع. الرصيد الافتتاحي مخصص للتأسيس على رصيد صفري");
       }
+      assertCountIssueUnits([existing]);
+      issueUnit = existing.issueUnit!.trim();
       inventoryId = existing.id;
       internalCode = (existing as any).internalCode || "";
       await db.update(inventory).set({
@@ -1387,23 +1433,24 @@ export async function addNewItemDuringCount(params: {
         itemName: catalog.nameAr,
         itemNameAr: catalog.nameAr,
         itemNameEn: catalog.nameEn,
-        unit: catalog.unit || (existing as any).unit || "قطعة",
-        purchaseUnit: catalog.unit || (existing as any).purchaseUnit || (existing as any).unit || "قطعة",
-        issueUnit: catalog.unit || (existing as any).issueUnit || (existing as any).unit || "قطعة",
         averageCost: cost.toFixed(4),
         totalCostValue: "0.00",
         updatedAt: new Date(),
       } as any).where(eq(inventory.id, inventoryId));
     } else {
+      const catalogUnit = await getActiveCatalogUnitCanonicalName(catalog.unit, db);
+      if (!catalogUnit) throw new Error("حدد وحدة صرف فعالة لهذا الصنف في الكتالوج قبل إضافته للرصيد الافتتاحي");
+      issueUnit = catalogUnit;
       internalCode = await getNextInventoryCode(db);
       inventoryId = Number(await createInventoryItemV2({
         itemName:            catalog.nameAr,
         itemNameAr:          catalog.nameAr,
         itemNameEn:          catalog.nameEn,
         quantity:            0,
-        unit:                catalog.unit || "قطعة",
-        purchaseUnit:        catalog.unit || "قطعة",
-        issueUnit:           catalog.unit || "قطعة",
+        unit:                issueUnit,
+        purchaseUnit:        issueUnit,
+        issueUnit,
+        issueUnitApprovedAt: new Date().toISOString().slice(0, 23).replace("T", " "),
         conversionFactor:    "1.0000",
         internalCode,
         averageCost:         cost.toFixed(4),
@@ -1426,6 +1473,7 @@ export async function addNewItemDuringCount(params: {
       operationId: params.operationId,
       inventoryId,
       systemQuantity: "0.000",
+      unitSnapshot: issueUnit,
       countedQuantity: quantity.toFixed(3),
       diffQuantity: quantity.toFixed(3),
       countedById: params.createdById,
@@ -1440,7 +1488,7 @@ export async function addNewItemDuringCount(params: {
       catalogItemId: catalog.id,
       itemName: catalog.nameAr,
       itemNameEn: catalog.nameEn,
-      unit: catalog.unit || "قطعة",
+      unit: issueUnit,
       quantity,
       internalCode,
       openingBalancePending: true,
@@ -1489,6 +1537,7 @@ export async function addNewItemDuringCount(params: {
     operationId:    params.operationId,
     inventoryId,
     systemQuantity: String(quantity),
+    unitSnapshot: unit,
     countedQuantity: String(quantity),
     diffQuantity:    "0",
     countedById:     params.createdById,
@@ -1689,7 +1738,7 @@ export async function getUncountedItems(operationId: number) {
     lotCode: inventoryLots.lotCode,
     catalogItemId: inventory.linkedItemId,
     itemName: inventory.itemName,
-    unit: inventory.unit,
+    unit: sql<string | null>`COALESCE(${inventoryCountItems.unitSnapshot}, NULLIF(TRIM(${inventory.issueUnit}), ''), ${inventory.unit})`,
     systemQuantity: inventoryCountItems.systemQuantity,
   })
     .from(inventoryCountItems)
@@ -1729,6 +1778,7 @@ async function attachCountOpeningValuation(db: any, operationId: number, rows: a
 
     return {
       ...row,
+      unit: snapshot?.unitSnapshot ?? row.unit,
       // Do not fall back to current Inventory.averageCost for historical valuation.
       // Old operations without an opening snapshot remain explicitly unvalued.
       averageCostSnapshot: snapshot ? Number(snapshot.averageCostSnapshot || 0).toFixed(4) : null,
@@ -1776,7 +1826,7 @@ export async function getCountOperationDetails(operationId: number) {
     lotCode: inventoryLots.lotCode,
     sourceType: inventoryLots.sourceType,
     itemName: inventory.itemName,
-    unit: inventory.unit,
+    unit: sql<string | null>`COALESCE(${inventoryCountItems.unitSnapshot}, NULLIF(TRIM(${inventory.issueUnit}), ''), ${inventory.unit})`,
     // Current cost remains exposed only for operational compatibility; Step 2 valuation
     // uses averageCostSnapshot exclusively and never this changing value.
     averageCost: inventory.averageCost,
@@ -2124,6 +2174,7 @@ export async function applySettlement(params: {
         const [settlementItemResult] = await writer.insert(inventorySettlementItems).values({
           settlementId,
           inventoryId: item.inventoryId,
+          unitSnapshot: countItem.unitSnapshot || inv.issueUnit || inv.unit,
           beforeQuantity: before.toFixed(3),
           afterQuantity: after.toFixed(3),
           diffQuantity: diff.toFixed(3),
@@ -2252,6 +2303,7 @@ export async function applySettlement(params: {
           settlementId,
           inventoryId: item.inventoryId,
           lotId: Number(item.lotId),
+          unitSnapshot: countItem.unitSnapshot || inv.issueUnit || inv.unit,
           beforeQuantity: adjustment.beforeLotQuantity.toFixed(3),
           afterQuantity: adjustment.afterLotQuantity.toFixed(3),
           diffQuantity: adjustment.diffQuantity.toFixed(3),
@@ -2323,6 +2375,7 @@ export async function applySettlement(params: {
       await writer.insert(inventorySettlementItems).values({
         settlementId,
         inventoryId: item.inventoryId,
+        unitSnapshot: inv.issueUnit || inv.unit,
         beforeQuantity: before.toFixed(3),
         afterQuantity: after.toFixed(3),
         diffQuantity: diff.toFixed(3),
@@ -2408,7 +2461,7 @@ export async function getSettlementDetails(settlementId: number) {
     lotExpiryDate: inventoryLots.expiryDate,
     catalogItemId: inventory.linkedItemId,
     itemName: inventory.itemName,
-    unit: inventory.unit,
+    unit: sql<string | null>`COALESCE(${inventorySettlementItems.unitSnapshot}, NULLIF(TRIM(${inventory.issueUnit}), ''), ${inventory.unit})`,
     beforeQuantity: inventorySettlementItems.beforeQuantity,
     afterQuantity: inventorySettlementItems.afterQuantity,
     diffQuantity: inventorySettlementItems.diffQuantity,

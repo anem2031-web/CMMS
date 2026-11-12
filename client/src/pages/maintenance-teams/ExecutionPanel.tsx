@@ -44,6 +44,7 @@ import {
 } from "@shared/maintenance-team-tickets/execution-permissions";
 import {
   issued,
+  isPreConversionDelivery,
   remainingReturn,
   outcomeLabels,
   stageLabels,
@@ -447,6 +448,7 @@ export function ExecutionPanel({
                     .map(d => d.lotId)
                 )
               );
+            const allocateReturnLots = lots.length > 1 && !state.deliveries.some(d => d.needId === n.id && isPreConversionDelivery(d));
             const candidate = issueRecipients[n.id] ?? String(n.requestedById);
             const selectedRecipient = materialRecipients.some(
               u => u.id === Number(candidate)
@@ -743,7 +745,7 @@ export function ExecutionPanel({
                   ))}
                 {warehouse && returns > 0 && (
                   <div className="space-y-2">
-                    {lots.length > 1 &&
+                    {allocateReturnLots &&
                       lots.map(lotId => (
                         <label className="flex items-center gap-2" key={lotId}>
                           {l("مرتجع اللوت", "Return from lot", "لاٹ کی واپسی")}{" "}
@@ -770,7 +772,7 @@ export function ExecutionPanel({
                       disabled={busy}
                       onClick={() => {
                         const distribution =
-                          lots.length > 1
+                          allocateReturnLots
                             ? lots
                                 .map(lotId => ({
                                   lotId,
