@@ -18,14 +18,14 @@ import { MaterialRequestMeta } from "@/components/inventory/MaterialRequestMeta"
 export function OperationalIssueQueue({ process = false, returnsOnly = false, search = "" }: {
   process?: boolean; returnsOnly?: boolean; search?: string;
 }) {
-  const { user } = useAuth(); const { language, dir } = useTranslation();
+  const { user: projectedUser, authenticatedUser } = useAuth(); const user = authenticatedUser ?? projectedUser; const { language, dir } = useTranslation();
   const text = operationalIssueText[language];
   const list = trpc.operationalIssues.list.useQuery(undefined, { retry: false });
   const [id, setId] = useState<number | null>(null);
   const detail = trpc.operationalIssues.detail.useQuery({ id: id || 0 }, { enabled: Boolean(id && list.data?.enabled), retry: false });
   const approve = trpc.operationalIssues.approve.useMutation();
   const canProcess = process && canProcessOperationalIssue(user?.role);
-  const canSeeStock = !returnsOnly && (canProcess || user?.role === "observer");
+  const canSeeStock = !returnsOnly && (canProcess || user?.role === "observer" || user?.role === "senior_management");
   const stock = trpc.operationalIssues.availability.useQuery({ id: id || 0 }, { enabled: Boolean(id && list.data?.enabled && canSeeStock), retry: false });
   const refresh = async () => { await Promise.all([list.refetch(), ...(id ? [detail.refetch(), ...(canSeeStock ? [stock.refetch()] : [])] : [])]); };
   const run = async (work: () => Promise<unknown>) => {

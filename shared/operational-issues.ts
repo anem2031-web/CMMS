@@ -4,7 +4,7 @@ export const OPERATIONAL_CREATE_ROLES = ["maintenance_manager", "general_mainten
 export const OPERATIONAL_WAREHOUSE_ROLES = ["warehouse", "owner", "admin"];
 export function canCreateOperationalIssue(role?: string | null) { return OPERATIONAL_CREATE_ROLES.includes(role || ""); }
 export function canProcessOperationalIssue(role?: string | null) { return OPERATIONAL_WAREHOUSE_ROLES.includes(role || ""); }
-export function canReadOperationalIssue(role?: string | null) { return canCreateOperationalIssue(role) || canProcessOperationalIssue(role) || role === "observer"; }
+export function canReadOperationalIssue(role?: string | null) { return canCreateOperationalIssue(role) || canProcessOperationalIssue(role) || role === "observer" || role === "senior_management"; }
 export type OperationalOrder = {
   id: number; orderNumber: string; createdById: number; creatorName: string; collectorId: number; collectorName: string;
   siteId: number; siteName: string; sectionId: number; sectionName: string; reason: string;

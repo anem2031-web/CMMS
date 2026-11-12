@@ -30,7 +30,7 @@ export class OperationalIssueService {
       FROM operational_issue_orders o LEFT JOIN users u ON u.id=o.createdById LEFT JOIN users c ON c.id=o.collectorId
       LEFT JOIN sites s ON s.id=o.siteId LEFT JOIN sections x ON x.id=o.sectionId WHERE o.id=${id} ${lock ? sql`FOR UPDATE` : sql``}`);
     if (!row) throw new TRPCError({ code: "NOT_FOUND", message: "أمر الصرف غير موجود" });
-    if (!["warehouse", "owner", "admin", "observer"].includes(actor.role) && Number(row.createdById) !== actor.id) deny();
+    if (!["warehouse", "owner", "admin", "observer", "senior_management"].includes(actor.role) && Number(row.createdById) !== actor.id) deny();
     return row;
   }
   async list(actor: OperationalActor) {
@@ -38,7 +38,7 @@ export class OperationalIssueService {
     return await rows(db, sql`SELECT o.*,u.name AS creatorName,c.name AS collectorName,s.name AS siteName,x.name AS sectionName
       FROM operational_issue_orders o LEFT JOIN users u ON u.id=o.createdById LEFT JOIN users c ON c.id=o.collectorId
       LEFT JOIN sites s ON s.id=o.siteId LEFT JOIN sections x ON x.id=o.sectionId
-      WHERE ${["warehouse", "owner", "admin", "observer"].includes(actor.role) ? sql`1=1` : sql`o.createdById=${actor.id}`} ORDER BY o.id DESC LIMIT 500`) as OperationalOrder[];
+      WHERE ${["warehouse", "owner", "admin", "observer", "senior_management"].includes(actor.role) ? sql`1=1` : sql`o.createdById=${actor.id}`} ORDER BY o.id DESC LIMIT 500`) as OperationalOrder[];
   }
   async detail(actor: OperationalActor, id: number) {
     this.actor(actor, "read");
@@ -56,7 +56,7 @@ export class OperationalIssueService {
   }
   async availability(actor: OperationalActor, id: number) {
     this.actor(actor, "read");
-    if (!canProcessOperationalIssue(actor.role) && actor.role !== "observer") deny();
+    if (!canProcessOperationalIssue(actor.role) && actor.role !== "observer" && actor.role !== "senior_management") deny();
     const db = await this.ports.database(); await this.order(db, actor, id);
     const lines = await rows(db, sql`SELECT * FROM operational_issue_items WHERE orderId=${id} ORDER BY id`) as OperationalLine[];
     const context = dispatchContext(lines[0]?.dispatchContext);

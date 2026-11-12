@@ -65,6 +65,11 @@ export interface AssignedTeamTicket {
     section: "waiting" | "ready" | "returns";
     requestCreatorName?: string | null;
     requestCreatedAt?: string | null;
+    requestedQuantity?: number;
+    issuedQuantity?: number;
+    returnedQuantity?: number;
+    availableQuantity?: number;
+    usedQuantity?: number | null;
   }>;
 }
 export interface AssignmentResult {

@@ -1,7 +1,7 @@
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-const f = vi.hoisted(() => ({ search: "", language: "ar", role: "warehouse", rows: [] as any[], query: [] as any[], detail: vi.fn(), print: vi.fn(), nav: vi.fn(), mounted: [] as string[], cells: [] as any[], cursor: 0, inputs: [] as any[], buttons: [] as any[], tabs: [] as any[] }));
+const f = vi.hoisted(() => ({ search: "", language: "ar", role: "warehouse", rows: [] as any[], query: [] as any[], detail: vi.fn(), print: vi.fn(), download: vi.fn(), nav: vi.fn(), mounted: [] as string[], cells: [] as any[], cursor: 0, inputs: [] as any[], buttons: [] as any[], tabs: [] as any[] }));
 vi.mock("react", async original => ({ ...await original<typeof import("react")>(), useState: (initial: any) => {
   const i = f.cursor++; if (!(i in f.cells)) f.cells[i] = typeof initial === "function" ? initial() : initial;
   return [f.cells[i], (value: any) => { f.cells[i] = typeof value === "function" ? value(f.cells[i]) : value; }];
@@ -18,6 +18,7 @@ vi.mock("../../client/src/components/ui/dialog", () => ({ Dialog: ({ open, child
 vi.mock("../../client/src/pages/pmv2/Pmv2WarehouseQueue", () => ({ default: () => { f.mounted.push("pmv2"); return <p>PMV2 operations</p>; } }));
 vi.mock("../../client/src/pages/maintenance-teams/TicketWarehouseRequests", () => ({ default: (p: any) => { f.mounted.push("tickets"); return <p>Ticket operations {p.ticketId}</p>; } }));
 vi.mock("../../client/src/pages/operational-issues/OperationalWarehouseRequests", () => ({ default: () => { f.mounted.push("operational"); return <p>Operational operations</p>; } }));
+vi.mock("../../client/src/lib/exportHtmlToPdf", () => ({ downloadDocumentAsPdf: f.download }));
 vi.mock("../../client/src/lib/trpc", () => ({ trpc: {
   useUtils: () => ({ warehouseRequestDocuments: { detail: { fetch: f.detail } } }),
   warehouseRequestDocuments: { list: { useQuery: (input: any, options: any) => { f.query.push({ input, options }); return { data: { rows: f.rows, total: f.rows.length, page: input.page, pageSize: 20 }, isLoading: false, refetch: vi.fn() }; } }, recordPrint: { useMutation: () => ({ mutateAsync: f.print }) } },
@@ -66,9 +67,24 @@ describe("warehouse source operations and existing document panels", () => {
     expect(write.mock.calls[0][0]).toContain("DLV-100");
     expect(write.mock.calls[0][0]).not.toContain("purchaseOrders.incrementPrintCount");
   });
-  it.each(["technician", "delegate", "accountant", "senior_management", "observer"])("does not enable document reads for %s using an admin projection", role => {
+  it.each(["technician", "delegate", "accountant", "observer"])("does not enable document reads for %s using an admin projection", role => {
     f.role = role; render(<WarehouseRequestDocuments source="tickets"/>);
     expect(f.query[0].options.enabled).toBe(false);
+  });
+  it("lets senior management view and download PDFs without a print button", () => {
+    f.role = "senior_management";
+    const html = render(<WarehouseRequestDocuments source="tickets"/>);
+    expect(f.query[0].options.enabled).toBe(true);
+    expect(html).toContain("تفاصيل"); expect(html).toContain("عرض PDF"); expect(html).toContain("تنزيل PDF");
+    expect(html).not.toContain("طباعة"); expect(f.print).not.toHaveBeenCalled();
+  });
+  it("downloads the existing PDF after a fresh source-scoped detail read", async () => {
+    f.role = "senior_management";
+    render(<WarehouseRequestDocuments source="operational"/>);
+    f.buttons.find(p => text(p.children).trim() === "تنزيل PDF").onClick();
+    await vi.waitFor(() => expect(f.download).toHaveBeenCalledWith(expect.any(String), "DLV-100", { type: "delivery", id: 100 }));
+    expect(f.detail).toHaveBeenCalledWith({ source: "operational", kind: "delivery", id: 100 }, { staleTime: 0 });
+    expect(f.print).not.toHaveBeenCalled();
   });
   it("reuses the current DLV template and original number without issuing another document", async () => {
     const result = await f.detail();

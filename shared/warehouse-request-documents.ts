@@ -10,5 +10,5 @@ export type WarehouseRequestDocumentRow = {
 };
 export function canReadWarehouseRequestDocuments(actor: { id: number; role: string; isActive?: number } | null | undefined) {
   return !!actor && Number.isSafeInteger(actor.id) && actor.id > 0 && actor.isActive === 1
-    && ["warehouse", "owner", "admin"].includes(actor.role);
+    && ["warehouse", "owner", "admin", "senior_management"].includes(actor.role);
 }

@@ -330,7 +330,7 @@ export function canRoleAccessPath(role: string | null | undefined, path: string)
     return canRoleExecutePmv2Technician(role);
   }
   if (matchesPrefix(normalizedPath, "/scheduled-maintenance/warehouse-requests")) {
-    return canRoleAccessPmv2Warehouse(role);
+    return canRoleAccessPmv2Warehouse(role) || role === APP_ROLE.SENIOR_MANAGEMENT;
   }
   if (matchesPrefix(normalizedPath, "/scheduled-maintenance")) {
     return canRoleManagePmv2(role);

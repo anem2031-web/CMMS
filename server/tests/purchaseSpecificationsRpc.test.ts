@@ -27,6 +27,11 @@ describe("Actual protected RPC and central role registry", () => {
     if (reviewers.includes(role)) {
       expect((await api.list({})).rows.map(row => row.id)).toEqual([1]);
       expect(await api.decide({ id: 1, revision: 0, decision: "approved" })).toEqual({ id: 1, status: "approved", revision: 1 });
+    } else if (role === "senior_management") {
+      expect((await api.list({})).rows.map(row => row.id)).toEqual([1]);
+      await expect(api.decide({ id: 1, revision: 0, decision: "approved" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+      await expect(api.decide({ id: 1, revision: 0, decision: "rejected" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+      expect(f.get("inventory_lots", 1).specificationStatus).toBe("pending");
     } else {
       await expect(api.list({})).rejects.toMatchObject({ code: "FORBIDDEN" });
       await expect(api.decide({ id: 1, revision: 0, decision: "approved" })).rejects.toMatchObject({ code: "FORBIDDEN" });

@@ -12,9 +12,12 @@ import TicketWarehouseRequests from "../maintenance-teams/TicketWarehouseRequest
 import OperationalWarehouseRequests from "../operational-issues/OperationalWarehouseRequests";
 import { operationalIssueText } from "@/i18n/operationalIssues";
 import WarehouseRequestDocuments from "./WarehouseRequestDocuments";
+import { useAuth } from "@/_core/hooks/useAuth";
 
 export default function WarehouseRequestsPage() {
   const { language, dir } = useTranslation();
+  const { authenticatedUser, user } = useAuth();
+  const readOnly = (authenticatedUser ?? user)?.role === "senior_management";
   const search = useSearch();
   const [, navigate] = useLocation();
   const { source, ticketId } = warehouseRequestsSelection(search);
@@ -64,7 +67,7 @@ export default function WarehouseRequestsPage() {
         <TabsTrigger value="operational">{operationalIssueText[language].title}</TabsTrigger>
       </TabsList>
       <TabsContent value="pmv2">
-        {source === "pmv2" && sourceTabs(<Pmv2WarehouseQueue />)}
+        {source === "pmv2" && sourceTabs(<Pmv2WarehouseQueue readOnly={readOnly} />)}
       </TabsContent>
       <TabsContent value="operational">{source === "operational" && sourceTabs(<OperationalWarehouseRequests />)}</TabsContent>
       <TabsContent value="tickets">

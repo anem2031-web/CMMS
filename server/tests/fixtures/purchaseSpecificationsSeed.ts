@@ -8,6 +8,7 @@ export const specificationPeople = {
   warehouse: { id: 32, role: "warehouse", isActive: 1, name: "المستودع" },
   admin: { id: 33, role: "admin", isActive: 1, name: "مدير النظام" },
   owner: { id: 34, role: "owner", isActive: 1, name: "المالك" },
+  senior: { id: 35, role: "senior_management", isActive: 1, name: "الإدارة العليا" },
 };
 
 /** A source is an actual receipt, item, original inventory and physical lot. */

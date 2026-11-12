@@ -22,7 +22,8 @@ export default function TicketWarehouseRequests({
   search?: string;
 } = {}) {
   const returnsOnly = embedded && selectedSection === "returns";
-  const { user, loading } = useAuth();
+  const { user: projectedUser, authenticatedUser, loading } = useAuth();
+  const user = authenticatedUser ?? projectedUser;
   const { language, dir, t } = useTranslation();
   const l = (ar: string, en: string, ur: string) =>
     language === "ar" ? ar : language === "ur" ? ur : en;
@@ -38,7 +39,7 @@ export default function TicketWarehouseRequests({
     l("المرتجعات", "Returns", "واپسی"),
   ];
   const allowed =
-    user?.isActive === 1 && ["warehouse", "owner", "admin"].includes(user.role);
+    user?.isActive === 1 && ["warehouse", "owner", "admin", "senior_management"].includes(user.role);
   const requests = trpc.ticketTeamAssignments.warehouseRequests.useQuery(
     undefined,
     { enabled: !!allowed, retry: false, refetchOnWindowFocus: false }
@@ -153,7 +154,15 @@ export default function TicketWarehouseRequests({
                   <div className="rounded-t-xl border border-b-0 bg-muted/20 p-3">
                     <MaterialRequestMeta creatorName={need.requestCreatorName} sentAt={need.requestCreatedAt} language={language} />
                   </div>
-                  <ExecutionPanel
+                  {user!.role === "senior_management" ? <div className="rounded-b-xl border bg-card p-4 space-y-2">
+                    <p className="font-semibold">{need.name} — {need.unit}</p>
+                    <p>{ticket.ticketNumber} · {ticket.title}</p>
+                    <p>{ticket.teamName} · {ticket.warehouseName || "—"}</p>
+                    <p>{ticket.siteName || "—"} · {ticket.sectionName || "—"}</p>
+                    {ticket.description && <p className="text-sm text-muted-foreground">{ticket.description}</p>}
+                    <p>{l("المطلوب", "Requested", "درخواست")}: {need.requestedQuantity} {need.unit} · {l("المصروف", "Issued", "جاری")}: {need.issuedQuantity} {need.unit}</p>
+                    <p>{l("المستخدم", "Used", "استعمال")}: {need.usedQuantity ?? "—"} · {l("المرتجع", "Returned", "واپسی")}: {need.returnedQuantity} · {l("المتاح", "Available", "دستیاب")}: {need.availableQuantity} {need.unit}</p>
+                  </div> : <ExecutionPanel
                     assignmentId={ticket.assignmentId}
                     warehouseNeedId={need.needId}
                     warehouseTicket={ticket}
@@ -164,7 +173,7 @@ export default function TicketWarehouseRequests({
                     warehouseSection={value}
                     returnsOnly={returnsOnly}
                     onChanged={() => void requests.refetch()}
-                  />
+                  />}
                 </div>
               ))}
               {rows.length > limit && (

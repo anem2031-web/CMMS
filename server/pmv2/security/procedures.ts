@@ -47,3 +47,11 @@ export const pmv2WarehouseProcedure = protectedProcedure.use(
     return next({ ctx });
   },
 );
+
+/** Read-only oversight never changes the warehouse mutation grant. */
+export const pmv2WarehouseReadProcedure = protectedProcedure.use(({ ctx, next }) => {
+  if (!(canAccessPmv2WarehouseQueue(ctx.user.role) || (ctx.user.role === "senior_management" && ctx.user.isActive === 1))) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "ليس لديك صلاحية لاستعراض طلبات مواد المستودع" });
+  }
+  return next({ ctx });
+});

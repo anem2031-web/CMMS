@@ -85,6 +85,12 @@ describe("specification review UI", () => {
     expect(renderToStaticMarkup(<SpecificationReviewList {...props} error={{ message: "تعذر تحميل المطابقة" }} />)).toContain('role="alert"');
     expect(renderToStaticMarkup(<SpecificationReviewList {...props} />)).toContain("لا توجد أصناف بانتظار مطابقة المواصفات");
   });
+  it("renders senior oversight without decisions or notes and does not link a forbidden order", () => {
+    const html = renderToStaticMarkup(<SpecificationReviewList data={{ rows: [{ ...row, canOpenOrder: false }], total: 1, page: 1, pageSize: 10 }} isLoading={false} page={1} onPageChange={() => {}} onDecisionSaved={() => {}} canDecide={false} />);
+    expect(html).toContain(row.itemName); expect(html).toContain(row.poNumber);
+    expect(html).toContain("goods-photo"); expect(html).not.toContain('href="/purchase-orders/52"');
+    expect(html).not.toContain("مطابق — موافقة"); expect(html).not.toContain("غير مطابق — رفض"); expect(html).not.toContain("ملاحظات المطابقة (اختياري)");
+  });
   it("sends independent server id/revision decisions, trimmed notes and no stock mutation", () => {
     const callbacks = nodes(componentSource, ts.isJsxAttribute).filter(node => node.name.getText() === "onClick" && node.initializer?.getText().includes("decide.mutate"));
     expect(callbacks).toHaveLength(2);
@@ -101,10 +107,14 @@ describe("specification review UI", () => {
   it.each(["construction_procurement_manager", "admin", "owner", "warehouse", "accounting", "senior_management", "technician", "maintenance_manager"])("preserves exact tab grant for %s", role => {
     expect(evaluate(initializer(orderSource, "canReviewSpecifications"), { user: { role } })).toBe(["construction_procurement_manager", "admin", "owner"].includes(role));
   });
+  it.each(["construction_procurement_manager", "admin", "owner", "warehouse", "senior_management", "technician"])("grants tab visibility independently from decisions for %s", role => {
+    const canReviewSpecifications = ["construction_procurement_manager", "admin", "owner"].includes(role);
+    expect(evaluate(initializer(orderSource, "canViewSpecifications"), { canReviewSpecifications, user: { role } })).toBe(canReviewSpecifications || role === "senior_management");
+  });
   it("uses one pending-list query for tab badge and contents", () => {
     expect(orderSource.match(/trpc\.purchaseSpecifications\.list\.useQuery/g)).toHaveLength(1);
     const query = nodes(orderSource, ts.isCallExpression).find(node => node.expression.getText() === "trpc.purchaseSpecifications.list.useQuery")!;
-    const options = evaluate(query.arguments[1].getText(), { canReviewSpecifications: false, independentReadOptions: {} });
+    const options = evaluate(query.arguments[1].getText(), { canViewSpecifications: false, independentReadOptions: {} });
     expect(options.enabled).toBe(false);
   });
   it("returns to the final existing page after approving the last row of a page", () => {

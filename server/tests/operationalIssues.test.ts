@@ -231,6 +231,17 @@ describe("Operational order → existing physical issue → original-delivery re
 });
 
 describe("Central reference guard and rollout", () => {
+  it("allows senior management to inspect all operational requests but never process them", async () => {
+    const f = fixture(); await f.service.create(manager, body);
+    const senior = { ...manager, id: 30, role: "senior_management" };
+    const api = router({ operationalIssues: createOperationalIssuesRouter(f.ports, () => true) }).createCaller({ user: senior, authenticatedUser: senior, req: {}, res: {} } as TrpcContext);
+    expect(await api.operationalIssues.list()).toHaveProperty("orders.length", 1);
+    expect(await api.operationalIssues.detail({ id: 1 })).toHaveProperty("order.createdById", manager.id);
+    await expect(api.operationalIssues.approve({ id: 1, revision: 0 })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(api.operationalIssues.issue({ orderId: 1, itemId: 1, warehouseId: 1, quantity: 1, operationKey: "senior" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(api.operationalIssues.returnMaterial({ orderId: 1, deliveryDocumentId: 1, quantity: 1, reason: "سبب", operationKey: "senior-return" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(f.state().stock).toBe(10);
+  });
   it("retains IT manager access to existing own orders but closes the legacy catalog creation RPC", async () => {
     const f = fixture(); const actor = { ...manager, role: "it_manager" };
     const api = router({ operationalIssues: createOperationalIssuesRouter(f.ports, () => true) }).createCaller({ user: actor, req: {}, res: {} } as TrpcContext);
@@ -245,8 +256,9 @@ describe("Central reference guard and rollout", () => {
     await expect(api.operationalIssues.approve({ id: 1, revision: 0 })).rejects.toMatchObject({ code: "FORBIDDEN" });
     await expect(api.operationalIssues.issue({ orderId: 1, itemId: 1, warehouseId: 1, lotTrackingToken: "LOT-1", quantity: 1, operationKey: "not-warehouse" })).rejects.toMatchObject({ code: "FORBIDDEN" });
     await expect(api.operationalIssues.returnMaterial({ orderId: 1, deliveryDocumentId: 1, quantity: 1, reason: "Unused", operationKey: "not-warehouse-return" })).rejects.toMatchObject({ code: "FORBIDDEN" });
-    for (const path of ["/inventory", "/warehouse/issue", "/scheduled-maintenance/warehouse-requests", "/catalog"])
+    for (const path of ["/inventory", "/warehouse/issue", "/scheduled-maintenance/warehouse-requests"])
       expect(canRoleAccessPath(actor.role, path)).toBe(false);
+    expect(canRoleAccessPath(actor.role, "/catalog")).toBe(true);
     expect(canRoleAccessPath("it_member", "/operational-issues")).toBe(false);
     expect(f.state().stock).toBe(10); expect(f.state().documents).toHaveLength(0);
   });

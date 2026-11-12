@@ -17,7 +17,7 @@ export class TicketTeamAssignmentService {
     return this.repository.queue(actor);
   }
   async warehouseRequests(actor: TeamManagementActor) {
-    if (!actor.active || !["warehouse", "owner", "admin"].includes(actor.role))
+    if (!actor.active || !["warehouse", "owner", "admin", "senior_management"].includes(actor.role))
       throw new TeamTicketError("FORBIDDEN", "طلبات مواد التذاكر للمستودع فقط");
     return this.repository.queue(actor, { materialsOnly: true });
   }

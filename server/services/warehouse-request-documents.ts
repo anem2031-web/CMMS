@@ -129,6 +129,7 @@ export function createWarehouseRequestDocumentService(deps: {
       return { row, document };
     },
     async recordPrint(actor: Actor, input: Selection) {
+      if (!["warehouse", "owner", "admin"].includes(actor.role)) throw denied();
       await authorized(await current(actor), input);
       await deps.incrementPrint(input.kind, input.id);
       return { success: true };

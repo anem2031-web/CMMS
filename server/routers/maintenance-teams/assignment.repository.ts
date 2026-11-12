@@ -364,6 +364,11 @@ export class SqlTicketTeamAssignmentRepository implements TeamAssignmentReposito
               section,
               requestCreatorName: n.requestCreatorName == null ? null : String(n.requestCreatorName),
               requestCreatedAt: n.requestCreatedAt instanceof Date ? n.requestCreatedAt.toISOString() : n.requestCreatedAt == null ? null : String(n.requestCreatedAt),
+              ...(actor.role === "senior_management" ? {
+                requestedQuantity: Number(n.requestedQuantity), issuedQuantity: issued,
+                returnedQuantity: returned, availableQuantity: Number(n.available),
+                usedQuantity: n.usedQuantity == null ? null : Number(n.usedQuantity),
+              } : {}),
             },
           ];
           const adjustment = stockUnitAdjustments.get(Number(n.id));

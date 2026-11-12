@@ -4,7 +4,7 @@ import { readScopeChunks } from "../_core/authz/read-batch";
 import { BYPASS_ALL_ROLES, VISIBILITY_POLICY } from "../_core/authz/policy";
 import { canPerformAction } from "../_core/authz/engine";
 import {
-  CONSTRUCTION_SPECIFICATION_ROLE, canReviewPurchaseSpecifications, canReadSpecificationReturns,
+  CONSTRUCTION_SPECIFICATION_ROLE, canReviewPurchaseSpecifications, canViewPurchaseSpecifications, canReadSpecificationReturns,
   specificationDecisionInput, specificationListInput, type SpecificationActor,
 } from "../../shared/purchase-specifications";
 
@@ -18,12 +18,12 @@ async function rows(tx: any, statement: any): Promise<any[]> {
   return response[0];
 }
 const ids = (values: number[]) => sql.join(values.map(value => sql`${value}`), sql`, `);
-function capability(actor: SpecificationActor, mode: "review" | "returns") {
-  if (!(mode === "review" ? canReviewPurchaseSpecifications(actor) : canReadSpecificationReturns(actor))) {
+function capability(actor: SpecificationActor, mode: "review" | "view" | "returns") {
+  if (!(mode === "review" ? canReviewPurchaseSpecifications(actor) : mode === "view" ? canViewPurchaseSpecifications(actor) : canReadSpecificationReturns(actor))) {
     throw new TRPCError({ code: "FORBIDDEN", message: "ليس لديك صلاحية لهذا الإجراء في مطابقة المواصفات" });
   }
 }
-async function currentActor(tx: any, actor: SpecificationActor, mode: "review" | "returns", lock = false) {
+async function currentActor(tx: any, actor: SpecificationActor, mode: "review" | "view" | "returns", lock = false) {
   capability(actor, mode);
   const [live] = await rows(tx, sql`SELECT id,role,isActive,name FROM users WHERE id=${actor.id} ${lock ? sql`FOR UPDATE` : sql``}`);
   if (!live || live.role !== actor.role) throw new TRPCError({ code: "FORBIDDEN", message: "الحساب غير نشط أو تغير دوره" });
@@ -68,12 +68,13 @@ export async function loadSpecificationParentScopes(
     rows(tx, sql`SELECT * FROM purchase_orders WHERE id IN (${ids(chunk)})`));
   const byId = new Map(orders.map(order => [Number(order.id), order]));
   const guard = await readGuard(actor, orders);
-  return (row: any) => {
+  const authorize = (row: any) => {
     const order = byId.get(Number(row.purchaseOrderId));
     if (!order) throw new TRPCError({ code: "FORBIDDEN", message: "طلب الشراء المرتبط بالمطابقة غير موجود" });
     guard(order);
     return order;
   };
+  return Object.assign(authorize, { hasParent: (row: any) => byId.has(Number(row.purchaseOrderId)) });
 }
 
 // Each pending/rejected lot still belongs to the exact original receipt Inventory.
@@ -95,6 +96,20 @@ const sourceColumns = sql`l.id,l.id AS lotId,l.specificationRevision AS revision
   lb.quantity AS remainingReturnableQuantity`;
 const sourceCondition = sql`pi.reviewRole=${CONSTRUCTION_SPECIFICATION_ROLE} AND r.status='confirmed' AND l.sourceType='receipt'`;
 
+/** Only the three images shown on a currently pending card are part of senior oversight. */
+export async function canReadSeniorSpecificationPhoto(
+  db: any, actor: SpecificationActor, itemId: number, orderId: number, key: string,
+  toKey: (value: unknown) => string | null,
+): Promise<boolean> {
+  if (actor.role !== "senior_management" || !canViewPurchaseSpecifications(actor) || !Number.isSafeInteger(itemId) || !Number.isSafeInteger(orderId)) return false;
+  const [live] = await rows(db, sql`SELECT id,role,isActive FROM users WHERE id=${actor.id}`);
+  if (!live || live.role !== actor.role || !canViewPurchaseSpecifications(live)) return false;
+  const matches = await rows(db, sql`SELECT pi.purchasedPhotoUrl,pi.invoicePhotoUrl,pi.warehousePhotoUrl ${sourceFrom}
+    WHERE pi.id=${itemId} AND p.id=${orderId} AND ${sourceCondition}
+      AND l.specificationStatus='pending' AND lb.quantity>0 AND l.remainingQuantity>0 LIMIT 1`);
+  return matches.some(row => [row.purchasedPhotoUrl, row.invoicePhotoUrl, row.warehousePhotoUrl].some(value => toKey(value) === key));
+}
+
 function dto(row: any) {
   const numeric = ["id", "lotId", "revision", "purchaseOrderId", "purchaseOrderItemId", "quantity", "receiptId", "receiptItemId", "warehouseId", "inventoryId", "remainingReturnableQuantity"];
   return { ...row, ...Object.fromEntries(numeric.map(key => [key, Number(row[key])])) };
@@ -104,6 +119,8 @@ function dto(row: any) {
 // batched parent guard below remains the independent record-level check.
 function listParentScope(actor: SpecificationActor) {
   if ((BYPASS_ALL_ROLES as readonly string[]).includes(actor.role)) return sql`1=1`;
+  // Senior oversight covers the specification card only; the PO itself keeps its own read guard.
+  if (actor.role === "senior_management") return sql`1=1`;
   const policy = VISIBILITY_POLICY[actor.role];
   if (policy?.kind === "all") return sql`1=1`;
   if (actor.role !== "warehouse" || policy?.kind !== "status_range") {
@@ -126,11 +143,12 @@ export class PurchaseSpecificationsService {
   list(actor: SpecificationActor, rawInput: unknown) { return this.listRows(actor, rawInput, "review"); }
   rejectedReturns(actor: SpecificationActor, rawInput: unknown) { return this.listRows(actor, rawInput, "returns"); }
   private async listRows(actor: SpecificationActor, rawInput: unknown, mode: "review" | "returns") {
-    capability(actor, mode);
+    const access = mode === "review" ? "view" : mode;
+    capability(actor, access);
     const input = specificationListInput.parse(rawInput);
     const db = await this.ports.database();
     if (!db) throw Error("قاعدة البيانات غير متاحة");
-    const live = await currentActor(db, actor, mode);
+    const live = await currentActor(db, actor, access);
     const state = mode === "review" ? "pending" : "rejected";
     const search = input.search ? `%${input.search}%` : null;
     const searchCondition = search ? sql`AND (pi.itemName LIKE ${search} OR p.poNumber LIKE ${search} OR l.lotCode LIKE ${search} OR r.vendorName LIKE ${search})` : sql``;
@@ -140,11 +158,15 @@ export class PurchaseSpecificationsService {
       ORDER BY l.createdAt DESC,l.id DESC LIMIT ${input.pageSize} OFFSET ${(input.page - 1) * input.pageSize}`);
     if (!selected.length) return { rows: [], total: Number(count?.total || 0), page: input.page, pageSize: input.pageSize };
     const authorize = await loadSpecificationParentScopes(db, live, selected, this.ports.readGuard);
-    const visible = selected.filter(row => {
-      try { authorize(row); return true; }
-      catch (error) { if (error instanceof TRPCError && error.code === "FORBIDDEN") return false; throw error; }
+    const visible = selected.flatMap(row => {
+      if (!authorize.hasParent(row)) return [];
+      try { authorize(row); return [live.role === "senior_management" ? { ...dto(row), canOpenOrder: true } : dto(row)]; }
+      catch (error) {
+        if (!(error instanceof TRPCError) || error.code !== "FORBIDDEN") throw error;
+        return live.role === "senior_management" ? [{ ...dto(row), canOpenOrder: false }] : [];
+      }
     });
-    return { rows: visible.map(dto), total: Number(count?.total || 0), page: input.page, pageSize: input.pageSize };
+    return { rows: visible, total: Number(count?.total || 0), page: input.page, pageSize: input.pageSize };
   }
   async rejectedReturnSource(actor: SpecificationActor, id: number) {
     capability(actor, "returns");

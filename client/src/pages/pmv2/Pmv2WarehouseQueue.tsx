@@ -50,8 +50,8 @@ function quantityLabel(value: number | null | undefined, unit: string | null | u
   return `${Number(value).toLocaleString(locale, { maximumFractionDigits: 3 })}${unit ? ` ${unit}` : ""}`;
 }
 
-export default function Pmv2WarehouseQueue({ section, embedded = false, search = "" }: {
-  section?: "returns"; embedded?: boolean; search?: string;
+export default function Pmv2WarehouseQueue({ section, embedded = false, search = "", readOnly = false }: {
+  section?: "returns"; embedded?: boolean; search?: string; readOnly?: boolean;
 } = {}) {
   const returnsOnly = embedded && section === "returns";
   const { t, language, dir } = useTranslation();
@@ -436,7 +436,7 @@ export default function Pmv2WarehouseQueue({ section, embedded = false, search =
                       </div>
                     )}
 
-                    <div className="rounded-lg border bg-muted/10 p-3">
+                    {!readOnly && <div className="rounded-lg border bg-muted/10 p-3">
                       <p className="mb-3 text-sm font-semibold">{t.workflow.pmv2.actionLabel}</p>
                       <div className="space-y-3">
                         {(item.catalogItemId == null || (item.catalogItem?.unit && item.unitSnapshot !== item.catalogItem.unit)) && (
@@ -467,7 +467,7 @@ export default function Pmv2WarehouseQueue({ section, embedded = false, search =
                           </p>
                         )}
                       </div>
-                    </div>
+                    </div>}
                   </CardContent>
                   </details>
                 </Card>
@@ -537,7 +537,8 @@ export default function Pmv2WarehouseQueue({ section, embedded = false, search =
                         <p className="mt-1"><span className="text-muted-foreground">{t.workflow.pmv2.autoLotAllocation}:</span> {item.lotAllocations.map((lot: any) => `${lot.lotCode} = ${qty(lot.quantity, lot.unit||item.unit)}${lot.replacementPlanId ? ` ↔ ${qty(lot.originalQuantity,item.unit)}`:""}`).join(" + ")}</p>
                       )}
                     </div>
-                    {item.pendingRelink ? (
+                    {readOnly && item.blocker && <p className="text-sm font-medium text-amber-700">{item.blocker}</p>}
+                    {!readOnly && (item.pendingRelink ? (
                       <div className="space-y-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
                         <p className="font-semibold">{item.blocker}</p>
                         <p>{t.workflow.pmv2.lotLabel}: {item.pendingRelink.lotCode || "—"} · {t.workflow.pmv2.quantityLabelWh}: {qty(item.pendingRelink.quantity, item.unit)}</p>
@@ -563,7 +564,7 @@ export default function Pmv2WarehouseQueue({ section, embedded = false, search =
                           {t.workflow.pmv2.issueFullNeed}
                         </Button>
                       </div>
-                    )}
+                    ))}
                   </CardContent>
                   </details>
                 </Card>
@@ -596,7 +597,7 @@ export default function Pmv2WarehouseQueue({ section, embedded = false, search =
                 <CardHeader className="border-b pb-3"><CardTitle className="text-base">{item.itemName}</CardTitle><CardDescription>{item.taskNumber} · {item.taskItemTitle}</CardDescription></CardHeader>
                   <details className="group">
                     <summary className="cursor-pointer list-none border-b px-6 py-3 text-sm font-medium text-primary hover:bg-muted/40 [&::-webkit-details-marker]:hidden">
-                      <span className="group-open:hidden">{t.workflow.pmv2.showDetailsReceive}</span>
+                      <span className="group-open:hidden">{readOnly ? (language === "ar" ? "عرض التفاصيل" : language === "ur" ? "تفصیل دیکھیں" : "Show details") : t.workflow.pmv2.showDetailsReceive}</span>
                       <span className="hidden group-open:inline">{t.workflow.pmv2.hideDetails}</span>
                     </summary>
                 <CardContent className="space-y-3 pt-4 text-sm">
@@ -614,20 +615,20 @@ export default function Pmv2WarehouseQueue({ section, embedded = false, search =
                     <p className="rounded-md border bg-muted/30 p-2">{t.workflow.pmv2.returnLotFixed}: <strong>{item.lots[0]?.lotCode || `#${item.lots[0]?.lotId}`}</strong>{item.lots[0]?.physicalUnit ? ` — ${qty(Number((item.remainingReturnQuantity*item.lots[0].physicalReturnableQuantity/item.lots[0].returnableQuantity).toFixed(3)),item.lots[0].physicalUnit)}`:""}</p>
                   ) : (
                     <div className="rounded-md border p-3">
-                      <p className="mb-2 font-medium">{t.workflow.pmv2.selectReturnLots}</p>
+                      <p className="mb-2 font-medium">{readOnly ? (language === "ar" ? "دفعات المرتجع" : language === "ur" ? "واپسی کے لاٹس" : "Return lots") : t.workflow.pmv2.selectReturnLots}</p>
                       <div className="grid gap-2 sm:grid-cols-2">
                         {item.lots.map((lot: any) => {
                           const key = `${item.declarationActionId}:${lot.lotId}`;
                           return <label key={lot.lotId} className="flex items-center justify-between gap-2 rounded border p-2">
                             <span>{lot.lotCode || `Lot #${lot.lotId}`} · {t.workflow.pmv2.maxReturn}: {lot.returnableQuantity} {item.physicalMode?lot.physicalUnit:item.unit}{!item.physicalMode&&lot.physicalUnit&&(lot.physicalUnit!==item.unit||Math.abs(lot.physicalReturnableQuantity-lot.returnableQuantity)>0.0005) ? ` ↔ ${lot.physicalReturnableQuantity} ${lot.physicalUnit}`:""}</span>
-                            <input type="number" min="0" max={lot.returnableQuantity} step="0.001" dir="ltr" className="h-9 w-24 rounded border px-2" value={returnQtyByLot[key] || ""}
-                              onChange={(event) => setReturnQtyByLot((current) => ({ ...current, [key]: event.target.value }))} />
+                            {!readOnly && <input type="number" min="0" max={lot.returnableQuantity} step="0.001" dir="ltr" className="h-9 w-24 rounded border px-2" value={returnQtyByLot[key] || ""}
+                              onChange={(event) => setReturnQtyByLot((current) => ({ ...current, [key]: event.target.value }))} />}
                           </label>;
                         })}
                       </div>
                     </div>
                   )}
-                  <div className="rounded-lg border bg-muted/10 p-3">
+                  {!readOnly && <div className="rounded-lg border bg-muted/10 p-3">
                     <Button variant="outline" className="gap-2" disabled={confirmReturn.isPending} onClick={() => {
                       const lotAllocations = item.singleLot ? undefined : item.lots.map((lot: any) => ({
                         lotId: lot.lotId,
@@ -638,7 +639,7 @@ export default function Pmv2WarehouseQueue({ section, embedded = false, search =
                       {confirmReturn.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
                       {t.workflow.pmv2.confirmReturnReceipt}
                     </Button>
-                  </div>
+                  </div>}
                 </CardContent>
                 </details>
               </Card>
@@ -660,7 +661,7 @@ export default function Pmv2WarehouseQueue({ section, embedded = false, search =
         </CardContent>
       </Card>
 
-      <MaterialIdentityDialog
+      {!readOnly && <MaterialIdentityDialog
         allowDifferentUnits
         lockCatalogSelection={identityRequest?.catalogItemId != null}
         quantityApproval={{ value: approvedIdentityQuantity, onChange: setApprovedIdentityQuantity,
@@ -675,7 +676,7 @@ export default function Pmv2WarehouseQueue({ section, embedded = false, search =
         items={identityItems} selectedId={selectedIdentityCatalogId} onSelect={setSelectedIdentityCatalogId}
         loading={identityCandidates.isFetching} error={identityCandidates.error} busy={resolveMaterialIdentity.isPending}
         onConfirm={() => { if (identityRequest?.requestItemId && selectedIdentityCatalogId) resolveMaterialIdentity.mutate({ requestItemId: Number(identityRequest.requestItemId), catalogItemId: Number(selectedIdentityCatalogId), requestedQuantity: Number(approvedIdentityQuantity) }); }}
-      />
+      />}
       </>}
     </div>
   );

@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TRPCError } from "@trpc/server";
-import { loadSpecificationParentScopes, PurchaseSpecificationsService, receiptSpecificationFields } from "../services/purchase-specifications";
+import { canReadSeniorSpecificationPhoto, loadSpecificationParentScopes, PurchaseSpecificationsService, receiptSpecificationFields } from "../services/purchase-specifications";
+import { mediaKeyFromValue } from "../_core/authz/media-access";
+import { businessRpcAllowed } from "../../shared/business-role-policy";
 import { specificationFixture, seedSpecificationReceipt, specificationPeople as people } from "./fixtures/purchaseSpecificationsSeed";
 import { assertPOVisible, isPOVisible } from "../_core/authz/engine";
 import { PO_STATUS } from "../_core/authz/policy";
@@ -42,6 +44,43 @@ describe("Specification receipt registration, without historical changes", () =>
 });
 
 describe("Specification read lists and bounded parent authorization", () => {
+  it("grants senior card oversight without granting the parent order or decision", async () => {
+    seedSpecificationReceipt(f, { id: 1, orderId: 10 }); seedSpecificationReceipt(f, { id: 2, orderId: 20 });
+    f.scope.set(35, new Set([10]));
+    const first = await f.service.list(people.senior, {});
+    expect(first.rows.map(row => [row.id, row.canOpenOrder])).toEqual([[2, false], [1, true]]);
+    f.scope.set(35, new Set([20]));
+    expect((await f.service.list(people.senior, {})).rows.map(row => [row.id, row.canOpenOrder])).toEqual([[2, true], [1, false]]);
+    expect(businessRpcAllowed(people.senior, "query", "purchaseSpecifications.list")).toBe(true);
+    expect(businessRpcAllowed(people.senior, "mutation", "purchaseSpecifications.decide")).toBe(false);
+    await expect(f.service.decide(people.senior, decision())).rejects.toMatchObject({ code: "FORBIDDEN" });
+    f.memory.exec("UPDATE users SET isActive=0 WHERE id=35");
+    await expect(f.service.list(people.senior, {})).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
+  it("loads repeated senior card parents in bounded queries and denies an absent parent", async () => {
+    for (let id = 1; id <= 125; id++) seedSpecificationReceipt(f, { id, orderId: id <= 100 ? 10 : id + 100 });
+    const result = await f.service.list(people.senior, { pageSize: 50 });
+    expect(result.total).toBe(125); expect(result.rows).toHaveLength(50);
+    expect(f.queries).toHaveLength(4);
+    expect(f.readGuard).toHaveBeenCalledTimes(1);
+    expect(f.readGuard.mock.calls[0][1]).toHaveLength(26);
+    const authorize = await loadSpecificationParentScopes(f.db, people.senior, [{ purchaseOrderId: 9999 }], f.ports.readGuard);
+    expect(authorize.hasParent({ purchaseOrderId: 9999 })).toBe(false);
+    expect(() => authorize({ purchaseOrderId: 9999 })).toThrow();
+  });
+  it("restricts senior image oversight to the exact pending receipt and three displayed photo fields", async () => {
+    seedSpecificationReceipt(f);
+    f.memory.exec("UPDATE purchase_order_items SET purchasedPhotoUrl='cmms/uploads/purchase.jpg', invoicePhotoUrl='cmms/uploads/invoice.jpg', warehousePhotoUrl='cmms/uploads/warehouse.jpg' WHERE id=1001");
+    const check = (actor: any, item: number, order: number, key: string) => canReadSeniorSpecificationPhoto(f.db, actor, item, order, key, mediaKeyFromValue);
+    for (const key of ["purchase", "invoice", "warehouse"]) expect(await check(people.senior, 1001, 10, `cmms/uploads/${key}.jpg`)).toBe(true);
+    expect(await check(people.senior, 1001, 10, "cmms/uploads/other.jpg")).toBe(false);
+    expect(await check(people.senior, 1001, 11, "cmms/uploads/purchase.jpg")).toBe(false);
+    expect(await check(people.warehouse, 1001, 10, "cmms/uploads/purchase.jpg")).toBe(false);
+    f.memory.exec("UPDATE inventory_lots SET specificationStatus='approved' WHERE id=1");
+    expect(await check(people.senior, 1001, 10, "cmms/uploads/purchase.jpg")).toBe(false);
+    f.memory.exec("UPDATE inventory_lots SET specificationStatus='pending' WHERE id=1; UPDATE users SET isActive=0 WHERE id=35");
+    expect(await check(people.senior, 1001, 10, "cmms/uploads/purchase.jpg")).toBe(false);
+  });
   it("returns the exact received lot/source and photos, never unrelated old or nonconstruction stock", async () => {
     seedSpecificationReceipt(f);
     seedSpecificationReceipt(f, { id: 2, status: null });

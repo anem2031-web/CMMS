@@ -2,7 +2,7 @@ import { warehouseLotSelectionSchema } from "../../../shared/warehouse-lot-selec
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { router } from "../_shared/procedures";
-import { pmv2WarehouseProcedure } from "../../pmv2/security/procedures";
+import { pmv2WarehouseProcedure, pmv2WarehouseReadProcedure } from "../../pmv2/security/procedures";
 import {
   Pmv2WarehouseQueueError,
   pmv2WarehouseQueueService,
@@ -39,7 +39,7 @@ function mapWarehouseQueueError(error: unknown): never {
 
 /** Phase 4 warehouse-facing PM V2 surface. Stock movement remains outside PM V2. */
 export const pmv2WarehouseRouter = router({
-  waitingMaterialQueue: pmv2WarehouseProcedure.query(async () => {
+  waitingMaterialQueue: pmv2WarehouseReadProcedure.query(async () => {
     try {
       return await pmv2WarehouseQueueService.listWaitingMaterialItems();
     } catch (error) {
@@ -152,7 +152,7 @@ export const pmv2WarehouseRouter = router({
     }),
 
   /** Ready Team-Warehouse requirements. Task/material/quantity/Lots are resolved server-side. */
-  readyToIssueQueue: pmv2WarehouseProcedure.query(async () => {
+  readyToIssueQueue: pmv2WarehouseReadProcedure.query(async () => {
     try {
       return await pmv2TeamIssueHandoffService.listReadyToIssueQueue();
     } catch (error) {
@@ -195,7 +195,7 @@ export const pmv2WarehouseRouter = router({
       }
     }),
 
-  pendingReturns: pmv2WarehouseProcedure.query(async () => {
+  pendingReturns: pmv2WarehouseReadProcedure.query(async () => {
     try {
       return await pmv2TeamIssueHandoffService.listPendingReturns();
     } catch (error) {

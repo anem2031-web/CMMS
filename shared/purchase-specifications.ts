@@ -6,6 +6,9 @@ const active = (actor?: SpecificationActor | null) => !!actor && Number.isSafeIn
 export function canReviewPurchaseSpecifications(actor?: SpecificationActor | null): boolean {
   return active(actor) && ["owner", "admin", CONSTRUCTION_SPECIFICATION_ROLE].includes(actor!.role);
 }
+export function canViewPurchaseSpecifications(actor?: SpecificationActor | null): boolean {
+  return canReviewPurchaseSpecifications(actor) || (active(actor) && actor!.role === "senior_management");
+}
 export function canReadSpecificationReturns(actor?: SpecificationActor | null): boolean {
   return active(actor) && ["owner", "admin", "warehouse"].includes(actor!.role);
 }

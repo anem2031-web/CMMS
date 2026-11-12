@@ -139,8 +139,9 @@ export default function PurchaseOrders() {
   // يبدأ من العرض الكامل. المندوب يبدأ بأصنافه، وبقية الأدوار تبدأ بانتظار إجرائها.
   const [selectedView, setView] = useState<"actionable" | "items" | "tracking" | "supply" | "completed" | "returns" | "specifications" | "external" | "external_followup" | "all">(savedHistoryState?.view ?? "actionable");
   const canReviewSpecifications = ["construction_procurement_manager", "admin", "owner"].includes(user?.role || "");
+  const canViewSpecifications = canReviewSpecifications || user?.role === "senior_management";
   const [specificationPage, setSpecificationPage] = useState(1);
-  const specifications = trpc.purchaseSpecifications.list.useQuery({ page: specificationPage, pageSize: PAGE_SIZE }, { enabled: canReviewSpecifications, retry: false, ...independentReadOptions });
+  const specifications = trpc.purchaseSpecifications.list.useQuery({ page: specificationPage, pageSize: PAGE_SIZE }, { enabled: canViewSpecifications, retry: false, ...independentReadOptions });
   useEffect(() => {
     if (!specifications.data) return;
     const lastPage = Math.max(1, Math.ceil(specifications.data.total / PAGE_SIZE));
@@ -155,8 +156,8 @@ export default function PurchaseOrders() {
     : selectedView === "external_followup" && !canViewFollowup ? (isDelegateRole(user?.role) ? "items" : "actionable")
     : isDelegateRole(user?.role) && selectedView !== "items" && selectedView !== "supply" && selectedView !== "completed" && selectedView !== "returns" && selectedView !== "external" && !(canViewFollowup && ["external_followup", "all"].includes(selectedView)) ? "items" : selectedView;
   useEffect(() => {
-    if (view === "specifications" && user?.role && !canReviewSpecifications) setView("actionable");
-  }, [view, user?.role, canReviewSpecifications]);
+    if (view === "specifications" && user?.role && !canViewSpecifications) setView("actionable");
+  }, [view, user?.role, canViewSpecifications]);
   useEffect(() => {
     if (["maintenance_manager", "general_maintenance_manager", "construction_procurement_manager"].includes(user?.role || "")) {
       setView("all");
@@ -768,7 +769,7 @@ export default function PurchaseOrders() {
         <p className="text-base font-medium">{externalMaintenanceLabels(language).received}</p>
       ) : view === "external" && canViewDelegateExternal ? (
         <p className="text-base font-medium">{t.workflow.purchase.delegateExternalMaintenanceTab}</p>
-      ) : view === "specifications" && canReviewSpecifications ? (
+      ) : view === "specifications" && canViewSpecifications ? (
         <p className="text-base font-medium">مطابقة المواصفات ({specifications.data?.total || 0})</p>
       ) : view === "items" && isDelegatePricingActionRole ? (
         delegateActionableItemsLoading ? (
@@ -857,7 +858,7 @@ export default function PurchaseOrders() {
         {canViewDelegateExternal && <Button variant={view === "external" ? "default" : "outline"} size="sm" onClick={() => setView("external")}>{t.workflow.purchase.delegateExternalMaintenanceTab}</Button>}
         {canViewFollowup && <Button variant={view === "external_followup" ? "default" : "outline"} size="sm" onClick={() => setView("external_followup")}>{externalMaintenanceLabels(language).tab}</Button>}
         {canViewReturns && returnStatus.data?.enabled && <Button variant={view === "returns" ? "default" : "outline"} size="sm" onClick={() => canAccessReturnsCenter(user?.role) ? setLocation(returnsCenterLink()) : setView("returns")}>{isDelegateRole(user?.role) ? "مرتجعات المستودع" : "المرتجعات"}</Button>}
-        {canReviewSpecifications && <Button variant={view === "specifications" ? "default" : "outline"} size="sm" onClick={() => setView("specifications")}>مطابقة المواصفات ({specifications.data?.total || 0})</Button>}
+        {canViewSpecifications && <Button variant={view === "specifications" ? "default" : "outline"} size="sm" onClick={() => setView("specifications")}>مطابقة المواصفات ({specifications.data?.total || 0})</Button>}
         {(!isDelegateRole(user?.role) || canViewFollowup) && <Button
           variant={view === "all" ? "default" : "outline"}
           size="sm"
@@ -867,7 +868,7 @@ export default function PurchaseOrders() {
         </Button>}
       </div>
 
-      {view === "specifications" && canReviewSpecifications && <SpecificationReviewList data={specifications.data} isLoading={specifications.isLoading} error={specifications.error} page={specificationPage} onPageChange={setSpecificationPage} onDecisionSaved={() => { void utils.purchaseSpecifications.invalidate(); }} />}
+      {view === "specifications" && canViewSpecifications && <SpecificationReviewList data={specifications.data} isLoading={specifications.isLoading} error={specifications.error} page={specificationPage} onPageChange={setSpecificationPage} canDecide={canReviewSpecifications} onDecisionSaved={() => { void utils.purchaseSpecifications.invalidate(); }} />}
 
       {/* ── قائمة "بانتظار إجرائي" ────────────────────────────────── */}
       {view === "actionable" && (

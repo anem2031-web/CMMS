@@ -121,6 +121,20 @@ describe("existing warehouse documents grouped by actual issue source", () => {
     expect(result.total).toBe(1052); expect(result.rows).toHaveLength(50); expect(f.queries).toHaveLength(3);
     expect(readDocument).not.toHaveBeenCalled();
   });
+  it("gives senior management source-scoped reads with bounded list queries and fresh download authorization", async () => {
+    f.memory.exec("UPDATE users SET role='senior_management' WHERE id=1");
+    const senior = { ...actor, role: "senior_management" };
+    for (const [source, expected] of [["operational", "DLV-100"], ["tickets", "DLV-200"], ["pmv2", "DLV-300"]] as const) {
+      f.queries.length = 0;
+      const result = await service.page(senior, { source, search: "", sort: "newest", page: 1, pageSize: 20 });
+      expect(result.rows.map(row => row.number)).toContain(expected);
+      expect(f.queries).toHaveLength(3);
+    }
+    await expect(service.detail(senior, { source: "tickets", kind: "delivery", id: 100 })).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(service.detail(senior, { source: "operational", kind: "delivery", id: 100 })).resolves.toHaveProperty("row.number", "DLV-100");
+    f.memory.exec("UPDATE users SET isActive=0 WHERE id=1");
+    await expect(service.detail(senior, { source: "operational", kind: "delivery", id: 100 })).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
   it("propagates infrastructure failures instead of silently denying rows", async () => {
     const broken = createWarehouseRequestDocumentService({ database: async () => ({ execute: async () => { throw Error("unavailable"); } }), readDocument, incrementPrint });
     await expect(broken.page(actor, { source: "tickets", search: "", sort: "newest", page: 1, pageSize: 20 })).rejects.toThrow("unavailable");
@@ -135,6 +149,12 @@ describe("existing warehouse documents grouped by actual issue source", () => {
       await expect(caller.warehouseRequestDocuments.detail({ source: "operational", kind: "delivery", id: 100 })).resolves.toMatchObject({ row: { number: "DLV-100" } });
       await caller.warehouseRequestDocuments.recordPrint({ source: "operational", kind: "delivery", id: 100 });
       expect(incrementPrint).toHaveBeenCalledWith("delivery", 100);
+    } else if (role === "senior_management") {
+      await expect(caller.warehouseRequestDocuments.list(input)).resolves.toMatchObject({ total: 2 });
+      await expect(caller.warehouseRequestDocuments.detail({ source: "operational", kind: "delivery", id: 100 })).resolves.toMatchObject({ row: { number: "DLV-100" } });
+      await expect(caller.warehouseRequestDocuments.recordPrint({ source: "operational", kind: "delivery", id: 100 })).rejects.toMatchObject({ code: "FORBIDDEN" });
+      await expect(service.recordPrint({ ...actor, role }, { source: "operational", kind: "delivery", id: 100 })).rejects.toMatchObject({ code: "FORBIDDEN" });
+      expect(incrementPrint).not.toHaveBeenCalled();
     } else {
       await expect(caller.warehouseRequestDocuments.list(input)).rejects.toMatchObject({ code: "FORBIDDEN" });
       expect(readDocument).not.toHaveBeenCalled(); expect(incrementPrint).not.toHaveBeenCalled();

@@ -31,6 +31,7 @@ export interface PurchaseSpecificationRow {
   warehousePhotoUrl?: string | null;
   notes?: string | null;
   remainingReturnableQuantity?: number | string;
+  canOpenOrder?: boolean;
 }
 
 type SpecificationPage = { rows: PurchaseSpecificationRow[]; total: number; page: number; pageSize: number };
@@ -39,7 +40,7 @@ function SpecificationFacts({ row }: { row: PurchaseSpecificationRow }) {
   return <>
     <div className="flex flex-wrap items-center justify-between gap-2">
       <h3 className="font-semibold" dir="auto">{row.itemName}</h3>
-      <Link className="font-mono text-sm text-primary underline" href={`/purchase-orders/${row.purchaseOrderId}`}>{row.poNumber}</Link>
+      {row.canOpenOrder === false ? <span className="font-mono text-sm">{row.poNumber}</span> : <Link className="font-mono text-sm text-primary underline" href={`/purchase-orders/${row.purchaseOrderId}`}>{row.poNumber}</Link>}
     </div>
     <dl className="grid grid-cols-1 gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
       {[
@@ -68,13 +69,14 @@ function PageControls({ data, page, onPageChange, busy }: {
   </div>;
 }
 
-export function SpecificationReviewList({ data, isLoading, error, page, onPageChange, onDecisionSaved }: {
+export function SpecificationReviewList({ data, isLoading, error, page, onPageChange, onDecisionSaved, canDecide = true }: {
   data?: SpecificationPage;
   isLoading: boolean;
   error?: { message: string } | null;
   page: number;
   onPageChange: (page: number) => void;
   onDecisionSaved: () => void;
+  canDecide?: boolean;
 }) {
   const [notes, setNotes] = useState<Record<number, string>>({});
   const [preview, setPreview] = useState<{ url: string; label: string } | null>(null);
@@ -103,11 +105,11 @@ export function SpecificationReviewList({ data, isLoading, error, page, onPageCh
             <span>{photo.label}</span>
           </button>)}
         </div>}
-        <Textarea aria-label={`ملاحظات مطابقة ${row.poNumber} — ${row.itemName}`} placeholder="ملاحظات المطابقة (اختياري)" maxLength={2000} value={notes[row.id] || ""} disabled={decide.isPending} onChange={event => setNotes(old => ({ ...old, [row.id]: event.target.value }))} />
+        {canDecide && <><Textarea aria-label={`ملاحظات مطابقة ${row.poNumber} — ${row.itemName}`} placeholder="ملاحظات المطابقة (اختياري)" maxLength={2000} value={notes[row.id] || ""} disabled={decide.isPending} onChange={event => setNotes(old => ({ ...old, [row.id]: event.target.value }))} />
         <div className="flex flex-wrap gap-2">
           <Button disabled={decide.isPending} onClick={() => decide.mutate({ id: row.id, revision: row.revision, decision: "approved", notes: notes[row.id]?.trim() || undefined })}>مطابق — موافقة</Button>
           <Button variant="destructive" disabled={decide.isPending} onClick={() => decide.mutate({ id: row.id, revision: row.revision, decision: "rejected", notes: notes[row.id]?.trim() || undefined })}>غير مطابق — رفض</Button>
-        </div>
+        </div></>}
       </CardContent></Card>;
     })}
     <PageControls data={data} page={page} onPageChange={onPageChange} busy={decide.isPending} />

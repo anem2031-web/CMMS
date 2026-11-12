@@ -27,6 +27,7 @@ export default function WarehouseRequestDocuments({ source }: { source: Warehous
   const { language, dir } = useTranslation();
   const l = (ar: string, en: string, ur: string) => language === "ar" ? ar : language === "ur" ? ur : en;
   const allowed = canReadWarehouseRequestDocuments(authenticatedUser ?? user);
+  const canPrint = (authenticatedUser ?? user)?.role !== "senior_management";
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<"newest" | "oldest">("newest");
   const [page, setPage] = useState(1);
@@ -95,7 +96,7 @@ export default function WarehouseRequestDocuments({ source }: { source: Warehous
       <p className="font-medium break-words line-clamp-2">{row.referenceNumber || "—"} · {row.referenceTitle || "—"}</p>
       <p className="line-clamp-2">{row.itemName} {row.quantity != null && <strong>— {row.quantity} {row.unit}</strong>}{row.itemCount > 1 && <Badge variant="secondary" className="ms-2">{row.itemCount} {l("مواد", "items", "مواد")}</Badge>}</p>
       <div className="grid gap-1 text-sm sm:grid-cols-2"><p>{l("المخزن", "Warehouse", "گودام")}: {row.warehouseName || "—"}</p><p>{l("المستلم", "Recipient", "وصول کنندہ")}: {row.recipientName || "—"}</p><p>{l("نفّذ العملية", "Performed by", "کارروائی کرنے والا")}: {row.issuerName || "—"}</p>{row.lotCode && <p dir="ltr">{row.lotCode}</p>}</div>
-      <div className="flex flex-wrap gap-2">{(["details", "view", "download", "print"] as const).map(mode => <Button key={mode} size="sm" variant="outline" disabled={busy !== null} onClick={() => void action(row, mode)}>
+      <div className="flex flex-wrap gap-2">{(["details", "view", "download", ...(canPrint ? ["print" as const] : [])] as const).map(mode => <Button key={mode} size="sm" variant="outline" disabled={busy !== null} onClick={() => void action(row, mode)}>
         {mode === "print" ? <Printer className="h-4 w-4 me-1"/> : mode === "download" ? <Download className="h-4 w-4 me-1"/> : <Eye className="h-4 w-4 me-1"/>}
         {mode === "details" ? l("تفاصيل", "Details", "تفصیل") : mode === "view" ? l("عرض PDF", "View PDF", "PDF دیکھیں") : mode === "download" ? l("تنزيل PDF", "Download PDF", "PDF ڈاؤن لوڈ") : l("طباعة", "Print", "پرنٹ")}
       </Button>)}</div>

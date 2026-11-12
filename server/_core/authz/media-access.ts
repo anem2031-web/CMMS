@@ -196,8 +196,16 @@ export const mediaAccessPort: MediaAccessPort = {
       if (!po) throw denied();
       const { createPurchaseOrderReadScope } = await import("./guard");
       const scope = await createPurchaseOrderReadScope(user, [po]);
-      scope.assert(po);
-      if (scope.hasLimitedItemScope(po) && !scope.filterItems(po, [{ id: ref.id, purchaseOrderId: po.id }]).length) throw denied();
+      try {
+        scope.assert(po);
+        if (scope.hasLimitedItemScope(po) && !scope.filterItems(po, [{ id: ref.id, purchaseOrderId: po.id }]).length) throw denied();
+      } catch (error) {
+        if (!(error instanceof TRPCError) || error.code !== "FORBIDDEN" || user.role !== "senior_management" || !key) throw error;
+        const connection = await db.getDb();
+        if (!connection) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "تعذر التحقق من صلاحية الملف" });
+        const { canReadSeniorSpecificationPhoto } = await import("../../services/purchase-specifications");
+        if (!await canReadSeniorSpecificationPhoto(connection, user, ref.id, Number(po.id), key, mediaKeyFromValue)) throw error;
+      }
       return;
     }
     if (ref.kind === "construction" || ref.kind === "construction_task") {
